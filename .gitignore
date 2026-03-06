@@ -7,3 +7,6 @@ __pycache__/
 *.onnx
 *.pkl
 *.model
+ai_models_disabled/saved_model/
+ai_models_disabled/__pycache__/
+*.pyc
