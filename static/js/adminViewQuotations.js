@@ -1,6 +1,25 @@
 let activeQuotationsCache = [];
 let cancelledQuotationsCache = [];
+let companyFilter = '';
 
+async function getAllUniqueCompanyNames() {
+    try {
+        console.log('[DEBUG] Fetching company names from database...');
+        const response = await fetch('/api/get_company_names');
+        const data = await response.json();
+        
+        if (data.success) {
+            console.log('[DEBUG] Fetched companies:', data.data);
+            return data.data || [];
+        } else {
+            console.error('[DEBUG] Failed to fetch companies:', data.error);
+            return [];
+        }
+    } catch (error) {
+        console.error('[DEBUG] Error fetching company names:', error);
+        return [];
+    }
+}
 async function loadQuotations() {
     const content = document.getElementById('quotation-content');
     if (!content) return;
@@ -197,5 +216,72 @@ function editQuotation(dockey) {
     console.log('Edit quotation:', dockey);
 }
 
-// Load quotations on page load
-document.addEventListener('DOMContentLoaded', loadQuotations);
+
+// Load quotations and setup filter on page load
+document.addEventListener('DOMContentLoaded', () => {
+    loadQuotations();
+    setupCompanyFilter();
+});
+
+function filterQuotationsByCompany(list) {
+    if (!companyFilter) {
+        console.log('[DEBUG] No company filter, returning all items');
+        return list;
+    }
+    const filtered = list.filter(qt => {
+        const company = (qt.COMPANYNAME || '').toLowerCase().trim();
+        const matches = company === companyFilter.toLowerCase();
+        return matches;
+    });
+    console.log(`[DEBUG] Filtered ${list.length} items by "${companyFilter}" -> ${filtered.length} items`);
+    return filtered;
+}
+
+async function setupCompanyFilter() {
+    const dropdown = document.getElementById('company-filter-dropdown');
+    const clearBtn = document.getElementById('company-filter-clear');
+    if (!dropdown || !clearBtn) {
+        console.log('[DEBUG] Dropdown or clear button not found');
+        return;
+    }
+
+    // Populate dropdown from database
+    const companies = await getAllUniqueCompanyNames();
+    console.log('[DEBUG] Found companies:', companies);
+    dropdown.innerHTML = '<option value="">All Companies</option>' +
+        companies.map(name => `<option value="${name}">${name}</option>`).join('');
+
+    dropdown.onchange = function() {
+        companyFilter = dropdown.value;
+        console.log('[DEBUG] Company filter changed to:', companyFilter);
+        setQuotationTab(currentTab);
+    };
+    clearBtn.onclick = function() {
+        companyFilter = '';
+        dropdown.value = '';
+        console.log('[DEBUG] Company filter cleared');
+        setQuotationTab(currentTab);
+    };
+}
+
+let currentTab = 'active';
+
+// Patch setQuotationTab to remember current tab and filter
+const originalSetQuotationTab = setQuotationTab;
+setQuotationTab = function(tabName) {
+    currentTab = tabName;
+    originalSetQuotationTab(tabName);
+};
+
+// Patch renderQuotationList to filter by company
+const originalRenderQuotationList = renderQuotationList;
+renderQuotationList = function(list, isCancelled) {
+    return originalRenderQuotationList(filterQuotationsByCompany(list), isCancelled);
+};
+
+// Setup filter after DOM loaded
+const origLoadQuotations = loadQuotations;
+loadQuotations = async function() {
+    await origLoadQuotations();
+    setupCompanyFilter();
+};

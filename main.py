@@ -2303,6 +2303,23 @@ def api_get_user_info():
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/get_company_names')
+def api_get_company_names():
+    """Get all unique company names from AR_CUSTOMER table."""
+    try:
+        print("[DEBUG] api_get_company_names: Fetching company names", flush=True)
+        php_url = f"{BASE_API_URL}{ENDPOINT_PATHS['getcompanynames']}"
+        print(f"[DEBUG] Calling PHP at {php_url}", flush=True)
+        response = requests.get(php_url, timeout=10)
+        result = response.json()
+        print(f"[DEBUG] PHP returned {result.get('count', 0)} companies", flush=True)
+        return jsonify(result)
+    except Exception as e:
+        print(f"[Error] Failed to fetch company names: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 if __name__ == "__main__":
     initialize_database(DB_PATH, DB_USER, DB_PASSWORD)
     print("Starting Flask web server at http://localhost:5000 ...")
