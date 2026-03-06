@@ -592,15 +592,6 @@ def admin_pending_approvals():
                          user_type='admin')
 
 
-@app.route('/admin/view-quotations')
-def admin_view_quotations():
-    """Display all quotations page (admin only)."""
-    if 'user_email' not in session:
-        return redirect('/login')
-    if session.get('user_type') != 'admin':
-        return redirect('/chat')
-    return render_template('adminViewQuotations.html', 
-                         user_email=session.get('user_email', ''))
 
 
 @app.route('/user/approvals')
@@ -645,15 +636,30 @@ def create_quotation_page():
                          user_email=session.get('user_email', ''),
                          dockey=dockey)
 
+
 @app.route('/view-quotation')
 def view_quotation_page():
     """Display quotation listing page (regular users)."""
     if 'user_email' not in session:
         return redirect('/login')
     if session.get('user_type') == 'admin':
-        return redirect('/admin')
+        return redirect('/admin/view-quotations')
+    # Always render the user template for users
     return render_template('viewQuotation.html',
-                         user_email=session.get('user_email', ''))
+                         user_email=session.get('user_email', ''),
+                         user_type=session.get('user_type', ''))
+
+@app.route('/admin/view-quotations')
+def admin_view_quotations():
+    """Display all quotations page (admin only)."""
+    if 'user_email' not in session:
+        return redirect('/login')
+    if session.get('user_type') != 'admin':
+        return redirect('/chat')
+    # Always render the admin template for admins
+    return render_template('adminViewQuotations.html', 
+                         user_email=session.get('user_email', ''),
+                         user_type=session.get('user_type', ''))
 
 
 @app.route('/admin/pending-approvals/edit/<int:orderid>')
