@@ -35,7 +35,7 @@ function updateCreateActionsVisibilityForSelectedChat() {
     
     // Hamburger menu items should always be visible (except Request Quotation which is hidden)
     if (menuCreateOrder) menuCreateOrder.style.display = '';
-    if (menuCreateQuotation) menuCreateQuotation.style.display = 'none'; // Always hidden
+    if (menuCreateQuotation) menuCreateQuotation.style.display = ''; // Always hidden
 }
 
 function showChatArea() {
