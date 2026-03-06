@@ -148,6 +148,25 @@ def add_no_cache_headers(response):
     return response
 
 # ============================================
+# ROUTE: Delete Order Detail
+# ============================================
+@app.route('/php/deleteOrderDetail.php', methods=['POST'])
+def proxy_delete_order_detail():
+    """Proxy endpoint to delete order detail via XAMPP PHP."""
+    if 'user_email' not in session:
+        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+
+    payload = request.get_json() or {}
+
+    try:
+        url = f"{BASE_API_URL}/php/deleteOrderDetail.php"
+        response = requests.post(url, json=payload, timeout=10)
+        return response.json(), response.status_code
+    except Exception as e:
+        print(f"Error proxying deleteOrderDetail to XAMPP: {e}")
+        return jsonify({'success': False, 'error': 'Failed to delete order detail'}), 500
+
+# ============================================
 # ROUTE: Update Quotation Cancelled Status
 # ============================================
 @app.route('/api/admin/update_quotation_cancelled', methods=['POST'])

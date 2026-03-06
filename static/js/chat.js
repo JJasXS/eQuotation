@@ -223,6 +223,33 @@ function updateOrderBubble(orderid) {
     }
 }
 
+// Remove item from chat order and backend (defined globally for onclick access)
+async function removeChatOrderItem(orderdtlid, btn) {
+    if (!confirm('Remove this item from the order?')) return;
+    try {
+        const res = await fetch('/php/deleteOrderDetail.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ orderdtlid })
+        });
+        const data = await res.json();
+        if (data.success) {
+            // Remove the item visually from the modal
+            const itemDiv = btn.closest('div[style*="background: #3a424e"]');
+            if (itemDiv) itemDiv.remove();
+            // Optionally refresh the order bubble count
+            if (currentOrderId) {
+                updateOrderBubble(currentOrderId);
+            }
+        } else {
+            alert(data.error || 'Failed to remove item.');
+        }
+    } catch (err) {
+        console.error('Error removing item:', err);
+        alert('Failed to remove item.');
+    }
+}
+
 function viewCurrentOrder() {
     if (!currentOrderId) {
         alert('Order not created yet');
@@ -314,7 +341,7 @@ function displayOrderModal(order) {
                     </div>
                     <div style=\"display: flex; align-items: center; gap: 8px;\">
                         <span style=\"text-align: right; font-weight: bold; color: #f5b301;\">RM${total}</span>
-                        <button type=\"button\" class=\"btn-remove-item minimalist-x\" onclick=\"removeChatOrderItem(${item.ORDER_DTLID}, this)\">&times;</button>
+                        <button type=\"button\" class=\"btn-remove-item minimalist-x\" onclick=\"removeChatOrderItem(${item.ORDERDTLID}, this)\">&times;</button>
                     </div>
                 </div>
             `;
@@ -344,28 +371,6 @@ function displayOrderModal(order) {
         }
         `;
             document.head.appendChild(minimalistXStyle);
-        }
-        // Remove item from chat order and backend
-        async function removeChatOrderItem(orderdtlid, btn) {
-            if (!confirm('Remove this item from the order?')) return;
-            try {
-                const res = await fetch('/php/deleteOrderDetail.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ orderdtlid })
-                });
-                const data = await res.json();
-                if (data.success) {
-                    // Remove the item visually from the modal
-                    const itemDiv = btn.closest('div[style*="background: #3a424e"]');
-                    if (itemDiv) itemDiv.remove();
-                    // Optionally, show a toast or refresh the order modal
-                } else {
-                    alert(data.error || 'Failed to remove item.');
-                }
-            } catch (err) {
-                alert('Failed to remove item.');
-            }
         }
         });
     } else {
