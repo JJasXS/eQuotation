@@ -18,14 +18,22 @@ from db_initializer import initialize_database
 load_dotenv()
 
 # Import local AI models (optional - graceful fallback if not available)
+# Note: This import can be slow on first run due to transformers/sklearn/scipy loading
 try:
     from ai_models import IntentClassifier
     LOCAL_AI_ENABLED = True
     print("✅ Local AI intent classifier enabled")
-except ImportError:
+except (ImportError, Exception) as e:
     LOCAL_AI_ENABLED = False
     print("⚠️  Local AI not available - using OpenAI only")
-    print("   Run: python training/train_intent_model.py to enable local AI")
+    if isinstance(e, ImportError):
+        print("   Run: python training/train_intent_model.py to enable local AI")
+    else:
+        print(f"   Error loading AI models: {type(e).__name__}")
+except KeyboardInterrupt:
+    LOCAL_AI_ENABLED = False
+    print("⚠️  AI model import interrupted - using OpenAI only")
+    print("   To disable AI models, rename/move the ai_models folder")
 
 # Import order management configuration
 from config.order_config import (
@@ -1135,6 +1143,17 @@ def admin_pending_approvals():
                          user_type='admin')
 
 
+@app.route('/admin/view-quotations')
+def admin_view_quotations():
+    """Display all quotations page (admin only)."""
+    if 'user_email' not in session:
+        return redirect('/login')
+    if session.get('user_type') != 'admin':
+        return redirect('/chat')
+    return render_template('adminViewQuotations.html', 
+                         user_email=session.get('user_email', ''))
+
+
 @app.route('/user/approvals')
 def user_approvals():
     """Display user approvals page (regular users)."""
@@ -2230,6 +2249,30 @@ def api_get_quotation_details():
         )
         return jsonify(response.json())
     except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/admin/get_all_quotations')
+def api_admin_get_all_quotations():
+    """Get all quotations for admin view with optional status filter."""
+    if 'user_email' not in session:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    
+    # Check if user is admin
+    if session.get('user_type') != 'admin':
+        return jsonify({'success': False, 'error': 'Admin access required'}), 403
+
+    status = request.args.get('status')  # Optional: 'active' or 'cancelled'
+
+    try:
+        php_url = f"{BASE_API_URL}{ENDPOINT_PATHS['getallquotations']}"
+        params = {}
+        if status:
+            params['status'] = status
+        
+        response = requests.get(php_url, params=params, timeout=10)
+        return jsonify(response.json())
+    except Exception as e:
+        print(f"[Error] Failed to fetch all quotations: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/get_user_info')

@@ -19,6 +19,7 @@ ENDPOINT_PATHS = {
     "getorderremarks": "/php/getOrderRemarks.php",
     "getordersbystatus": "/php/getOrdersByStatus.php",
     "getquotationdetails": "/php/getQuotationDetails.php",
+    "getallquotations": "/php/getAllQuotations.php",
     "getchats": "/php/getChats.php",
     "getchatdetails": "/php/getChatDetails.php",
     "getallorders": "/php/getAllOrders.php",

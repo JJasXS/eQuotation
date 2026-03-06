@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - View All Quotations</title>
+    <link rel="stylesheet" href="/static/css/chat.css">
+    <link rel="stylesheet" href="/static/css/hamburger_menu.css">
+    <link rel="stylesheet" href="/static/css/orderQuotation.css">
+</head>
+<body>
+    <div class="container">
+        <div class="main-content">
+            <div class="header">
+                {% include 'components/admin_hamburger_menu.html' %}
+                <div>
+                    <h3 class="header-title">All Quotations</h3>
+                    <div style="font-size: 12px; color: #9ba7b6; margin-top: 4px;">Admin: {{ user_email }}</div>
+                </div>
+            </div>
+
+            <div class="tab-content active">
+                <div id="quotation-content" style="padding: 20px;">
+                    <div style="padding: 20px; text-align: center; color: #888;">Loading...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/admin_hamburger_menu.js"></script>
+    <script src="/static/js/adminViewQuotations.js"></script>
+</body>
+</html>
