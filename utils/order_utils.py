@@ -2,7 +2,7 @@
 import re
 from difflib import SequenceMatcher
 from utils.text_utils import (
-    resolve_numbered_reference, normalize_intent_text,
+    normalize_intent_text,
     QUANTITY_FILLER_PATTERN, PRODUCT_EXTRACTION_KEYWORDS,
     PRODUCT_PREFIX_PATTERN, PRODUCT_EXTRACTION_VERBS,
     MIN_PRODUCT_NAME_LENGTH, MIN_PRODUCT_CODE_LENGTH,
