@@ -6,6 +6,7 @@ import re
 import random
 import string
 from difflib import SequenceMatcher
+import traceback
 
 import fdb
 import openai
@@ -13,6 +14,20 @@ import requests
 from flask import Flask, render_template, request, jsonify, session, redirect
 from dotenv import load_dotenv
 from db_initializer import initialize_database
+
+# Import utility modules
+from utils import (
+    get_db_connection, user_owns_chat, get_chat_history, update_chat_last_message,
+    get_active_order, test_firebird_connection, set_db_config,
+    fetch_data_from_api, format_rm, set_api_config,
+    load_typo_corrections, normalize_intent_text, contains_intent_phrase,
+    parse_order_intent, set_text_config,
+    send_email, set_email_config,
+    chat_with_gpt, detect_intent_hybrid, load_chatbot_instructions,
+    set_ai_config, init_local_classifier,
+    extract_product_and_quantity, get_product_price, set_order_config,
+    resolve_numbered_reference
+)
 
 # Load environment variables from .env file
 load_dotenv()
@@ -77,6 +92,26 @@ if not OPENAI_API_KEY:
 openai.api_key = OPENAI_API_KEY
 
 # ============================================
+# INITIALIZE UTILITY MODULES
+# ============================================
+# Configure database utils
+set_db_config(DB_PATH, DB_USER, DB_PASSWORD)
+
+# Configure API utils
+set_api_config(BASE_API_URL, ENDPOINT_PATHS)
+
+# Configure email utils
+SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
+SMTP_PORT = int(os.getenv('SMTP_PORT', '587'))
+SMTP_EMAIL = os.getenv('SMTP_EMAIL', '')
+SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', '')
+set_email_config(SMTP_SERVER, SMTP_PORT, SMTP_EMAIL, SMTP_PASSWORD)
+
+# Configure AI utils
+set_ai_config(OPENAI_API_KEY, OPENAI_MODEL)
+init_local_classifier(LOCAL_AI_ENABLED)
+
+# ============================================
 # OTP STORAGE & CONFIGURATION
 # ============================================
 # In-memory OTP storage: {email: {'otp': code, 'expiry': datetime}}
@@ -85,6 +120,36 @@ OTP_STORAGE = {}
 # ============================================
 # TYPO CORRECTION DICTIONARY
 # ============================================
+@app.route('/api/admin/update_quotation_cancelled', methods=['POST'])
+def update_quotation_cancelled():
+    """Forward CANCELLED status update to PHP endpoint (admin only)."""
+    if 'user_email' not in session:
+        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+    if session.get('user_type') != 'admin':
+        return jsonify({'success': False, 'error': 'Insufficient permissions'}), 403
+
+    data = request.get_json() or {}
+    dockey = data.get('dockey')
+    cancelled = data.get('cancelled')
+
+    if not dockey or cancelled is None:
+        return jsonify({'success': False, 'error': 'Missing dockey or cancelled'}), 400
+
+    try:
+        php_url = f"{BASE_API_URL}/php/updateQuotationCancelled.php"
+        response = requests.post(
+            php_url,
+            json={'dockey': dockey, 'cancelled': cancelled},
+            timeout=10
+        )
+        response.raise_for_status()
+        result = response.json()
+        if not result.get('success'):
+            return jsonify({'success': False, 'error': result.get('error', 'Failed to update quotation')}), 500
+        return jsonify({'success': True, 'message': 'Quotation status updated'}), 200
+    except Exception as e:
+        print(f"Error updating quotation cancelled status: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 _TYPO_MAP_CACHE = None
 
 def load_typo_corrections():

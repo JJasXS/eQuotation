@@ -131,6 +131,9 @@ function renderQuotationList(list, isCancelled) {
                     <div style="display: flex; align-items: center; gap: 8px;">
                         <span style="background: ${badgeColor}; color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 12px;">RM ${amount}</span>
                         ${!isCancelled ? `<button class="edit-button" onclick="editQuotation(${qt.DOCKEY})" style="background: #5a8fc4; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; white-space: nowrap;">Edit</button>` : ''}
+                        <button class="toggle-cancelled-btn" onclick="event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, ${isCancelled})" style="background: ${isCancelled ? '#4b6e9e' : '#a65c5c'}; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; white-space: nowrap;">
+                            ${isCancelled ? 'Restore' : 'Cancel'}
+                        </button>
                     </div>
                 </div>
                 <div style="color: #9ba7b6; font-size: 13px; margin-bottom: 6px;">
@@ -143,6 +146,25 @@ function renderQuotationList(list, isCancelled) {
                 </div>
             </div>
         `;
+    // Toggle CANCELLED status for a quotation (exposed globally)
+    window.toggleCancelledStatus = async function(dockey, isCancelled) {
+        try {
+            const newStatus = !isCancelled;
+            const response = await fetch(`/api/admin/update_quotation_cancelled`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dockey, cancelled: newStatus })
+            });
+            const data = await response.json();
+            if (data.success) {
+                loadQuotations();
+            } else {
+                alert('Failed to update status: ' + (data.error || 'Unknown error'));
+            }
+        } catch (err) {
+            alert('Error updating status: ' + err);
+        }
+    }
     });
 
     return html;
