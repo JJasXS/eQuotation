@@ -2261,16 +2261,19 @@ def api_admin_get_all_quotations():
     if session.get('user_type') != 'admin':
         return jsonify({'success': False, 'error': 'Admin access required'}), 403
 
-    status = request.args.get('status')  # Optional: 'active' or 'cancelled'
+    cancelled = request.args.get('cancelled')  # 'true' or 'false'
+    print(f"[DEBUG] api_admin_get_all_quotations: cancelled param = {cancelled}", flush=True)
 
     try:
         php_url = f"{BASE_API_URL}{ENDPOINT_PATHS['getallquotations']}"
         params = {}
-        if status:
-            params['status'] = status
-        
+        if cancelled is not None:
+            params['cancelled'] = cancelled
+        print(f"[DEBUG] Calling PHP with params: {params}, full URL: {php_url}?cancelled={cancelled}", flush=True)
         response = requests.get(php_url, params=params, timeout=10)
-        return jsonify(response.json())
+        result = response.json()
+        print(f"[DEBUG] PHP returned {result.get('count', 0)} quotations", flush=True)
+        return jsonify(result)
     except Exception as e:
         print(f"[Error] Failed to fetch all quotations: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500

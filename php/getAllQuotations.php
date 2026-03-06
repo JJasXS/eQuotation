@@ -4,7 +4,7 @@ require_once 'db_helper.php';
 
 header('Content-Type: application/json');
 
-$status = $_GET['status'] ?? null; // Optional filter: 'active' or 'cancelled'
+    $cancelled = isset($_GET['cancelled']) ? $_GET['cancelled'] : null; // Optional filter: 'true' or 'false'
 
 try {
     $dbh = getFirebirdConnection();
@@ -18,14 +18,14 @@ try {
         LEFT JOIN AR_CUSTOMER ac ON qt.CODE = ac.CODE
         LEFT JOIN AR_CUSTOMERBRANCH ab ON qt.CODE = ab.CODE
     ';
-    if ($status === 'cancelled') {
-        $query = $baseQuery . ' WHERE qt.CANCELLED = ? ORDER BY qt.DOCDATE DESC, qt.DOCKEY DESC';
+    if ($cancelled === 'true') {
+        $query = $baseQuery . " WHERE qt.CANCELLED = 'True' ORDER BY qt.DOCDATE DESC, qt.DOCKEY DESC";
         $stmt = $dbh->prepare($query);
-        $stmt->execute(['T']);
-    } elseif ($status === 'active') {
-        $query = $baseQuery . ' WHERE (qt.CANCELLED IS NULL OR qt.CANCELLED <> ?) ORDER BY qt.DOCDATE DESC, qt.DOCKEY DESC';
+        $stmt->execute();
+    } elseif ($cancelled === 'false') {
+        $query = $baseQuery . " WHERE qt.CANCELLED = 'False' ORDER BY qt.DOCDATE DESC, qt.DOCKEY DESC";
         $stmt = $dbh->prepare($query);
-        $stmt->execute(['T']);
+        $stmt->execute();
     } else {
         $query = $baseQuery . ' ORDER BY qt.DOCDATE DESC, qt.DOCKEY DESC';
         $stmt = $dbh->prepare($query);
@@ -38,7 +38,7 @@ try {
     foreach ($quotations as &$qt) {
         $qt['DOCKEY'] = intval($qt['DOCKEY']);
         $qt['DOCAMT'] = floatval($qt['DOCAMT'] ?? 0);
-        $qt['CANCELLED'] = ($qt['CANCELLED'] === 'T') ? true : false;
+        $qt['CANCELLED'] = (strtolower(trim($qt['CANCELLED'])) === 'true') ? true : false;
         $qt['COMPANYNAME'] = $qt['COMPANYNAME'] ?? 'N/A';
         $qt['ADDRESS1'] = $qt['ADDRESS1'] ?? 'N/A';
         $qt['PHONE1'] = $qt['PHONE1'] ?? 'N/A';

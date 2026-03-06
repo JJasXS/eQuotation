@@ -8,22 +8,24 @@ async function loadQuotations() {
     content.innerHTML = '<div style="padding: 20px; text-align: center; color: #888;">Loading...</div>';
 
     try {
-        const response = await fetch('/api/admin/get_all_quotations');
-        const data = await response.json();
+        // Fetch active and cancelled quotations separately
+        const [activeRes, cancelledRes] = await Promise.all([
+            fetch('/api/admin/get_all_quotations?cancelled=false'),
+            fetch('/api/admin/get_all_quotations?cancelled=true')
+        ]);
+        const activeData = await activeRes.json();
+        const cancelledData = await cancelledRes.json();
 
-        if (!data.success) {
-            content.innerHTML = `<div style="padding: 20px; text-align: center; color: #ff6b6b;">${data.error || 'Failed to load quotations'}</div>`;
+        if (!activeData.success || !cancelledData.success) {
+            content.innerHTML = `<div style="padding: 20px; text-align: center; color: #ff6b6b;">Failed to load quotations</div>`;
             return;
         }
 
-        const quotations = data.data || [];
-        if (quotations.length === 0) {
-            content.innerHTML = '<div style="padding: 20px; text-align: center; color: #888;">No quotations found.</div>';
-            return;
-        }
+        activeQuotationsCache = activeData.data || [];
+        cancelledQuotationsCache = cancelledData.data || [];
 
-        activeQuotationsCache = quotations.filter(qt => !qt.CANCELLED);
-        cancelledQuotationsCache = quotations.filter(qt => qt.CANCELLED);
+        console.log(`[DEBUG] Active quotations: ${activeQuotationsCache.length}`, activeQuotationsCache);
+        console.log(`[DEBUG] Cancelled quotations: ${cancelledQuotationsCache.length}`, cancelledQuotationsCache);
 
         let html = `
             <div style="padding: 16px;">
@@ -48,12 +50,14 @@ async function loadQuotations() {
 }
 
 function setQuotationTab(tabName) {
+    console.log(`[DEBUG] Switching to tab: ${tabName}`);
     const tabContent = document.getElementById('quotation-tab-content');
     const activeBtn = document.getElementById('tab-active');
     const cancelledBtn = document.getElementById('tab-cancelled');
     if (!tabContent || !activeBtn || !cancelledBtn) return;
 
     if (tabName === 'cancelled') {
+        console.log(`[DEBUG] Rendering cancelled tab with ${cancelledQuotationsCache.length} items`);
         tabContent.innerHTML = renderQuotationList(cancelledQuotationsCache, true);
         cancelledBtn.style.background = '#a65c5c';
         cancelledBtn.style.color = '#fff';
@@ -62,6 +66,7 @@ function setQuotationTab(tabName) {
         activeBtn.style.color = '#9ba7b6';
         activeBtn.style.border = '1px solid #3d4654';
     } else {
+        console.log(`[DEBUG] Rendering active tab with ${activeQuotationsCache.length} items`);
         tabContent.innerHTML = renderQuotationList(activeQuotationsCache, false);
         activeBtn.style.background = '#4b6e9e';
         activeBtn.style.color = '#fff';
