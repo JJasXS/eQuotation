@@ -1,0 +1,172 @@
+text,intent
+"i want to make order",create_order
+"create order for me",create_order
+"can you create a new order",create_order
+"new order please",create_order
+"start an order now",create_order
+"begin order",create_order
+"open order",create_order
+"i awnt to make order",create_order
+"pls create order",create_order
+"can i create order",create_order
+"lets make order",create_order
+"start a new order for me",create_order
+"i need to create an order right now",create_order
+"can we open a fresh order",create_order
+"please initiate a new purchase",create_order
+"begin placing an order",create_order
+"i want to start ordering",create_order
+"set up a new invoice",create_order
+"create a purchase order",create_order
+"make a new order asap",create_order
+"start fresh with a new order",create_order
+"i would like to create an order",create_order
+"new purchase order please",create_order
+"can you help me create order",create_order
+"open a new order for me",create_order
+"add item to my order",add_item
+"add 2 chairs",add_item
+"i want to add 2 chairs please",add_item
+"can i get 5 units of tables",add_item
+"add me 3 sofas to the order",add_item
+"i need 10 pieces of that item",add_item
+"put 1 lamp in my order",add_item
+"can you add 4 cushions",add_item
+"insert 6 items please",add_item
+"i'd like 2 of the black ones",add_item
+"want 3 computers",add_item
+"need 1 sofa set",add_item
+"qty 5 items",add_item
+"units of chairs please",add_item
+"add some stock",add_item
+"i want 4 desks and 2 chairs",add_item
+"can i have 10 of these products",add_item
+"put me down for 5 items",add_item
+"i want to add multiple items",add_item
+"give me 3 pieces",add_item
+"include 2 items to my order",add_item
+"add the purple one twice",add_item
+"want to add beds",add_item
+"can you add 7 units",add_item
+"add these 3 items please",add_item
+"quantity 4 items needed",add_item
+"i want 6 of the sofa",add_item
+"add quantity 2",add_item
+"can i buy 5 chairs now",add_item
+"get me 8 units",add_item
+"update the order",update_item
+"change the quantity of first item",update_item
+"can you update the chair quantity to 5",update_item
+"modify the details of item 2",update_item
+"i need to adjust the item amount",update_item
+"can we change the product in line 1",update_item
+"edit the item i just added",update_item
+"update my order to 3 units instead",update_item
+"change item quantity",update_item
+"edit the last item",update_item
+"modify item details",update_item
+"adjust the sofa quantity",update_item
+"i want to update the product",update_item
+"can you change item 1 to 10 units",update_item
+"update item qty to 2",update_item
+"modify my recent addition",update_item
+"change the first product details",update_item
+"update the line item",update_item
+"edit quantity to 5",update_item
+"change from 3 to 7 units",update_item
+"can we modify item 2",update_item
+"update item 1 details",update_item
+"remove the last item from my order",remove_item
+"delete the chairs please",remove_item
+"take away 2 units from the order",remove_item
+"remove item number 1",remove_item
+"can you clear the sofa",remove_item
+"delete that product from my cart",remove_item
+"remove all furniture items",remove_item
+"remove item",remove_item
+"delete order items",remove_item
+"clear the last item",remove_item
+"take away this product",remove_item
+"remove the furniture",remove_item
+"delete item 1",remove_item
+"can i remove this",remove_item
+"erase the item",remove_item
+"undo the last addition",remove_item
+"remove quantity 3",remove_item
+"cancel this item",remove_item
+"i want to delete item",remove_item
+"remove the first line",remove_item
+"take back the chairs",remove_item
+"remove sofa from order",remove_item
+"delete everything",remove_item
+"i'm done with edits, complete this order",complete_order
+"complete order",complete_order
+"finish order",complete_order
+"done",complete_order
+"complete",complete_order
+"place the order",complete_order
+"submit the order",complete_order
+"checkout",complete_order
+"finish my order",complete_order
+"i am ready",complete_order
+"lets finalize this",complete_order
+"complete my purchase",complete_order
+"finish it",complete_order
+"submit now",complete_order
+"finalize and submit order",complete_order
+"confirm and place this order",complete_order
+"i am finished, send order",complete_order
+"close and complete order",complete_order
+"proceed to checkout order",complete_order
+"done with edits, submit",complete_order
+"finish then post order",complete_order
+"i'm ready to place the order",complete_order
+"can we finalize this order",complete_order
+"please submit my order now",complete_order
+"checkout my order",complete_order
+"i want to complete the purchase",complete_order
+"wrap up this order for me",complete_order
+"finalize and submit",complete_order
+"thats all please complete",complete_order
+"all set complete now",complete_order
+"complete everything",complete_order
+"send order to admin",complete_order
+"what products do you have",none
+"show my pending approvals only",none
+"how to reset my password",none
+"can you explain credit terms",none
+"open the dashboard page",none
+"thank you very much",none
+"i just want to ask a question",none
+"do you support quotations",none
+"what products are available",none
+"how can i track my order",none
+"what are the payment terms",none
+"do you have a return policy",none
+"how long does delivery take",none
+"what if i want to cancel",none
+"can i modify after submitting",none
+"what products are in stock",none
+"what's the minimum order value",none
+"do you offer bulk discounts",none
+"can i get an invoice",none
+"how do credit terms work",none
+"what payment methods do you accept",none
+"is there free shipping",none
+"what's your contact number",none
+"do you ship internationally",none
+"what's the warranty period",none
+"can i get a quotation",none
+"how do i place an order",none
+"are you open today",none
+"do you have this in stock",none
+"what time do you close",none
+"is there a loyalty program",none
+"help me please",none
+"i have a question",none
+"can you assist me",none
+"hello there",none
+"hi good morning",none
+"thanks for the help",none
+"appreciate it",none
+"see you later",none

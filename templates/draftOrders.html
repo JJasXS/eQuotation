@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Draft Orders</title>
+    <link rel="stylesheet" href="/static/css/admin.css">
+    <link rel="stylesheet" href="/static/css/hamburger_menu.css">
+</head>
+<body>
+    <div class="admin-container">
+        <div class="admin-header">
+            {% include 'components/hamburger_menu.html' %}
+            <h2>Draft Orders</h2>
+        </div>
+
+        <div class="admin-approvals" style="display: flex;">
+            <div class="approvals-header">
+                <h3>Draft Orders - Ready to Submit</h3>
+                <a class="back-btn" href="/user/approvals">← Back to Order Status</a>
+            </div>
+            <div class="approvals-content" id="draft-content">
+                <div style="padding: 20px; text-align: center; color: #888;">
+                    Loading draft orders...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Pass user type and email from backend to JavaScript
+        window.currentUserType = "user";
+        window.currentUserEmail = "{{ user_email }}";
+    </script>
+    <script src="/static/js/hamburger_menu.js"></script>
+    <script>
+        // Load draft orders on page load
+        async function loadDraftOrders() {
+            const content = document.getElementById('draft-content');
+            content.innerHTML = '<div style="padding: 20px; text-align: center; color: #888;">Loading...</div>';
+            
+            try {
+                const response = await fetch(`/php/getOrdersByStatus.php?status=DRAFT&customerCode={{ session.get("customer_code", "") }}`);
+                const data = await response.json();
+                
+                if (data.success && data.data && data.data.length > 0) {
+                    let html = '<div style="padding: 16px;">';
+                    html += '<div style="background: #2d3440; padding: 12px; margin-bottom: 16px; border-radius: 8px; border-left: 3px solid #4b6e9e;">';
+                    html += '<div style="color: #e4e9f1; font-size: 14px; margin-bottom: 8px;">📝 <strong>Draft Orders</strong> are incomplete orders that need to be completed and submitted.</div>';
+                    html += '<div style="color: #9ba7b6; font-size: 13px;">Click on any draft order below to continue editing in the chat.</div>';
+                    html += '</div>';
+                    
+                    data.data.forEach(order => {
+                        const statusColor = '#4b6e9e'; // blue for draft
+                        const chatLink = `/chat?chatid=${order.CHATID}`;
+                        
+                        html += `
+                            <div style="background: #2d3440; padding: 12px; margin-bottom: 12px; border-radius: 8px; border-left: 3px solid ${statusColor}; cursor: pointer;" onclick="window.location.href='${chatLink}'">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                    <span style="font-weight: 600; color: #e4e9f1;">Order #${order.ORDERID}</span>
+                                    <span style="background: ${statusColor}; color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 12px;">${order.STATUS}</span>
+                                </div>
+                                <div style="color: #9ba7b6; font-size: 12px; margin-bottom: 8px;">
+                                    Chat: ${order.CHATID} | Created: ${new Date(order.CREATEDAT).toLocaleString()}
+                                </div>
+                                <div style="font-size: 12px; color: #9ba7b6;">
+                                    <strong>Items:</strong>
+                        `;
+                        
+                        if (order.items && order.items.length > 0) {
+                            html += '<ul style="margin: 4px 0; padding-left: 20px;">';
+                            order.items.forEach(item => {
+                                const itemTotal = (item.QTY * item.UNITPRICE - (item.DISCOUNT || 0)).toFixed(2);
+                                html += `<li>${item.DESCRIPTION} x${item.QTY} @ RM${parseFloat(item.UNITPRICE).toFixed(2)} = RM${itemTotal}</li>`;
+                            });
+                            html += '</ul>';
+                        } else {
+                            html += '<span style="color: #666;">No items yet</span>';
+                        }
+                        
+                        html += `
+                                </div>
+                                <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #3d4654;">
+                                    <button style="background: #4b6e9e; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer;">
+                                        Continue Editing →
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    
+                    html += '</div>';
+                    content.innerHTML = html;
+                } else {
+                    content.innerHTML = `
+                        <div style="padding: 40px; text-align: center;">
+                            <div style="font-size: 48px; margin-bottom: 16px;">✅</div>
+                            <h3 style="color: #e4e9f1; margin-bottom: 8px;">No Draft Orders</h3>
+                            <p style="color: #9ba7b6;">You don't have any draft orders at the moment.</p>
+                            <a href="/chat" style="display: inline-block; margin-top: 16px; padding: 8px 16px; background: #4b6e9e; color: #fff; text-decoration: none; border-radius: 6px;">
+                                Go to Chat
+                            </a>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error loading draft orders:', error);
+                content.innerHTML = `
+                    <div style="padding: 20px; text-align: center; color: #ff6b6b;">
+                        <p>Error loading draft orders</p>
+                    </div>
+                `;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', loadDraftOrders);
+    </script>
+</body>
+</html>

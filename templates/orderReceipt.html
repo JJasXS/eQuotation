@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order Receipt - #{{ order.ORDERID }}</title>
+    <link rel="stylesheet" href="/static/css/orderReceipt.css">
+</head>
+<body>
+    <div class="receipt-container" id="receipt-content" data-orderid="{{ order.ORDERID }}">
+        <!-- Header -->
+        <div class="receipt-header">
+            <h1>ORDER RECEIPT</h1>
+            <p>Proof & Invoice of Order</p>
+        </div>
+
+        <!-- Content -->
+        <div class="receipt-content">
+            <!-- Order Details -->
+            <div class="section">
+                <div class="section-title">Order Information</div>
+                <div class="section-content">
+                    <div class="info-row">
+                        <span class="info-label">Order ID:</span>
+                        <span class="info-value">#{{ order.ORDERID }}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Chat ID:</span>
+                        <span class="info-value">{{ order.CHATID }}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Date Created:</span>
+                        <span class="info-value">{{ created_date }}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Status:</span>
+                        <span class="info-value">
+                            <span class="status-badge {% if order.STATUS == 'COMPLETED' %}status-completed{% elif order.STATUS == 'CANCELLED' %}status-cancelled{% else %}status-pending{% endif %}">
+                                {{ order.STATUS }}
+                            </span>
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Customer Information -->
+            <div class="section">
+                <div class="section-title">Customer Information</div>
+                <div class="section-content">
+                    <div class="info-row">
+                        <span class="info-label">Email:</span>
+                        <span class="info-value">{{ customer_email }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Order Items -->
+            <div class="section">
+                <div class="section-title">Order Items</div>
+                <div class="section-content">
+                    {% if order['items'] %}
+                    <table class="items-table">
+                        <thead>
+                            <tr>
+                                <th>Description</th>
+                                <th class="item-qty">Quantity</th>
+                                <th class="item-price">Unit Price (RM)</th>
+                                <th class="item-discount">Discount (RM)</th>
+                                <th class="item-total">Total (RM)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in order['items'] %}
+                            {% set item_total = (item.QTY * item.UNITPRICE) - (item.DISCOUNT or 0) %}
+                            <tr>
+                                <td class="item-desc">{{ item.DESCRIPTION }}</td>
+                                <td class="item-qty">{{ item.QTY }}</td>
+                                <td class="item-price">{{ "%.2f"|format(item.UNITPRICE) }}</td>
+                                <td class="item-discount">{% if item.DISCOUNT %}{{ "%.2f"|format(item.DISCOUNT) }}{% else %}-{% endif %}</td>
+                                <td class="item-total">{{ "%.2f"|format(item_total) }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+
+                    <!-- Totals -->
+                    <div class="totals-section">
+                        <div class="total-row">
+                            <span class="total-label">Subtotal (RM) :</span>
+                            <span class="total-value">{{ "%.2f"|format(subtotal) }}</span>
+                        </div>
+                        {% if total_discount > 0 %}
+                        <div class="total-row">
+                            <span class="total-label">Discount (RM) :</span>
+                            <span class="total-value">{{ "%.2f"|format(total_discount) }}</span>
+                        </div>
+                        {% endif %}
+                        <div class="total-row grand-total-row">
+                            <span class="total-label grand-total-label">Grand Total:</span>
+                            <span class="total-value grand-total-value">RM{{ "%.2f"|format(grand_total) }}</span>
+                        </div>
+                    </div>
+                    {% else %}
+                    <p style="color: #999;">No items in this order</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Notes -->
+            <div class="notes-section">
+                <h4>Order Notes</h4>
+                <div class="notes-content">
+                    <p>This is an official proof of order. Please keep this document for your records.</p>
+                    <p style="margin-top: 10px;">Order Status: <strong>{{ order.STATUS }}</strong></p>
+                    <p style="margin-top: 10px;">Generated on: <strong>{{ current_date }}</strong></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="receipt-footer">
+            <p>This document is a proof of order and serves as an official receipt.</p>
+            <p>For inquiries, please contact support.</p>
+        </div>
+
+        <button class="print-button" data-orderid="{{ order.ORDERID }}">⬇️ Download PDF</button>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="/static/js/orderReceipt.js"></script>
+</body>
+</html>

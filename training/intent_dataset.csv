@@ -1,0 +1,274 @@
+text,intent
+"i want to make order",create_order
+"create order for me",create_order
+"can you create a new order",create_order
+"new order please",create_order
+"start an order now",create_order
+"begin order",create_order
+"open order",create_order
+"i awnt to make order",create_order
+"pls create order",create_order
+"can u start order",create_order
+"let's open a new order",create_order
+"order please",create_order
+"add 2 monitors",add_item
+"add one hdmi cable",add_item
+"i want to add items",add_item
+"include 5 keyboards",add_item
+"put 3 mice into order",add_item
+"can you add 10 units of monitor",add_item
+"need to add cable",add_item
+"pls add 2 hdmi cable 2m",add_item
+"add item",add_item
+"append this product",add_item
+"add another line",add_item
+"insert 4 units of 27-inch monitor",add_item
+"change monitor qty to 3",update_item
+"update quantity to 5",update_item
+"edit the cable price",update_item
+"modify discount to 10",update_item
+"can you update this item",update_item
+"set qty 2 for monitor",update_item
+"revise unit price to 799",update_item
+"adjust discount for line 2",update_item
+"update order line",update_item
+"please edit item details",update_item
+"change hdmi cable qty from 1 to 6",update_item
+"update this row",update_item
+"remove hdmi cable",remove_item
+"delete line 2",remove_item
+"cancel this item",remove_item
+"clear monitor from order",remove_item
+"can you remove the cable",remove_item
+"drop item 1",remove_item
+"remove item",remove_item
+"delete this product",remove_item
+"please remove that row",remove_item
+"take out 27-inch monitor",remove_item
+"erase line 3",remove_item
+"i dont want this item",remove_item
+"complete order",complete_order
+"finish order",complete_order
+"submit order",complete_order
+"done, place the order",complete_order
+"finalize this order",complete_order
+"checkout now",complete_order
+"confirm my order",complete_order
+"that's all, complete it",complete_order
+"proceed to complete",complete_order
+"ok submit",complete_order
+"i am done",complete_order
+"close this order",complete_order
+"hello",none
+"good morning",none
+"what is the weather",none
+"show me my chat history",none
+"who are you",none
+"tell me a joke",none
+"how to login",none
+"what is my account status",none
+"thank you",none
+"can you help",none
+"i need assistance",none
+"what can you do",none
+"create report",none
+"open dashboard",none
+"print receipt",none
+"how many pending approvals",none
+"show approved orders",none
+"go back",none
+"logout me",none
+"help",none
+"i awnt to orde",create_order
+"pls ad 2 monitor",add_item
+"chnge qty to 7",update_item
+"rmv line 1",remove_item
+"done submit it",complete_order
+"i want order now",create_order
+"can add this too",add_item
+"update this plz",update_item
+"delete this one",remove_item
+"complete it now",complete_order
+"nothing just testing",none
+"random text abc",none
+"start order and add 2 monitor",create_order
+"i need to place new order",create_order
+"add 3 cable and 2 monitor",add_item
+"edit line with new price",update_item
+"remove wrong item",remove_item
+"ready to finalize order",complete_order
+"what is pending",none
+"show me admin menu",none
+"awnt create orde pls",create_order
+"ad item 5 qty",add_item
+"udpate line",update_item
+"delet item",remove_item
+"complet order",complete_order
+"how are you",none
+"goodbye",none
+"thanks",none
+"check draft",none
+"new order now please",create_order
+"add product xyz",add_item
+"update product xyz qty",update_item
+"remove product xyz",remove_item
+"submit this order now",complete_order
+"i need new purchase order",create_order
+"include one more item",add_item
+"change order item details",update_item
+"cancel item from this order",remove_item
+"place this order",complete_order
+"what is total amount",none
+"show order details",none
+"can we continue",none
+"proceed",none
+"open chat",none
+"let me start a new order",create_order
+"begin new purchase order",create_order
+"i wanna make order",create_order
+"can u open new order",create_order
+"start order pls",create_order
+"lets create purchase",create_order
+"opn order",create_order
+"crete new order",create_order
+"i ned to order",create_order
+"make new orde",create_order
+"put 5 keyboards in order",add_item
+"need 10 mouse",add_item
+"add 1 desktop computer",add_item
+"put in 7 monitors pls",add_item
+"can you add 3 laptops",add_item
+"i want 2 printers",add_item
+"include 15 usb cable",add_item
+"add 20 pens",add_item
+"adn 3 monitor",add_item
+"ad item pls 5 unit",add_item
+"can ad 2 laptop",add_item
+"put 1 more item",add_item
+"add this to order",add_item
+"append 4 keyboard",add_item
+"include another product",add_item
+"change price to 500",update_item
+"modify qty for item 2",update_item
+"edit discount value",update_item
+"update the monitor price pls",update_item
+"change quantity from 3 to 8",update_item
+"adjust price down",update_item
+"revise the total",update_item
+"modify unit cost",update_item
+"chang qty",update_item
+"updat price",update_item
+"edit this line plz",update_item
+"modify order detail",update_item
+"fix quantity",update_item
+"adjust discount rate",update_item
+"change detail for item",update_item
+"remove keyboard",remove_item
+"delete monitor line",remove_item
+"cancel laptop",remove_item
+"take out cable",remove_item
+"remove line item 3",remove_item
+"delete that product",remove_item
+"drop this from order",remove_item
+"clear line 1",remove_item
+"rmove item",remove_item
+"dlete this",remove_item
+"cancel that one",remove_item
+"remove it",remove_item
+"take away monitor",remove_item
+"drop product",remove_item
+"finalize my order",complete_order
+"send order",complete_order
+"submit it",complete_order
+"done editing complete now",complete_order
+"ready to submit",complete_order
+"finish up order",complete_order
+"confirm order now",complete_order
+"im done pls submit",complete_order
+"complet this",complete_order
+"finish orde",complete_order
+"summit order",complete_order
+"done order",complete_order
+"good afternoon",none
+"hi there",none
+"whats up",none
+"can you check status",none
+"pending approvals",none
+"admin panel",none
+"logout",none
+"refresh page",none
+"save changes",none
+"cancel",none
+"back to menu",none
+"view history",none
+"download report",none
+"ok thanks bye",none
+"i see",none
+"understood",none
+"maybe later",none
+"not now",none
+"create order and add 3 monitor",create_order
+"start new order with 5 keyboard",create_order
+"awnt make orde wth 10 cable",create_order
+"add monitor and keyboard",add_item
+"include 2 desktop and 3 laptop",add_item
+"can ad 5 printer and 2 scanner",add_item
+"change monitor to 10 units",update_item
+"update cable price and quantity",update_item
+"edit item discount to 15%",update_item
+"remove all cables",remove_item
+"delete monitor and keyboard",remove_item
+"cancel current item",remove_item
+"done finish complete submit",complete_order
+"all good send order now",complete_order
+"thats all complete pls",complete_order
+"please create a fresh order",create_order
+"open a new sales order now",create_order
+"start another order for me",create_order
+"need to create order first",create_order
+"make order before adding items",create_order
+"create order then i will add products",create_order
+"crt new order pls",create_order
+"new order setup now",create_order
+"add 6 network cables",add_item
+"include 4 office chairs",add_item
+"put 2 projectors in this order",add_item
+"add item code abc123 qty 5",add_item
+"i want 12 batteries",add_item
+"please add one more monitor",add_item
+"insert 9 usb adapters",add_item
+"add three keyboards and one mouse",add_item
+"ad 8 cable pls",add_item
+"need add 2 scanners",add_item
+"update line 3 quantity to 11",update_item
+"change item 2 price to 1299",update_item
+"set monitor qty as 4",update_item
+"revise line 1 unit price",update_item
+"adjust item discount to 5",update_item
+"edit quantity for keyboard to 7",update_item
+"chg qty item 4 to 2",update_item
+"update this order detail line",update_item
+"remove line 4 from order",remove_item
+"delete the projector item",remove_item
+"drop item number 2",remove_item
+"cancel this product line",remove_item
+"take out the usb adapter",remove_item
+"clear item 5",remove_item
+"rmv this line",remove_item
+"delete selected item",remove_item
+"complete this order now",complete_order
+"finalize and submit order",complete_order
+"confirm and place this order",complete_order
+"i am finished, send order",complete_order
+"close and complete order",complete_order
+"proceed to checkout order",complete_order
+"done with edits, submit",complete_order
+"finish then post order",complete_order
+"what products do you have",none
+"show my pending approvals only",none
+"how to reset my password",none
+"can you explain credit terms",none
+"open the dashboard page",none
+"thank you very much",none
+"i just want to ask a question",none
+"do you support quotations",none

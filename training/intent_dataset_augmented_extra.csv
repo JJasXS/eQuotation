@@ -1,0 +1,31 @@
+text,intent
+update quantity to 5,update
+change quantity to 2,update
+set quantity to 10,update
+update item to 3 units,update
+change item to 7 pcs,update
+update Modern Ring Designer 3 Colour LED Pendant Lighting to 8,update
+change Modern Ring Designer 3 Colour LED Pendant Lighting to 4,update
+update the order to 6 units,update
+change the order to 9 units,update
+update my order to 12 units,update
+remove all items from my order,remove_all
+clear my cart,remove_all
+delete everything in my order,remove_all
+remove all products,remove_all
+clear all products,remove_all
+delete all products,remove_all
+remove all Modern Ring Designer 3 Colour LED Pendant Lighting,remove_all
+remove all items please,remove_all
+clear all items please,remove_all
+delete all items please,remove_all
+remove Modern Ring Designer 3 Colour LED Pendant Lighting,remove
+delete Modern Ring Designer 3 Colour LED Pendant Lighting,remove
+remove 2 units of Modern Ring Designer 3 Colour LED Pendant Lighting,remove
+remove item Modern Ring Designer 3 Colour LED Pendant Lighting,remove
+delete item Modern Ring Designer 3 Colour LED Pendant Lighting,remove
+remove product Modern Ring Designer 3 Colour LED Pendant Lighting,remove
+delete product Modern Ring Designer 3 Colour LED Pendant Lighting,remove
+remove Modern Ring Designer 3 Colour LED Pendant Lighting from my order,remove
+delete Modern Ring Designer 3 Colour LED Pendant Lighting from my order,remove
+remove 5 Modern Ring Designer 3 Colour LED Pendant Lighting,remove

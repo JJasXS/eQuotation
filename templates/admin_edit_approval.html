@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit Approval</title>
+    <link rel="stylesheet" href="/static/css/admin.css">
+    <link rel="stylesheet" href="/static/css/hamburger_menu.css">
+    <link rel="stylesheet" href="/static/css/admin_edit_approval.css">
+</head>
+<body>
+    <div class="admin-container">
+        <div class="admin-header">
+            {% include 'components/admin_hamburger_menu.html' %}
+            <h2>Admin Dashboard</h2>
+        </div>
+
+        <div class="admin-approvals edit-approval-container" style="display: flex;">
+            <div class="approvals-header">
+                <h3>Edit Order #{{ orderid }}</h3>
+                <a class="back-btn" href="/admin/pending-approvals">← Back</a>
+            </div>
+
+            <div id="loading-state" class="edit-state">
+                <p>Loading order details...</p>
+            </div>
+
+            <div id="error-state" class="edit-state" style="display:none;">
+                <p id="error-message">Failed to load order details.</p>
+            </div>
+
+            <div id="edit-content" class="edit-content" style="display:none;">
+                <div class="edit-grid">
+                    <div class="edit-card">
+                        <h4>Order Information</h4>
+                        <div class="form-row">
+                            <label for="orderid">Order ID</label>
+                            <input id="orderid" type="text" readonly>
+                        </div>
+                        <div class="form-row">
+                            <label for="chatid">Chat ID</label>
+                            <input id="chatid" type="text" readonly>
+                        </div>
+                        <div class="form-row">
+                            <label for="createdat">Created At</label>
+                            <input id="createdat" type="text" readonly>
+                        </div>
+                        <div class="form-row">
+                            <label for="status">Status</label>
+                            <select id="status">
+                                <option value="PENDING">PENDING</option>
+                                <option value="COMPLETED">COMPLETED</option>
+                                <option value="CANCELLED">CANCELLED</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <label for="owneremail">Owner Email</label>
+                            <input id="owneremail" type="text" readonly>
+                        </div>
+                    </div>
+
+                    <div class="edit-card">
+                        <div class="items-header">
+                            <h4>Order Items</h4>
+                            <button type="button" class="approval-btn approval-btn-edit" onclick="addNewItem()">+ Add Item</button>
+                        </div>
+
+                        <div class="items-table-head">
+                            <span>Description</span>
+                            <span>Qty</span>
+                            <span>Unit Price</span>
+                            <span>Discount</span>
+                            <span>Total</span>
+                            <span>Action</span>
+                        </div>
+                        <div id="items-container" class="items-container"></div>
+
+                        <div id="totals-container" class="totals-container"></div>
+                    </div>
+                </div>
+
+                <div class="edit-actions">
+                    <button type="button" class="approval-btn approval-btn-cancel" onclick="cancelEdit()">Cancel</button>
+                    <button type="button" class="approval-btn approval-btn-accept" onclick="saveChanges()">Save Changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        window.editOrderId = {{ orderid }};
+    </script>
+    <script src="/static/js/admin_edit_approval.js"></script>
+</body>
+</html>

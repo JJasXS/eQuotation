@@ -1,0 +1,130 @@
+-- DBeaver SQL Test Script
+-- Table: ORDER_TPL
+-- Column: STATUS
+-- Note: App flow uses PENDING, APPROVED, and CANCELLED statuses.
+
+------------------------------------------------------------
+-- 0) Insert test rows (one per status)
+--    Example below uses CHATID = 3
+------------------------------------------------------------
+-- Example CHATID = 3 (ready to run)
+
+-- Insert PENDING row
+INSERT INTO ORDER_TPL (ORDERID, CHATID, CREATEDAT, STATUS)
+VALUES ((SELECT COALESCE(MAX(ORDERID), 0) + 1 FROM ORDER_TPL), 3, CURRENT_TIMESTAMP, 'PENDING');
+
+-- Insert APPROVED row
+INSERT INTO ORDER_TPL (ORDERID, CHATID, CREATEDAT, STATUS)
+VALUES ((SELECT COALESCE(MAX(ORDERID), 0) + 1 FROM ORDER_TPL), 3, CURRENT_TIMESTAMP, 'APPROVED');
+
+-- Insert CANCELLED row
+INSERT INTO ORDER_TPL (ORDERID, CHATID, CREATEDAT, STATUS)
+VALUES ((SELECT COALESCE(MAX(ORDERID), 0) + 1 FROM ORDER_TPL), 3, CURRENT_TIMESTAMP, 'CANCELLED');
+
+-- Verify the 3 latest inserted rows
+SELECT FIRST 3 ORDERID, CHATID, CREATEDAT, STATUS
+FROM ORDER_TPL
+WHERE CHATID = 3
+ORDER BY ORDERID DESC;
+
+------------------------------------------------------------
+-- 1) Check all statuses and counts
+------------------------------------------------------------
+SELECT STATUS, COUNT(*) AS TOTAL
+FROM ORDER_TPL
+GROUP BY STATUS
+ORDER BY STATUS;
+
+------------------------------------------------------------
+-- 2) View orders by status
+------------------------------------------------------------
+SELECT ORDERID, CHATID, CREATEDAT, STATUS
+FROM ORDER_TPL
+WHERE STATUS = 'PENDING'
+ORDER BY ORDERID DESC;
+
+SELECT ORDERID, CHATID, CREATEDAT, STATUS
+FROM ORDER_TPL
+WHERE STATUS = 'DRAFT'
+ORDER BY ORDERID DESC;
+
+SELECT ORDERID, CHATID, CREATEDAT, STATUS
+FROM ORDER_TPL
+WHERE STATUS = 'APPROVED'
+ORDER BY ORDERID DESC;
+
+SELECT ORDERID, CHATID, CREATEDAT, STATUS
+FROM ORDER_TPL
+WHERE STATUS = 'CANCELLED'
+ORDER BY ORDERID DESC;
+
+------------------------------------------------------------
+-- 3) Update one order to each status (replace ORDERID values)
+------------------------------------------------------------
+-- Example: set specific order to PENDING
+UPDATE ORDER_TPL
+SET STATUS = 'PENDING'
+WHERE ORDERID = <ORDERID_PENDING>;
+
+-- Example: set specific order to DRAFT
+UPDATE ORDER_TPL
+SET STATUS = 'DRAFT'
+WHERE ORDERID = <ORDERID_DRAFT>;
+
+-- Example: set specific order to CANCELLED
+UPDATE ORDER_TPL
+SET STATUS = 'CANCELLED'
+WHERE ORDERID = <ORDERID_CANCELLED>;
+
+------------------------------------------------------------
+-- 4) Verify updates
+------------------------------------------------------------
+SELECT ORDERID, CHATID, CREATEDAT, STATUS
+FROM ORDER_TPL
+WHERE ORDERID IN (<ORDERID_PENDING>, <ORDERID_DRAFT>, <ORDERID_COMPLETED>)
+ORDER BY ORDERID;
+
+------------------------------------------------------------
+-- 5) Optional rollback test values (if needed)
+------------------------------------------------------------
+-- UPDATE ORDER_TPL SET STATUS = 'DRAFT' WHERE ORDERID = <ORDERID_PENDING>;
+-- UPDATE ORDER_TPL SET STATUS = 'APPROVED' WHERE ORDERID = <ORDERID_APPROVED>;
+-- UPDATE ORDER_TPL SET STATUS = 'CANCELLED' WHERE ORDERID = <ORDERID_CANCELLED>;
+
+------------------------------------------------------------
+-- 6) Quick latest orders snapshot
+------------------------------------------------------------
+SELECT FIRST 20 ORDERID, CHATID, CREATEDAT, STATUS
+FROM ORDER_TPL
+ORDER BY ORDERID DESC;
+
+------------------------------------------------------------
+-- 7) Insert random ORDER_TPLDTL rows for ORDERID 1/2/3
+--    (based on your sample statuses)
+------------------------------------------------------------
+-- ORDERID 1 = PENDING
+INSERT INTO ORDER_TPLDTL (ORDERDTLID, ORDERID, DESCRIPTION, QTY, UNITPRICE, TOTAL, DISCOUNT)
+VALUES ((SELECT COALESCE(MAX(ORDERDTLID), 0) + 1 FROM ORDER_TPLDTL), 1, 'Printer Paper A4 80gsm', 4, 18.50, 74.00, 2.00);
+
+INSERT INTO ORDER_TPLDTL (ORDERDTLID, ORDERID, DESCRIPTION, QTY, UNITPRICE, TOTAL, DISCOUNT)
+VALUES ((SELECT COALESCE(MAX(ORDERDTLID), 0) + 1 FROM ORDER_TPLDTL), 1, 'Blue Ball Pen 0.7mm', 10, 2.30, 23.00, 0.00);
+
+-- ORDERID 2 = APPROVED
+INSERT INTO ORDER_TPLDTL (ORDERDTLID, ORDERID, DESCRIPTION, QTY, UNITPRICE, TOTAL, DISCOUNT)
+VALUES ((SELECT COALESCE(MAX(ORDERDTLID), 0) + 1 FROM ORDER_TPLDTL), 2, 'USB Keyboard', 2, 45.90, 91.80, 5.00);
+
+INSERT INTO ORDER_TPLDTL (ORDERDTLID, ORDERID, DESCRIPTION, QTY, UNITPRICE, TOTAL, DISCOUNT)
+VALUES ((SELECT COALESCE(MAX(ORDERDTLID), 0) + 1 FROM ORDER_TPLDTL), 2, 'Wireless Mouse', 2, 39.50, 79.00, 0.00);
+
+-- ORDERID 3 = CANCELLED
+INSERT INTO ORDER_TPLDTL (ORDERDTLID, ORDERID, DESCRIPTION, QTY, UNITPRICE, TOTAL, DISCOUNT)
+VALUES ((SELECT COALESCE(MAX(ORDERDTLID), 0) + 1 FROM ORDER_TPLDTL), 3, '27-inch Monitor', 1, 899.00, 899.00, 50.00);
+
+INSERT INTO ORDER_TPLDTL (ORDERDTLID, ORDERID, DESCRIPTION, QTY, UNITPRICE, TOTAL, DISCOUNT)
+VALUES ((SELECT COALESCE(MAX(ORDERDTLID), 0) + 1 FROM ORDER_TPLDTL), 3, 'HDMI Cable 2m', 3, 15.00, 45.00, 0.00);
+
+-- Verify inserted details for your 3 orders
+SELECT ORDERDTLID, ORDERID, DESCRIPTION, QTY, UNITPRICE, TOTAL, DISCOUNT
+FROM ORDER_TPLDTL
+WHERE ORDERID IN (1, 2, 3)
+ORDER BY ORDERID, ORDERDTLID;

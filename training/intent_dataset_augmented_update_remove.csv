@@ -1,0 +1,11 @@
+text,intent
+update 3 units of Modern Ring Designer 3 Colour LED Pendant Lighting,update
+change to 2 Modern Ring Designer 3 Colour LED Pendant Lighting,update
+update Modern Ring Designer 3 Colour LED Pendant Lighting to 5,update
+change Modern Ring Designer 3 Colour LED Pendant Lighting to 1,update
+remove all items,remove_all
+clear all items,remove_all
+delete all items,remove_all
+remove Modern Ring Designer 3 Colour LED Pendant Lighting,remove
+delete Modern Ring Designer 3 Colour LED Pendant Lighting,remove
+remove 2 units of Modern Ring Designer 3 Colour LED Pendant Lighting,remove

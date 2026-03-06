@@ -1,0 +1,35 @@
+<div class="hamburger-menu-container">
+    <button class="hamburger-btn" onclick="toggleHamburgerMenu()" aria-label="Menu">
+        <span></span>
+        <span></span>
+        <span></span>
+    </button>
+    <div class="hamburger-overlay" id="hamburger-overlay"></div>
+    <div class="hamburger-dropdown" id="hamburger-dropdown">
+        <a href="#" onclick="handleMenuAction('chat')">Chat</a>
+        
+        <!-- Order Dropdown -->
+        <div class="menu-item-with-submenu">
+            <a href="#" onclick="toggleSubmenu(event, 'order-submenu')" class="has-submenu">
+                Order <span class="submenu-arrow">›</span>
+            </a>
+            <div class="submenu" id="order-submenu">
+                <a href="#" id="menu-create-order" onclick="handleMenuAction('createOrder')">Create Order</a>
+                <a href="#" onclick="handleMenuAction('viewOrderStatus')">View Order Status</a>
+            </div>
+        </div>
+        
+        <!-- Quotation Dropdown -->
+        <div class="menu-item-with-submenu">
+            <a href="#" onclick="toggleSubmenu(event, 'quotation-submenu')" class="has-submenu">
+                Quotation <span class="submenu-arrow">›</span>
+            </a>
+            <div class="submenu" id="quotation-submenu">
+                <a href="#" id="menu-create-quotation" onclick="handleMenuAction('createQuotation')">Request Quotation</a>
+                <a href="#" onclick="handleMenuAction('viewQuotation')">View Quotation</a>
+            </div>
+        </div>
+        
+        <a href="#" onclick="handleMenuAction('logout')" class="logout-link">Log Out</a>
+    </div>
+</div>

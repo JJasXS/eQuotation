@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Approvals</title>
+    <link rel="stylesheet" href="/static/css/admin.css">
+    <link rel="stylesheet" href="/static/css/hamburger_menu.css">
+</head>
+<body>
+    <div class="admin-container">
+        <div class="admin-header">
+            {% include 'components/admin_hamburger_menu.html' %}
+            <h2>Admin Dashboard</h2>
+        </div>
+
+        <div class="admin-approvals" style="display: flex;">
+            <div class="approvals-header">
+                <h3>Approvals</h3>
+                <a class="back-btn" href="/admin">← Back</a>
+            </div>
+            <div class="approvals-tabs">
+                <button class="approval-tab active" onclick="switchApprovalTab('PENDING', event)">Pending</button>
+                <button class="approval-tab" onclick="switchApprovalTab('COMPLETED', event)">Completed</button>
+                <button class="approval-tab" onclick="switchApprovalTab('CANCELLED', event)">Cancelled</button>
+            </div>
+            <div class="approvals-content" id="approvals-content">
+                <div style="padding: 20px; text-align: center; color: #888;">
+                    Loading...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Details Modal -->
+    <div id="details-modal" class="details-modal" style="display: none;">
+        <div class="details-modal-content">
+            <div class="details-modal-header">
+                <h3 id="modal-order-title">Order Details</h3>
+                <button class="modal-close-btn" onclick="closeOrderDetails()">&times;</button>
+            </div>
+            <div class="details-modal-body">
+                <div class="detail-row">
+                    <span class="detail-label">Order ID:</span>
+                    <span id="modal-order-id" class="detail-value"></span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Chat ID:</span>
+                    <span id="modal-chat-id" class="detail-value"></span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Owner:</span>
+                    <span id="modal-owner-email" class="detail-value"></span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Date Created:</span>
+                    <span id="modal-date" class="detail-value"></span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Status:</span>
+                    <span id="modal-status" class="detail-value"></span>
+                </div>
+                <div class="detail-section">
+                    <h4>Order Items</h4>
+                    <div id="modal-items-container"></div>
+                </div>
+                <div class="detail-section" id="modal-remarks-section" style="display: none;">
+                    <h4>Change Request History</h4>
+                    <div id="modal-remarks-container"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Pass user type from backend to JavaScript
+        window.currentUserType = "admin";
+    </script>
+    <script src="/static/js/admin_menu.js"></script>
+</body>
+</html>

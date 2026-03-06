@@ -1,0 +1,159 @@
+.edit-approval-container {
+    overflow-y: auto;
+}
+
+.edit-state {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #9ba7b6;
+    padding: 24px;
+}
+
+.edit-content {
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.edit-grid {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 16px;
+}
+
+.edit-card {
+    background-color: #1a1f2e;
+    border: 1px solid #343b46;
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.edit-card h4 {
+    color: #e4e9f1;
+    margin-bottom: 14px;
+    font-size: 16px;
+}
+
+.form-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.form-row label {
+    color: #9ba7b6;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.form-row input,
+.form-row select {
+    width: 100%;
+    border: 1px solid #343b46;
+    background-color: #0d1118;
+    color: #e4e9f1;
+    border-radius: 6px;
+    padding: 9px 10px;
+    font-size: 14px;
+}
+
+.form-row input[readonly] {
+    color: #9ba7b6;
+}
+
+.items-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.items-table-head,
+.item-row {
+    display: grid;
+    grid-template-columns: 2.3fr 0.8fr 1fr 1fr 1fr 0.7fr;
+    gap: 8px;
+    align-items: center;
+}
+
+.items-table-head {
+    color: #9ba7b6;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 0 4px 8px;
+    border-bottom: 1px solid #343b46;
+}
+
+.items-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.item-row {
+    background-color: #0d1118;
+    border: 1px solid #343b46;
+    border-radius: 6px;
+    padding: 8px;
+}
+
+.item-row input {
+    width: 100%;
+    border: 1px solid #343b46;
+    background-color: #1a1f2e;
+    color: #e4e9f1;
+    border-radius: 5px;
+    padding: 7px 8px;
+}
+
+.item-total {
+    color: #e4e9f1;
+    font-weight: 600;
+    text-align: right;
+    padding-right: 6px;
+}
+
+.remove-btn {
+    border: 1px solid #5c2b35;
+    background-color: #7a303f;
+    color: #fff;
+    border-radius: 5px;
+    padding: 7px 8px;
+    cursor: pointer;
+}
+
+.totals-container {
+    margin-top: 12px;
+    border-top: 1px solid #343b46;
+    padding-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.total-row {
+    display: flex;
+    justify-content: space-between;
+    color: #9ba7b6;
+}
+
+.total-row.grand {
+    color: #e4e9f1;
+    font-weight: 700;
+}
+
+.edit-actions {
+    margin-top: 16px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+@media (max-width: 1100px) {
+    .edit-grid {
+        grid-template-columns: 1fr;
+    }
+}

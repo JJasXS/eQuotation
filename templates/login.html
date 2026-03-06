@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Chatbot</title>
+    <link rel="stylesheet" href="/static/css/login.css">
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <!-- Email Step -->
+            <div id="email-step" class="login-step active">
+                <h1>Welcome</h1>
+                <p class="subtitle">Enter your email to continue</p>
+                
+                <form id="email-form" onsubmit="handleEmailSubmit(event)">
+                    <div class="form-group">
+                        <label for="email">Email Address</label>
+                        <input 
+                            type="email" 
+                            id="email" 
+                            name="email" 
+                            placeholder="your@email.com" 
+                            required 
+                            autocomplete="email"
+                        />
+                    </div>
+                    <button type="submit" class="btn-submit">Continue</button>
+                </form>
+                
+                <div id="email-error" class="error-message"></div>
+            </div>
+
+            <!-- OTP Step -->
+            <div id="otp-step" class="login-step">
+                <h1>Verify Your Email</h1>
+                <p class="subtitle">Enter the 6-digit code sent to<br><span id="email-display">your@email.com</span></p>
+                
+                <form id="otp-form" onsubmit="handleOtpSubmit(event)">
+                    <div class="form-group">
+                        <label for="otp-1">Enter OTP</label>
+                        <div class="otp-boxes" id="otp-boxes">
+                            <input type="text" id="otp-1" class="otp-digit" maxlength="1" inputmode="numeric" autocomplete="one-time-code" required />
+                            <input type="text" id="otp-2" class="otp-digit" maxlength="1" inputmode="numeric" autocomplete="off" required />
+                            <input type="text" id="otp-3" class="otp-digit" maxlength="1" inputmode="numeric" autocomplete="off" required />
+                            <input type="text" id="otp-4" class="otp-digit" maxlength="1" inputmode="numeric" autocomplete="off" required />
+                            <input type="text" id="otp-5" class="otp-digit" maxlength="1" inputmode="numeric" autocomplete="off" required />
+                            <input type="text" id="otp-6" class="otp-digit" maxlength="1" inputmode="numeric" autocomplete="off" required />
+                        </div>
+                        <div class="otp-hint">6 digits only</div>
+                    </div>
+                    <button type="submit" class="btn-submit">Verify</button>
+                </form>
+                
+                <div id="otp-error" class="error-message"></div>
+                
+                <div class="otp-footer">
+                    <p>Didn't receive the code? <button type="button" onclick="resendOtp()" class="btn-resend">Resend</button></p>
+                    <button type="button" onclick="backToEmail()" class="btn-back">← Back</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/login.js"></script>
+</body>
+</html>

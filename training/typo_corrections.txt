@@ -1,0 +1,162 @@
+# Typo Correction Dictionary
+# Format: typo_word -> correct_word
+# Use this file for training data augmentation or runtime typo correction
+
+# Common action verbs
+awnt -> want
+wna -> want
+wana -> want
+wan -> want
+wnt -> want
+creat -> create
+crete -> create
+crate -> create
+creae -> create
+mak -> make
+mae -> make
+mke -> make
+opn -> open
+ope -> open
+strt -> start
+strat -> start
+strart -> start
+begn -> begin
+bigin -> begin
+ad -> add
+adn -> add
+adddd -> add
+apend -> append
+insrt -> insert
+inser -> insert
+rmv -> remove
+rmove -> remove
+remov -> remove
+delet -> delete
+dlete -> delete
+deleet -> delete
+canc -> cancel
+cancl -> cancel
+complet -> complete
+comlete -> complete
+complte -> complete
+finsh -> finish
+fnish -> finish
+finshh -> finish
+sbmit -> submit
+sumbit -> submit
+summit -> submit
+submitt -> submit
+updat -> update
+udpate -> update
+updatte -> update
+edit -> edit
+edt -> edit
+modfy -> modify
+modifi -> modify
+chnge -> change
+chang -> change
+chage -> change
+adjst -> adjust
+adjustt -> adjust
+
+# Order-related
+oder -> order
+ordr -> order
+orde -> order
+orderr -> order
+ordder -> order
+purchas -> purchase
+purcase -> purchase
+purchse -> purchase
+
+# Item-related
+itm -> item
+iten -> item
+itme -> item
+prodct -> product
+produkt -> product
+produc -> product
+quantty -> quantity
+quanity -> quantity
+qty -> quantity
+qnty -> quantity
+pric -> price
+prce -> price
+prie -> price
+discoutn -> discount
+disount -> discount
+disocunt -> discount
+discnt -> discount
+
+# Common office products
+montor -> monitor
+monitr -> monitor
+keybaord -> keyboard
+keybord -> keyboard
+keyborad -> keyboard
+mous -> mouse
+mose -> mouse
+cabl -> cable
+cabel -> cable
+caable -> cable
+priner -> printer
+printr -> printer
+printter -> printer
+lapto -> laptop
+laptp -> laptop
+latop -> laptop
+desktp -> desktop
+deskop -> desktop
+compter -> computer
+computr -> computer
+scaner -> scanner
+scanr -> scanner
+scannner -> scanner
+
+# Actions with "to"
+ned -> need
+nede -> need
+nedd -> need
+hav -> have
+hve -> have
+gt -> get
+ge -> get
+gt -> got
+go -> got
+includ -> include
+inclde -> include
+put -> put
+pu -> put
+putt -> put
+
+# Casual/informal
+pls -> please
+plz -> please
+plss -> please
+pleae -> please
+u -> you
+yu -> you
+yuo -> you
+ur -> your
+yor -> your
+yur -> your
+can -> can
+cna -> can
+cann -> can
+let -> let
+lets -> let's
+im -> i'm
+i'm -> i'm
+thats -> that's
+dont -> don't
+wont -> won't
+cant -> can't
+isnt -> isn't
+
+# Numbers/quantity expressions (intentional abbreviations, not typos but for completeness)
+1 -> one
+2 -> two
+3 -> three
+4 -> four
+5 -> five
+10 -> ten

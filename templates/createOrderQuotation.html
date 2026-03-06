@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create Order/Quotation</title>
+    <link rel="stylesheet" href="/static/css/chat.css">
+    <link rel="stylesheet" href="/static/css/hamburger_menu.css">
+    <link rel="stylesheet" href="/static/css/orderQuotation.css">
+</head>
+<body>
+    <div class="container">
+        <div class="main-content">
+            <div class="header">
+                {% include 'components/hamburger_menu.html' %}
+                <div>
+                    <h3 class="header-title">Create Order/Quotation</h3>
+                    <div style="font-size: 12px; color: #9ba7b6; margin-top: 4px;">Welcome User: {{ user_email }}</div>
+                </div>
+            </div>
+            
+            <!-- Tab Navigation -->
+            <div class="tab-container">
+                <button class="tab-btn active" onclick="switchTab('order')">Create Order</button>
+                <button class="tab-btn" onclick="switchTab('quotation')">Request Quotation</button>
+            </div>
+            
+            <!-- Order Tab Content -->
+            <div id="order-tab" class="tab-content active">
+                <div class="form-container">
+                    <h3>Create New Order</h3>
+                    <form id="order-form">
+                        <div class="form-group">
+                            <label for="order-customer">Customer Email</label>
+                            <input type="email" id="order-customer" value="{{ user_email }}" readonly>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="order-description">Order Name</label>
+                            <textarea id="order-description" rows="3" placeholder="Enter order name..."></textarea>
+                        </div>
+                        
+                        <h4>Order Items</h4>
+                        <div id="order-items-list">
+                            <div class="order-item">
+                                <div class="item-row">
+                                    <input type="text" class="item-product" placeholder="Product name..." list="product-list" onchange="fetchProductPrice(this)">
+                                    <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateOrderTotal()">
+                                    <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" onchange="calculateOrderTotal()">
+                                    <button type="button" class="btn-remove" onclick="removeOrderItem(this)">✕</button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <button type="button" class="btn-add-item" onclick="addOrderItem()">+ Add Item</button>
+                        
+                        <div class="total-section">
+                            <div class="total-row">
+                                <span>Total:</span>
+                                <span id="order-total">RM 0.00</span>
+                            </div>
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button type="button" class="btn-secondary" onclick="clearOrderForm()">Clear</button>
+                            <button type="submit" class="btn-primary">Submit Order</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- Quotation Tab Content -->
+            <div id="quotation-tab" class="tab-content">
+                <div class="form-container">
+                    <h3>Request New Quotation</h3>
+                    <form id="quotation-form">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="quotation-customer">Customer Email</label>
+                                <input type="email" id="quotation-customer" value="{{ user_email }}" readonly>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="quotation-terms">Credit Terms</label>
+                                <input type="text" id="quotation-terms" value="Loading..." readonly>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="quotation-description">Quotation Name</label>
+                            <textarea id="quotation-description" rows="3" placeholder="Enter quotation name..."></textarea>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="quotation-validity">Valid Until</label>
+                            <input type="date" id="quotation-validity">
+                        </div>
+                        
+                        <h4>Quotation Items</h4>
+                        <div id="quotation-items-list">
+                            <div class="order-item">
+                                <div class="item-row">
+                                    <input type="text" class="item-product" placeholder="Product name..." list="product-list" onchange="fetchProductPrice(this)">
+                                    <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
+                                    <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" onchange="calculateQuotationTotal()">
+                                    <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <button type="button" class="btn-add-item" onclick="addQuotationItem()">+ Add Item</button>
+                        
+                        <div class="total-section">
+                            <div class="total-row">
+                                <span>Total:</span>
+                                <span id="quotation-total">RM 0.00</span>
+                            </div>
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button type="button" class="btn-secondary" onclick="clearQuotationForm()">Clear</button>
+                            <button type="submit" class="btn-primary">Submit Quotation</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Product Datalist for Autocomplete -->
+    <datalist id="product-list">
+        <!-- Populated by JavaScript -->
+    </datalist>
+    
+    <script src="/static/js/hamburger_menu.js"></script>
+    <script src="/static/js/orderQuotation.js"></script>
+</body>
+</html>

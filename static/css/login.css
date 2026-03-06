@@ -1,0 +1,254 @@
+/* Login Page Styling */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: linear-gradient(135deg, #1f2329 0%, #2d3440 100%);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.login-container {
+    width: 100%;
+    max-width: 400px;
+    padding: 20px;
+}
+
+.login-card {
+    background: #242a33;
+    border-radius: 12px;
+    padding: 40px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    border: 1px solid #343b46;
+}
+
+.login-step {
+    display: none;
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+.login-step.active {
+    display: block;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+h1 {
+    color: #e4e9f1;
+    font-size: 28px;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.subtitle {
+    color: #9ba7b6;
+    font-size: 14px;
+    margin-bottom: 24px;
+    line-height: 1.5;
+}
+
+#email-display {
+    color: #4b6e9e;
+    font-weight: 500;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+label {
+    display: block;
+    color: #d8dee9;
+    font-size: 14px;
+    font-weight: 500;
+    margin-bottom: 8px;
+}
+
+input[type="email"],
+input[type="text"] {
+    width: 100%;
+    padding: 12px 16px;
+    border: 1px solid #3a424e;
+    border-radius: 8px;
+    background: #2d3440;
+    color: #e4e9f1;
+    font-size: 16px;
+    transition: all 0.2s ease;
+    outline: none;
+}
+
+input[type="email"]:focus,
+input[type="text"]:focus {
+    border-color: #4b6e9e;
+    background: #313844;
+    box-shadow: 0 0 0 3px rgba(75, 110, 158, 0.1);
+}
+
+input[type="email"]::placeholder,
+input[type="text"]::placeholder {
+    color: #5a6270;
+}
+
+.otp-hint {
+    color: #9ba7b6;
+    font-size: 12px;
+    margin-top: 4px;
+}
+
+.otp-boxes {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 8px;
+}
+
+.otp-digit {
+    width: 100%;
+    height: 48px;
+    padding: 0;
+    line-height: 1;
+    text-align: center;
+    border: 1px solid #3a424e;
+    border-radius: 8px;
+    background: #2d3440;
+    color: #ffffff;
+    font-size: 24px;
+    font-weight: 700;
+    font-family: inherit;
+    font-variant-numeric: tabular-nums;
+    transition: all 0.2s ease;
+    outline: none;
+    -webkit-appearance: none;
+    appearance: none;
+    caret-color: #ffffff;
+}
+
+.otp-digit:focus {
+    border-color: #4b6e9e;
+    background: #313844;
+    box-shadow: 0 0 0 3px rgba(75, 110, 158, 0.1);
+}
+
+.otp-digit:-webkit-autofill,
+.otp-digit:-webkit-autofill:hover,
+.otp-digit:-webkit-autofill:focus {
+    -webkit-text-fill-color: #ffffff !important;
+    box-shadow: 0 0 0 1000px #2d3440 inset !important;
+    transition: background-color 5000s ease-in-out 0s;
+}
+
+.btn-submit {
+    width: 100%;
+    padding: 12px 16px;
+    background: #4b6e9e;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-top: 8px;
+}
+
+.btn-submit:hover {
+    background: #556d8d;
+    box-shadow: 0 4px 12px rgba(75, 110, 158, 0.2);
+}
+
+.btn-submit:active {
+    transform: scale(0.98);
+}
+
+.error-message {
+    color: #ff6b6b;
+    font-size: 13px;
+    margin-top: 12px;
+    padding: 8px 12px;
+    background: rgba(255, 107, 107, 0.1);
+    border-radius: 6px;
+    display: none;
+}
+
+.error-message.show {
+    display: block;
+    animation: slideIn 0.3s ease-in-out;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-5px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.otp-footer {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid #343b46;
+}
+
+.otp-footer p {
+    color: #9ba7b6;
+    font-size: 13px;
+    margin-bottom: 12px;
+}
+
+.btn-resend {
+    background: none;
+    border: none;
+    color: #4b6e9e;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 13px;
+    transition: color 0.2s ease;
+    padding: 0;
+}
+
+.btn-resend:hover {
+    color: #556d8d;
+    text-decoration: underline;
+}
+
+.btn-back {
+    width: 100%;
+    padding: 10px 16px;
+    background: #2d3440;
+    color: #d8dee9;
+    border: 1px solid #3a424e;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-back:hover {
+    background: #313844;
+    border-color: #4b6e9e;
+    color: #4b6e9e;
+}
+
+/* Loading state */
+.btn-submit:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}

@@ -1,0 +1,37 @@
+text,intent
+"create a new order please",create_order
+"i want to start order",create_order
+"awnt to make orde",create_order
+"add 2 units of cable",add_item
+"please include monitor",add_item
+"ad one more item",add_item
+"update line 2 qty to 9",update_item
+"edit item price",update_item
+"udpate discount",update_item
+"remove line 1",remove_item
+"delete this item",remove_item
+"rmv cable",remove_item
+"complete my order",complete_order
+"submit it now",complete_order
+"finish this order",complete_order
+"hello there",none
+"what time is it",none
+"show chat",none
+"i need help",none
+"print proof",none
+"can i create order now",create_order
+"add monitor and cable",add_item
+"change qty please",update_item
+"ready to checkout",complete_order
+"please open new order",create_order
+"make a brand new order",create_order
+"add 4 keyboards",add_item
+"include 2 routers",add_item
+"update line 1 qty to 6",update_item
+"change item price to 88",update_item
+"remove line 2",remove_item
+"delete monitor item",remove_item
+"finalize order now",complete_order
+"submit and complete",complete_order
+"what is your company name",none
+"show me help menu",none

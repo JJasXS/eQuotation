@@ -1,0 +1,9 @@
+ai_models/
+venv/
+__pycache__/
+*.pt
+*.pth
+*.bin
+*.onnx
+*.pkl
+*.model

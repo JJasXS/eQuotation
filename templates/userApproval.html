@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Orders</title>
+    <link rel="stylesheet" href="/static/css/admin.css">
+    <link rel="stylesheet" href="/static/css/hamburger_menu.css">
+</head>
+<body>
+    <div class="admin-container">
+        <div class="admin-header">
+            {% include 'components/hamburger_menu.html' %}
+            <h2>My Orders</h2>
+        </div>
+
+        <!-- Draft Orders Notification Bubble -->
+        <div id="draft-notification" style="display: none; margin: 16px 20px; padding: 12px 16px; background: linear-gradient(135deg, #4b6e9e 0%, #5b82b6 100%); border-radius: 8px; border-left: 4px solid #7aa3d6; box-shadow: 0 2px 8px rgba(0,0,0,0.2); cursor: pointer;" onclick="viewDraftOrders()">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <div style="background: #fff; color: #4b6e9e; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px; flex-shrink: 0;">
+                    📝
+                </div>
+                <div style="flex: 1;">
+                    <div style="color: #fff; font-weight: 600; font-size: 15px; margin-bottom: 2px;">
+                        You have <span id="draft-count">0</span> draft order(s)
+                    </div>
+                    <div style="color: #d4e3f5; font-size: 13px;">
+                        Click here to review and submit your draft orders
+                    </div>
+                </div>
+                <div style="color: #fff; font-size: 18px; flex-shrink: 0;">
+                    →
+                </div>
+            </div>
+        </div>
+
+        <div class="admin-approvals" style="display: flex;">
+            <div class="approvals-header">
+                <h3>Order Status</h3>
+                <a class="back-btn" href="/chat">← Back to Chat</a>
+            </div>
+            <div class="approvals-tabs">
+                <button class="approval-tab active" onclick="switchApprovalTab('PENDING', event)">Pending</button>
+                <button class="approval-tab" onclick="switchApprovalTab('COMPLETED', event)">Completed</button>
+                <button class="approval-tab" onclick="switchApprovalTab('CANCELLED', event)">Cancelled</button>
+            </div>
+            <div class="approvals-content" id="approvals-content">
+                <div style="padding: 20px; text-align: center; color: #888;">
+                    Loading...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Details Modal -->
+    <div id="details-modal" class="details-modal" style="display: none;">
+        <div class="details-modal-content">
+            <div class="details-modal-header">
+                <h3 id="modal-order-title">Order Details</h3>
+                <button class="modal-close-btn" onclick="closeOrderDetails()">&times;</button>
+            </div>
+            <div class="details-modal-body">
+                <div class="detail-row">
+                    <span class="detail-label">Order ID:</span>
+                    <span id="modal-order-id" class="detail-value"></span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Chat ID:</span>
+                    <span id="modal-chat-id" class="detail-value"></span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Owner:</span>
+                    <span id="modal-owner-email" class="detail-value"></span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Date Created:</span>
+                    <span id="modal-date" class="detail-value"></span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Status:</span>
+                    <span id="modal-status" class="detail-value"></span>
+                </div>
+                <div class="detail-section">
+                    <h4>Order Items</h4>
+                    <div id="modal-items-container"></div>
+                </div>
+                <div class="detail-section" id="modal-remarks-section" style="display: none;">
+                    <h4>Change Request History</h4>
+                    <div id="modal-remarks-container"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Request Change Modal -->
+    <div id="request-change-modal" class="details-modal" style="display: none;">
+        <div class="details-modal-content" style="max-width: 500px;">
+            <div class="details-modal-header">
+                <h3>Request Order Change</h3>
+                <button class="modal-close-btn" onclick="closeRequestChangeModal()">&times;</button>
+            </div>
+            <div class="details-modal-body">
+                <p style="color: #9ba7b6; margin-bottom: 16px;">Please explain why you need to change this order. It will be sent back to admin for review.</p>
+                <textarea id="change-request-remark" 
+                          placeholder="Enter your reason for change..." 
+                          style="width: 100%; min-height: 120px; padding: 12px; border: 1px solid #3a424e; border-radius: 8px; background: #2d3440; color: #e4e9f1; font-family: inherit; font-size: 14px; resize: vertical;"
+                          maxlength="1000"></textarea>
+                <div style="margin-top: 16px; text-align: right;">
+                    <button onclick="closeRequestChangeModal()" 
+                            style="padding: 8px 16px; margin-right: 8px; border: 1px solid #3a424e; border-radius: 6px; background: transparent; color: #9ba7b6; cursor: pointer;">
+                        Cancel
+                    </button>
+                    <button onclick="submitRequestChange()" 
+                            style="padding: 8px 16px; border: none; border-radius: 6px; background: #f5b301; color: #1e2228; font-weight: bold; cursor: pointer;">
+                        Submit Request
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Pass user type and email from backend to JavaScript
+        window.currentUserType = "user";
+        window.currentUserEmail = "{{ user_email }}";
+    </script>
+    <script src="/static/js/hamburger_menu.js"></script>
+    <script src="/static/js/admin_menu.js"></script>
+    <script>
+        // Check for draft orders on page load
+        async function checkDraftOrders() {
+            try {
+                // Always fetch draft count and display bubble
+                const countResponse = await fetch(`/php/getOrdersByStatus.php?status=DRAFT&customerCode={{ session.get("customer_code", "") }}`);
+                const countData = await countResponse.json();
+                
+                if (countData.success && countData.data) {
+                    const draftCount = countData.data.length;
+                    document.getElementById('draft-count').textContent = draftCount;
+                    
+                    // Show bubble only if draft count > 0
+                    if (draftCount > 0) {
+                        document.getElementById('draft-notification').style.display = 'block';
+                    } else {
+                        document.getElementById('draft-notification').style.display = 'none';
+                    }
+                } else {
+                    document.getElementById('draft-count').textContent = '0';
+                    document.getElementById('draft-notification').style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Error checking draft orders:', error);
+                document.getElementById('draft-count').textContent = '0';
+                document.getElementById('draft-notification').style.display = 'none';
+            }
+        }
+
+        function viewDraftOrders() {
+            window.location.href = '/user/draft-orders';
+        }
+
+        // Load draft notification on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            checkDraftOrders();
+            // Load pending orders by default
+            setTimeout(() => {
+                const firstTab = document.querySelector('.approval-tab.active');
+                if (firstTab) {
+                    switchApprovalTab('PENDING', { target: firstTab });
+                }
+            }, 100);
+        });
+    </script>
+</body>
+</html>
