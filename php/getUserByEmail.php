@@ -1,5 +1,5 @@
 <?php
-// getUserByEmail.php - Get user information by email from AR_CUSTOMERBRANCH table
+// getUserByEmail.php - Get user information by email from AR_CUSTOMERBRANCH or AR_CUSTOMER
 require_once 'db_helper.php';
 
 header('Content-Type: application/json');
@@ -17,11 +17,19 @@ if (!$email) {
 try {
     $con = getFirebirdConnection();
     
-    // Query AR_CUSTOMERBRANCH table by EMAIL
+    // Query AR_CUSTOMERBRANCH table by EMAIL first
     $query = 'SELECT CODE, EMAIL FROM AR_CUSTOMERBRANCH WHERE EMAIL = ?';
     $stmt = $con->prepare($query);
     $stmt->execute([$email]);
     $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    // Fallback: query AR_CUSTOMER by UDF_EMAIL if not found in branch
+    if (!$result) {
+        $query = 'SELECT CODE, UDF_EMAIL AS EMAIL FROM AR_CUSTOMER WHERE UDF_EMAIL = ?';
+        $stmt = $con->prepare($query);
+        $stmt->execute([$email]);
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+    }
     
     if ($result) {
         echo json_encode([

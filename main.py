@@ -283,12 +283,25 @@ def api_send_otp():
         except Exception as e:
             print(f"[AUTH] User lookup during send_otp failed: {e}")
 
-        if not is_admin and not is_user:
-            print(f"[DEBUG OTP] rejected (email not found): {email}", flush=True)
-            return jsonify({
-                'success': False,
-                'error': 'Email not found, please contact administrator'
-            }), 401
+
+            # Check AR_CUSTOMER.EMAIL
+            is_customer = False
+            try:
+                customer_check = requests.get(
+                    f"{BASE_API_URL}{ENDPOINT_PATHS['getcustomerbyemailfromcustomer']}?email={email}",
+                    timeout=5
+                )
+                customer_data = customer_check.json()
+                is_customer = bool(customer_data.get('success') and customer_data.get('customerCode'))
+            except Exception as e:
+                print(f"[AUTH] AR_CUSTOMER lookup during send_otp failed: {e}")
+
+            if not (is_admin or is_user or is_customer):
+                print(f"[DEBUG OTP] rejected (email not found): {email}", flush=True)
+                return jsonify({
+                    'success': False,
+                    'error': 'Email not found, please contact administrator'
+                }), 401
 
         # Generate OTP
         otp = generate_otp(OTP_LENGTH)
@@ -380,30 +393,29 @@ def api_verify_otp():
         except Exception as e:
             print(f"[AUTH] Admin lookup failed (non-critical): {e}")
         
-        # If not admin, check if email exists in AR_CUSTOMERBRANCH (Regular User)
+        # If not admin, check regular user via unified endpoint
+        # (AR_CUSTOMERBRANCH.EMAIL first, fallback AR_CUSTOMER.UDF_EMAIL)
         if user_type == 'user':
             try:
-                # Look up customer code from AR_CUSTOMERBRANCH via EMAIL
-                con = get_db_connection()
-                cur = con.cursor()
-                cur.execute('SELECT CODE FROM AR_CUSTOMERBRANCH WHERE EMAIL = ?', (email,))
-                customer_row = cur.fetchone()
-                cur.close()
-                con.close()
-                
-                if customer_row:
-                    customer_code = customer_row[0]
+                user_response = requests.get(
+                    f"{BASE_API_URL}{ENDPOINT_PATHS['getuserbyemail']}?email={email}",
+                    timeout=5
+                )
+                user_data = user_response.json()
+
+                if user_data.get('success') and user_data.get('data'):
+                    customer_code = user_data['data'].get('CODE')
                     user_type = 'user'
                     redirect_url = '/chat'
                     print(f"[AUTH] Regular user detected: {email} → Customer: {customer_code}")
                 else:
-                    # Email not found in AR_CUSTOMERBRANCH
+                    # Email not found in either branch EMAIL or customer UDF_EMAIL
                     return jsonify({
                         'success': False, 
-                        'error': 'Email not found in customer branch database, please contact administrator'
+                        'error': 'Email not found in customer records, please contact administrator'
                     }), 401
             except Exception as e:
-                print(f"[AUTH] Customer branch lookup failed: {e}")
+                print(f"[AUTH] Customer lookup failed: {e}")
                 return jsonify({
                     'success': False,
                     'error': 'Failed to verify customer credentials'

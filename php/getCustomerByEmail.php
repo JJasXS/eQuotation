@@ -29,11 +29,23 @@ try {
             'customerCode' => $result['CODE']
         ]);
     } else {
-        echo json_encode([
-            'success' => false,
-            'error' => 'Customer not found',
-            'customerCode' => null
-        ]);
+        // If not found in AR_CUSTOMERBRANCH, check AR_CUSTOMER
+        $query2 = 'SELECT CODE FROM AR_CUSTOMER WHERE EMAIL = ?';
+        $stmt2 = $con->prepare($query2);
+        $stmt2->execute([$email]);
+        $result2 = $stmt2->fetch(PDO::FETCH_ASSOC);
+        if ($result2) {
+            echo json_encode([
+                'success' => true,
+                'customerCode' => $result2['CODE']
+            ]);
+        } else {
+            echo json_encode([
+                'success' => false,
+                'error' => 'Customer not found',
+                'customerCode' => null
+            ]);
+        }
     }
     
 } catch (PDOException $e) {

@@ -138,44 +138,95 @@ def _ensure_ar_customer_udf_email_column(conn):
         cur.close()
 
 
+def _backfill_udf_email_from_branch_email(conn):
+    """
+    One-time backfill from AR_CUSTOMERBRANCH.EMAIL to AR_CUSTOMER.UDF_EMAIL.
+    Uses ROW_NUMBER to pick the first non-null EMAIL per customer CODE.
+    """
+    cur = conn.cursor()
+    try:
+        backfill_sql = """
+        UPDATE AR_CUSTOMER c
+        SET c.UDF_EMAIL = (
+            SELECT e.EMAIL
+            FROM (
+                SELECT 
+                    b.CODE,
+                    b.EMAIL,
+                    ROW_NUMBER() OVER (PARTITION BY b.CODE ORDER BY 
+                        CASE WHEN b.EMAIL IS NOT NULL THEN 0 ELSE 1 END,
+                        b.CODE) AS rn
+                FROM AR_CUSTOMERBRANCH b
+                WHERE b.EMAIL IS NOT NULL AND b.EMAIL <> ''
+            ) e
+            WHERE e.CODE = c.CODE AND e.rn = 1
+        )
+        WHERE c.CODE IN (
+            SELECT DISTINCT b.CODE
+            FROM AR_CUSTOMERBRANCH b
+            WHERE b.EMAIL IS NOT NULL AND b.EMAIL <> ''
+        )
+        AND (c.UDF_EMAIL IS NULL OR c.UDF_EMAIL = '')
+        """
+        cur.execute(backfill_sql)
+        conn.commit()
+        print("[DB INIT] Backfilled AR_CUSTOMER.UDF_EMAIL from AR_CUSTOMERBRANCH.EMAIL")
+        return True
+    except Exception as e:
+        error_msg = str(e).lower()
+        # It's okay if no rows match or column doesn't exist yet
+        if 'column unknown' in error_msg or 'no rows' in error_msg:
+            print("[DB INIT] Backfill not needed or columns not ready")
+            return True
+        print(f"[DB INIT WARNING] Backfill attempt: {e}")
+        return False
+    finally:
+        cur.close()
+
+
 def _ensure_email_sync_trigger(conn):
     """
-    Create trigger to sync AR_CUSTOMERBRANCH.EMAIL changes to OWNEREMAIL in CHAT_TPL and ORDER_TPL.
-    When AR_CUSTOMERBRANCH.EMAIL is updated, automatically update all related OWNEREMAIL fields.
+    Drop and recreate trigger to sync AR_CUSTOMERBRANCH.EMAIL changes to AR_CUSTOMER.UDF_EMAIL.
+    Then sync to OWNEREMAIL in CHAT_TPL and ORDER_TPL.
     """
     cur = conn.cursor()
     try:
         # Drop trigger if exists (to allow re-creation)
         try:
-            cur.execute("DROP TRIGGER TRG_SYNC_CUSTOMER_EMAIL")
+            cur.execute("DROP TRIGGER TRG_SYNC_CUSTOMERBRANCH_EMAIL")
             conn.commit()
         except:
             pass  # Trigger doesn't exist, that's fine
         
-        # Create trigger
+        # Create trigger that syncs EMAIL to UDF_EMAIL and downstream tables
         trigger_sql = """
-        CREATE TRIGGER TRG_SYNC_CUSTOMER_EMAIL FOR AR_CUSTOMERBRANCH
-        ACTIVE AFTER UPDATE POSITION 0
+        CREATE TRIGGER TRG_SYNC_CUSTOMERBRANCH_EMAIL FOR AR_CUSTOMERBRANCH
+        ACTIVE AFTER INSERT, UPDATE POSITION 0
         AS
         BEGIN
-          /* If EMAIL column was updated, sync to related tables */
-          IF (NEW.EMAIL IS DISTINCT FROM OLD.EMAIL) THEN
-          BEGIN
-            /* Update OWNEREMAIL in CHAT_TPL for this customer */
-            UPDATE CHAT_TPL
-            SET OWNEREMAIL = NEW.EMAIL
-            WHERE CUSTOMERCODE = NEW.CODE;
-            
-            /* Update OWNEREMAIL in ORDER_TPL for this customer */
-            UPDATE ORDER_TPL
-            SET OWNEREMAIL = NEW.EMAIL
-            WHERE CUSTOMERCODE = NEW.CODE;
-          END
+          /* Sync EMAIL to AR_CUSTOMER.UDF_EMAIL */
+          UPDATE AR_CUSTOMER c
+          SET c.UDF_EMAIL = NEW.EMAIL
+          WHERE c.CODE = NEW.CODE
+            AND (c.UDF_EMAIL IS NULL OR c.UDF_EMAIL <> NEW.EMAIL)
+            AND NEW.EMAIL IS NOT NULL;
+          
+          /* Sync to OWNEREMAIL in CHAT_TPL */
+          UPDATE CHAT_TPL
+          SET OWNEREMAIL = NEW.EMAIL
+          WHERE CUSTOMERCODE = NEW.CODE
+            AND NEW.EMAIL IS NOT NULL;
+          
+          /* Sync to OWNEREMAIL in ORDER_TPL */
+          UPDATE ORDER_TPL
+          SET OWNEREMAIL = NEW.EMAIL
+          WHERE CUSTOMERCODE = NEW.CODE
+            AND NEW.EMAIL IS NOT NULL;
         END
         """
         cur.execute(trigger_sql)
         conn.commit()
-        print("[DB INIT] Email sync trigger TRG_SYNC_CUSTOMER_EMAIL created successfully")
+        print("[DB INIT] Email sync trigger TRG_SYNC_CUSTOMERBRANCH_EMAIL created successfully")
         return True
     except Exception as e:
         error_msg = str(e).lower()
@@ -296,7 +347,10 @@ def initialize_database(db_path, db_user, db_password):
         # Ensure AR_CUSTOMER has UDF_EMAIL for guest sign-in payload
         _ensure_ar_customer_udf_email_column(conn)
         
-        # Create trigger to sync AR_CUSTOMERBRANCH.EMAIL to OWNEREMAIL fields
+        # One-time backfill from AR_CUSTOMERBRANCH.EMAIL to AR_CUSTOMER.UDF_EMAIL
+        _backfill_udf_email_from_branch_email(conn)
+        
+        # Create trigger to sync AR_CUSTOMERBRANCH.EMAIL to UDF_EMAIL and downstream tables
         _ensure_email_sync_trigger(conn)
 
     except Exception as e:
