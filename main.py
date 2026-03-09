@@ -200,6 +200,26 @@ def update_quotation_cancelled():
         print(f"Error updating quotation cancelled status: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
+@app.route('/api/create_signin_user', methods=['POST'])
+def create_signin_user():
+    """Forward guest sign-in payload to PHP endpoint for AR_CUSTOMER inserts."""
+    data = request.get_json() or {}
+
+    try:
+        php_url = f"{BASE_API_URL}/php/createSignInUser.php"
+        response = requests.post(php_url, json=data, timeout=10)
+        response.raise_for_status()
+        return jsonify(response.json()), response.status_code
+    except requests.exceptions.HTTPError:
+        try:
+            return jsonify(response.json()), response.status_code
+        except Exception:
+            return jsonify({'success': False, 'error': 'PHP endpoint returned an invalid response'}), response.status_code
+    except Exception as e:
+        print(f"Error calling createSignInUser.php: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 # ============================================
 # AUTHENTICATION FUNCTIONS
 # ============================================
@@ -212,6 +232,12 @@ def login():
             return redirect('/admin')
         return redirect('/chat')
     return render_template('login.html')
+
+
+@app.route('/signInGuest')
+def sign_in_guest():
+    """Show guest sign-in page (front-end only for now)."""
+    return render_template('signInGuest.html')
 
 @app.route('/api/send_otp', methods=['POST'])
 def api_send_otp():

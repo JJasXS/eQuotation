@@ -40,5 +40,6 @@ ENDPOINT_PATHS = {
     "deletedorderdetail": "/php/deleteOrderDetail.php",
     "checkdraftorder": "/php/checkDraftOrder.php",
     "completeorder": "/php/completeOrder.php",
+    "createsigninuser": "/php/createSignInUser.php",
     # db_helper.php is likely an internal helper, not an endpoint
 }

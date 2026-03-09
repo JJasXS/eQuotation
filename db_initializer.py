@@ -106,6 +106,38 @@ def _ensure_sl_qt_terms_column(conn):
         cur.close()
 
 
+def _ensure_ar_customer_udf_email_column(conn):
+    """Ensure AR_CUSTOMER table has UDF_EMAIL column for guest sign-in flow."""
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            '''
+            SELECT f.RDB$FIELD_NAME
+            FROM RDB$RELATION_FIELDS f
+            WHERE f.RDB$RELATION_NAME = 'AR_CUSTOMER' AND f.RDB$FIELD_NAME = 'UDF_EMAIL'
+            '''
+        )
+        result = cur.fetchone()
+        if result:
+            print("[DB INIT] UDF_EMAIL column already exists in AR_CUSTOMER")
+            return True
+
+        conn.commit()
+        cur.execute('ALTER TABLE AR_CUSTOMER ADD UDF_EMAIL VARCHAR(255)')
+        conn.commit()
+        print("[DB INIT] UDF_EMAIL column added to AR_CUSTOMER")
+        return True
+    except Exception as e:
+        error_msg = str(e).lower()
+        if 'already exists' in error_msg or 'duplicate' in error_msg:
+            print("[DB INIT] UDF_EMAIL column already exists in AR_CUSTOMER")
+            return True
+        print(f"[DB INIT WARNING] Could not add UDF_EMAIL to AR_CUSTOMER: {e}")
+        return False
+    finally:
+        cur.close()
+
+
 def _ensure_email_sync_trigger(conn):
     """
     Create trigger to sync AR_CUSTOMERBRANCH.EMAIL changes to OWNEREMAIL in CHAT_TPL and ORDER_TPL.
@@ -260,6 +292,9 @@ def initialize_database(db_path, db_user, db_password):
         
         # Ensure SL_QT has TERMS column to store payment terms
         _ensure_sl_qt_terms_column(conn)
+
+        # Ensure AR_CUSTOMER has UDF_EMAIL for guest sign-in payload
+        _ensure_ar_customer_udf_email_column(conn)
         
         # Create trigger to sync AR_CUSTOMERBRANCH.EMAIL to OWNEREMAIL fields
         _ensure_email_sync_trigger(conn)

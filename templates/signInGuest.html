@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guest Sign In - Chatbot</title>
+    <link rel="stylesheet" href="/static/css/signInGuest.css">
+</head>
+<body>
+    <div class="guest-container">
+        <div class="guest-card">
+            <h1>Guest Sign In</h1>
+            <p class="subtitle">Fill in guest details. This form is prepared for database fields, but submission is front-end only for now.</p>
+
+            <form id="guest-signin-form" onsubmit="handleGuestSignIn(event)">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <input type="text" id="COMPANYNAME" name="COMPANYNAME" placeholder="Company Name (Full Name)" required>
+                    </div>
+
+                    <div class="form-group">
+                        <input type="text" id="AREA" name="AREA" placeholder="Area" required>
+                    </div>
+
+                    <div class="form-group">
+                        <input type="text" id="CURRENCYCODE" name="CURRENCYCODE" placeholder="Currency Code" required>
+                    </div>
+
+                    <div class="form-group">
+                        <input type="email" id="UDF_EMAIL" name="UDF_EMAIL" placeholder="Email" required>
+                    </div>
+
+                    <div class="form-group">
+                        <input type="text" id="ADDRESS1" name="ADDRESS1" placeholder="Address 1" required>
+                    </div>
+
+                    <div class="form-group">
+                        <input type="text" id="ADDRESS2" name="ADDRESS2" placeholder="Address 2">
+                    </div>
+
+                    <div class="form-group">
+                        <input type="text" id="ADDRESS3" name="ADDRESS3" placeholder="Address 3">
+                    </div>
+
+                    <div class="form-group">
+                        <input type="text" id="ADDRESS4" name="ADDRESS4" placeholder="Address 4">
+                    </div>
+
+                    <div class="form-group">
+                        <input type="text" id="POSTCODE" name="POSTCODE" placeholder="Postcode" required>
+                    </div>
+
+                    <div class="form-group">
+                        <input type="text" id="ATTENTION" name="ATTENTION" placeholder="Attention" required>
+                    </div>
+
+                    <div class="form-group full-width">
+                        <input type="text" id="PHONE1" name="PHONE1" placeholder="Phone Number" required>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn-submit">Continue as Guest</button>
+            </form>
+
+            <div id="guest-message" class="guest-message"></div>
+            <pre id="payload-preview" class="payload-preview"></pre>
+
+            <center><a href="/login" class="btn-back">Back to Login</a></center>
+        </div>
+    </div>
+
+    <script src="/static/js/signInGuest.js"></script>
+</body>
+</html>
