@@ -34,6 +34,11 @@
                                 <label for="quotation-company">Company Name</label>
                                 <input type="text" id="quotation-company" value="Loading..." readonly>
                             </div>
+
+                            <div class="form-group">
+                                <label for="quotation-phone">Phone Number</label>
+                                <input type="text" id="quotation-phone" value="Loading..." readonly>
+                            </div>
                         </div>
                         
                         <div class="form-row">
@@ -46,23 +51,15 @@
                                 <label for="quotation-address2">Address 2</label>
                                 <input type="text" id="quotation-address2" value="Loading..." readonly>
                             </div>
-                        </div>
-                        
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="quotation-phone">Phone</label>
-                                <input type="text" id="quotation-phone" value="Loading..." readonly>
-                            </div>
-                            
+
                             <div class="form-group">
                                 <label for="quotation-terms">Credit Terms</label>
                                 <input type="text" id="quotation-terms" value="Loading..." readonly>
                             </div>
                         </div>
                         
-                        <div class="form-group">
-                            <label for="quotation-description">Quotation Name</label>
-                            <textarea id="quotation-description" rows="3" placeholder="Enter quotation name..."></textarea>
+                        <div class="form-group" style="display: none;">
+                            <textarea id="quotation-description" rows="3" readonly>Quotation</textarea>
                         </div>
                         
                         <div class="form-group">
@@ -100,6 +97,8 @@
             </div>
         </div>
     </div>
+                            <!-- Hide Quotation Name field -->
+                            <input type="hidden" id="quotation-name" name="quotationName" value="Quotation">
     
     <!-- Product Datalist for Autocomplete -->
     <datalist id="product-list">

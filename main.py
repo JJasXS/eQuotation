@@ -230,7 +230,7 @@ def login():
     if 'user_email' in session:
         if session.get('user_type') == 'admin':
             return redirect('/admin')
-        return redirect('/chat')
+        return redirect('/create-quotation')
     return render_template('login.html')
 
 
@@ -377,7 +377,7 @@ def api_verify_otp():
 
         # Check if email is admin or regular user
         user_type = 'user'  # default
-        redirect_url = '/chat'
+        redirect_url = '/create-quotation'
         
         # Check if email exists in SY_USER (Admin)
         try:
@@ -406,7 +406,7 @@ def api_verify_otp():
                 if user_data.get('success') and user_data.get('data'):
                     customer_code = user_data['data'].get('CODE')
                     user_type = 'user'
-                    redirect_url = '/chat'
+                    redirect_url = '/create-quotation'
                     print(f"[AUTH] Regular user detected: {email} → Customer: {customer_code}")
                 else:
                     # Email not found in either branch EMAIL or customer UDF_EMAIL
@@ -885,7 +885,7 @@ def index():
         user_type = session.get('user_type', 'user')
         if user_type == 'admin':
             return redirect('/admin')
-        return redirect('/chat')
+        return redirect('/create-quotation')
     return redirect('/login')
 
 @app.route('/chat', methods=['GET'])

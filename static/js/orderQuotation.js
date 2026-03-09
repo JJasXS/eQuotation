@@ -259,7 +259,7 @@ if (quotationForm) {
         
         const dockey = quotationForm.dataset.dockey;
         const quotationData = {
-            description: document.getElementById('quotation-description').value.trim() || 'Quotation',
+            description: 'Quotation',
             validUntil: document.getElementById('quotation-validity').value,
             companyName: document.getElementById('quotation-company').value.trim(),
             address1: document.getElementById('quotation-address1').value.trim(),
