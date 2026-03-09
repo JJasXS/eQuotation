@@ -51,13 +51,19 @@ function addQuotationItem() {
     newItem.className = 'order-item';
     newItem.innerHTML = `
         <div class="item-row">
-            <input type="text" class="item-product" placeholder="Product name..." list="product-list" onchange="fetchProductPrice(this)">
+            <select class="item-product" onchange="fetchProductPrice(this)">
+                <option value="">Select product...</option>
+            </select>
             <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
             <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" onchange="calculateQuotationTotal()">
             <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
         </div>
     `;
     container.appendChild(newItem);
+    
+    // Populate the new select with products
+    const select = newItem.querySelector('.item-product');
+    populateProductSelect(select);
 }
 
 // Remove Quotation Item
@@ -130,13 +136,18 @@ function clearQuotationForm() {
         container.innerHTML = `
             <div class="order-item">
                 <div class="item-row">
-                    <input type="text" class="item-product" placeholder="Product name..." list="product-list">
+                    <select class="item-product" onchange="fetchProductPrice(this)">
+                        <option value="">Select product...</option>
+                    </select>
                     <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
                     <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" onchange="calculateQuotationTotal()">
                     <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
                 </div>
             </div>
         `;
+        // Populate the select with products
+        const select = container.querySelector('.item-product');
+        populateProductSelect(select);
         calculateQuotationTotal();
     }
 }
@@ -167,6 +178,9 @@ async function fetchProductPrice(input) {
     }
 }
 
+// Store products globally
+let availableProducts = [];
+
 // Load Products for Autocomplete
 async function loadProducts() {
     try {
@@ -174,17 +188,35 @@ async function loadProducts() {
         const data = await response.json();
         
         if (data.success && data.items) {
-            const datalist = document.getElementById('product-list');
-            datalist.innerHTML = '';
+            availableProducts = data.items;
             
-            data.items.forEach(item => {
-                const option = document.createElement('option');
-                option.value = item.DESCRIPTION || item.CODE;
-                datalist.appendChild(option);
+            // Populate all existing select elements
+            document.querySelectorAll('.item-product').forEach(select => {
+                if (select.tagName === 'SELECT') {
+                    populateProductSelect(select);
+                }
             });
         }
     } catch (error) {
         console.error('Failed to load products:', error);
+    }
+}
+
+// Populate a product select element
+function populateProductSelect(selectElement) {
+    const currentValue = selectElement.value;
+    selectElement.innerHTML = '<option value="">Select product...</option>';
+    
+    availableProducts.forEach(item => {
+        const option = document.createElement('option');
+        option.value = item.DESCRIPTION || item.CODE;
+        option.textContent = item.DESCRIPTION || item.CODE;
+        selectElement.appendChild(option);
+    });
+    
+    // Restore previous value if it exists
+    if (currentValue) {
+        selectElement.value = currentValue;
     }
 }
 
@@ -243,7 +275,10 @@ if (quotationForm) {
         
         const items = [];
         document.querySelectorAll('#quotation-items-list .order-item').forEach(item => {
-            const product = item.querySelector('.item-product').value.trim();
+            const productElement = item.querySelector('.item-product');
+            const product = productElement.tagName === 'SELECT' ? 
+                productElement.options[productElement.selectedIndex]?.value.trim() : 
+                productElement.value.trim();
             const qty = parseFloat(item.querySelector('.item-qty').value) || 0;
             const price = parseFloat(item.querySelector('.item-price').value) || 0;
             
