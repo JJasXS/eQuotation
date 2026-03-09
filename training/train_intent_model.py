@@ -168,6 +168,13 @@ def train_model():
     print(f"\n💾 Saving model to: {MODEL_SAVE_PATH}")
     model.save_pretrained(MODEL_SAVE_PATH)
     tokenizer.save_pretrained(MODEL_SAVE_PATH)
+
+    # Save intent label mapping
+    import json
+    intent_label_path = os.path.join(MODEL_SAVE_PATH, "intent_labels.json")
+    with open(intent_label_path, "w") as f:
+        json.dump(LABEL_TO_INTENT, f)
+    print(f"Intent label mapping saved to: {intent_label_path}")
     
     # Test predictions
     print("\n🧪 Testing predictions:")

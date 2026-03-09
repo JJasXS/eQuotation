@@ -54,10 +54,9 @@ class ModelEvaluator:
         # Load intent labels
         labels_path = os.path.join(model_path, 'intent_labels.json')
         with open(labels_path, 'r') as f:
-            labels_data = json.load(f)
-        
-        self.intent_labels = labels_data['intent_labels']
-        self.label_to_intent = labels_data['label_to_intent']
+            self.label_to_intent = json.load(f)
+        # Build intent_labels as reverse mapping for reporting
+        self.intent_labels = {v: k for k, v in self.label_to_intent.items()}
         
         print(f"✅ Model loaded successfully")
         print(f"📊 Intents: {', '.join(self.intent_labels.keys())}")
@@ -122,7 +121,8 @@ def main():
     # Prepare data
     texts = df['text'].tolist()
     intents = df['intent'].tolist()
-    true_labels = [evaluator.intent_labels[intent] for intent in intents]
+    # Map string intent names to integer label IDs
+    true_labels = [int(evaluator.intent_labels[intent]) for intent in intents]
     
     # Split for evaluation (use validation split)
     _, test_texts, _, test_labels = train_test_split(

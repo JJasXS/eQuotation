@@ -1,12 +1,67 @@
-ai_models/
+# =========================
+# Python env / cache
+# =========================
 venv/
+.venv/
+env/
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+.ipynb_checkpoints/
+
+# =========================
+# AI models / checkpoints
+# =========================
+ai_models/
+ai_models_disabled/saved_model/
+ai_models_disabled/__pycache__/
 *.pt
 *.pth
 *.bin
 *.onnx
 *.pkl
 *.model
-ai_models_disabled/saved_model/
-ai_models_disabled/__pycache__/
-*.pyc
+*.joblib
+*.h5
+*.ckpt
+
+# =========================
+# Training datasets
+# =========================
+training/*.csv
+training/*.xlsx
+training/*.xls
+training/*.json
+training/*.jsonl
+training/*.parquet
+training/*.tsv
+
+# =========================
+# Training outputs / temp
+# =========================
+training/output/
+training/outputs/
+training/models/
+training/checkpoints/
+training/results/
+training/runs/
+training/logs/
+training/temp/
+training/tmp/
+
+# =========================
+# Test / coverage / logs
+# =========================
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+
+# =========================
+# OS / editor files
+# =========================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
