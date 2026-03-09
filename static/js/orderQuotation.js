@@ -520,6 +520,71 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
+// AUTO-FILL FROM CHATBOT
+// Auto-add product from chatbot to quotation form
+function addProductToQuotation(productDescription, quantity = 1) {
+    if (!productDescription || !productDescription.trim()) {
+        return false;
+    }
+    
+    // Find the last empty item or add a new one
+    let lastItem = null;
+    const items = document.querySelectorAll('#quotation-items-list .order-item');
+    
+    for (let i = items.length - 1; i >= 0; i--) {
+        const select = items[i].querySelector('.item-product');
+        if (!select.value) {
+            lastItem = items[i];
+            break;
+        }
+    }
+    
+    // If no empty item found, add a new one
+    if (!lastItem) {
+        addQuotationItem();
+        lastItem = document.querySelectorAll('#quotation-items-list .order-item')[
+            document.querySelectorAll('#quotation-items-list .order-item').length - 1
+        ];
+    }
+    
+    // Fill in the product and quantity
+    const select = lastItem.querySelector('.item-product');
+    const qtyInput = lastItem.querySelector('.item-qty');
+    
+    select.value = productDescription;
+    qtyInput.value = quantity;
+    
+    // Trigger price fetch
+    fetchProductPrice(select);
+    
+    // Scroll to the form
+    document.querySelector('.form-container').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    
+    return true;
+}
+
+// Chat Session Management
+let quotationChatId = null;
+
+// Initialize chat session for quotation form
+async function initializeQuotationChat() {
+    try {
+        const response = await fetch('/api/insert_chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chatname: 'Quotation Assistant Chat' })
+        });
+        
+        const data = await response.json();
+        if (data.success && data.chat) {
+            quotationChatId = data.chat.CHATID;
+            console.log('Quotation chat session created:', quotationChatId);
+        }
+    } catch (error) {
+        console.error('Failed to initialize quotation chat:', error);
+    }
+}
+
 // Chat Popup Functions
 function toggleChatPopup() {
     const chatPopup = document.getElementById('chat-popup');
@@ -536,7 +601,7 @@ function sendChatMessage() {
     const messagesContainer = document.getElementById('chat-popup-messages');
     const message = textarea.value.trim();
     
-    if (!message) return;
+    if (!message || !quotationChatId) return;
     
     // Add user message to chat
     const userMsgDiv = document.createElement('div');
@@ -550,37 +615,63 @@ function sendChatMessage() {
     // Scroll to bottom
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
     
-    // Simulate bot response
-    setTimeout(() => {
+    // Send message to API
+    fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: message, chatid: quotationChatId })
+    })
+    .then(res => {
+        if (res.status === 401) {
+            window.location.href = '/login';
+            return null;
+        }
+        return res.json();
+    })
+    .then(data => {
+        if (!data) return;
+        
+        // Parse bot response for product suggestions
+        const reply = data.reply;
+        const productMatches = reply.matchAll(/\[PRODUCT:\s*([^\|]+)\s*\|\s*qty:\s*(\d+)\s*\]/gi);
+        
+        // Add bot response to chat
         const botMsgDiv = document.createElement('div');
         botMsgDiv.className = 'chat-message bot-message';
-        const botResponse = getBotResponse(message);
-        botMsgDiv.innerHTML = `<div class="message-content">${botResponse}</div>`;
+        
+        let messageHTML = `<div class="message-content">${reply.replace(/\[PRODUCT:[^\]]+\]/gi, '').trim()}</div>`;
+        
+        // Add product suggestion buttons if found
+        const matches = Array.from(reply.matchAll(/\[PRODUCT:\s*([^\|]+)\s*\|\s*qty:\s*(\d+)\s*\]/gi));
+        if (matches.length > 0) {
+            messageHTML += '<div style="margin-top: 8px; display: flex; flex-direction: column; gap: 6px;">';
+            matches.forEach(match => {
+                const productName = match[1].trim();
+                const quantity = match[2];
+                messageHTML += `<button style="padding: 6px 10px; background: #5b82b6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; text-align: left;" onclick="addProductToQuotation('${productName.replace(/'/g, "\\'")}', ${quantity}); return false;">✓ Add ${quantity}x ${productName}</button>`;
+            });
+            messageHTML += '</div>';
+        }
+        
+        botMsgDiv.innerHTML = messageHTML;
         messagesContainer.appendChild(botMsgDiv);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    }, 500);
-}
-
-function getBotResponse(message) {
-    const lowerMessage = message.toLowerCase();
-    
-    if (lowerMessage.includes('help') || lowerMessage.includes('how')) {
-        return 'I can help you with creating quotations! Fill in the form above and I can assist with any questions. ??';
-    } else if (lowerMessage.includes('price') || lowerMessage.includes('cost')) {
-        return 'You can search for products and their prices will be automatically filled in when you select them. ??';
-    } else if (lowerMessage.includes('submit') || lowerMessage.includes('save')) {
-        return 'Once you\'re done filling the form, click the "Submit Quotation" button to save your quotation. ?';
-    } else if (lowerMessage.includes('product')) {
-        return 'Use the product dropdown to select items. The system will fetch the price automatically! ??';
-    } else if (lowerMessage.includes('date') || lowerMessage.includes('valid')) {
-        return 'You can set the validity date (when the quotation expires) in the "Valid Until" field. ??';
-    } else {
-        return 'Thanks for asking! I\'m here to help with your quotation. Is there anything specific you\'d like to know? ??';
-    }
+    })
+    .catch(error => {
+        console.error('Error sending message:', error);
+        const errorMsgDiv = document.createElement('div');
+        errorMsgDiv.className = 'chat-message bot-message';
+        errorMsgDiv.innerHTML = `<div class="message-content">Sorry, I encountered an error. Please try again.</div>`;
+        messagesContainer.appendChild(errorMsgDiv);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    });
 }
 
 // Handle Enter key in chat textarea
 document.addEventListener('DOMContentLoaded', function() {
+    // Initialize quotation chat session
+    initializeQuotationChat();
+    
     const textarea = document.getElementById('chat-popup-textarea');
     if (textarea) {
         textarea.addEventListener('keypress', function(e) {
@@ -590,4 +681,62 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+    
+    // Make chat popup draggable
+    makeChatPopupDraggable();
 });
+
+// Draggable functionality for chat popup
+function makeChatPopupDraggable() {
+    const chatPopup = document.getElementById('chat-popup');
+    const chatHeader = document.querySelector('.chat-popup-header');
+    
+    if (!chatPopup || !chatHeader) return;
+    
+    let isDragging = false;
+    let startX = 0;
+    let startY = 0;
+    let translateX = 0;
+    let translateY = 0;
+    
+    chatHeader.addEventListener('mousedown', function(e) {
+        isDragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        chatHeader.style.cursor = 'grabbing';
+        chatPopup.style.transition = 'none';
+    });
+    
+    document.addEventListener('mousemove', function(e) {
+        if (!isDragging) return;
+        
+        const deltaX = e.clientX - startX;
+        const deltaY = e.clientY - startY;
+        
+        translateX += deltaX;
+        translateY += deltaY;
+        
+        chatPopup.style.transform = `translate(${translateX}px, ${translateY}px)`;
+        
+        startX = e.clientX;
+        startY = e.clientY;
+    });
+    
+    document.addEventListener('mouseup', function() {
+        isDragging = false;
+        chatHeader.style.cursor = 'grab';
+        chatPopup.style.transition = 'all 0.3s ease';
+    });
+    
+    chatHeader.addEventListener('mouseenter', function() {
+        if (!isDragging) {
+            chatHeader.style.cursor = 'grab';
+        }
+    });
+    
+    chatHeader.addEventListener('mouseleave', function() {
+        if (!isDragging) {
+            chatHeader.style.cursor = 'default';
+        }
+    });
+}

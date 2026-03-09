@@ -391,8 +391,8 @@
     position: fixed;
     bottom: 90px;
     right: 24px;
-    width: 320px;
-    height: 400px;
+    width: 500px;
+    height: 600px;
     background: #242a33;
     border: 1px solid #3d4654;
     border-radius: 12px;
@@ -415,6 +415,9 @@
     align-items: center;
     background: #1e242f;
     border-radius: 12px 12px 0 0;
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 .chat-popup-header h4 {
@@ -520,4 +523,27 @@
 
 .send-btn:active {
     transform: scale(0.95);
+}
+
+/* Product Suggestion Buttons in Chat */
+.chat-message button {
+    padding: 8px 12px;
+    background: #5b82b6;
+    color: #fff;
+    border: 1px solid #6b94c4;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.chat-message button:hover {
+    background: #4a6fa0;
+    border-color: #5b82b6;
+    transform: translateX(2px);
+}
+
+.chat-message button:active {
+    transform: scale(0.98);
 }
