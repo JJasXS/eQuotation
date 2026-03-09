@@ -122,25 +122,18 @@ function renderQuotationList(list, isCancelled) {
         const badgeColor = isCancelled ? '#a65c5c' : '#4b6e9e';
 
         html += `
-            <div class="quotation-card" data-dockey="${qt.DOCKEY}" style="background: #2d3440; padding: 12px; margin-bottom: 12px; border-radius: 8px; border-left: 3px solid ${borderColor}; cursor: pointer;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 12px;">
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <span class="expand-arrow" style="color: #9ba7b6; font-size: 12px; transition: transform 0.2s;">▼</span>
-                        <span style="font-weight: 600; color: #e4e9f1;">${qt.DOCNO || ('DOCKEY #' + qt.DOCKEY)}</span>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <span style="background: ${badgeColor}; color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 12px;">RM ${amount}</span>
-                        ${!isCancelled ? `<button class="edit-button" onclick="editQuotation(${qt.DOCKEY})" style="background: #5a8fc4; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; white-space: nowrap;">Edit</button>` : ''}
-                        <button class="toggle-cancelled-btn" onclick="event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, ${isCancelled})" style="background: ${isCancelled ? '#4b6e9e' : '#a65c5c'}; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; white-space: nowrap;">
-                            ${isCancelled ? 'Restore' : 'Cancel'}
-                        </button>
-                    </div>
+            <div class="quotation-card" data-dockey="${qt.DOCKEY}" style="background: #2d3440; padding: 12px; margin-bottom: 12px; border-radius: 8px; border-left: 3px solid ${borderColor}; cursor: pointer; width: auto;">
+                <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 12px;">
+                    <span class="expand-arrow" style="color: #9ba7b6; font-size: 12px; transition: transform 0.2s; flex-shrink: 0;">▼</span>
+                    <span style="font-weight: 600; color: #e4e9f1; flex-shrink: 0;">${qt.DOCNO || ('DOCKEY #' + qt.DOCKEY)}</span>
+                    <span style="color: #9ba7b6; font-size: 13px;">Customer: ${companyName} (${customerCode})</span>
+                    <span style="color: #9ba7b6; font-size: 13px; white-space: nowrap;">Date: ${docDate} | Valid Until: ${validity}</span>
+                    <span style="background: ${badgeColor}; color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 12px; flex-shrink: 0;">RM ${amount}</span>
+                    ${!isCancelled ? `<button class="edit-button" onclick="editQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #5a8fc4; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; white-space: nowrap; flex-shrink: 0;">Edit</button>` : ''}
+                    <button class="toggle-cancelled-btn" onclick="event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, ${isCancelled})" style="background: ${isCancelled ? '#4b6e9e' : '#a65c5c'}; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; white-space: nowrap; flex-shrink: 0;">
+                        ${isCancelled ? 'Restore' : 'Cancel'}
+                    </button>
                 </div>
-                <div style="color: #9ba7b6; font-size: 13px; margin-bottom: 6px;">
-                    <div><strong>Customer:</strong> ${companyName} (${customerCode})</div>
-                    <div>Date: ${docDate} | Valid Until: ${validity}</div>
-                </div>
-                <div style="color: #e4e9f1; font-size: 14px; margin-bottom: 8px;">${description}</div>
                 <div class="quotation-items" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid #3d4654;">
                     <div style="text-align: center; color: #888; padding: 8px;">Loading items...</div>
                 </div>
