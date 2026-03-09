@@ -99,6 +99,28 @@
             </div>
         </div>
     </div>
+    
+    <!-- Chat Bubble -->
+    <button id="chat-bubble" class="chat-bubble" onclick="toggleChatPopup()" title="Chat with us">
+        <span>💬</span>
+    </button>
+    
+    <!-- Chat Popup Modal -->
+    <div id="chat-popup" class="chat-popup hidden">
+        <div class="chat-popup-header">
+            <h4>Chat Assistant</h4>
+            <button type="button" class="close-btn" onclick="closeChatPopup()">✕</button>
+        </div>
+        <div id="chat-popup-messages" class="chat-popup-messages">
+            <div class="chat-message bot-message">
+                <div class="message-content">Hi! 👋 How can I help you with your quotation?</div>
+            </div>
+        </div>
+        <div class="chat-popup-input">
+            <textarea id="chat-popup-textarea" placeholder="Type your message..." rows="1"></textarea>
+            <button type="button" class="send-btn" onclick="sendChatMessage()">Send</button>
+        </div>
+    </div>
                             <!-- Hide Quotation Name field -->
                             <input type="hidden" id="quotation-name" name="quotationName" value="Quotation">
     

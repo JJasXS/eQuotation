@@ -519,3 +519,75 @@ document.addEventListener('DOMContentLoaded', function() {
         input.addEventListener('change', calculateQuotationTotal);
     });
 });
+
+// Chat Popup Functions
+function toggleChatPopup() {
+    const chatPopup = document.getElementById('chat-popup');
+    chatPopup.classList.toggle('hidden');
+}
+
+function closeChatPopup() {
+    const chatPopup = document.getElementById('chat-popup');
+    chatPopup.classList.add('hidden');
+}
+
+function sendChatMessage() {
+    const textarea = document.getElementById('chat-popup-textarea');
+    const messagesContainer = document.getElementById('chat-popup-messages');
+    const message = textarea.value.trim();
+    
+    if (!message) return;
+    
+    // Add user message to chat
+    const userMsgDiv = document.createElement('div');
+    userMsgDiv.className = 'chat-message user-message';
+    userMsgDiv.innerHTML = `<div class="message-content">${message}</div>`;
+    messagesContainer.appendChild(userMsgDiv);
+    
+    // Clear input
+    textarea.value = '';
+    
+    // Scroll to bottom
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    
+    // Simulate bot response
+    setTimeout(() => {
+        const botMsgDiv = document.createElement('div');
+        botMsgDiv.className = 'chat-message bot-message';
+        const botResponse = getBotResponse(message);
+        botMsgDiv.innerHTML = `<div class="message-content">${botResponse}</div>`;
+        messagesContainer.appendChild(botMsgDiv);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }, 500);
+}
+
+function getBotResponse(message) {
+    const lowerMessage = message.toLowerCase();
+    
+    if (lowerMessage.includes('help') || lowerMessage.includes('how')) {
+        return 'I can help you with creating quotations! Fill in the form above and I can assist with any questions. ??';
+    } else if (lowerMessage.includes('price') || lowerMessage.includes('cost')) {
+        return 'You can search for products and their prices will be automatically filled in when you select them. ??';
+    } else if (lowerMessage.includes('submit') || lowerMessage.includes('save')) {
+        return 'Once you\'re done filling the form, click the "Submit Quotation" button to save your quotation. ?';
+    } else if (lowerMessage.includes('product')) {
+        return 'Use the product dropdown to select items. The system will fetch the price automatically! ??';
+    } else if (lowerMessage.includes('date') || lowerMessage.includes('valid')) {
+        return 'You can set the validity date (when the quotation expires) in the "Valid Until" field. ??';
+    } else {
+        return 'Thanks for asking! I\'m here to help with your quotation. Is there anything specific you\'d like to know? ??';
+    }
+}
+
+// Handle Enter key in chat textarea
+document.addEventListener('DOMContentLoaded', function() {
+    const textarea = document.getElementById('chat-popup-textarea');
+    if (textarea) {
+        textarea.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendChatMessage();
+            }
+        });
+    }
+});
