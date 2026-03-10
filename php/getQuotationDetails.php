@@ -18,7 +18,7 @@ try {
     $stmt = $dbh->prepare('
         SELECT q.DOCKEY, q.DOCNO, q.DOCDATE, q.CODE, q.DESCRIPTION, q.DOCAMT, 
                q.CURRENCYCODE, q.VALIDITY, q.STATUS, q.TERMS,
-               c.COMPANYNAME, c.CREDITTERM,
+               c.COMPANYNAME, c.CREDITTERM, c.UDF_EMAIL,
                cb.ADDRESS1, cb.ADDRESS2, cb.PHONE1
         FROM SL_QT q
         LEFT JOIN AR_CUSTOMER c ON q.CODE = c.CODE
@@ -71,6 +71,7 @@ try {
         'STATUS' => (string)$quotation['STATUS'],
         'CREDITTERM' => $quotation['CREDITTERM'] ?? 'N/A',
         'COMPANYNAME' => $quotation['COMPANYNAME'] ?? 'N/A',
+        'UDF_EMAIL' => $quotation['UDF_EMAIL'] ?? '',
         'ADDRESS1' => $quotation['ADDRESS1'] ?? 'N/A',
         'ADDRESS2' => $quotation['ADDRESS2'] ?? 'N/A',
         'PHONE1' => $quotation['PHONE1'] ?? 'N/A',

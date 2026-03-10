@@ -1,33 +1,33 @@
-"""Quotation-related API routes."""
+"""Quotation approved/ready email routes."""
 from datetime import datetime
-from flask import Blueprint, request, jsonify, session
+from flask import Blueprint, request, jsonify
 from utils import send_email
 
-# Create Blueprint for quotation routes
-quotation_bp = Blueprint('quotation', __name__)
+# Create Blueprint for approved quotation routes
+quotation_approved_bp = Blueprint('quotation_approved', __name__)
 
 
-@quotation_bp.route('/api/send_quotation_email', methods=['POST'])
-def send_quotation_email():
-    """Send quotation pending email to customer"""
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-    
-    user_email = session.get('user_email')
+@quotation_approved_bp.route('/api/send_quotation_ready_email', methods=['POST'])
+def send_quotation_ready_email():
+    """Send quotation ready for review email to customer"""
     data = request.get_json() or {}
+    customer_email = data.get('customerEmail')
     docno = data.get('docno', 'N/A')
     dockey = data.get('dockey', 'N/A')
     total_amount = data.get('totalAmount', 0)
     items = data.get('items', [])
     company_name = data.get('companyName', 'Valued Customer')
     
+    if not customer_email:
+        return jsonify({'success': False, 'error': 'Customer email is required'}), 400
+    
     try:
         # Create email body with quotation details
         items_html = ''
         for idx, item in enumerate(items, 1):
-            product = item.get('product', '')
-            qty = item.get('qty', 0)
-            price = item.get('price', 0)
+            product = item.get('product', '') or item.get('DESCRIPTION', '')
+            qty = item.get('qty', 0) or item.get('QTY', 0)
+            price = item.get('price', 0) or item.get('UNITPRICE', 0)
             subtotal = qty * price
             items_html += f'''
             <tr>
@@ -39,22 +39,23 @@ def send_quotation_email():
             </tr>
             '''
         
-        subject = f"Quotation {docno} - Pending Approval"
+        subject = f"Quotation {docno} - Ready for Review"
         body = f"""
         <html>
             <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
                 <div style="max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9; border-radius: 8px;">
-                    <div style="background-color: #1a1f2e; color: #fff; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
-                        <h1 style="margin: 0;">Quotation Pending Approval</h1>
+                    <div style="background-color: #4b9e6e; color: #fff; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
+                        <h1 style="margin: 0;">Quotation Ready for Review</h1>
                     </div>
                     
                     <div style="background-color: #fff; padding: 30px; border-radius: 0 0 8px 8px;">
                         <p style="font-size: 16px;">Dear {company_name},</p>
                         
-                        <p>Thank you for your request. Your quotation has been created and is currently pending approval.</p>
+                        <p>Your quotation has been <strong>approved and is now ready for your review</strong>.</p>
                         
-                        <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                        <div style="background-color: #e8f5e9; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #4b9e6e;">
                             <p style="margin: 5px 0;"><strong>Quotation Number:</strong> {docno}</p>
+                            <p style="margin: 5px 0;"><strong>Status:</strong> <span style="color: #4b9e6e; font-weight: bold;">Active</span></p>
                             <p style="margin: 5px 0;"><strong>Date:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
                         </div>
                         
@@ -81,9 +82,9 @@ def send_quotation_email():
                             </tfoot>
                         </table>
                         
-                        <div style="background-color: #fff8e1; padding: 15px; border-left: 4px solid #f0ad4e; margin: 20px 0;">
+                        <div style="background-color: #e8f5e9; padding: 15px; border-left: 4px solid #4b9e6e; margin: 20px 0;">
                             <p style="margin: 0;"><strong>Next Steps:</strong></p>
-                            <p style="margin: 10px 0 0 0;">Your quotation is awaiting approval. You can check its status from your quotation page.</p>
+                            <p style="margin: 10px 0 0 0;">You can now review this quotation and proceed with your order. Please log in to your account to view the full details and take action.</p>
                         </div>
                         
                         <p style="margin-top: 30px;">If you have any questions about this quotation, please don't hesitate to contact us.</p>
@@ -100,13 +101,13 @@ def send_quotation_email():
         """
         
         # Send the email
-        email_sent = send_email(user_email, subject, body)
+        email_sent = send_email(customer_email, subject, body)
         
         if email_sent:
-            print(f"[EMAIL] Quotation pending email sent to {user_email} for {docno}")
+            print(f"[EMAIL] Quotation ready email sent to {customer_email} for {docno}")
             return jsonify({
                 'success': True,
-                'message': f'Quotation pending email sent to {user_email}'
+                'message': f'Quotation ready email sent to {customer_email}'
             })
         else:
             return jsonify({
@@ -115,6 +116,5 @@ def send_quotation_email():
             }), 500
             
     except Exception as e:
-        print(f"[EMAIL ERROR] Failed to send quotation email: {e}")
+        print(f"[EMAIL ERROR] Failed to send quotation ready email: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
-

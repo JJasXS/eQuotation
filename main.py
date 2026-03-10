@@ -292,7 +292,9 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
 
 # Register blueprints
 from routes.quotation_routes import quotation_bp
+from routes.quotation_routes_approved import quotation_approved_bp
 app.register_blueprint(quotation_bp)
+app.register_blueprint(quotation_approved_bp)
 
 @app.after_request
 def add_no_cache_headers(response):
@@ -344,6 +346,49 @@ def update_quotation_cancelled():
         result = response.json()
         if not result.get('success'):
             return jsonify({'success': False, 'error': result.get('error', 'Failed to update quotation')}), 500
+        
+        # If activating quotation (cancelled: false), send email to customer
+        if cancelled is False:
+            try:
+                # Fetch quotation details
+                qt_response = requests.get(
+                    f"{BASE_API_URL}/php/getQuotationDetails.php",
+                    params={'dockey': dockey},
+                    timeout=10
+                )
+                qt_data = qt_response.json()
+                
+                if qt_data.get('success') and qt_data.get('data'):
+                    quotation = qt_data['data']
+                    customer_email = quotation.get('UDF_EMAIL', '').strip()
+                    
+                    if customer_email:
+                        # Send email notification
+                        email_data = {
+                            'customerEmail': customer_email,
+                            'docno': quotation.get('DOCNO', 'N/A'),
+                            'dockey': dockey,
+                            'totalAmount': quotation.get('DOCAMT', 0),
+                            'items': quotation.get('items', []),
+                            'companyName': quotation.get('COMPANYNAME', 'Valued Customer')
+                        }
+                        
+                        email_response = requests.post(
+                            f"http://localhost:{request.environ.get('SERVER_PORT', '5000')}/api/send_quotation_ready_email",
+                            json=email_data,
+                            timeout=10
+                        )
+                        
+                        if email_response.json().get('success'):
+                            print(f"[EMAIL] Quotation activation email sent for DOCKEY {dockey}")
+                        else:
+                            print(f"[EMAIL WARNING] Failed to send activation email for DOCKEY {dockey}")
+                    else:
+                        print(f"[EMAIL] No customer email found for DOCKEY {dockey}")
+            except Exception as email_error:
+                # Don't fail the activation if email fails
+                print(f"[EMAIL ERROR] Failed to send activation email: {email_error}")
+        
         return jsonify({'success': True, 'message': 'Quotation status updated'}), 200
     except Exception as e:
         print(f"Error updating quotation cancelled status: {e}")
@@ -1951,6 +1996,49 @@ def api_admin_update_quotation():
             timeout=10
         )
         result = response.json()
+        
+        # If update successful, send email to customer
+        if result.get('success'):
+            try:
+                # Fetch quotation details
+                qt_response = requests.get(
+                    f"{BASE_API_URL}/php/getQuotationDetails.php",
+                    params={'dockey': dockey},
+                    timeout=10
+                )
+                qt_data = qt_response.json()
+                
+                if qt_data.get('success') and qt_data.get('data'):
+                    quotation = qt_data['data']
+                    customer_email = quotation.get('UDF_EMAIL', '').strip()
+                    
+                    if customer_email:
+                        # Send email notification
+                        email_data = {
+                            'customerEmail': customer_email,
+                            'docno': quotation.get('DOCNO', 'N/A'),
+                            'dockey': dockey,
+                            'totalAmount': quotation.get('DOCAMT', 0),
+                            'items': quotation.get('items', []),
+                            'companyName': quotation.get('COMPANYNAME', 'Valued Customer')
+                        }
+                        
+                        email_response = requests.post(
+                            f"http://localhost:{request.environ.get('SERVER_PORT', '5000')}/api/send_quotation_ready_email",
+                            json=email_data,
+                            timeout=10
+                        )
+                        
+                        if email_response.json().get('success'):
+                            print(f"[EMAIL] Quotation update email sent for DOCKEY {dockey}")
+                        else:
+                            print(f"[EMAIL WARNING] Failed to send update email for DOCKEY {dockey}")
+                    else:
+                        print(f"[EMAIL] No customer email found for DOCKEY {dockey}")
+            except Exception as email_error:
+                # Don't fail the update if email fails
+                print(f"[EMAIL ERROR] Failed to send update email: {email_error}")
+        
         return jsonify(result)
     except Exception as e:
         print(f"Error updating quotation: {e}")
