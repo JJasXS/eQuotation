@@ -14,18 +14,28 @@ if (!$email) {
     exit;
 }
 
+$email = trim($email);
+
 try {
     $con = getFirebirdConnection();
     
-    // Query AR_CUSTOMERBRANCH table by EMAIL first
-    $query = 'SELECT CODE, EMAIL FROM AR_CUSTOMERBRANCH WHERE EMAIL = ?';
+    // Query AR_CUSTOMERBRANCH table by EMAIL first (case/space-insensitive)
+    $query = 'SELECT CODE, EMAIL FROM AR_CUSTOMERBRANCH WHERE UPPER(TRIM(EMAIL)) = UPPER(TRIM(?))';
     $stmt = $con->prepare($query);
     $stmt->execute([$email]);
     $result = $stmt->fetch(PDO::FETCH_ASSOC);
 
     // Fallback: query AR_CUSTOMER by UDF_EMAIL if not found in branch
     if (!$result) {
-        $query = 'SELECT CODE, UDF_EMAIL AS EMAIL FROM AR_CUSTOMER WHERE UDF_EMAIL = ?';
+        $query = 'SELECT CODE, UDF_EMAIL AS EMAIL FROM AR_CUSTOMER WHERE UPPER(TRIM(UDF_EMAIL)) = UPPER(TRIM(?))';
+        $stmt = $con->prepare($query);
+        $stmt->execute([$email]);
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    // Final fallback: AR_CUSTOMER.EMAIL for legacy records
+    if (!$result) {
+        $query = 'SELECT CODE, EMAIL FROM AR_CUSTOMER WHERE UPPER(TRIM(EMAIL)) = UPPER(TRIM(?))';
         $stmt = $con->prepare($query);
         $stmt->execute([$email]);
         $result = $stmt->fetch(PDO::FETCH_ASSOC);

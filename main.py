@@ -283,25 +283,24 @@ def api_send_otp():
         except Exception as e:
             print(f"[AUTH] User lookup during send_otp failed: {e}")
 
+        # Check AR_CUSTOMER.EMAIL as additional fallback
+        is_customer = False
+        try:
+            customer_check = requests.get(
+                f"{BASE_API_URL}{ENDPOINT_PATHS['getcustomerbyemailfromcustomer']}?email={email}",
+                timeout=5
+            )
+            customer_data = customer_check.json()
+            is_customer = bool(customer_data.get('success') and customer_data.get('customerCode'))
+        except Exception as e:
+            print(f"[AUTH] AR_CUSTOMER lookup during send_otp failed: {e}")
 
-            # Check AR_CUSTOMER.EMAIL
-            is_customer = False
-            try:
-                customer_check = requests.get(
-                    f"{BASE_API_URL}{ENDPOINT_PATHS['getcustomerbyemailfromcustomer']}?email={email}",
-                    timeout=5
-                )
-                customer_data = customer_check.json()
-                is_customer = bool(customer_data.get('success') and customer_data.get('customerCode'))
-            except Exception as e:
-                print(f"[AUTH] AR_CUSTOMER lookup during send_otp failed: {e}")
-
-            if not (is_admin or is_user or is_customer):
-                print(f"[DEBUG OTP] rejected (email not found): {email}", flush=True)
-                return jsonify({
-                    'success': False,
-                    'error': 'Email not found, please contact administrator'
-                }), 401
+        if not (is_admin or is_user or is_customer):
+            print(f"[DEBUG OTP] rejected (email not found): {email}", flush=True)
+            return jsonify({
+                'success': False,
+                'error': 'Email not found, please contact administrator'
+            }), 401
 
         # Generate OTP
         otp = generate_otp(OTP_LENGTH)
