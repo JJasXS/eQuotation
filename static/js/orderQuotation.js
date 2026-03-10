@@ -331,11 +331,11 @@ if (quotationForm) {
             
             if (result.success) {
                 const displayDocNo = result.docno || result.quotationid || result.dockey;
-                const message = dockey ? 
-                    `Quotation ${displayDocNo} updated successfully!` : 
-                    `Quotation ${displayDocNo} created successfully!`;
-                
-                // Send quotation confirmation email
+                const message = dockey ?
+                    `Quotation ${displayDocNo} updated successfully!` :
+                    `Quotation ${displayDocNo} created and is awaiting approval.`;
+
+                // Send quotation pending approval email
                 try {
                     // Calculate total amount
                     let totalAmount = 0;

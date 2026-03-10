@@ -9,7 +9,7 @@ quotation_bp = Blueprint('quotation', __name__)
 
 @quotation_bp.route('/api/send_quotation_email', methods=['POST'])
 def send_quotation_email():
-    """Send quotation confirmation email to customer"""
+    """Send quotation pending email to customer"""
     if 'user_email' not in session:
         return jsonify({'success': False, 'error': 'Unauthorized'}), 401
     
@@ -39,19 +39,19 @@ def send_quotation_email():
             </tr>
             '''
         
-        subject = f"Quotation {docno} - Confirmation"
+        subject = f"Quotation {docno} - Pending Approval"
         body = f"""
         <html>
             <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
                 <div style="max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9; border-radius: 8px;">
                     <div style="background-color: #1a1f2e; color: #fff; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
-                        <h1 style="margin: 0;">Quotation Created Successfully</h1>
+                        <h1 style="margin: 0;">Quotation Pending Approval</h1>
                     </div>
                     
                     <div style="background-color: #fff; padding: 30px; border-radius: 0 0 8px 8px;">
                         <p style="font-size: 16px;">Dear {company_name},</p>
                         
-                        <p>Thank you for your request. We are pleased to confirm that your quotation has been created successfully.</p>
+                        <p>Thank you for your request. Your quotation has been created and is currently pending approval.</p>
                         
                         <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
                             <p style="margin: 5px 0;"><strong>Quotation Number:</strong> {docno}</p>
@@ -81,9 +81,9 @@ def send_quotation_email():
                             </tfoot>
                         </table>
                         
-                        <div style="background-color: #e8f5e9; padding: 15px; border-left: 4px solid #4caf50; margin: 20px 0;">
+                        <div style="background-color: #fff8e1; padding: 15px; border-left: 4px solid #f0ad4e; margin: 20px 0;">
                             <p style="margin: 0;"><strong>Next Steps:</strong></p>
-                            <p style="margin: 10px 0 0 0;">You can view and manage your quotation by logging into your account.</p>
+                            <p style="margin: 10px 0 0 0;">Your quotation is awaiting approval. You can check its status from your quotation page.</p>
                         </div>
                         
                         <p style="margin-top: 30px;">If you have any questions about this quotation, please don't hesitate to contact us.</p>
@@ -103,10 +103,10 @@ def send_quotation_email():
         email_sent = send_email(user_email, subject, body)
         
         if email_sent:
-            print(f"[EMAIL] Quotation confirmation sent to {user_email} for {docno}")
+            print(f"[EMAIL] Quotation pending email sent to {user_email} for {docno}")
             return jsonify({
                 'success': True,
-                'message': f'Quotation confirmation email sent to {user_email}'
+                'message': f'Quotation pending email sent to {user_email}'
             })
         else:
             return jsonify({
