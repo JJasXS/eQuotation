@@ -27,6 +27,10 @@ async function loadQuotations() {
         cancelledQuotationsCache = quotations.filter(qt => qt.CANCELLED === true);
         pendingQuotationsCache = quotations.filter(qt => qt.CANCELLED === null || typeof qt.CANCELLED === 'undefined');
 
+        console.log('[DEBUG] User side - Total quotations:', quotations.length);
+        console.log('[DEBUG] User side - Filtered into Active:', activeQuotationsCache.length, 'Cancelled:', cancelledQuotationsCache.length, 'Pending:', pendingQuotationsCache.length);
+        console.log('[DEBUG] Sample CANCELLED values:', quotations.slice(0, 3).map(qt => ({ DOCNO: qt.DOCNO, CANCELLED: qt.CANCELLED, type: typeof qt.CANCELLED })));
+
         let html = `
             <div style="padding: 16px;">
                 <div style="display: flex; gap: 8px; margin-bottom: 12px; border-bottom: 1px solid #3d4654; padding-bottom: 10px;">
