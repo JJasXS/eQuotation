@@ -27,6 +27,9 @@ $companyName = trim($data['COMPANYNAME'] ?? '');
 $area = trim($data['AREA'] ?? '');
 $currencyCode = trim($data['CURRENCYCODE'] ?? '');
 $udfEmail = trim($data['UDF_EMAIL'] ?? '');
+$brn = trim($data['BRN'] ?? '');
+$brn2 = trim($data['BRN2'] ?? '');
+$tin = trim($data['TIN'] ?? '');
 
 $address1 = trim($data['ADDRESS1'] ?? '');
 $address2 = trim($data['ADDRESS2'] ?? '');
@@ -36,7 +39,7 @@ $postcode = trim($data['POSTCODE'] ?? '');
 $attention = trim($data['ATTENTION'] ?? '');
 $phone1 = trim($data['PHONE1'] ?? '');
 
-if ($companyName === '' || $area === '' || $currencyCode === '' || $udfEmail === '' || $address1 === '' || $postcode === '' || $attention === '' || $phone1 === '') {
+if ($companyName === '' || $area === '' || $currencyCode === '' || $udfEmail === '' || $brn === '' || $brn2 === '' || $tin === '' || $address1 === '' || $postcode === '' || $attention === '' || $phone1 === '') {
     echo json_encode(['success' => false, 'error' => 'Missing required fields']);
     exit;
 }
@@ -94,11 +97,12 @@ try {
 
     $customerCode = generateGuestCustomerCode($dbh);
 
+    // AR_CUSTOMER.STATUS appears to be CHAR(1), so use code 'P' for Prospect.
     $insertCustomer = $dbh->prepare('        
-        INSERT INTO AR_CUSTOMER (CODE, COMPANYNAME, AREA, CURRENCYCODE, UDF_EMAIL, CREATIONDATE)
-        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        INSERT INTO AR_CUSTOMER (CODE, COMPANYNAME, AREA, CURRENCYCODE, UDF_EMAIL, BRN, BRN2, TIN, STATUS, CREATIONDATE)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     ');
-    $insertCustomer->execute([$customerCode, $companyName, $area, $currencyCode, $udfEmail]);
+    $insertCustomer->execute([$customerCode, $companyName, $area, $currencyCode, $udfEmail, $brn, $brn2, $tin, 'P']);
 
     $dtlkey = generateDTLKEY($dbh);
 

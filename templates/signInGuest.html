@@ -13,49 +13,63 @@
             <p class="subtitle">Fill in guest details. This form is prepared for database fields, but submission is front-end only for now.</p>
 
             <form id="guest-signin-form" onsubmit="handleGuestSignIn(event)">
-                <div class="form-grid">
-                    <div class="form-group">
-                        <input type="text" id="COMPANYNAME" name="COMPANYNAME" placeholder="Company Name (Full Name)" required>
+                <div class="form-section">
+                    <div class="section-title">Company Details</div>
+                    <div class="form-grid">
+                        <div class="form-group full-width">
+                            <input type="text" id="COMPANYNAME" name="COMPANYNAME" placeholder="Company Name (Full Name)" required>
+                        </div>
+                        <div class="form-group">
+                            <input type="email" id="UDF_EMAIL" name="UDF_EMAIL" placeholder="Email" required>
+                        </div>
+                        <div class="form-group">
+                            <input type="text" id="AREA" name="AREA" placeholder="Area" required>
+                        </div>
+                        <div class="form-group">
+                            <input type="text" id="CURRENCYCODE" name="CURRENCYCODE" placeholder="Currency Code" required>
+                        </div>
                     </div>
+                </div>
 
-                    <div class="form-group">
-                        <input type="text" id="AREA" name="AREA" placeholder="Area" required>
+                <div class="form-section">
+                    <div class="section-title">Registration Details</div>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <input type="text" id="BRN" name="BRN" placeholder="Reg No. (old)" required>
+                        </div>
+                        <div class="form-group">
+                            <input type="text" id="BRN2" name="BRN2" placeholder="Reg No. (new)" required>
+                        </div>
+                        <div class="form-group full-width">
+                            <input type="text" id="TIN" name="TIN" placeholder="TIN No." required>
+                        </div>
                     </div>
+                </div>
 
-                    <div class="form-group">
-                        <input type="text" id="CURRENCYCODE" name="CURRENCYCODE" placeholder="Currency Code" required>
-                    </div>
-
-                    <div class="form-group">
-                        <input type="email" id="UDF_EMAIL" name="UDF_EMAIL" placeholder="Email" required>
-                    </div>
-
-                    <div class="form-group">
-                        <input type="text" id="ADDRESS1" name="ADDRESS1" placeholder="Address 1" required>
-                    </div>
-
-                    <div class="form-group">
-                        <input type="text" id="ADDRESS2" name="ADDRESS2" placeholder="Address 2">
-                    </div>
-
-                    <div class="form-group">
-                        <input type="text" id="ADDRESS3" name="ADDRESS3" placeholder="Address 3">
-                    </div>
-
-                    <div class="form-group">
-                        <input type="text" id="ADDRESS4" name="ADDRESS4" placeholder="Address 4">
-                    </div>
-
-                    <div class="form-group">
-                        <input type="text" id="POSTCODE" name="POSTCODE" placeholder="Postcode" required>
-                    </div>
-
-                    <div class="form-group">
-                        <input type="text" id="ATTENTION" name="ATTENTION" placeholder="Attention" required>
-                    </div>
-
-                    <div class="form-group full-width">
-                        <input type="text" id="PHONE1" name="PHONE1" placeholder="Phone Number" required>
+                <div class="form-section">
+                    <div class="section-title">Address and Contact</div>
+                    <div class="form-grid">
+                        <div class="form-group full-width">
+                            <input type="text" id="ADDRESS1" name="ADDRESS1" placeholder="Address 1" required>
+                        </div>
+                        <div class="form-group">
+                            <input type="text" id="ADDRESS2" name="ADDRESS2" placeholder="Address 2">
+                        </div>
+                        <div class="form-group">
+                            <input type="text" id="ADDRESS3" name="ADDRESS3" placeholder="Address 3">
+                        </div>
+                        <div class="form-group">
+                            <input type="text" id="ADDRESS4" name="ADDRESS4" placeholder="Address 4">
+                        </div>
+                        <div class="form-group">
+                            <input type="text" id="POSTCODE" name="POSTCODE" placeholder="Postcode" required>
+                        </div>
+                        <div class="form-group">
+                            <input type="text" id="ATTENTION" name="ATTENTION" placeholder="Attention" required>
+                        </div>
+                        <div class="form-group full-width">
+                            <input type="text" id="PHONE1" name="PHONE1" placeholder="Phone Number" required>
+                        </div>
                     </div>
                 </div>
 
