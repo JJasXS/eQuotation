@@ -854,6 +854,20 @@ def admin_view_quotations():
                          user_type=session.get('user_type', ''))
 
 
+@app.route('/admin/update-quotation')
+def admin_update_quotation():
+    """Display update quotation page (admin only)."""
+    page_error = require_page_access(require_admin=True)
+    if page_error:
+        return page_error
+    dockey = request.args.get('dockey', '')
+    if not dockey:
+        return "Missing dockey parameter", 400
+    return render_template('updateQuotation.html',
+                         user_email=session.get('user_email', ''),
+                         dockey=dockey)
+
+
 @app.route('/admin/pending-approvals/edit/<int:orderid>')
 def admin_edit_approval(orderid):
     """Display admin edit approval page."""
@@ -1837,6 +1851,72 @@ def api_admin_get_all_quotations():
     except Exception as e:
         print(f"[Error] Failed to fetch all quotations: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/get_quotation_detail')
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_get_quotation_detail():
+    """Get quotation details including line items (admin only)."""
+    dockey = request.args.get('dockey')
+    if not dockey:
+        return jsonify({'success': False, 'error': 'dockey parameter required'}), 400
+
+    try:
+        response = requests.get(
+            f"{BASE_API_URL}/php/getQuotationDetails.php",
+            params={'dockey': dockey},
+            timeout=10
+        )
+        result = response.json()
+        
+        # PHP returns: { success: true, data: { DOCKEY, DOCNO, items: [...] } }
+        if result.get('success'):
+            data = result.get('data', {})
+            return jsonify({
+                'success': True,
+                'quotation': data,  # Contains DOCKEY, DOCNO, DOCDATE, CODE, COMPANYNAME, ADDRESS1, ADDRESS2, PHONE1, VALIDITY, TERMS, CREDITTERM
+                'items': data.get('items', [])  # Array of items with DESCRIPTION, QTY, UNITPRICE
+            })
+        else:
+            return jsonify({'success': False, 'error': result.get('error', 'Unknown error')}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/update_quotation', methods=['POST'])
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_update_quotation():
+    """Update quotation (admin only)."""
+    data = request.get_json() or {}
+    dockey = data.get('dockey')
+    
+    if not dockey:
+        return jsonify({'success': False, 'error': 'Missing dockey'}), 400
+    
+    items = data.get('items', [])
+    if not items:
+        return jsonify({'success': False, 'error': 'At least one item is required'}), 400
+    
+    # Format data for PHP endpoint
+    update_data = {
+        'dockey': dockey,
+        'validUntil': data.get('validUntil'),
+        'items': items
+    }
+    
+    try:
+        # Use the update draft quotation endpoint
+        response = requests.post(
+            f"{BASE_API_URL}/php/updateDraftQuotation.php",
+            json=update_data,
+            timeout=10
+        )
+        result = response.json()
+        return jsonify(result)
+    except Exception as e:
+        print(f"Error updating quotation: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 
 @app.route('/api/get_user_info')
 @api_login_required(unauth_message='Unauthorized')

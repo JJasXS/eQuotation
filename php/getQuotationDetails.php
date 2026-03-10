@@ -69,7 +69,11 @@ try {
         'CURRENCYCODE' => $quotation['CURRENCYCODE'],
         'VALIDITY' => $quotation['VALIDITY'],
         'STATUS' => (string)$quotation['STATUS'],
-        'CREDITTERM' => $quotation['TERMS'] ?? 'N/A',
+        'CREDITTERM' => $quotation['CREDITTERM'] ?? 'N/A',
+        'COMPANYNAME' => $quotation['COMPANYNAME'] ?? 'N/A',
+        'ADDRESS1' => $quotation['ADDRESS1'] ?? 'N/A',
+        'ADDRESS2' => $quotation['ADDRESS2'] ?? 'N/A',
+        'PHONE1' => $quotation['PHONE1'] ?? 'N/A',
         'items' => $formattedItems
     ];
     

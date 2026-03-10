@@ -345,7 +345,8 @@ async function toggleQuotationItems(card) {
 }
 
 function editQuotation(dockey) {
-    alert(`Edit quotation DOCKEY: ${dockey}\nEdit functionality coming soon!`);
+    // Redirect to update quotation page
+    window.location.href = `/admin/update-quotation?dockey=${dockey}`;
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
