@@ -68,6 +68,13 @@
                         </div>
                         
                         <h4>Quotation Items</h4>
+                        <div class="item-row-header">
+                            <span>Product</span>
+                            <span>Qty</span>
+                            <span>Discount</span>
+                            <span>Unit Price</span>
+                            <span></span>
+                        </div>
                         <div id="quotation-items-list">
                             <div class="order-item">
                                 <div class="item-row">
@@ -75,6 +82,7 @@
                                         <option value="">Select product...</option>
                                     </select>
                                     <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
+                                    <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
                                     <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" onchange="calculateQuotationTotal()">
                                     <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
                                 </div>

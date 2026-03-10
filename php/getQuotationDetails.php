@@ -36,7 +36,7 @@ try {
     // Get quotation details (items)
     $stmt = $dbh->prepare('
         SELECT DTLKEY, DOCKEY, SEQ, ITEMCODE, DESCRIPTION, QTY, 
-               UNITPRICE, AMOUNT
+               UNITPRICE, DISC, AMOUNT
         FROM SL_QTDTL 
         WHERE DOCKEY = ? 
         ORDER BY SEQ ASC
@@ -54,6 +54,7 @@ try {
             'DESCRIPTION' => $item['DESCRIPTION'],
             'QTY' => floatval($item['QTY']),
             'UNITPRICE' => floatval($item['UNITPRICE']),
+            'DISC' => floatval($item['DISC'] ?? 0),
             'AMOUNT' => floatval($item['AMOUNT'] ?? 0)
         ];
     }

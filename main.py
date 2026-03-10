@@ -292,9 +292,7 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
 
 # Register blueprints
 from routes.quotation_routes import quotation_bp
-from routes.quotation_routes_approved import quotation_approved_bp
 app.register_blueprint(quotation_bp)
-app.register_blueprint(quotation_approved_bp)
 
 @app.after_request
 def add_no_cache_headers(response):

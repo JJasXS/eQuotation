@@ -14,6 +14,7 @@ function addQuotationItem() {
                 <option value="">Select product...</option>
             </select>
             <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
+            <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
             <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" onchange="calculateQuotationTotal()">
             <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
         </div>
@@ -44,7 +45,8 @@ function calculateQuotationTotal() {
     items.forEach(item => {
         const qty = parseFloat(item.querySelector('.item-qty').value) || 0;
         const price = parseFloat(item.querySelector('.item-price').value) || 0;
-        total += qty * price;
+        const discount = parseFloat(item.querySelector('.item-discount')?.value) || 0;
+        total += Math.max(0, (qty * price) - discount);
     });
     
     document.getElementById('quotation-total').textContent = `RM ${total.toFixed(2)}`;
@@ -179,6 +181,7 @@ async function loadQuotationData(dockey) {
                             <option value="">Select product...</option>
                         </select>
                         <input type="number" class="item-qty" placeholder="Qty" min="1" value="${item.QTY || 1}" onchange="calculateQuotationTotal()">
+                        <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="${item.DISC || 0}" onchange="calculateQuotationTotal()">
                         <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" value="${item.UNITPRICE || 0}" onchange="calculateQuotationTotal()">
                         <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
                     </div>
@@ -249,9 +252,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const product = productElement.options[productElement.selectedIndex]?.value.trim();
                 const qty = parseFloat(item.querySelector('.item-qty').value) || 0;
                 const price = parseFloat(item.querySelector('.item-price').value) || 0;
+                const discount = parseFloat(item.querySelector('.item-discount')?.value) || 0;
                 
                 if (product && qty > 0 && price >= 0) {
-                    items.push({ product, qty, price });
+                    items.push({ product, qty, price, discount });
                 }
             });
             

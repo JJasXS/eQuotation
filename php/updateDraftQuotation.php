@@ -53,7 +53,8 @@ try {
     foreach ($items as $item) {
         $qty = (float)($item['qty'] ?? 0);
         $unitprice = (float)($item['price'] ?? 0);
-        $totalAmount += $qty * $unitprice;
+        $disc = (float)($item['discount'] ?? 0);
+        $totalAmount += max(0, ($qty * $unitprice) - $disc);
     }
     
     // Convert empty string validity to null for date field
@@ -99,7 +100,8 @@ try {
         $product = $item['product'] ?? '';
         $qty = (float)($item['qty'] ?? 0);
         $unitprice = (float)($item['price'] ?? 0);
-        $amount = $qty * $unitprice;
+        $disc = (float)($item['discount'] ?? 0);
+        $amount = max(0, ($qty * $unitprice) - $disc);
         
         if (!$product || $qty <= 0) {
             echo json_encode(['success' => false, 'error' => "Invalid item at index $idx"]);
@@ -143,8 +145,8 @@ try {
         $detailInsert = $dbh->prepare('
             INSERT INTO SL_QTDTL (
                 DTLKEY, DOCKEY, SEQ, ITEMCODE, DESCRIPTION, QTY, 
-                UNITPRICE, AMOUNT
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                UNITPRICE, DISC, AMOUNT
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ');
         $detailInsert->execute([
             $dtlkey,
@@ -154,6 +156,7 @@ try {
             $itemDescription,
             $qty,
             $unitprice,
+            $disc,
             $amount
         ]);
         

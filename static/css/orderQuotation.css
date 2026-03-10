@@ -172,6 +172,24 @@
     margin-bottom: 16px;
 }
 
+.item-row-header {
+    display: grid;
+    grid-template-columns: 1fr 90px 110px 120px 40px;
+    gap: 12px;
+    align-items: center;
+    text-align: center;
+    color: #9ba7b6;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 0 12px 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+
+.item-row-header span:first-child {
+    text-align: left;
+}
+
 .order-item {
     background: #2d3440;
     border: 1px solid #3a424e;
@@ -181,7 +199,7 @@
 
 .item-row {
     display: grid;
-    grid-template-columns: 2fr 100px 120px 40px;
+    grid-template-columns: 1fr 90px 110px 120px 40px;
     gap: 12px;
     align-items: center;
 }
@@ -344,6 +362,10 @@
     .item-row {
         grid-template-columns: 1fr;
         gap: 8px;
+    }
+
+    .item-row-header {
+        display: none;
     }
     
     .form-container {
