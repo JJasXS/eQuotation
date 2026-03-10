@@ -1901,7 +1901,8 @@ def api_admin_update_quotation():
     update_data = {
         'dockey': dockey,
         'validUntil': data.get('validUntil'),
-        'items': items
+        'items': items,
+        'cancelled': False  # Set to active when updating
     }
     
     try:

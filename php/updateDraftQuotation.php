@@ -31,13 +31,13 @@ if (empty($items)) {
 try {
     $dbh = getFirebirdConnection();
     
-    // Verify quotation exists and is a draft (CANCELLED IS NULL)
-    $stmt = $dbh->prepare('SELECT DOCKEY, DOCNO, CODE FROM SL_QT WHERE DOCKEY = ? AND CANCELLED IS NULL');
-    $stmt->execute([$dockey]);
+    // Verify quotation exists (allow editing of both Pending and Active, but not Cancelled)
+    $stmt = $dbh->prepare('SELECT DOCKEY, DOCNO, CODE FROM SL_QT WHERE DOCKEY = ? AND (CANCELLED IS NULL OR CANCELLED = ?)');
+    $stmt->execute([$dockey, 'False']);
     $quotation = $stmt->fetch(PDO::FETCH_ASSOC);
     
     if (!$quotation) {
-        echo json_encode(['success' => false, 'error' => 'Draft quotation not found']);
+        echo json_encode(['success' => false, 'error' => 'Quotation not found or is cancelled']);
         exit;
     }
     
@@ -56,32 +56,42 @@ try {
         $totalAmount += $qty * $unitprice;
     }
     
-    // Update quotation header
+    // Convert empty string validity to null for date field
+    $validityDate = (!empty($validUntil) && $validUntil !== '') ? $validUntil : null;
+    
+    error_log("[DEBUG] Update params - DOCKEY: $dockey, VALIDITY: " . var_export($validityDate, true) . ", DOCAMT: $totalAmount");
+    
+    // Update quotation header (don't update STATUS or CANCELLED, just content)
     $updateStmt = $dbh->prepare('
         UPDATE SL_QT 
         SET DESCRIPTION = ?, 
             VALIDITY = ?, 
             DOCAMT = ?,
-            DOCDATE = ?,
             COMPANYNAME = ?,
             ADDRESS1 = ?,
             ADDRESS2 = ?,
-            PHONE1 = ?,
-            STATUS = 1,
-            CANCELLED = 0
+            PHONE1 = ?
         WHERE DOCKEY = ?
     ');
+    
+    error_log("[DEBUG] Updating quotation - DOCKEY: $dockey, DOCAMT: $totalAmount, VALIDITY: $validityDate");
+    
     $updateStmt->execute([
         $description,
-        $validUntil,
-        $totalAmount,
-        date('Y-m-d'),
+        $validityDate,      // Use converted validity date (null if empty)
+        (float)$totalAmount,  // Explicit cast to float
         $companyName,
         $address1,
         $address2,
         $phone1,
-        $dockey
+        (int)$dockey  // Explicit cast to int
     ]);
+    
+    // Set quotation to Active (CANCELLED = 'False')
+    error_log("[DEBUG] Setting CANCELLED to False for DOCKEY: $dockey");
+    $activateStmt = $dbh->prepare('UPDATE SL_QT SET CANCELLED = ? WHERE DOCKEY = ?');
+    $activateStmt->execute(['False', (int)$dockey]);
+    error_log("[DEBUG] Activation complete");
     
     // Insert new detail lines
     $seq = 1;
@@ -96,8 +106,8 @@ try {
             exit;
         }
         
-        // Get next DTLKEY
-        $dtlStmt = $dbh->prepare('SELECT COALESCE(MAX(DTLKEY), 0) + 1 FROM SL_QTDTL');
+        // Get next DTLKEY (cast to integer to avoid varchar-to-number conversion issues)
+        $dtlStmt = $dbh->prepare('SELECT COALESCE(MAX(CAST(DTLKEY AS INTEGER)), 0) + 1 FROM SL_QTDTL');
         $dtlStmt->execute();
         $dtlkey = $dtlStmt->fetchColumn();
 

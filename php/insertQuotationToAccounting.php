@@ -114,8 +114,8 @@ try {
             exit;
         }
         
-        // Get next DTLKEY
-        $dtlStmt = $dbh->prepare('SELECT COALESCE(MAX(DTLKEY), 0) + 1 FROM SL_QTDTL');
+        // Get next DTLKEY (cast to integer to avoid varchar-to-number conversion issues)
+        $dtlStmt = $dbh->prepare('SELECT COALESCE(MAX(CAST(DTLKEY AS INTEGER)), 0) + 1 FROM SL_QTDTL');
         $dtlStmt->execute();
         $dtlkey = $dtlStmt->fetchColumn();
 
