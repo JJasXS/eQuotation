@@ -95,6 +95,16 @@ try {
     $dbh = getFirebirdConnection();
     $dbh->beginTransaction();
 
+    // AREA in AR_CUSTOMER must come from AREA.CODE.
+    $areaStmt = $dbh->prepare('SELECT FIRST 1 CODE FROM AREA WHERE UPPER(CODE) = UPPER(?)');
+    $areaStmt->execute([$area]);
+    $areaRow = $areaStmt->fetch(PDO::FETCH_ASSOC);
+    $areaCode = $areaRow['CODE'] ?? null;
+    if (!$areaCode || trim((string)$areaCode) === '') {
+        throw new Exception('Invalid area: ' . $area);
+    }
+    $areaCode = trim((string)$areaCode);
+
     // Always store SYMBOL in AR_CUSTOMER.CURRENCYCODE.
     // Accept either SYMBOL or CODE from frontend, then resolve to SYMBOL.
     $currencyStmt = $dbh->prepare('SELECT FIRST 1 SYMBOL FROM CURRENCY WHERE UPPER(SYMBOL) = UPPER(?) OR UPPER(CODE) = UPPER(?)');
@@ -113,7 +123,7 @@ try {
         INSERT INTO AR_CUSTOMER (CODE, COMPANYNAME, AREA, CURRENCYCODE, UDF_EMAIL, BRN, BRN2, TIN, STATUS, CREATIONDATE)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     ');
-    $insertCustomer->execute([$customerCode, $companyName, $area, $currencySymbol, $udfEmail, $brn, $brn2, $tin, 'P']);
+    $insertCustomer->execute([$customerCode, $companyName, $areaCode, $currencySymbol, $udfEmail, $brn, $brn2, $tin, 'P']);
 
     $dtlkey = generateDTLKEY($dbh);
 

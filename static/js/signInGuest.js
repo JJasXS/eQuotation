@@ -84,6 +84,43 @@ async function loadCurrencySymbols() {
     }
 }
 
+async function loadAreaCodes() {
+    const areaSelect = document.getElementById('AREA');
+    if (!areaSelect) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/get_area_codes');
+        const data = await response.json();
+
+        if (!data.success || !Array.isArray(data.data)) {
+            throw new Error(data.error || 'Failed to load areas');
+        }
+
+        areaSelect.innerHTML = '';
+        data.data.forEach((code) => {
+            const option = document.createElement('option');
+            option.value = code;
+            option.textContent = code;
+            areaSelect.appendChild(option);
+        });
+
+        // Auto-select the first area returned by the API.
+        if (areaSelect.options.length > 0) {
+            areaSelect.selectedIndex = 0;
+        } else {
+            areaSelect.innerHTML = '<option value="">No area available</option>';
+            areaSelect.selectedIndex = 0;
+        }
+    } catch (error) {
+        console.error('Error loading area codes:', error);
+        areaSelect.innerHTML = '<option value="">No area available</option>';
+        areaSelect.selectedIndex = 0;
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     loadCurrencySymbols();
+    loadAreaCodes();
 });

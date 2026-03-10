@@ -394,6 +394,25 @@ def get_currency_symbols():
         print(f"Error calling getCurrencySymbols.php: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
+@app.route('/api/get_area_codes', methods=['GET'])
+def get_area_codes():
+    """Fetch AREA.CODE values for guest sign-in dropdown."""
+    try:
+        php_url = f"{BASE_API_URL}/php/getAreaCodes.php"
+        response = requests.get(php_url, timeout=10)
+        response.raise_for_status()
+        result = response.json()
+        return jsonify(result), response.status_code
+    except requests.exceptions.HTTPError:
+        try:
+            return jsonify(response.json()), response.status_code
+        except Exception:
+            return jsonify({'success': False, 'error': 'PHP endpoint returned an invalid response'}), response.status_code
+    except Exception as e:
+        print(f"Error calling getAreaCodes.php: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 # ============================================
 # AUTHENTICATION FUNCTIONS
 # ============================================
