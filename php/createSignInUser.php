@@ -120,10 +120,10 @@ try {
 
     // AR_CUSTOMER.STATUS appears to be CHAR(1), so use code 'P' for Prospect.
     $insertCustomer = $dbh->prepare('        
-        INSERT INTO AR_CUSTOMER (CODE, COMPANYNAME, AREA, CURRENCYCODE, UDF_EMAIL, BRN, BRN2, TIN, STATUS, CREATIONDATE)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        INSERT INTO AR_CUSTOMER (CODE, COMPANYNAME, AREA, CURRENCYCODE, UDF_EMAIL, BRN, BRN2, TIN, CREDITTERM, STATUS, CREATIONDATE)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     ');
-    $insertCustomer->execute([$customerCode, $companyName, $areaCode, $currencySymbol, $udfEmail, $brn, $brn2, $tin, 'P']);
+    $insertCustomer->execute([$customerCode, $companyName, $areaCode, $currencySymbol, $udfEmail, $brn, $brn2, $tin, '30 Days', 'P']);
 
     $dtlkey = generateDTLKEY($dbh);
 
