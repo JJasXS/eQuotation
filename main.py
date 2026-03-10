@@ -1,6 +1,7 @@
 # DEBUG: Confirm Flask main.py is running
 print("[DEBUG] main.py loaded and Flask is starting...", flush=True)
 import os
+from functools import wraps
 from datetime import datetime, timedelta
 import re
 import random
@@ -134,6 +135,152 @@ def insert_chat_message(chatid, sender, messagetext):
         json={"chatid": chatid, "sender": sender, "messagetext": messagetext}
     )
 
+
+def require_api_auth(admin_only=False, unauth_message='Not authenticated', forbidden_message='Forbidden'):
+    """Return a Flask error response tuple when auth/role checks fail; otherwise return None."""
+    if 'user_email' not in session:
+        return jsonify({'success': False, 'error': unauth_message}), 401
+    if admin_only and session.get('user_type') != 'admin':
+        return jsonify({'success': False, 'error': forbidden_message}), 403
+    return None
+
+
+def api_login_required(unauth_message='Unauthorized'):
+    """Decorator for API endpoints that require a logged-in user."""
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            auth_error = require_api_auth(unauth_message=unauth_message)
+            if auth_error:
+                return auth_error
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+def api_admin_required(unauth_message='Unauthorized', forbidden_message='Forbidden'):
+    """Decorator for API endpoints that require admin privileges."""
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            auth_error = require_api_auth(
+                admin_only=True,
+                unauth_message=unauth_message,
+                forbidden_message=forbidden_message
+            )
+            if auth_error:
+                return auth_error
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+def proxy_json_request(method, path, payload=None, params=None, timeout=10):
+    """Forward a request to a PHP endpoint and return JSON body/status."""
+    url = f"{BASE_API_URL}{path}"
+    response = requests.request(method=method, url=url, json=payload, params=params, timeout=timeout)
+    return response.json(), response.status_code
+
+
+def require_page_access(require_admin=False, block_admin=False, admin_redirect='/admin'):
+    """Return redirect response for unauthorized page access, or None if access is allowed."""
+    if 'user_email' not in session:
+        return redirect('/login')
+
+    user_type = session.get('user_type')
+    if require_admin and user_type != 'admin':
+        return redirect('/chat')
+    if block_admin and user_type == 'admin':
+        return redirect(admin_redirect)
+    return None
+
+
+def build_product_suggestions(search_term, candidates, price_lookup=None, require_price=True, threshold=0.3, limit=3):
+    """Return top-N similar product suggestions as (description, formatted_price)."""
+    matches = []
+    term = (search_term or '').lower()
+    for item in candidates:
+        desc = item.get('DESCRIPTION', '')
+        if not desc:
+            continue
+
+        desc_lower = desc.lower()
+        ratio = SequenceMatcher(None, term, desc_lower).ratio()
+        price = None
+        if price_lookup:
+            price = price_lookup.get(desc_lower)
+        else:
+            price = item.get('STOCKVALUE')
+
+        matches.append((desc, ratio, price))
+
+    matches.sort(key=lambda x: x[1], reverse=True)
+    filtered = [m for m in matches if m[1] > threshold and (m[2] if require_price else True)]
+    top_matches = filtered[:limit]
+    return [(desc, format_rm(price)) for desc, _, price in top_matches]
+
+
+def add_order_item(orderid, product_info, unitprice):
+    """Insert one order item and return a user-facing status message."""
+    try:
+        response = requests.post(
+            f"{BASE_API_URL}/php/insertOrderDetail.php",
+            json={
+                "orderid": orderid,
+                "description": product_info['description'],
+                "qty": product_info['qty'],
+                "unitprice": unitprice,
+                "discount": 0
+            }
+        )
+        data = response.json()
+        if data.get('success'):
+            total = format_rm(data.get('total'))
+            return f"✓ Added {product_info['qty']}x {product_info['description']} → {total}\n\nWant more items or type 'Complete Order'?"
+        return f"Error adding item: {data.get('error')}"
+    except Exception as e:
+        return f"Error adding item: {str(e)}"
+
+
+def should_include_stock_context(user_input):
+    """Only inject stock catalog context when a message is product/order related."""
+    text = (user_input or '').lower()
+    stock_terms = [
+        'stock', 'price', 'pricing', 'product', 'item', 'catalog', 'available',
+        'order', 'quotation', 'quote', 'buy', 'purchase', 'add', 'qty', 'quantity'
+    ]
+    return any(term in text for term in stock_terms)
+
+
+def format_chatbot_response(text):
+    """
+    Format chatbot response to ensure proper line breaks in lists.
+    Adds line breaks before numbered items (e.g., '7. Item') and bullet points.
+    """
+    import re
+    
+    # Handle intro line before numbered lists (e.g., "available: 1." -> "available:\n\n1.")
+    text = re.sub(r'(:\s*)(\d+\.\s+[A-Z])', r'\1\n\n\2', text)
+    
+    # Most important: catch prices followed by numbered items
+    # Pattern: "RM 250.00 2. Item" -> "RM 250.00\n2. Item"
+    text = re.sub(r'(\d+\.\d+)\s+(\d+\.\s+)', r'\1\n\2', text)
+    
+    # Catch any remaining inline numbered items after non-whitespace
+    # Pattern: "Lighting - RM 450.00" followed by "3. Item"
+    text = re.sub(r'(\S)\s+(\d+\.\s+[A-Z])', r'\1\n\2', text)
+    
+    # Also catch after closing parens
+    text = re.sub(r'(\))\s+(\d+\.\s+)', r'\1\n\2', text)
+    
+    # Ensure bullet points have line breaks
+    text = re.sub(r'([^\n])\s+(-\s+[A-Z])', r'\1\n\2', text)
+    
+    # Clean up excessive line breaks (more than 2 in a row)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    
+    return text
+
 app = Flask(__name__, template_folder="templates", static_folder="static", static_url_path="/static")
 
 # Configure Flask session
@@ -160,15 +307,14 @@ def add_no_cache_headers(response):
 @app.route('/php/deleteOrderDetail.php', methods=['POST'])
 def proxy_delete_order_detail():
     """Proxy endpoint to delete order detail via XAMPP PHP."""
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+    auth_error = require_api_auth()
+    if auth_error:
+        return auth_error
 
     payload = request.get_json() or {}
 
     try:
-        url = f"{BASE_API_URL}/php/deleteOrderDetail.php"
-        response = requests.post(url, json=payload, timeout=10)
-        return response.json(), response.status_code
+        return proxy_json_request('POST', '/php/deleteOrderDetail.php', payload=payload)
     except Exception as e:
         print(f"Error proxying deleteOrderDetail to XAMPP: {e}")
         return jsonify({'success': False, 'error': 'Failed to delete order detail'}), 500
@@ -177,13 +323,9 @@ def proxy_delete_order_detail():
 # ROUTE: Update Quotation Cancelled Status
 # ============================================
 @app.route('/api/admin/update_quotation_cancelled', methods=['POST'])
+@api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
 def update_quotation_cancelled():
     """Forward CANCELLED status update to PHP endpoint (admin only)."""
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
-    if session.get('user_type') != 'admin':
-        return jsonify({'success': False, 'error': 'Insufficient permissions'}), 403
-
     data = request.get_json() or {}
     dockey = data.get('dockey')
     cancelled = data.get('cancelled')
@@ -467,8 +609,9 @@ def logout():
 @app.route('/php/getOrdersByStatus.php')
 def proxy_get_orders_by_status():
     """Proxy endpoint to forward requests to XAMPP PHP with customer code filtering for non-admin users"""
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+    auth_error = require_api_auth()
+    if auth_error:
+        return auth_error
     
     status = request.args.get('status')
     if not status:
@@ -495,34 +638,30 @@ def proxy_get_orders_by_status():
 @app.route('/php/updateOrderStatus.php', methods=['POST'])
 def proxy_update_order_status():
     """Proxy endpoint to update order status via XAMPP PHP."""
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
-    if session.get('user_type') != 'admin':
-        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+    auth_error = require_api_auth(admin_only=True)
+    if auth_error:
+        return auth_error
 
     payload = request.get_json() or {}
 
     try:
-        url = f"{BASE_API_URL}{ENDPOINT_PATHS['updateorderstatus']}"
-        response = requests.post(url, json=payload, timeout=10)
-        return response.json(), response.status_code
+        return proxy_json_request('POST', ENDPOINT_PATHS['updateorderstatus'], payload=payload)
     except Exception as e:
         print(f"Error proxying status update to XAMPP: {e}")
         return jsonify({'success': False, 'error': 'Failed to update order status'}), 500
 @app.route('/php/getOrderDetails.php')
 def proxy_get_order_details():
     """Proxy endpoint to fetch order details via XAMPP PHP."""
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+    auth_error = require_api_auth()
+    if auth_error:
+        return auth_error
 
     orderid = request.args.get('orderid')
     if not orderid:
         return jsonify({'success': False, 'error': 'orderid parameter required'}), 400
 
     try:
-        url = f"{BASE_API_URL}{ENDPOINT_PATHS['getorderdetails']}?orderid={orderid}"
-        response = requests.get(url, timeout=10)
-        return response.json(), response.status_code
+        return proxy_json_request('GET', ENDPOINT_PATHS['getorderdetails'], params={'orderid': orderid})
     except Exception as e:
         print(f"Error proxying getOrderDetails to XAMPP: {e}")
         return jsonify({'success': False, 'error': 'Failed to fetch order details'}), 500
@@ -531,17 +670,14 @@ def proxy_get_order_details():
 @app.route('/php/updateOrderDetail.php', methods=['POST'])
 def proxy_update_order_detail():
     """Proxy endpoint to update order detail via XAMPP PHP."""
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
-    if session.get('user_type') != 'admin':
-        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+    auth_error = require_api_auth(admin_only=True)
+    if auth_error:
+        return auth_error
 
     payload = request.get_json() or {}
 
     try:
-        url = f"{BASE_API_URL}{ENDPOINT_PATHS['updateorderdetail']}"
-        response = requests.post(url, json=payload, timeout=10)
-        return response.json(), response.status_code
+        return proxy_json_request('POST', ENDPOINT_PATHS['updateorderdetail'], payload=payload)
     except Exception as e:
         print(f"Error proxying updateOrderDetail to XAMPP: {e}")
         return jsonify({'success': False, 'error': 'Failed to update order detail'}), 500
@@ -550,17 +686,14 @@ def proxy_update_order_detail():
 @app.route('/php/insertOrderDetail.php', methods=['POST'])
 def proxy_insert_order_detail():
     """Proxy endpoint to insert order detail via XAMPP PHP."""
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
-    if session.get('user_type') != 'admin':
-        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+    auth_error = require_api_auth(admin_only=True)
+    if auth_error:
+        return auth_error
 
     payload = request.get_json() or {}
 
     try:
-        url = f"{BASE_API_URL}{ENDPOINT_PATHS['insertorderdetail']}"
-        response = requests.post(url, json=payload, timeout=10)
-        return response.json(), response.status_code
+        return proxy_json_request('POST', ENDPOINT_PATHS['insertorderdetail'], payload=payload)
     except Exception as e:
         print(f"Error proxying insertOrderDetail to XAMPP: {e}")
         return jsonify({'success': False, 'error': 'Failed to insert order detail'}), 500
@@ -569,15 +702,14 @@ def proxy_insert_order_detail():
 @app.route('/php/requestOrderChange.php', methods=['POST'])
 def proxy_request_order_change():
     """Proxy endpoint to submit order change request."""
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+    auth_error = require_api_auth()
+    if auth_error:
+        return auth_error
 
     payload = request.get_json() or {}
 
     try:
-        url = f"{BASE_API_URL}/php/requestOrderChange.php"
-        response = requests.post(url, json=payload, timeout=10)
-        return response.json(), response.status_code
+        return proxy_json_request('POST', '/php/requestOrderChange.php', payload=payload)
     except requests.exceptions.Timeout:
         print(f"Timeout connecting to XAMPP at {BASE_API_URL}")
         return jsonify({'success': False, 'error': 'Request timed out. Please check if XAMPP is running.'}), 500
@@ -592,17 +724,16 @@ def proxy_request_order_change():
 @app.route('/php/getOrderRemarks.php')
 def proxy_get_order_remarks():
     """Proxy endpoint to get order remarks."""
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+    auth_error = require_api_auth()
+    if auth_error:
+        return auth_error
     
     orderid = request.args.get('orderid')
     if not orderid:
         return jsonify({'success': False, 'error': 'orderid parameter required'}), 400
     
     try:
-        url = f"{BASE_API_URL}/php/getOrderRemarks.php?orderid={orderid}"
-        response = requests.get(url, timeout=10)
-        return response.json(), response.status_code
+        return proxy_json_request('GET', '/php/getOrderRemarks.php', params={'orderid': orderid})
     except Exception as e:
         print(f"Error proxying get remarks to XAMPP: {e}")
         return jsonify({'success': False, 'error': 'Failed to fetch remarks'}), 500
@@ -610,15 +741,14 @@ def proxy_get_order_remarks():
 @app.route('/php/insertDraftQuotation.php', methods=['POST'])
 def proxy_insert_draft_quotation():
     """Proxy endpoint to create draft quotation via XAMPP PHP."""
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+    auth_error = require_api_auth()
+    if auth_error:
+        return auth_error
     
     payload = request.get_json() or {}
     
     try:
-        url = f"{BASE_API_URL}/php/insertDraftQuotation.php"
-        response = requests.post(url, json=payload, timeout=10)
-        return response.json(), response.status_code
+        return proxy_json_request('POST', '/php/insertDraftQuotation.php', payload=payload)
     except Exception as e:
         print(f"Error proxying insertDraftQuotation to XAMPP: {e}")
         return jsonify({'success': False, 'error': 'Failed to create draft quotation'}), 500
@@ -626,15 +756,14 @@ def proxy_insert_draft_quotation():
 @app.route('/php/updateDraftQuotation.php', methods=['POST'])
 def proxy_update_draft_quotation():
     """Proxy endpoint to update draft quotation via XAMPP PHP."""
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+    auth_error = require_api_auth()
+    if auth_error:
+        return auth_error
     
     payload = request.get_json() or {}
     
     try:
-        url = f"{BASE_API_URL}/php/updateDraftQuotation.php"
-        response = requests.post(url, json=payload, timeout=10)
-        return response.json(), response.status_code
+        return proxy_json_request('POST', '/php/updateDraftQuotation.php', payload=payload)
     except Exception as e:
         print(f"Error proxying updateDraftQuotation to XAMPP: {e}")
         return jsonify({'success': False, 'error': 'Failed to update draft quotation'}), 500
@@ -642,21 +771,18 @@ def proxy_update_draft_quotation():
 @app.route('/admin')
 def admin():
     """Display admin dashboard (requires authentication and admin role)"""
-    if 'user_email' not in session:
-        return redirect('/login')
-    # Check if user is actually admin
-    if session.get('user_type') != 'admin':
-        return redirect('/chat')
+    page_error = require_page_access(require_admin=True)
+    if page_error:
+        return page_error
     return render_template('admin.html', user_email=session.get('user_email', ''))
 
 
 @app.route('/admin/pending-approvals')
 def admin_pending_approvals():
     """Display pending approvals page (admin only)."""
-    if 'user_email' not in session:
-        return redirect('/login')
-    if session.get('user_type') != 'admin':
-        return redirect('/chat')
+    page_error = require_page_access(require_admin=True)
+    if page_error:
+        return page_error
     return render_template('adminApproval.html', 
                          user_email=session.get('user_email', ''),
                          user_type='admin')
@@ -667,8 +793,9 @@ def admin_pending_approvals():
 @app.route('/user/approvals')
 def user_approvals():
     """Display user approvals page (regular users)."""
-    if 'user_email' not in session:
-        return redirect('/login')
+    page_error = require_page_access()
+    if page_error:
+        return page_error
     return render_template('userApproval.html', 
                          user_email=session.get('user_email', ''))
 
@@ -676,8 +803,9 @@ def user_approvals():
 @app.route('/user/draft-orders')
 def user_draft_orders():
     """Display draft orders page (regular users)."""
-    if 'user_email' not in session:
-        return redirect('/login')
+    page_error = require_page_access()
+    if page_error:
+        return page_error
     return render_template('draftOrders.html', 
                          user_email=session.get('user_email', ''))
 
@@ -685,22 +813,18 @@ def user_draft_orders():
 @app.route('/create-order')
 def create_order_page():
     """Display create order page (regular users)."""
-    if 'user_email' not in session:
-        return redirect('/login')
-    # Redirect admin users to admin dashboard
-    if session.get('user_type') == 'admin':
-        return redirect('/admin')
+    page_error = require_page_access(block_admin=True, admin_redirect='/admin')
+    if page_error:
+        return page_error
     return render_template('createOrder.html', 
                          user_email=session.get('user_email', ''))
 
 @app.route('/create-quotation')
 def create_quotation_page():
     """Display create quotation page (regular users)."""
-    if 'user_email' not in session:
-        return redirect('/login')
-    # Redirect admin users to admin dashboard
-    if session.get('user_type') == 'admin':
-        return redirect('/admin')
+    page_error = require_page_access(block_admin=True, admin_redirect='/admin')
+    if page_error:
+        return page_error
     dockey = request.args.get('dockey', '')
     return render_template('createQuotation.html', 
                          user_email=session.get('user_email', ''),
@@ -710,10 +834,9 @@ def create_quotation_page():
 @app.route('/view-quotation')
 def view_quotation_page():
     """Display quotation listing page (regular users)."""
-    if 'user_email' not in session:
-        return redirect('/login')
-    if session.get('user_type') == 'admin':
-        return redirect('/admin/view-quotations')
+    page_error = require_page_access(block_admin=True, admin_redirect='/admin/view-quotations')
+    if page_error:
+        return page_error
     # Always render the user template for users
     return render_template('viewQuotation.html',
                          user_email=session.get('user_email', ''),
@@ -722,10 +845,9 @@ def view_quotation_page():
 @app.route('/admin/view-quotations')
 def admin_view_quotations():
     """Display all quotations page (admin only)."""
-    if 'user_email' not in session:
-        return redirect('/login')
-    if session.get('user_type') != 'admin':
-        return redirect('/chat')
+    page_error = require_page_access(require_admin=True)
+    if page_error:
+        return page_error
     # Always render the admin template for admins
     return render_template('adminViewQuotations.html', 
                          user_email=session.get('user_email', ''),
@@ -735,21 +857,16 @@ def admin_view_quotations():
 @app.route('/admin/pending-approvals/edit/<int:orderid>')
 def admin_edit_approval(orderid):
     """Display admin edit approval page."""
-    if 'user_email' not in session:
-        return redirect('/login')
-    if session.get('user_type') != 'admin':
-        return redirect('/chat')
+    page_error = require_page_access(require_admin=True)
+    if page_error:
+        return page_error
     return render_template('admin_edit_approval.html', user_email=session.get('user_email', ''), orderid=orderid)
 
 
 @app.route('/admin/api/update-order', methods=['POST'])
+@api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
 def admin_update_order():
     """Admin API endpoint to update order status and order detail rows."""
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
-    if session.get('user_type') != 'admin':
-        return jsonify({'success': False, 'error': 'Insufficient permissions'}), 403
-
     data = request.get_json() or {}
     orderid = data.get('orderid')
     status = data.get('status')
@@ -904,18 +1021,14 @@ def index():
 @app.route('/chat', methods=['GET'])
 def chat():
     """Display chat page (requires authentication and must be regular user)"""
-    if 'user_email' not in session:
-        return redirect('/login')
-    # Check if user is admin - if so, redirect to admin dashboard
-    if session.get('user_type') == 'admin':
-        return redirect('/admin')
+    page_error = require_page_access(block_admin=True, admin_redirect='/admin')
+    if page_error:
+        return page_error
     return render_template('chat.html', user_email=session.get('user_email', ''))
 
 @app.route('/chat', methods=['POST'])
+@api_login_required(unauth_message='Unauthorized')
 def chat_api():
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-
     user_email = session.get('user_email')
     user_input = request.json.get('message')
     chatid = request.json.get('chatid')
@@ -934,6 +1047,11 @@ def chat_api():
     # Always include PHP endpoint data in the prompt
     stockitems = fetch_data_from_api("stockitem")
     stockitemprices = fetch_data_from_api("stockitemprice")
+    price_lookup_by_desc = {
+        (item.get('DESCRIPTION', '') or '').lower(): item.get('STOCKVALUE')
+        for item in stockitemprices
+        if item.get('DESCRIPTION')
+    }
     formatted_stockitemprices = []
     for item in stockitemprices:
         formatted_item = dict(item)
@@ -965,12 +1083,13 @@ def chat_api():
             "content": CHATBOT_SYSTEM_INSTRUCTIONS.strip()
         })
 
-    # Add stock data context
+    # Add stock data context only when relevant to avoid repetitive/static replies.
     stock_context_parts = []
-    if stock_items_block:
-        stock_context_parts.append(f"Available Stock Items:\n{stock_items_block}")
-    if stock_prices_block:
-        stock_context_parts.append(f"Stock Item Prices:\n{stock_prices_block}")
+    if should_include_stock_context(user_input):
+        if stock_items_block:
+            stock_context_parts.append(f"Available Stock Items:\n{stock_items_block}")
+        if stock_prices_block:
+            stock_context_parts.append(f"Stock Item Prices:\n{stock_prices_block}")
     if stock_context_parts:
         messages.append({
             "role": "system",
@@ -1040,46 +1159,16 @@ def chat_api():
                 if product_info:
                     unitprice = get_product_price(product_info, stockitemprices)
                     if unitprice:
-                        try:
-                            response = requests.post(
-                                f"{BASE_API_URL}/php/insertOrderDetail.php",
-                                json={
-                                    "orderid": orderid,
-                                    "description": product_info['description'],
-                                    "qty": product_info['qty'],
-                                    "unitprice": unitprice,
-                                    "discount": 0
-                                }
-                            )
-                            data = response.json()
-                            if data.get('success'):
-                                total = format_rm(data.get('total'))
-                                order_response = f"✓ Added {product_info['qty']}x {product_info['description']} → {total}\n\nWant more items or type 'Complete Order'?"
-                            else:
-                                order_response = f"Error adding item: {data.get('error')}"
-                        except Exception as e:
-                            order_response = f"Error adding item: {str(e)}"
+                        order_response = add_order_item(orderid, product_info, unitprice)
                     else:
                         # Product not found - provide suggestions with prices
                         searched_term = product_info['description']
-                        suggestions = []
-                        
-                        # Get top 3 similar products with prices
-                        matches = []
-                        for item in stockitems:
-                            desc = item.get('DESCRIPTION', '')
-                            if desc:
-                                ratio = SequenceMatcher(None, searched_term.lower(), desc.lower()).ratio()
-                                # Look up price for this item
-                                price = None
-                                for price_item in stockitemprices:
-                                    if price_item.get('DESCRIPTION', '').lower() == desc.lower():
-                                        price = price_item.get('STOCKVALUE')
-                                        break
-                                matches.append((desc, ratio, price))
-                        
-                        matches.sort(key=lambda x: x[1], reverse=True)
-                        suggestions = [(m[0], format_rm(m[2])) for m in matches[:3] if m[1] > 0.3 and m[2]]
+                        suggestions = build_product_suggestions(
+                            searched_term,
+                            stockitems,
+                            price_lookup=price_lookup_by_desc,
+                            require_price=True
+                        )
                         
                         if suggestions:
                             suggestions_text = "\n- ".join([f"{desc} ({price})" for desc, price in suggestions])
@@ -1218,41 +1307,16 @@ def chat_api():
                 print(f"[DEBUG] Product mention detected! Auto-adding: {product_info['description']}", flush=True)
                 unitprice = get_product_price(product_info, stockitemprices)
                 if unitprice:
-                    try:
-                        response = requests.post(
-                            f"{BASE_API_URL}/php/insertOrderDetail.php",
-                            json={
-                                "orderid": orderid,
-                                "description": product_info['description'],
-                                "qty": product_info['qty'],
-                                "unitprice": unitprice,
-                                "discount": 0
-                            }
-                        )
-                        data = response.json()
-                        if data.get('success'):
-                            total = format_rm(data.get('total'))
-                            order_response = f"✓ Added {product_info['qty']}x {product_info['description']} → {total}\n\nWant more items or type 'Complete Order'?"
-                        else:
-                            order_response = f"Error adding item: {data.get('error')}"
-                    except Exception as e:
-                        order_response = f"Error adding item: {str(e)}"
+                    order_response = add_order_item(orderid, product_info, unitprice)
                 else:
                     # Price not found - provide suggestions with verified prices
                     searched_term = product_info['description']
-                    suggestions = []
-                    
-                    # Get top 3 similar products that actually have prices
-                    matches = []
-                    for item in stockitemprices:
-                        desc = item.get('DESCRIPTION', '')
-                        price = item.get('STOCKVALUE')
-                        if desc and price:  # Only include items with valid prices
-                            ratio = SequenceMatcher(None, searched_term.lower(), desc.lower()).ratio()
-                            matches.append((desc, ratio, price))
-                    
-                    matches.sort(key=lambda x: x[1], reverse=True)
-                    suggestions = [(m[0], format_rm(m[2])) for m in matches[:3] if m[1] > 0.3]
+                    suggestions = build_product_suggestions(
+                        searched_term,
+                        stockitemprices,
+                        price_lookup=None,
+                        require_price=True
+                    )
                     
                     if suggestions:
                         suggestions_text = "\n- ".join([f"{desc} ({price})" for desc, price in suggestions])
@@ -1265,7 +1329,9 @@ def chat_api():
         formatted_reply = order_response
     else:
         response = chat_with_gpt(messages)
-        formatted_reply = response.strip()
+        # Apply formatting to ensure proper line breaks in lists
+        formatted_reply = format_chatbot_response(response.strip())
+        print(f"[DEBUG] Original response length: {len(response)}, Formatted length: {len(formatted_reply)}", flush=True)
     
     # Save messages if chatid provided
     if chatid:
@@ -1297,10 +1363,8 @@ def list_php_endpoints():
     return jsonify({'endpoints': endpoints})
 
 @app.route('/get_chats')
+@api_login_required(unauth_message='Unauthorized')
 def get_chats():
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-    
     customer_code = session.get('customer_code')
     if not customer_code:
         return jsonify({'success': False, 'error': 'Customer code not found'}), 400
@@ -1318,11 +1382,9 @@ def get_chats():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/get_active_order')
+@api_login_required(unauth_message='Unauthorized')
 def api_get_active_order():
     """Get active DRAFT order for a chat"""
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-    
     chatid = request.args.get('chatid')
     if not chatid:
         return jsonify({'success': False, 'error': 'chatid required'}), 400
@@ -1344,13 +1406,9 @@ def api_get_active_order():
 
 
 @app.route('/api/admin/update_order_status', methods=['POST'])
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Forbidden')
 def api_admin_update_order_status():
     """Admin endpoint to update order status (e.g., COMPLETED / CANCELLED)."""
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-    if session.get('user_type') != 'admin':
-        return jsonify({'success': False, 'error': 'Forbidden'}), 403
-
     data = request.get_json() or {}
     orderid = data.get('orderid')
     status = (data.get('status') or '').upper().strip()
@@ -1379,10 +1437,8 @@ def api_admin_update_order_status():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/insert_chat', methods=['POST'])
+@api_login_required(unauth_message='Unauthorized')
 def api_insert_chat():
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-    
     data = request.get_json()
     chat_name = data.get('chatname', '').strip()
     if not chat_name:
@@ -1441,10 +1497,8 @@ def api_insert_chat():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/get_chat_details')
+@api_login_required(unauth_message='Unauthorized')
 def get_chat_details():
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-    
     chatid = request.args.get('chatid')
     if not chatid:
         return jsonify({'success': False, 'error': 'chatid required'}), 400
@@ -1461,11 +1515,9 @@ def get_chat_details():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/check_draft_order')
+@api_login_required(unauth_message='Unauthorized')
 def check_draft_order():
     """Check if a chat has an active DRAFT order"""
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-    
     chatid = request.args.get('chatid')
     if not chatid:
         return jsonify({'success': False, 'error': 'chatid required'}), 400
@@ -1489,11 +1541,9 @@ def check_draft_order():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/check_user_has_draft')
+@api_login_required(unauth_message='Unauthorized')
 def check_user_has_draft():
     """Check if the user has any DRAFT orders across all chats"""
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-    
     user_email = session.get('user_email')
     customer_code = session.get('customer_code')
     
@@ -1515,11 +1565,9 @@ def check_user_has_draft():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/get_stock_items')
+@api_login_required(unauth_message='Unauthorized')
 def api_get_stock_items():
     """Get stock items for autocomplete in order/quotation forms"""
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-    
     try:
         stockitems = fetch_data_from_api("stockitem")
         return jsonify({'success': True, 'items': stockitems})
@@ -1527,11 +1575,9 @@ def api_get_stock_items():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/get_product_price')
+@api_login_required(unauth_message='Unauthorized')
 def api_get_product_price():
     """Get product price by description"""
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-    
     description = request.args.get('description', '').strip()
     if not description:
         return jsonify({'success': False, 'error': 'Description required'}), 400
@@ -1572,11 +1618,9 @@ def api_get_product_price():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/create_order', methods=['POST'])
+@api_login_required(unauth_message='Unauthorized')
 def api_create_order():
     """Create a new order from the order form"""
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-    
     user_email = session.get('user_email')
     customer_code = session.get('customer_code')
     data = request.get_json() or {}
@@ -1610,11 +1654,9 @@ def api_create_order():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/create_quotation', methods=['POST'])
+@api_login_required(unauth_message='Session expired. Please log in again.')
 def api_create_quotation():
     """Create or update a quotation in the accounting system (SL_QT)"""
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Session expired. Please log in again.'}), 401
-    
     user_email = session.get('user_email')
     customer_code = session.get('customer_code')
     data = request.get_json() or {}
@@ -1688,11 +1730,9 @@ def api_create_quotation():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/get_my_quotations')
+@api_login_required(unauth_message='Unauthorized')
 def api_get_my_quotations():
     """Get quotations for current logged in user by customer code."""
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-
     customer_code = session.get('customer_code')
     
     # If customer_code not in session, fetch it from AR_CUSTOMERBRANCH (for old sessions)
@@ -1760,11 +1800,9 @@ def api_get_my_quotations():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/get_quotation_details')
+@api_login_required(unauth_message='Unauthorized')
 def api_get_quotation_details():
     """Get quotation details including line items."""
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-
     dockey = request.args.get('dockey')
     if not dockey:
         return jsonify({'success': False, 'error': 'dockey parameter required'}), 400
@@ -1780,15 +1818,9 @@ def api_get_quotation_details():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/admin/get_all_quotations')
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_get_all_quotations():
     """Get all quotations for admin view with optional status filter."""
-    if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-    
-    # Check if user is admin
-    if session.get('user_type') != 'admin':
-        return jsonify({'success': False, 'error': 'Admin access required'}), 403
-
     cancelled = request.args.get('cancelled')  # 'true' or 'false'
     print(f"[DEBUG] api_admin_get_all_quotations: cancelled param = {cancelled}", flush=True)
 
@@ -1807,12 +1839,9 @@ def api_admin_get_all_quotations():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/get_user_info')
+@api_login_required(unauth_message='Unauthorized')
 def api_get_user_info():
     """Proxy to PHP getUserInfo.php for customer info."""
-    if 'user_email' not in session:
-        print("[DEBUG] get_user_info: user_email not in session", flush=True)
-        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-
     customer_code = session.get('customer_code')
     if not customer_code:
         print("[DEBUG] get_user_info: customer_code not in session", flush=True)
