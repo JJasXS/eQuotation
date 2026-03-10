@@ -25,7 +25,7 @@ if (!is_array($data)) {
 
 $companyName = trim($data['COMPANYNAME'] ?? '');
 $area = trim($data['AREA'] ?? '');
-$currencyCode = trim($data['CURRENCYCODE'] ?? '');
+$currencyInput = trim($data['CURRENCYCODE'] ?? '');
 $udfEmail = trim($data['UDF_EMAIL'] ?? '');
 $brn = trim($data['BRN'] ?? '');
 $brn2 = trim($data['BRN2'] ?? '');
@@ -39,7 +39,7 @@ $postcode = trim($data['POSTCODE'] ?? '');
 $attention = trim($data['ATTENTION'] ?? '');
 $phone1 = trim($data['PHONE1'] ?? '');
 
-if ($companyName === '' || $area === '' || $currencyCode === '' || $udfEmail === '' || $brn === '' || $brn2 === '' || $tin === '' || $address1 === '' || $postcode === '' || $attention === '' || $phone1 === '') {
+if ($companyName === '' || $area === '' || $currencyInput === '' || $udfEmail === '' || $brn === '' || $brn2 === '' || $tin === '' || $address1 === '' || $postcode === '' || $attention === '' || $phone1 === '') {
     echo json_encode(['success' => false, 'error' => 'Missing required fields']);
     exit;
 }
@@ -95,6 +95,17 @@ try {
     $dbh = getFirebirdConnection();
     $dbh->beginTransaction();
 
+    // Always store SYMBOL in AR_CUSTOMER.CURRENCYCODE.
+    // Accept either SYMBOL or CODE from frontend, then resolve to SYMBOL.
+    $currencyStmt = $dbh->prepare('SELECT FIRST 1 SYMBOL FROM CURRENCY WHERE UPPER(SYMBOL) = UPPER(?) OR UPPER(CODE) = UPPER(?)');
+    $currencyStmt->execute([$currencyInput, $currencyInput]);
+    $currencyRow = $currencyStmt->fetch(PDO::FETCH_ASSOC);
+    $currencySymbol = $currencyRow['SYMBOL'] ?? null;
+    if (!$currencySymbol || trim((string)$currencySymbol) === '') {
+        throw new Exception('Invalid currency: ' . $currencyInput);
+    }
+    $currencySymbol = trim((string)$currencySymbol);
+
     $customerCode = generateGuestCustomerCode($dbh);
 
     // AR_CUSTOMER.STATUS appears to be CHAR(1), so use code 'P' for Prospect.
@@ -102,7 +113,7 @@ try {
         INSERT INTO AR_CUSTOMER (CODE, COMPANYNAME, AREA, CURRENCYCODE, UDF_EMAIL, BRN, BRN2, TIN, STATUS, CREATIONDATE)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     ');
-    $insertCustomer->execute([$customerCode, $companyName, $area, $currencyCode, $udfEmail, $brn, $brn2, $tin, 'P']);
+    $insertCustomer->execute([$customerCode, $companyName, $area, $currencySymbol, $udfEmail, $brn, $brn2, $tin, 'P']);
 
     $dtlkey = generateDTLKEY($dbh);
 

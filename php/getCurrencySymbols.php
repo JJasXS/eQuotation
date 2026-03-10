@@ -1,5 +1,5 @@
 <?php
-// getCurrencySymbols.php - Return available currency symbols
+// getCurrencySymbols.php - Return available currency codes
 header('Content-Type: application/json');
 require_once 'db_helper.php';
 
@@ -15,17 +15,17 @@ try {
     $stmt->execute();
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    $symbols = [];
+    $codes = [];
     foreach ($rows as $row) {
-        $symbol = isset($row['CODE']) ? trim((string)$row['CODE']) : '';
-        if ($symbol !== '') {
-            $symbols[] = $symbol;
+        $code = isset($row['CODE']) ? trim((string)$row['CODE']) : '';
+        if ($code !== '') {
+            $codes[] = $code;
         }
     }
 
     echo json_encode([
         'success' => true,
-        'data' => $symbols
+        'data' => $codes
     ]);
 } catch (Exception $e) {
     echo json_encode([
