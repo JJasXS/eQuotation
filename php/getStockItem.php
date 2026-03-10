@@ -5,7 +5,8 @@ require_once 'db_helper.php';
 
 try {
     $dbh = getFirebirdConnection();
-    $stmt = $dbh->query('SELECT DESCRIPTION, STOCKGROUP FROM ST_ITEM');
+    // Fetch DESCRIPTION, STOCKGROUP, REMARK1, REMARK2 if present
+    $stmt = $dbh->query('SELECT DESCRIPTION, STOCKGROUP, REMARK1, REMARK2 FROM ST_ITEM');
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
     echo json_encode(['success' => true, 'data' => $rows]);
 } catch (PDOException $e) {
