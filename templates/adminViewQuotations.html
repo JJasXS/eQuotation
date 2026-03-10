@@ -19,16 +19,6 @@
                 </div>
             </div>
 
-    {% if user_type == 'admin' %}
-    <div style="margin-bottom: 18px; display: flex; justify-content: center;">
-        <div style="display: flex; gap: 8px; align-items: center;  padding: 16px 24px; ">
-            <select id="company-filter-dropdown" style="padding: 7px 12px; border-radius: 5px; border: 1px solid #3d4654; background: #232a36; color: #e4e9f1; font-size: 14px; width: 240px;">
-                <option value="">All Companies</option>
-            </select>
-            <button id="company-filter-clear" style="padding: 7px 12px; border-radius: 5px; background: #2d3440; color: #9ba7b6; border: 1px solid #3d4654; cursor: pointer; font-size: 14px;">Clear</button>
-        </div>
-    </div>
-    {% endif %}
             <div class="tab-content active">
                 <div id="quotation-content" style="padding: 20px;">
                     <div style="padding: 20px; text-align: center; color: #888;">Loading...</div>

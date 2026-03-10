@@ -1,6 +1,53 @@
 let activeQuotationsCache = [];
 let cancelledQuotationsCache = [];
 let pendingQuotationsCache = [];
+let companyFilter = '';
+let currentTab = 'active';
+
+async function getAllUniqueCompanyNames() {
+    try {
+        const response = await fetch('/api/get_company_names');
+        const data = await response.json();
+        return data.success ? (data.data || []) : [];
+    } catch (error) {
+        console.error('Error fetching company names:', error);
+        return [];
+    }
+}
+
+function filterQuotationsByCompany(list) {
+    if (!companyFilter) {
+        return list;
+    }
+
+    return list.filter(qt => {
+        const company = (qt.COMPANYNAME || '').toLowerCase().trim();
+        return company === companyFilter.toLowerCase();
+    });
+}
+
+async function setupCompanyFilter() {
+    const dropdown = document.getElementById('company-filter-dropdown');
+    const clearBtn = document.getElementById('company-filter-clear');
+    if (!dropdown || !clearBtn) {
+        return;
+    }
+
+    const companies = await getAllUniqueCompanyNames();
+    dropdown.innerHTML = '<option value="">All Companies</option>' +
+        companies.map(name => `<option value="${name}">${name}</option>`).join('');
+
+    dropdown.onchange = function() {
+        companyFilter = dropdown.value;
+        setQuotationTab(currentTab);
+    };
+
+    clearBtn.onclick = function() {
+        companyFilter = '';
+        dropdown.value = '';
+        setQuotationTab(currentTab);
+    };
+}
 
 async function loadQuotations() {
     const content = document.getElementById('quotation-content');
@@ -33,7 +80,15 @@ async function loadQuotations() {
 
         let html = `
             <div style="padding: 16px;">
-                <div style="display: flex; gap: 8px; margin-bottom: 12px; border-bottom: 1px solid #3d4654; padding-bottom: 10px;">
+                <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #3d4654; padding-bottom: 10px;">
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <select id="company-filter-dropdown" style="padding: 8px 12px; background: #2d3440; color: #e4e9f1; border: 1px solid #3d4654; border-radius: 6px; cursor: pointer; font-size: 13px;">
+                            <option value="">All Companies</option>
+                        </select>
+                        <button id="company-filter-clear" style="background: #2d3440; color: #9ba7b6; border: 1px solid #3d4654; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 13px;">Clear</button>
+                    </div>
+                    <div style="flex: 1;"></div>
+                    <div style="display: flex; gap: 8px;">
                         <button id="tab-active" onclick="setQuotationTab('active')" style="background: #4b6e9e; color: #fff; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;">
                             Active (${activeQuotationsCache.length})
                         </button>
@@ -43,12 +98,14 @@ async function loadQuotations() {
                         <button id="tab-pending" onclick="setQuotationTab('pending')" style="background: #2d3440; color: #9ba7b6; border: 1px solid #3d4654; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;">
                             Pending (${pendingQuotationsCache.length})
                         </button>
+                    </div>
                 </div>
                 <div id="quotation-tab-content" style="background: #232a36; border: 1px solid #3d4654; border-radius: 8px; padding: 12px;"></div>
             </div>
         `;
 
         content.innerHTML = html;
+        await setupCompanyFilter();
         setQuotationTab('active');
     } catch (error) {
         content.innerHTML = '<div style="padding: 20px; text-align: center; color: #ff6b6b;">Failed to load quotations.</div>';
@@ -57,14 +114,19 @@ async function loadQuotations() {
 }
 
 function setQuotationTab(tabName) {
+    currentTab = tabName;
     const tabContent = document.getElementById('quotation-tab-content');
     const activeBtn = document.getElementById('tab-active');
     const cancelledBtn = document.getElementById('tab-cancelled');
     const pendingBtn = document.getElementById('tab-pending');
     if (!tabContent || !activeBtn || !cancelledBtn || !pendingBtn) return;
 
+    const activeList = filterQuotationsByCompany(activeQuotationsCache);
+    const cancelledList = filterQuotationsByCompany(cancelledQuotationsCache);
+    const pendingList = filterQuotationsByCompany(pendingQuotationsCache);
+
     if (tabName === 'cancelled') {
-        tabContent.innerHTML = renderQuotationList(cancelledQuotationsCache, true);
+        tabContent.innerHTML = renderQuotationList(cancelledList, true);
         cancelledBtn.style.background = '#a65c5c';
         cancelledBtn.style.color = '#fff';
         cancelledBtn.style.border = 'none';
@@ -75,7 +137,7 @@ function setQuotationTab(tabName) {
         pendingBtn.style.color = '#9ba7b6';
         pendingBtn.style.border = '1px solid #3d4654';
     } else if (tabName === 'pending') {
-        tabContent.innerHTML = renderQuotationList(pendingQuotationsCache, false, true);
+        tabContent.innerHTML = renderQuotationList(pendingList, false, true);
         pendingBtn.style.background = '#b0892f';
         pendingBtn.style.color = '#fff';
         pendingBtn.style.border = 'none';
@@ -86,7 +148,7 @@ function setQuotationTab(tabName) {
         cancelledBtn.style.color = '#9ba7b6';
         cancelledBtn.style.border = '1px solid #3d4654';
     } else {
-        tabContent.innerHTML = renderQuotationList(activeQuotationsCache, false);
+        tabContent.innerHTML = renderQuotationList(activeList, false);
         activeBtn.style.background = '#4b6e9e';
         activeBtn.style.color = '#fff';
         activeBtn.style.border = 'none';
