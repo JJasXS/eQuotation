@@ -1,6 +1,7 @@
 param(
     [string]$ProjectRoot = "C:\Users\sd01\Chatbot",
-    [string]$XamppRoot = "C:\xampp\htdocs"
+    [string]$XamppRoot = "C:\xampp\htdocs",
+    [bool]$RestartApache = $false
 )
 
 $ErrorActionPreference = 'Stop'
@@ -57,14 +58,8 @@ if ($mismatches.Count -gt 0) {
 }
 
 Write-Host "Sync complete. All files match between project and XAMPP." -ForegroundColor Green
-[newline]
-# Optional: Restart Apache after sync
-param(
-    [string]$ProjectRoot = "C:\Users\sd01\Chatbot",
-    [string]$XamppRoot = "C:\xampp\htdocs",
-    [bool]$RestartApache = $false
-)
 
+# Optional: Restart Apache after sync
 if ($RestartApache) {
     Write-Host "Restarting Apache..." -ForegroundColor Cyan
     $xamppControl = "C:\xampp\xampp_control.exe"

@@ -28,7 +28,10 @@ function handleGuestSignIn(event) {
             if (data.success) {
                 messageBox.textContent = `Guest user created successfully. Customer Code: ${data.customerCode}`;
                 messageBox.className = 'guest-message show success';
-                form.reset();
+                const redirectUrl = data.redirect || '/login';
+                setTimeout(() => {
+                    window.location.href = redirectUrl;
+                }, 600);
             } else {
                 messageBox.textContent = data.error || 'Failed to create guest user.';
                 messageBox.className = 'guest-message show error';

@@ -92,7 +92,7 @@ try {
             $address1,
             $address2,
             $phone1,
-            0
+            null
         ]);
         error_log("DEBUG: Insert successful for dockey: $dockey");
     } catch (PDOException $e) {

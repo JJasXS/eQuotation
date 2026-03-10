@@ -217,7 +217,13 @@ def create_signin_user():
         php_url = f"{BASE_API_URL}/php/createSignInUser.php"
         response = requests.post(php_url, json=data, timeout=10)
         response.raise_for_status()
-        return jsonify(response.json()), response.status_code
+        result = response.json()
+
+        # After guest registration, send user to login page.
+        if result.get('success'):
+            result['redirect'] = '/login'
+
+        return jsonify(result), response.status_code
     except requests.exceptions.HTTPError:
         try:
             return jsonify(response.json()), response.status_code
@@ -1732,7 +1738,10 @@ def api_get_my_quotations():
             status_int = row[6] if row[6] is not None else 0
             status_str = 'COMPLETED' if status_int == 1 else 'DRAFT'
             cancelled_raw = row[8]
-            cancelled_bool = str(cancelled_raw).strip().lower() in ('1', 'true', 't', 'yes', 'y') if cancelled_raw is not None else False
+            if cancelled_raw is None:
+                cancelled_value = None
+            else:
+                cancelled_value = str(cancelled_raw).strip().lower() in ('1', 'true', 't', 'yes', 'y')
             
             quotations.append({
                 'DOCKEY': int(row[0]) if row[0] is not None else None,
@@ -1743,7 +1752,7 @@ def api_get_my_quotations():
                 'VALIDITY': row[5],
                 'STATUS': status_str,
                 'CREDITTERM': str(row[7]) if row[7] is not None else 'N/A',
-                'CANCELLED': cancelled_bool
+                'CANCELLED': cancelled_value
             })
 
         return jsonify({'success': True, 'data': quotations})

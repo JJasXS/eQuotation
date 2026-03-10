@@ -1,5 +1,6 @@
 let activeQuotationsCache = [];
 let cancelledQuotationsCache = [];
+let pendingQuotationsCache = [];
 
 async function loadQuotations() {
     const content = document.getElementById('quotation-content');
@@ -22,8 +23,9 @@ async function loadQuotations() {
             return;
         }
 
-        activeQuotationsCache = quotations.filter(qt => !Boolean(qt.CANCELLED));
-        cancelledQuotationsCache = quotations.filter(qt => Boolean(qt.CANCELLED));
+        activeQuotationsCache = quotations.filter(qt => qt.CANCELLED === false);
+        cancelledQuotationsCache = quotations.filter(qt => qt.CANCELLED === true);
+        pendingQuotationsCache = quotations.filter(qt => qt.CANCELLED === null || typeof qt.CANCELLED === 'undefined');
 
         let html = `
             <div style="padding: 16px;">
@@ -33,6 +35,9 @@ async function loadQuotations() {
                         </button>
                         <button id="tab-cancelled" onclick="setQuotationTab('cancelled')" style="background: #2d3440; color: #9ba7b6; border: 1px solid #3d4654; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;">
                             Cancelled (${cancelledQuotationsCache.length})
+                        </button>
+                        <button id="tab-pending" onclick="setQuotationTab('pending')" style="background: #2d3440; color: #9ba7b6; border: 1px solid #3d4654; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;">
+                            Pending (${pendingQuotationsCache.length})
                         </button>
                 </div>
                 <div id="quotation-tab-content" style="background: #232a36; border: 1px solid #3d4654; border-radius: 8px; padding: 12px;"></div>
@@ -51,7 +56,8 @@ function setQuotationTab(tabName) {
     const tabContent = document.getElementById('quotation-tab-content');
     const activeBtn = document.getElementById('tab-active');
     const cancelledBtn = document.getElementById('tab-cancelled');
-    if (!tabContent || !activeBtn || !cancelledBtn) return;
+    const pendingBtn = document.getElementById('tab-pending');
+    if (!tabContent || !activeBtn || !cancelledBtn || !pendingBtn) return;
 
     if (tabName === 'cancelled') {
         tabContent.innerHTML = renderQuotationList(cancelledQuotationsCache, true);
@@ -61,6 +67,20 @@ function setQuotationTab(tabName) {
         activeBtn.style.background = '#2d3440';
         activeBtn.style.color = '#9ba7b6';
         activeBtn.style.border = '1px solid #3d4654';
+        pendingBtn.style.background = '#2d3440';
+        pendingBtn.style.color = '#9ba7b6';
+        pendingBtn.style.border = '1px solid #3d4654';
+    } else if (tabName === 'pending') {
+        tabContent.innerHTML = renderQuotationList(pendingQuotationsCache, false, true);
+        pendingBtn.style.background = '#b0892f';
+        pendingBtn.style.color = '#fff';
+        pendingBtn.style.border = 'none';
+        activeBtn.style.background = '#2d3440';
+        activeBtn.style.color = '#9ba7b6';
+        activeBtn.style.border = '1px solid #3d4654';
+        cancelledBtn.style.background = '#2d3440';
+        cancelledBtn.style.color = '#9ba7b6';
+        cancelledBtn.style.border = '1px solid #3d4654';
     } else {
         tabContent.innerHTML = renderQuotationList(activeQuotationsCache, false);
         activeBtn.style.background = '#4b6e9e';
@@ -69,6 +89,9 @@ function setQuotationTab(tabName) {
         cancelledBtn.style.background = '#2d3440';
         cancelledBtn.style.color = '#9ba7b6';
         cancelledBtn.style.border = '1px solid #3d4654';
+        pendingBtn.style.background = '#2d3440';
+        pendingBtn.style.color = '#9ba7b6';
+        pendingBtn.style.border = '1px solid #3d4654';
     }
 
     document.querySelectorAll('.quotation-card').forEach(card => {
@@ -78,7 +101,7 @@ function setQuotationTab(tabName) {
     });
 }
 
-function renderQuotationList(list, isCancelled) {
+function renderQuotationList(list, isCancelled, isPending = false) {
     if (!list || list.length === 0) {
         return '<div style="padding: 12px; text-align: center; color: #888;">No quotations</div>';
     }
@@ -90,8 +113,8 @@ function renderQuotationList(list, isCancelled) {
         const validity = qt.VALIDITY || '-';
         const creditTerm = qt.CREDITTERM || 'N/A';
         const description = qt.DESCRIPTION || 'Quotation';
-        const borderColor = isCancelled ? '#a65c5c' : '#4b6e9e';
-        const badgeColor = isCancelled ? '#a65c5c' : '#4b6e9e';
+        const borderColor = isPending ? '#b0892f' : (isCancelled ? '#a65c5c' : '#4b6e9e');
+        const badgeColor = isPending ? '#b0892f' : (isCancelled ? '#a65c5c' : '#4b6e9e');
 
         html += `
             <div class="quotation-card" data-dockey="${qt.DOCKEY}" style="background: #2d3440; padding: 12px; margin-bottom: 12px; border-radius: 8px; border-left: 3px solid ${borderColor}; cursor: pointer; width: auto;">

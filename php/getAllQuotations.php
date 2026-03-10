@@ -38,7 +38,11 @@ try {
     foreach ($quotations as &$qt) {
         $qt['DOCKEY'] = intval($qt['DOCKEY']);
         $qt['DOCAMT'] = floatval($qt['DOCAMT'] ?? 0);
-        $qt['CANCELLED'] = (strtolower(trim($qt['CANCELLED'])) === 'true') ? true : false;
+        if ($qt['CANCELLED'] === null) {
+            $qt['CANCELLED'] = null;
+        } else {
+            $qt['CANCELLED'] = (strtolower(trim((string)$qt['CANCELLED'])) === 'true');
+        }
         $qt['COMPANYNAME'] = $qt['COMPANYNAME'] ?? 'N/A';
         $qt['ADDRESS1'] = $qt['ADDRESS1'] ?? 'N/A';
         $qt['PHONE1'] = $qt['PHONE1'] ?? 'N/A';
