@@ -317,6 +317,12 @@ if (quotationForm) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(quotationData)
             });
+
+            if (response.status === 401) {
+                alert('Your session has expired. Please log in again.');
+                window.location.href = '/login';
+                return;
+            }
             
             const result = await response.json();
             
@@ -328,6 +334,41 @@ if (quotationForm) {
                 const message = dockey ? 
                     `Quotation ${displayDocNo} updated successfully!` : 
                     `Quotation ${displayDocNo} created successfully!`;
+                
+                // Send quotation confirmation email
+                try {
+                    // Calculate total amount
+                    let totalAmount = 0;
+                    items.forEach(item => {
+                        totalAmount += item.qty * item.price;
+                    });
+                    
+                    const emailData = {
+                        docno: displayDocNo,
+                        dockey: result.dockey,
+                        totalAmount: totalAmount,
+                        items: items,
+                        companyName: quotationData.companyName
+                    };
+                    
+                    fetch('/api/send_quotation_email', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(emailData)
+                    }).then(emailResponse => emailResponse.json())
+                      .then(emailResult => {
+                          if (emailResult.success) {
+                              console.log('Email sent successfully:', emailResult.message);
+                          } else {
+                              console.warn('Email sending failed:', emailResult.error);
+                          }
+                      }).catch(emailError => {
+                          console.error('Error sending email:', emailError);
+                      });
+                } catch (emailError) {
+                    console.error('Failed to send quotation email:', emailError);
+                }
+                
                 alert(message);
                 
                 // Redirect to view quotations page

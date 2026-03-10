@@ -2,11 +2,18 @@
 Quick test to verify CUSTOMERCODE is populated after login
 Run this after creating a new chat to check if CUSTOMERCODE is stored
 """
+import os
 import fdb
+from dotenv import load_dotenv
 
-DB_PATH = r'C:\eStream\SQLAccounting\DB\ACC-0001.FDB'
-DB_USER = 'SYSDBA'
-DB_PASSWORD = 'masterkey'
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
+
+DB_PATH = os.getenv('DB_PATH')
+DB_USER = os.getenv('DB_USER', 'SYSDBA')
+DB_PASSWORD = os.getenv('DB_PASSWORD', 'masterkey')
+
+if not DB_PATH:
+    raise ValueError('DB_PATH is not set in .env')
 
 try:
     con = fdb.connect(dsn=DB_PATH, user=DB_USER, password=DB_PASSWORD, charset='UTF8')

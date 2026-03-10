@@ -30,7 +30,7 @@ from utils import (
 )
 
 # Load environment variables from .env file
-load_dotenv()
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
 # Import local AI models (optional - graceful fallback if not available)
 # Note: This import can be slow on first run due to transformers/sklearn/scipy loading
@@ -80,11 +80,14 @@ from config.otp_config import generate_otp, OTP_LENGTH, OTP_EXPIRY_SECONDS
 # CONFIGURATION - Load from environment variables
 # ============================================
 BASE_API_URL = os.getenv('BASE_API_URL', 'http://localhost')
-DB_PATH = os.getenv('DB_PATH', r'C:\eStream\SQLAccounting\DB\ACC-0001.FDB')
+DB_PATH = os.getenv('DB_PATH')
 DB_USER = os.getenv('DB_USER', 'sysdba')
 DB_PASSWORD = os.getenv('DB_PASSWORD', 'masterkey')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-3.5-turbo')
+
+if not DB_PATH:
+    raise ValueError("DB_PATH environment variable is not set. Please configure it in .env file.")
 
 if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY environment variable is not set. Please configure it in .env file.")
@@ -139,6 +142,10 @@ app.config['SESSION_COOKIE_SECURE'] = False  # Set to True in production with HT
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
+
+# Register blueprints
+from routes.quotation_routes import quotation_bp
+app.register_blueprint(quotation_bp)
 
 @app.after_request
 def add_no_cache_headers(response):
@@ -290,6 +297,7 @@ def api_send_otp():
                 f"{BASE_API_URL}{ENDPOINT_PATHS['getcustomerbyemailfromcustomer']}?email={email}",
                 timeout=5
             )
+            customer_check.raise_for_status()
             customer_data = customer_check.json()
             is_customer = bool(customer_data.get('success') and customer_data.get('customerCode'))
         except Exception as e:
@@ -1599,7 +1607,7 @@ def api_create_order():
 def api_create_quotation():
     """Create or update a quotation in the accounting system (SL_QT)"""
     if 'user_email' not in session:
-        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+        return jsonify({'success': False, 'error': 'Session expired. Please log in again.'}), 401
     
     user_email = session.get('user_email')
     customer_code = session.get('customer_code')

@@ -29,11 +29,17 @@ try {
             'customerCode' => $result['CODE']
         ]);
     } else {
-        // If not found in AR_CUSTOMERBRANCH, check AR_CUSTOMER
-        $query2 = 'SELECT CODE FROM AR_CUSTOMER WHERE EMAIL = ?';
-        $stmt2 = $con->prepare($query2);
-        $stmt2->execute([$email]);
-        $result2 = $stmt2->fetch(PDO::FETCH_ASSOC);
+        // If not found in AR_CUSTOMERBRANCH, check AR_CUSTOMER.UDF_EMAIL
+        $result2 = null;
+        try {
+            $query2 = 'SELECT CODE FROM AR_CUSTOMER WHERE UDF_EMAIL = ?';
+            $stmt2 = $con->prepare($query2);
+            $stmt2->execute([$email]);
+            $result2 = $stmt2->fetch(PDO::FETCH_ASSOC);
+        } catch (PDOException $ignored) {
+            // Keep null result; return not found instead of hard error
+        }
+
         if ($result2) {
             echo json_encode([
                 'success' => true,

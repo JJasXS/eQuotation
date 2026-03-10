@@ -1,10 +1,21 @@
+import os
 import fdb
+from dotenv import load_dotenv
+
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
+
+DB_PATH = os.getenv('DB_PATH')
+DB_USER = os.getenv('DB_USER', 'SYSDBA')
+DB_PASSWORD = os.getenv('DB_PASSWORD', 'masterkey')
+
+if not DB_PATH:
+    raise ValueError('DB_PATH is not set in .env')
 
 # Connect to database
 con = fdb.connect(
-    dsn=r'C:\eStream\SQLAccounting\DB\ACC-0001.FDB',
-    user='SYSDBA',
-    password='masterkey'
+    dsn=DB_PATH,
+    user=DB_USER,
+    password=DB_PASSWORD
 )
 
 cur = con.cursor()

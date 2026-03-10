@@ -35,10 +35,14 @@ try {
 
     // Final fallback: AR_CUSTOMER.EMAIL for legacy records
     if (!$result) {
-        $query = 'SELECT CODE, EMAIL FROM AR_CUSTOMER WHERE UPPER(TRIM(EMAIL)) = UPPER(TRIM(?))';
-        $stmt = $con->prepare($query);
-        $stmt->execute([$email]);
-        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        try {
+            $query = 'SELECT CODE, EMAIL FROM AR_CUSTOMER WHERE UPPER(TRIM(EMAIL)) = UPPER(TRIM(?))';
+            $stmt = $con->prepare($query);
+            $stmt->execute([$email]);
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        } catch (PDOException $ignored) {
+            // EMAIL column may not exist in some schemas; ignore and keep not-found result.
+        }
     }
     
     if ($result) {

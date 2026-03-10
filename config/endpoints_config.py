@@ -13,7 +13,7 @@ ENDPOINT_PATHS = {
     "getadminbyemail": "/php/getAdminByEmail.php",
     "getuserbyemail": "/php/getUserByEmail.php",
     "getcustomerbyemail": "/php/getCustomerByEmail.php",
-    "getcustomerbyemailfromcustomer": "/php/getCustomerByEmailFromCustomer.php",
+    "getcustomerbyemailfromcustomer": "/php/getCustomerByEmail.php",
     "getcustomerfullinfo": "/php/getCustomerFullInfo.php",
     "getdraftorders": "/php/getDraftOrders.php",
     "getorderdetails": "/php/getOrderDetails.php",

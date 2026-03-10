@@ -3,11 +3,14 @@ import fdb
 from dotenv import load_dotenv
 
 # Load environment variables
-load_dotenv()
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
-DB_PATH = os.getenv('DB_PATH', r'C:\eStream\SQLAccounting\DB\ACC-0001.FDB')
+DB_PATH = os.getenv('DB_PATH')
 DB_USER = os.getenv('DB_USER', 'sysdba')
 DB_PASSWORD = os.getenv('DB_PASSWORD', 'masterkey')
+
+if not DB_PATH:
+    raise ValueError('DB_PATH environment variable is not set. Please configure it in .env file.')
 
 def initialize_database():
     """Initialize database schema - expand MESSAGETEXT field to support longer messages"""

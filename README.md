@@ -12,7 +12,7 @@ pip install -r requirements.txt
 ### 2. Configure Environment Variables
 Copy `.env.example` to `.env` and update with your values:
 ```
-DB_PATH=C:\eStream\SQLAccounting\DB\ACC-0001.FDB
+DB_PATH=C:\eStream\SQLAccounting\DB\ACC-EQUOTE.FDB
 DB_USER=sysdba
 DB_PASSWORD=masterkey
 BASE_API_URL=http://localhost
