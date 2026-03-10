@@ -47,3 +47,43 @@ function handleGuestSignIn(event) {
             submitBtn.textContent = 'Continue as Guest';
         });
 }
+
+async function loadCurrencySymbols() {
+    const currencySelect = document.getElementById('CURRENCYCODE');
+    if (!currencySelect) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/get_currency_symbols');
+        const data = await response.json();
+
+        if (!data.success || !Array.isArray(data.data)) {
+            throw new Error(data.error || 'Failed to load currencies');
+        }
+
+        currencySelect.innerHTML = '';
+        data.data.forEach((symbol) => {
+            const option = document.createElement('option');
+            option.value = symbol;
+            option.textContent = symbol;
+            currencySelect.appendChild(option);
+        });
+
+        // Auto-select the first currency returned by the API.
+        if (currencySelect.options.length > 0) {
+            currencySelect.selectedIndex = 0;
+        } else {
+            currencySelect.innerHTML = '<option value="MYR">MYR</option>';
+            currencySelect.selectedIndex = 0;
+        }
+    } catch (error) {
+        console.error('Error loading currency symbols:', error);
+        currencySelect.innerHTML = '<option value="MYR">MYR</option>';
+        currencySelect.selectedIndex = 0;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadCurrencySymbols();
+});
