@@ -45,8 +45,10 @@ function calculateQuotationTotal() {
     items.forEach(item => {
         const qty = parseFloat(item.querySelector('.item-qty').value) || 0;
         const price = parseFloat(item.querySelector('.item-price').value) || 0;
-        const discount = parseFloat(item.querySelector('.item-discount')?.value) || 0;
-        total += Math.max(0, (qty * price) - discount);
+        const discountPct = parseFloat(item.querySelector('.item-discount')?.value) || 0;
+        const lineSubtotal = qty * price;
+        const discountAmount = discountPct > 0 ? (lineSubtotal * discountPct / 100) : 0;
+        total += Math.max(0, lineSubtotal - discountAmount);
     });
     
     document.getElementById('quotation-total').textContent = `RM ${total.toFixed(2)}`;

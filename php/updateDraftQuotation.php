@@ -28,6 +28,15 @@ if (empty($items)) {
     exit;
 }
 
+function applyPercentageDiscount(float $qty, float $unitprice, float $discPct): float {
+    $lineSubtotal = $qty * $unitprice;
+    if ($discPct <= 0) {
+        return max(0, $lineSubtotal);
+    }
+    $discountAmount = $lineSubtotal * ($discPct / 100.0);
+    return max(0, $lineSubtotal - $discountAmount);
+}
+
 try {
     $dbh = getFirebirdConnection();
     
@@ -54,7 +63,7 @@ try {
         $qty = (float)($item['qty'] ?? 0);
         $unitprice = (float)($item['price'] ?? 0);
         $disc = (float)($item['discount'] ?? 0);
-        $totalAmount += max(0, ($qty * $unitprice) - $disc);
+        $totalAmount += applyPercentageDiscount($qty, $unitprice, $disc);
     }
     
     // Convert empty string validity to null for date field
@@ -101,7 +110,7 @@ try {
         $qty = (float)($item['qty'] ?? 0);
         $unitprice = (float)($item['price'] ?? 0);
         $disc = (float)($item['discount'] ?? 0);
-        $amount = max(0, ($qty * $unitprice) - $disc);
+        $amount = applyPercentageDiscount($qty, $unitprice, $disc);
         
         if (!$product || $qty <= 0) {
             echo json_encode(['success' => false, 'error' => "Invalid item at index $idx"]);
