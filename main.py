@@ -293,7 +293,9 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
 
 # Register blueprints
 from routes.quotation_routes import quotation_bp
+from routes.quotation_routes_approved import quotation_approved_bp
 app.register_blueprint(quotation_bp)
+app.register_blueprint(quotation_approved_bp)
 
 @app.after_request
 def add_no_cache_headers(response):
@@ -348,18 +350,22 @@ def update_quotation_cancelled():
         
         # If activating quotation (cancelled: false), send email to customer
         if cancelled is False:
+            print(f"[ACTIVATE DEBUG] Attempting to send email for DOCKEY {dockey}")
             try:
                 # Fetch quotation details
+                print(f"[ACTIVATE DEBUG] Fetching quotation details from {BASE_API_URL}/php/getQuotationDetails.php")
                 qt_response = requests.get(
                     f"{BASE_API_URL}/php/getQuotationDetails.php",
                     params={'dockey': dockey},
                     timeout=10
                 )
                 qt_data = qt_response.json()
+                print(f"[ACTIVATE DEBUG] Quotation details response success: {qt_data.get('success')}, has data: {bool(qt_data.get('data'))}")
                 
                 if qt_data.get('success') and qt_data.get('data'):
                     quotation = qt_data['data']
                     customer_email = quotation.get('UDF_EMAIL', '').strip()
+                    print(f"[ACTIVATE DEBUG] Customer email: '{customer_email}'")
                     
                     if customer_email:
                         # Send email notification
@@ -371,6 +377,7 @@ def update_quotation_cancelled():
                             'items': quotation.get('items', []),
                             'companyName': quotation.get('COMPANYNAME', 'Valued Customer')
                         }
+                        print(f"[ACTIVATE DEBUG] Sending email to {customer_email}")
                         
                         email_response = requests.post(
                             f"http://localhost:{request.environ.get('SERVER_PORT', '5000')}/api/send_quotation_ready_email",
@@ -383,7 +390,9 @@ def update_quotation_cancelled():
                         else:
                             print(f"[EMAIL WARNING] Failed to send activation email for DOCKEY {dockey}")
                     else:
-                        print(f"[EMAIL] No customer email found for DOCKEY {dockey}")
+                        print(f"[ACTIVATE DEBUG] No customer email found")
+                else:
+                    print(f"[ACTIVATE DEBUG] Failed to get quotation details")
             except Exception as email_error:
                 # Don't fail the activation if email fails
                 print(f"[EMAIL ERROR] Failed to send activation email: {email_error}")
@@ -2007,21 +2016,26 @@ def api_admin_update_quotation():
             timeout=10
         )
         result = response.json()
+        print(f"[EDIT DEBUG] UpdateDraftQuotation response success: {result.get('success')}")
         
         # If update successful, send email to customer
         if result.get('success'):
+            print(f"[EDIT DEBUG] Attempting to send email for DOCKEY {dockey}")
             try:
                 # Fetch quotation details
+                print(f"[EDIT DEBUG] Fetching quotation details")
                 qt_response = requests.get(
                     f"{BASE_API_URL}/php/getQuotationDetails.php",
                     params={'dockey': dockey},
                     timeout=10
                 )
                 qt_data = qt_response.json()
+                print(f"[EDIT DEBUG] Quotation details response success: {qt_data.get('success')}, has data: {bool(qt_data.get('data'))}")
                 
                 if qt_data.get('success') and qt_data.get('data'):
                     quotation = qt_data['data']
                     customer_email = quotation.get('UDF_EMAIL', '').strip()
+                    print(f"[EDIT DEBUG] Customer email: '{customer_email}'")
                     
                     if customer_email:
                         # Send email notification
@@ -2033,6 +2047,7 @@ def api_admin_update_quotation():
                             'items': quotation.get('items', []),
                             'companyName': quotation.get('COMPANYNAME', 'Valued Customer')
                         }
+                        print(f"[EDIT DEBUG] Sending email to {customer_email}")
                         
                         email_response = requests.post(
                             f"http://localhost:{request.environ.get('SERVER_PORT', '5000')}/api/send_quotation_ready_email",

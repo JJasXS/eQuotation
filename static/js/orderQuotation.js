@@ -342,10 +342,10 @@ if (quotationForm) {
 
                 // Send quotation pending approval email
                 try {
-                    // Calculate total amount
+                    // Calculate total amount (accounting for discount)
                     let totalAmount = 0;
                     items.forEach(item => {
-                        totalAmount += item.qty * item.price;
+                        totalAmount += (item.qty * item.price) - (item.discount || 0);
                     });
                     
                     const emailData = {

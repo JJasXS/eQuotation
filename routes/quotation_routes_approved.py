@@ -28,13 +28,15 @@ def send_quotation_ready_email():
             product = item.get('product', '') or item.get('DESCRIPTION', '')
             qty = item.get('qty', 0) or item.get('QTY', 0)
             price = item.get('price', 0) or item.get('UNITPRICE', 0)
-            subtotal = qty * price
+            discount = item.get('discount', 0) or item.get('DISC', 0)
+            subtotal = (qty * price) - discount
             items_html += f'''
             <tr>
                 <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;">{idx}</td>
                 <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;">{product}</td>
                 <td style="padding: 10px; border-bottom: 1px solid #e0e0e0; text-align: center;">{qty}</td>
                 <td style="padding: 10px; border-bottom: 1px solid #e0e0e0; text-align: right;">RM {price:.2f}</td>
+                <td style="padding: 10px; border-bottom: 1px solid #e0e0e0; text-align: right;">RM {discount:.2f}</td>
                 <td style="padding: 10px; border-bottom: 1px solid #e0e0e0; text-align: right;">RM {subtotal:.2f}</td>
             </tr>
             '''
@@ -68,6 +70,7 @@ def send_quotation_ready_email():
                                     <th style="padding: 10px; text-align: left;">Product</th>
                                     <th style="padding: 10px; text-align: center;">Qty</th>
                                     <th style="padding: 10px; text-align: right;">Unit Price</th>
+                                    <th style="padding: 10px; text-align: right;">Discount</th>
                                     <th style="padding: 10px; text-align: right;">Subtotal</th>
                                 </tr>
                             </thead>
@@ -76,7 +79,7 @@ def send_quotation_ready_email():
                             </tbody>
                             <tfoot>
                                 <tr style="background-color: #f5f5f5; font-weight: bold;">
-                                    <td colspan="4" style="padding: 15px; text-align: right;">Total Amount:</td>
+                                    <td colspan="5" style="padding: 15px; text-align: right;">Total Amount:</td>
                                     <td style="padding: 15px; text-align: right;">RM {total_amount:.2f}</td>
                                 </tr>
                             </tfoot>
