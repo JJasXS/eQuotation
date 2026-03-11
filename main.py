@@ -1740,6 +1740,26 @@ def api_get_product_price():
         item_code = (price_item.get('CODE') or '').strip()
         no_match_message = None
 
+        # Fetch ST_ITEM.UDF_STDPRICE for Suggested Price field
+        st_item_udf_stdprice = None
+        if item_code:
+            con = None
+            cur = None
+            try:
+                con = get_db_connection()
+                cur = con.cursor()
+                cur.execute('SELECT UDF_STDPRICE FROM ST_ITEM WHERE CODE = ?', (item_code,))
+                row = cur.fetchone()
+                if row and row[0] is not None:
+                    st_item_udf_stdprice = float(row[0])
+            except Exception as st_item_error:
+                print(f"[PRICING WARNING] Failed to fetch ST_ITEM.UDF_STDPRICE for {item_code}: {st_item_error}", flush=True)
+            finally:
+                if cur:
+                    cur.close()
+                if con:
+                    con.close()
+
         if customer_code and item_code:
             try:
                 pricing_result = get_selling_price(customer_code, item_code)
@@ -1748,7 +1768,7 @@ def api_get_product_price():
                     return jsonify({
                         'success': True,
                         'price': selected_price,
-                        'stItemPrice': fallback_price,
+                        'stItemPrice': st_item_udf_stdprice or fallback_price,
                         'suggestedPrice': selected_price,
                         'suggestedSource': pricing_result.get('PriceSource'),
                         'suggestedMatchedRuleCode': pricing_result.get('MatchedRuleCode'),
@@ -1766,7 +1786,7 @@ def api_get_product_price():
         return jsonify({
             'success': True,
             'price': fallback_price,
-            'stItemPrice': fallback_price,
+            'stItemPrice': st_item_udf_stdprice or fallback_price,
             'suggestedPrice': None,
             'suggestedSource': None,
             'suggestedMatchedRuleCode': None,

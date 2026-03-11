@@ -104,28 +104,42 @@ class PricingService:
 
     def _evaluate_customer_price_tag(self, cursor, customer_code: str, item_code: str, uom: Optional[str]) -> Optional[PricingResult]:
         customer_tag = self._get_customer_price_tag(cursor, customer_code)
-        if not customer_tag:
-            return None
 
         if not self._table_exists(cursor, 'ST_ITEM_PRICE'):
             return None
 
         code_column = self._first_existing_column(cursor, 'ST_ITEM_PRICE', ['CODE', 'ITEMCODE'])
         price_column = self._first_existing_column(cursor, 'ST_ITEM_PRICE', ['STOCKVALUE', 'PRICE', 'UNITPRICE'])
-        tag_column = self._first_existing_column(cursor, 'ST_ITEM_PRICE', ['PRICETAG', 'PRICETAGCODE', 'PRICECATEGORY', 'PRICELEVEL'])
+        tag_column = self._first_existing_column(cursor, 'ST_ITEM_PRICE', ['TAGTYPE', 'PRICETAG', 'PRICETAGCODE', 'PRICECATEGORY', 'PRICELEVEL'])
         disc_column = self._first_existing_column(cursor, 'ST_ITEM_PRICE', ['DISCOUNT', 'DISC'])
-        if not code_column or not price_column or not tag_column:
+        if not code_column or not price_column:
             return None
 
         select_cols = f'{price_column}' if not disc_column else f'{price_column}, {disc_column}'
-        query = (
-            f'SELECT FIRST 1 {select_cols} '
-            f'FROM ST_ITEM_PRICE '
-            f'WHERE {code_column} = ? AND {tag_column} = ? AND {price_column} IS NOT NULL '
-            f'ORDER BY {price_column} DESC'
-        )
-        cursor.execute(query, (item_code, customer_tag))
-        row = cursor.fetchone()
+        row = None
+
+        # Try strict tag match first when both customer tag and tag column are available.
+        if customer_tag and tag_column:
+            query = (
+                f'SELECT FIRST 1 {select_cols} '
+                f'FROM ST_ITEM_PRICE '
+                f'WHERE {code_column} = ? AND {tag_column} = ? AND {price_column} IS NOT NULL '
+                f'ORDER BY {price_column} DESC'
+            )
+            cursor.execute(query, (item_code, customer_tag))
+            row = cursor.fetchone()
+
+        # If no tag match is found (or tag is not configured), fall back to item-only price.
+        if not row:
+            query = (
+                f'SELECT FIRST 1 {select_cols} '
+                f'FROM ST_ITEM_PRICE '
+                f'WHERE {code_column} = ? AND {price_column} IS NOT NULL '
+                f'ORDER BY {price_column} DESC'
+            )
+            cursor.execute(query, (item_code,))
+            row = cursor.fetchone()
+
         if not row:
             return None
         price = self._coerce_float(row[0])
@@ -133,9 +147,10 @@ class PricingService:
         if net_price is None or net_price <= 0:
             return None
 
+        source_label = f'Customer Price Tag ({customer_tag})' if customer_tag else 'Customer Price Tag (item fallback)'
         return PricingResult(
             selected_price=net_price,
-            price_source=f'Customer Price Tag ({customer_tag})',
+            price_source=source_label,
             matched_rule_code='CUSTOMER_PRICE_TAG',
             message='Price selected from CUSTOMER_PRICE_TAG'
         )
