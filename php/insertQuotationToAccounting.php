@@ -118,6 +118,7 @@ try {
         $qty = (float)($item['qty'] ?? 0);
         $unitprice = (float)($item['price'] ?? 0);
         $disc = (float)($item['discount'] ?? 0);
+        $suggestedPrice = (float)($item['suggestedPrice'] ?? $unitprice);
         $amount = applyPercentageDiscount($qty, $unitprice, $disc);
         
         if (!$product || $qty <= 0) {
@@ -162,8 +163,8 @@ try {
         $detailInsert = $dbh->prepare('
             INSERT INTO SL_QTDTL (
                 DTLKEY, DOCKEY, SEQ, ITEMCODE, DESCRIPTION, QTY, 
-                UNITPRICE, DISC, AMOUNT
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                UNITPRICE, DISC, AMOUNT, UDF_STDPRICE
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ');
         $detailInsert->execute([
             $dtlkey,
@@ -174,7 +175,8 @@ try {
             $qty,
             $unitprice,
             $disc,
-            $amount
+            $amount,
+            $suggestedPrice
         ]);
         
         $seq++;

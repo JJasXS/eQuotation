@@ -56,7 +56,8 @@ function addQuotationItem() {
             </select>
             <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
             <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
-            <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" onchange="calculateQuotationTotal()">
+            <input type="number" class="item-suggested-price" placeholder="Unit Price" step="0.01" min="0" readonly>
+            <input type="number" class="item-price" placeholder="Suggested Price" step="0.01" min="0" onchange="calculateQuotationTotal()">
             <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
         </div>
     `;
@@ -145,7 +146,8 @@ function clearQuotationForm() {
                     </select>
                     <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
                     <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
-                    <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" onchange="calculateQuotationTotal()">
+                    <input type="number" class="item-suggested-price" placeholder="Unit Price" step="0.01" min="0" readonly>
+                    <input type="number" class="item-price" placeholder="Suggested Price" step="0.01" min="0" onchange="calculateQuotationTotal()">
                     <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
                 </div>
             </div>
@@ -162,6 +164,8 @@ async function fetchProductPrice(input) {
     const productName = input.value.trim();
     if (!productName) return;
     
+    const row = input.closest('.item-row');
+    const suggestedPriceInput = row.querySelector('.item-suggested-price');
     const priceInput = input.closest('.item-row').querySelector('.item-price');
     
     try {
@@ -169,6 +173,16 @@ async function fetchProductPrice(input) {
         const data = await response.json();
         
         if (data.success && data.price !== undefined && data.price !== null) {
+            if (suggestedPriceInput) {
+                if (data.suggestedPrice !== undefined && data.suggestedPrice !== null) {
+                    suggestedPriceInput.value = Number(data.suggestedPrice).toFixed(2);
+                } else {
+                    suggestedPriceInput.value = '';
+                    if (data.suggestedReason) {
+                        console.log('Suggested price unavailable:', data.suggestedReason, '| source:', data.source, '| rule:', data.matchedRuleCode);
+                    }
+                }
+            }
             priceInput.value = data.price.toFixed(2);
             // Trigger total recalculation
             const isOrder = input.closest('#order-items-list') !== null;
@@ -288,9 +302,10 @@ if (quotationForm) {
             const qty = parseFloat(item.querySelector('.item-qty').value) || 0;
             const price = parseFloat(item.querySelector('.item-price').value) || 0;
             const discount = parseFloat(item.querySelector('.item-discount')?.value) || 0;
+            const suggestedPrice = parseFloat(item.querySelector('.item-suggested-price')?.value) || 0;
             
             if (product && qty > 0 && price >= 0) {
-                items.push({ product, qty, price, discount });
+                items.push({ product, qty, price, discount, suggestedPrice });
             }
         });
         
@@ -347,7 +362,9 @@ if (quotationForm) {
                     // Calculate total amount (accounting for discount)
                     let totalAmount = 0;
                     items.forEach(item => {
-                        totalAmount += (item.qty * item.price) - (item.discount || 0);
+                        const lineSubtotal = item.qty * item.price;
+                        const discountAmount = item.discount > 0 ? (lineSubtotal * item.discount / 100) : 0;
+                        totalAmount += Math.max(0, lineSubtotal - discountAmount);
                     });
                     
                     const emailData = {
@@ -510,7 +527,9 @@ async function loadDraftQuotation(dockey) {
                         <div class="item-row">
                             <input type="text" class="item-product" placeholder="Product name..." list="product-list" value="${item.DESCRIPTION || ''}" onchange="fetchProductPrice(this)">
                             <input type="number" class="item-qty" placeholder="Qty" min="1" value="${item.QTY || 1}" onchange="calculateQuotationTotal()">
-                            <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" value="${item.UNITPRICE || 0}" onchange="calculateQuotationTotal()">
+                            <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="${item.DISC || 0}" onchange="calculateQuotationTotal()">
+                            <input type="number" class="item-suggested-price" placeholder="Unit Price" step="0.01" min="0" value="${item.UDF_STDPRICE || item.UNITPRICE || 0}" readonly>
+                            <input type="number" class="item-price" placeholder="Suggested Price" step="0.01" min="0" value="${item.UNITPRICE || 0}" onchange="calculateQuotationTotal()">
                             <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
                         </div>
                     `;

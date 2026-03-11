@@ -92,7 +92,15 @@ class PricingService:
             ORDER BY PriorityNo ASC, PricingPriorityRuleId ASC
             '''
         )
-        return [self._row_to_dict(cursor, row) for row in cursor.fetchall()]
+        rules: List[Dict[str, Any]] = []
+        for row in cursor.fetchall():
+            rules.append({
+                'RuleCode': str(row[0]).strip() if row[0] is not None else '',
+                'RuleName': str(row[1]).strip() if row[1] is not None else '',
+                'PriorityNo': int(row[2]) if row[2] is not None else 0,
+                'IsEnabled': int(row[3]) if row[3] is not None else 0,
+            })
+        return rules
 
     def _evaluate_customer_price_tag(self, cursor, customer_code: str, item_code: str, uom: Optional[str]) -> Optional[PricingResult]:
         customer_tag = self._get_customer_price_tag(cursor, customer_code)

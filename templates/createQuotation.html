@@ -73,6 +73,7 @@
                             <span>Qty</span>
                             <span>Discount</span>
                             <span>Unit Price</span>
+                            <span>Suggested Price</span>
                             <span></span>
                         </div>
                         <div id="quotation-items-list">
@@ -83,7 +84,8 @@
                                     </select>
                                     <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
                                     <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
-                                    <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" onchange="calculateQuotationTotal()">
+                                    <input type="number" class="item-suggested-price" placeholder="Unit Price" step="0.01" min="0" readonly>
+                                    <input type="number" class="item-price" placeholder="Suggested Price" step="0.01" min="0" onchange="calculateQuotationTotal()">
                                     <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
                                 </div>
                             </div>

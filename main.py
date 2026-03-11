@@ -1713,10 +1713,32 @@ def api_get_product_price():
         return jsonify({'success': False, 'error': 'Description required'}), 400
 
     customer_code = session.get('customer_code')
+    if not customer_code:
+        # Backfill customer code for legacy sessions so pricing priority rules can run.
+        user_email = session.get('user_email')
+        if user_email:
+            con = None
+            cur = None
+            try:
+                con = get_db_connection()
+                cur = con.cursor()
+                cur.execute('SELECT FIRST 1 CODE FROM AR_CUSTOMERBRANCH WHERE EMAIL = ?', (user_email,))
+                row = cur.fetchone()
+                if row and row[0]:
+                    customer_code = str(row[0]).strip()
+                    session['customer_code'] = customer_code
+            except Exception as backfill_error:
+                print(f"[PRICING WARNING] Failed to backfill customer_code for {user_email}: {backfill_error}", flush=True)
+            finally:
+                if cur:
+                    cur.close()
+                if con:
+                    con.close()
 
     def build_price_response(price_item, match_type):
         fallback_price = float(price_item.get('STOCKVALUE', 0) or 0)
         item_code = (price_item.get('CODE') or '').strip()
+        no_match_message = None
 
         if customer_code and item_code:
             try:
@@ -1726,21 +1748,30 @@ def api_get_product_price():
                     return jsonify({
                         'success': True,
                         'price': selected_price,
+                        'suggestedPrice': selected_price,
+                        'suggestedSource': pricing_result.get('PriceSource'),
+                        'suggestedMatchedRuleCode': pricing_result.get('MatchedRuleCode'),
                         'source': pricing_result.get('PriceSource'),
                         'matchedRuleCode': pricing_result.get('MatchedRuleCode'),
                         'message': pricing_result.get('Message'),
                         'itemCode': item_code,
                         'matchType': match_type,
                     })
+                no_match_message = pricing_result.get('Message')
             except Exception as pricing_error:
                 print(f"[PRICING WARNING] Falling back to stock price for {item_code}: {pricing_error}", flush=True)
+                no_match_message = f'Pricing rule evaluation failed: {pricing_error}'
 
         return jsonify({
             'success': True,
             'price': fallback_price,
+            'suggestedPrice': None,
+            'suggestedSource': None,
+            'suggestedMatchedRuleCode': None,
             'source': 'Fallback Stock Price',
             'matchedRuleCode': None,
             'message': 'Price selected from fallback stock price',
+            'suggestedReason': no_match_message or 'No prioritized price found for current customer/item',
             'itemCode': item_code,
             'matchType': match_type,
         })

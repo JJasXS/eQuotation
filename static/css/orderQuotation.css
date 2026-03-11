@@ -174,7 +174,7 @@
 
 .item-row-header {
     display: grid;
-    grid-template-columns: 1fr 90px 110px 120px 40px;
+    grid-template-columns: 1fr 90px 110px 130px 120px 40px;
     gap: 12px;
     align-items: center;
     text-align: center;
@@ -199,7 +199,7 @@
 
 .item-row {
     display: grid;
-    grid-template-columns: 1fr 90px 110px 120px 40px;
+    grid-template-columns: 1fr 90px 110px 130px 120px 40px;
     gap: 12px;
     align-items: center;
 }
@@ -227,6 +227,12 @@
 
 .item-row input[type="number"] {
     text-align: center;
+}
+
+.item-row .item-suggested-price {
+    background: #252d38 !important;
+    color: #8fb5e8 !important;
+    cursor: default;
 }
 
 .item-row select {
