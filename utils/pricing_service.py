@@ -328,10 +328,18 @@ class PricingService:
             header_date_column = self._first_existing_column(cursor, header_table, ['DOCDATE', 'DOC_DATE', 'CREATEDAT'])
             detail_key_column = self._first_existing_column(cursor, detail_table, ['DOCKEY', 'DOCID'])
             detail_item_column = self._first_existing_column(cursor, detail_table, ['ITEMCODE', 'CODE', 'STOCKCODE'])
-            detail_price_column = self._first_existing_column(cursor, detail_table, ['UNITPRICE', 'PRICE', 'STOCKVALUE'])
+
+            # For quotation history, use UDF_STDPRICE only.
+            # If it is empty/null for the latest row, return no match (leave blank).
+            if detail_table.upper() == 'SL_QTDTL' and self._column_exists(cursor, detail_table, 'UDF_STDPRICE'):
+                detail_price_column = 'UDF_STDPRICE'
+            else:
+                detail_price_column = self._first_existing_column(cursor, detail_table, ['UNITPRICE', 'PRICE', 'STOCKVALUE'])
             detail_discount_column = self._first_existing_column(cursor, detail_table, ['DISC', 'DISCOUNT'])
             if not all([header_customer_column, header_key_column, header_date_column, detail_key_column, detail_item_column, detail_price_column]):
                 continue
+
+            use_raw_saved_price = str(detail_price_column).upper() == 'UDF_STDPRICE'
 
             select_columns = [
                 f'd.{detail_price_column} AS PRICE_VALUE',
@@ -357,7 +365,7 @@ class PricingService:
             if price is None:
                 continue
 
-            net_price = self._apply_disc(price, data.get('DISCOUNT_VALUE'))
+            net_price = price if use_raw_saved_price else self._apply_disc(price, data.get('DISCOUNT_VALUE'))
             if net_price <= 0:
                 continue
 
@@ -429,11 +437,11 @@ class PricingService:
 
     @staticmethod
     def _apply_disc(unit_price: float, disc_raw: Any) -> float:
-        """Apply a DISC percentage string (e.g. '5', '5.00') to unit price.
+        """Apply DISC as a direct discount amount (not percentage).
 
-        DISC is VARCHAR in Firebird and holds a simple percentage like '5' (5%)
-        or a compound string like '5+3'. We parse simple numeric values only;
-        complex compound strings fall back to the full unit price.
+        Example: UNITPRICE=500 and DISC='5' => 495.
+        DISC is VARCHAR in Firebird; non-numeric compound strings (e.g. '5+3')
+        are treated as unparseable and left unchanged.
         """
         if disc_raw is None:
             return unit_price
@@ -441,10 +449,10 @@ class PricingService:
         if not disc_str:
             return unit_price
         try:
-            pct = float(disc_str)
-            if pct <= 0:
+            discount_amount = float(disc_str)
+            if discount_amount <= 0:
                 return unit_price
-            return max(0.0, unit_price * (1.0 - pct / 100.0))
+            return max(0.0, unit_price - discount_amount)
         except (TypeError, ValueError):
             # Complex compound discount string (e.g. '5+3') — return price as-is
             return unit_price

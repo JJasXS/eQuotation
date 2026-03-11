@@ -28,13 +28,12 @@ if (empty($items)) {
     exit;
 }
 
-function applyPercentageDiscount(float $qty, float $unitprice, float $discPct): float {
+function applyDiscountAmount(float $qty, float $unitprice, float $discAmount): float {
     $lineSubtotal = $qty * $unitprice;
-    if ($discPct <= 0) {
+    if ($discAmount <= 0) {
         return max(0, $lineSubtotal);
     }
-    $discountAmount = $lineSubtotal * ($discPct / 100.0);
-    return max(0, $lineSubtotal - $discountAmount);
+    return max(0, $lineSubtotal - $discAmount);
 }
 
 try {
@@ -63,7 +62,7 @@ try {
         $qty = (float)($item['qty'] ?? 0);
         $unitprice = (float)($item['price'] ?? 0);
         $disc = (float)($item['discount'] ?? 0);
-        $totalAmount += applyPercentageDiscount($qty, $unitprice, $disc);
+        $totalAmount += applyDiscountAmount($qty, $unitprice, $disc);
     }
     
     // Convert empty string validity to null for date field
@@ -110,8 +109,9 @@ try {
         $qty = (float)($item['qty'] ?? 0);
         $unitprice = (float)($item['price'] ?? 0);
         $disc = (float)($item['discount'] ?? 0);
-        $suggestedPrice = (float)($item['suggestedPrice'] ?? $unitprice);
-        $amount = applyPercentageDiscount($qty, $unitprice, $disc);
+        $unitPriceForStdPrice = (float)($item['suggestedPrice'] ?? $unitprice);
+        $suggestedPrice = applyDiscountAmount($qty, $unitPriceForStdPrice, $disc);
+        $amount = applyDiscountAmount($qty, $unitprice, $disc);
         
         if (!$product || $qty <= 0) {
             echo json_encode(['success' => false, 'error' => "Invalid item at index $idx"]);

@@ -56,8 +56,8 @@ function addQuotationItem() {
             </select>
             <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
             <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
+            <input type="number" class="item-price" placeholder="Suggested Price" step="0.01" min="0" readonly>
             <input type="number" class="item-suggested-price" placeholder="Unit Price" step="0.01" min="0" readonly>
-            <input type="number" class="item-price" placeholder="Suggested Price" step="0.01" min="0" onchange="calculateQuotationTotal()">
             <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
         </div>
     `;
@@ -100,10 +100,10 @@ function calculateQuotationTotal() {
     
     items.forEach(item => {
         const qty = parseFloat(item.querySelector('.item-qty').value) || 0;
-        const price = parseFloat(item.querySelector('.item-price').value) || 0;
-        const discountPct = parseFloat(item.querySelector('.item-discount')?.value) || 0;
-        const lineSubtotal = qty * price;
-        const discountAmount = discountPct > 0 ? (lineSubtotal * discountPct / 100) : 0;
+        const unitPrice = parseFloat(item.querySelector('.item-suggested-price')?.value) || 0;
+        const discount = parseFloat(item.querySelector('.item-discount')?.value) || 0;
+        const lineSubtotal = qty * unitPrice;
+        const discountAmount = discount > 0 ? discount : 0;
         total += Math.max(0, lineSubtotal - discountAmount);
     });
     
@@ -146,8 +146,8 @@ function clearQuotationForm() {
                     </select>
                     <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
                     <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
+                    <input type="number" class="item-price" placeholder="Suggested Price" step="0.01" min="0" readonly>
                     <input type="number" class="item-suggested-price" placeholder="Unit Price" step="0.01" min="0" readonly>
-                    <input type="number" class="item-price" placeholder="Suggested Price" step="0.01" min="0" onchange="calculateQuotationTotal()">
                     <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
                 </div>
             </div>
@@ -182,8 +182,15 @@ async function fetchProductPrice(input) {
                         console.log('Suggested price unavailable:', data.suggestedReason, '| source:', data.source, '| rule:', data.matchedRuleCode);
                     }
                 }
+                const stItemPrice = Number(data.stItemPrice);
+                if (Number.isFinite(stItemPrice)) {
+                    priceInput.value = stItemPrice.toFixed(2);
+                } else {
+                    priceInput.value = data.price.toFixed(2);
+                }
+            } else {
+                priceInput.value = data.price.toFixed(2);
             }
-            priceInput.value = data.price.toFixed(2);
             // Trigger total recalculation
             const isOrder = input.closest('#order-items-list') !== null;
             if (isOrder) {
@@ -362,8 +369,9 @@ if (quotationForm) {
                     // Calculate total amount (accounting for discount)
                     let totalAmount = 0;
                     items.forEach(item => {
-                        const lineSubtotal = item.qty * item.price;
-                        const discountAmount = item.discount > 0 ? (lineSubtotal * item.discount / 100) : 0;
+                        const unitPrice = item.suggestedPrice || 0;
+                        const lineSubtotal = item.qty * unitPrice;
+                        const discountAmount = item.discount > 0 ? item.discount : 0;
                         totalAmount += Math.max(0, lineSubtotal - discountAmount);
                     });
                     
@@ -528,8 +536,8 @@ async function loadDraftQuotation(dockey) {
                             <input type="text" class="item-product" placeholder="Product name..." list="product-list" value="${item.DESCRIPTION || ''}" onchange="fetchProductPrice(this)">
                             <input type="number" class="item-qty" placeholder="Qty" min="1" value="${item.QTY || 1}" onchange="calculateQuotationTotal()">
                             <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="${item.DISC || 0}" onchange="calculateQuotationTotal()">
+                            <input type="number" class="item-price" placeholder="Suggested Price" step="0.01" min="0" value="${item.UNITPRICE || 0}" readonly>
                             <input type="number" class="item-suggested-price" placeholder="Unit Price" step="0.01" min="0" value="${item.UDF_STDPRICE || item.UNITPRICE || 0}" readonly>
-                            <input type="number" class="item-price" placeholder="Suggested Price" step="0.01" min="0" value="${item.UNITPRICE || 0}" onchange="calculateQuotationTotal()">
                             <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
                         </div>
                     `;

@@ -1748,6 +1748,7 @@ def api_get_product_price():
                     return jsonify({
                         'success': True,
                         'price': selected_price,
+                        'stItemPrice': fallback_price,
                         'suggestedPrice': selected_price,
                         'suggestedSource': pricing_result.get('PriceSource'),
                         'suggestedMatchedRuleCode': pricing_result.get('MatchedRuleCode'),
@@ -1765,6 +1766,7 @@ def api_get_product_price():
         return jsonify({
             'success': True,
             'price': fallback_price,
+            'stItemPrice': fallback_price,
             'suggestedPrice': None,
             'suggestedSource': None,
             'suggestedMatchedRuleCode': None,
