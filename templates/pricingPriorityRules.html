@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Pricing Priority Rules</title>
+    <link rel="stylesheet" href="/static/css/chat.css">
+    <link rel="stylesheet" href="/static/css/hamburger_menu.css">
+    <link rel="stylesheet" href="/static/css/pricingPriorityRules.css">
+</head>
+<body>
+    <div class="container pricing-priority-page">
+        <div class="main-content">
+            <div class="header">
+                {% include 'components/admin_hamburger_menu.html' %}
+                <div>
+                    <h3 class="header-title">Set Priority Rule</h3>
+                    <div class="header-subtitle">Admin: {{ user_email }}</div>
+                </div>
+            </div>
+
+            <div class="priority-shell">
+                <div class="priority-shell__header">
+                    <div>
+                        <h2>Pricing Priority Rules</h2>
+                        <p>Drag rules to change sequence. Only enabled rules are evaluated, from top to bottom.</p>
+                    </div>
+                    <div class="priority-shell__actions">
+                        <button id="reload-rules-btn" type="button" class="secondary-btn">Reload</button>
+                        <button id="save-rules-btn" type="button" class="primary-btn">Save</button>
+                    </div>
+                </div>
+
+                <div id="priority-message" class="priority-message" role="status" aria-live="polite"></div>
+
+                <div class="priority-list-header">
+                    <span>Priority</span>
+                    <span>Rule</span>
+                    <span>Enabled</span>
+                </div>
+                <div id="pricing-rule-list" class="priority-rule-list">
+                    <div class="priority-loading">Loading pricing priority rules...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/admin_hamburger_menu.js"></script>
+    <script src="/static/js/pricingPriorityRules.js"></script>
+</body>
+</html>

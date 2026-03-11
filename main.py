@@ -28,7 +28,7 @@ from utils import (
     chat_with_gpt, detect_intent_hybrid, load_chatbot_instructions,
     set_ai_config, init_local_classifier,
     extract_product_and_quantity, get_product_price, set_order_config,
-    resolve_numbered_reference
+    resolve_numbered_reference, get_selling_price
 )
 
 # Load environment variables from .env file
@@ -957,6 +957,19 @@ def admin_view_quotations():
                          user_type=session.get('user_type', ''))
 
 
+@app.route('/admin/pricing-priority-rules')
+def admin_pricing_priority_rules():
+    """Display pricing priority rule settings page (admin only)."""
+    page_error = require_page_access(require_admin=True)
+    if page_error:
+        return page_error
+    return render_template(
+        'pricingPriorityRules.html',
+        user_email=session.get('user_email', ''),
+        user_type=session.get('user_type', 'admin')
+    )
+
+
 @app.route('/admin/update-quotation')
 def admin_update_quotation():
     """Display update quotation page (admin only)."""
@@ -1694,26 +1707,54 @@ def api_get_stock_items():
 @app.route('/api/get_product_price')
 @api_login_required(unauth_message='Unauthorized')
 def api_get_product_price():
-    """Get product price by description"""
+    """Get product price by description using configurable pricing priority rules when possible."""
     description = request.args.get('description', '').strip()
     if not description:
         return jsonify({'success': False, 'error': 'Description required'}), 400
-    
+
+    customer_code = session.get('customer_code')
+
+    def build_price_response(price_item, match_type):
+        fallback_price = float(price_item.get('STOCKVALUE', 0) or 0)
+        item_code = (price_item.get('CODE') or '').strip()
+
+        if customer_code and item_code:
+            try:
+                pricing_result = get_selling_price(customer_code, item_code)
+                selected_price = float(pricing_result.get('SelectedPrice') or 0)
+                if selected_price > 0:
+                    return jsonify({
+                        'success': True,
+                        'price': selected_price,
+                        'source': pricing_result.get('PriceSource'),
+                        'matchedRuleCode': pricing_result.get('MatchedRuleCode'),
+                        'message': pricing_result.get('Message'),
+                        'itemCode': item_code,
+                        'matchType': match_type,
+                    })
+            except Exception as pricing_error:
+                print(f"[PRICING WARNING] Falling back to stock price for {item_code}: {pricing_error}", flush=True)
+
+        return jsonify({
+            'success': True,
+            'price': fallback_price,
+            'source': 'Fallback Stock Price',
+            'matchedRuleCode': None,
+            'message': 'Price selected from fallback stock price',
+            'itemCode': item_code,
+            'matchType': match_type,
+        })
+
     try:
-        # Fetch stock prices from API
         stock_prices = fetch_data_from_api("stockitemprice")
-        
-        # Look for exact match first
+
         for price_item in stock_prices:
             price_desc = price_item.get('DESCRIPTION', '')
             price_code = price_item.get('CODE', '')
-            
-            # Match by DESCRIPTION or CODE (case-insensitive)
             if (description and price_desc.lower() == description.lower()) or \
                (description and price_code.lower() == description.lower()):
-                return jsonify({'success': True, 'price': float(price_item.get('STOCKVALUE', 0))})
-        
-        # Try fuzzy matching if no exact match
+                return build_price_response(price_item, 'exact')
+
         from difflib import SequenceMatcher
         best_match = None
         best_ratio = 0.0
@@ -1724,11 +1765,10 @@ def api_get_product_price():
                 if ratio > best_ratio:
                     best_ratio = ratio
                     best_match = price_item
-        
-        # If fuzzy match is strong enough (85%+), use it
+
         if best_match and best_ratio >= 0.85:
-            return jsonify({'success': True, 'price': float(best_match.get('STOCKVALUE', 0))})
-        
+            return build_price_response(best_match, 'fuzzy')
+
         return jsonify({'success': False, 'error': 'Price not found'}), 404
     except Exception as e:
         print(f"Error getting product price: {e}", flush=True)
@@ -1984,6 +2024,121 @@ def api_admin_get_quotation_detail():
             return jsonify({'success': False, 'error': result.get('error', 'Unknown error')}), 400
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/pricing-priority-rules', methods=['GET'])
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_get_pricing_priority_rules():
+    """Fetch pricing priority rules directly from the local database (admin only)."""
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        cur.execute(
+            '''
+            SELECT PricingPriorityRuleId, RuleCode, RuleName, PriorityNo, IsEnabled
+            FROM PricingPriorityRule
+            ORDER BY PriorityNo ASC, PricingPriorityRuleId ASC
+            '''
+        )
+
+        rules = []
+        for row in cur.fetchall():
+            rules.append({
+                'PricingPriorityRuleId': int(row[0]),
+                'RuleCode': str(row[1]).strip() if row[1] is not None else '',
+                'RuleName': str(row[2]).strip() if row[2] is not None else '',
+                'PriorityNo': int(row[3]) if row[3] is not None else 0,
+                'IsEnabled': int(row[4]) if row[4] is not None else 0,
+            })
+
+        return jsonify({
+            'success': True,
+            'status': 'success',
+            'message': 'Pricing priority rules loaded successfully',
+            'data': rules,
+        }), 200
+    except Exception as e:
+        print(f"Error fetching pricing priority rules: {e}")
+        return jsonify({'success': False, 'status': 'error', 'error': str(e)}), 500
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
+
+
+@app.route('/api/admin/pricing-priority-rules/save', methods=['POST'])
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_save_pricing_priority_rules():
+    """Save pricing priority rule ordering and enabled flags to the local database (admin only)."""
+    payload = request.get_json() or {}
+    rules = payload.get('rules') if isinstance(payload, dict) else payload
+    if not isinstance(rules, list) or not rules:
+        return jsonify({
+            'success': False,
+            'status': 'error',
+            'error': 'A non-empty rules array is required'
+        }), 400
+
+    con = None
+    cur = None
+    try:
+        rule_ids = []
+        for rule in rules:
+            rule_id = int(rule.get('PricingPriorityRuleId', 0))
+            if rule_id <= 0:
+                return jsonify({'success': False, 'status': 'error', 'error': 'Each rule must include a valid PricingPriorityRuleId'}), 400
+            if rule_id in rule_ids:
+                return jsonify({'success': False, 'status': 'error', 'error': 'Duplicate PricingPriorityRuleId found in payload'}), 400
+            rule_ids.append(rule_id)
+
+        con = get_db_connection()
+        cur = con.cursor()
+
+        placeholders = ','.join(['?'] * len(rule_ids))
+        cur.execute(
+            f'SELECT COUNT(*) FROM PricingPriorityRule WHERE PricingPriorityRuleId IN ({placeholders})',
+            tuple(rule_ids)
+        )
+        matched_count = int(cur.fetchone()[0])
+        if matched_count != len(rule_ids):
+            return jsonify({'success': False, 'status': 'error', 'error': 'One or more pricing priority rules do not exist'}), 400
+
+        for index, rule in enumerate(rules, start=1):
+            cur.execute(
+                '''
+                UPDATE PricingPriorityRule
+                SET PriorityNo = ?,
+                    IsEnabled = ?,
+                    EditDate = CURRENT_TIMESTAMP
+                WHERE PricingPriorityRuleId = ?
+                ''',
+                (
+                    index,
+                    1 if int(rule.get('IsEnabled', 0)) else 0,
+                    int(rule['PricingPriorityRuleId'])
+                )
+            )
+
+        con.commit()
+        return jsonify({
+            'success': True,
+            'status': 'success',
+            'message': 'Pricing priority rules saved successfully',
+            'savedCount': len(rules)
+        }), 200
+    except Exception as e:
+        if con:
+            con.rollback()
+        print(f"Error saving pricing priority rules: {e}")
+        return jsonify({'success': False, 'status': 'error', 'error': str(e)}), 500
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
 
 
 @app.route('/api/admin/update_quotation', methods=['POST'])

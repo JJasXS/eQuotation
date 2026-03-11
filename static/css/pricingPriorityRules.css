@@ -1,0 +1,259 @@
+body {
+    overflow: auto;
+}
+
+.pricing-priority-page .main-content {
+    min-height: 100vh;
+    background: #0d1118;
+}
+
+.header-subtitle {
+    font-size: 12px;
+    color: #9ba7b6;
+    margin-top: 4px;
+}
+
+.priority-shell {
+    max-width: 960px;
+    margin: 24px auto;
+    padding: 24px;
+    background: #1a1f2e;
+    border: 1px solid #343b46;
+    border-radius: 14px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+}
+
+.priority-shell__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.priority-shell__header h2 {
+    font-size: 24px;
+    margin-bottom: 6px;
+    color: #e4e9f1;
+}
+
+.priority-shell__header p {
+    color: #9ba7b6;
+    font-size: 14px;
+    max-width: 560px;
+}
+
+.priority-shell__actions {
+    display: flex;
+    gap: 10px;
+}
+
+.primary-btn,
+.secondary-btn {
+    border: 1px solid transparent;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.primary-btn {
+    background: #4b6e9e;
+    color: #fff;
+}
+
+.primary-btn:hover {
+    background: #5c80b3;
+}
+
+.secondary-btn {
+    background: #2d3440;
+    color: #e4e9f1;
+    border-color: #3d4654;
+}
+
+.secondary-btn:hover {
+    background: #36404d;
+}
+
+.primary-btn:disabled,
+.secondary-btn:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+.priority-message {
+    display: none;
+    margin-bottom: 16px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.priority-message.is-visible {
+    display: block;
+}
+
+.priority-message.is-success {
+    background: rgba(75, 158, 110, 0.16);
+    border: 1px solid rgba(75, 158, 110, 0.45);
+    color: #b9f3d0;
+}
+
+.priority-message.is-error {
+    background: rgba(192, 70, 70, 0.18);
+    border: 1px solid rgba(192, 70, 70, 0.45);
+    color: #ffb7b7;
+}
+
+.priority-message.is-info {
+    background: rgba(75, 110, 158, 0.16);
+    border: 1px solid rgba(75, 110, 158, 0.45);
+    color: #c6d8f5;
+}
+
+.priority-list-header,
+.priority-rule-row {
+    display: grid;
+    grid-template-columns: 110px minmax(0, 1fr) 120px;
+    gap: 16px;
+    align-items: center;
+}
+
+.priority-list-header {
+    padding: 0 14px 10px;
+    color: #9ba7b6;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.priority-rule-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.priority-rule-row {
+    background: #232a36;
+    border: 1px solid #343d4b;
+    border-radius: 12px;
+    padding: 14px;
+}
+
+.priority-rule-row.is-dragging {
+    opacity: 0.55;
+}
+
+.priority-rule-row.drag-target {
+    border-color: #6a8fc7;
+    box-shadow: 0 0 0 1px rgba(106, 143, 199, 0.5);
+}
+
+.priority-number {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-weight: 700;
+    color: #e4e9f1;
+}
+
+.drag-handle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    border: 1px solid #3d4654;
+    background: #1a1f2e;
+    color: #9ba7b6;
+    cursor: grab;
+    user-select: none;
+    font-size: 18px;
+    line-height: 1;
+}
+
+.drag-handle:active {
+    cursor: grabbing;
+}
+
+.rule-details {
+    min-width: 0;
+}
+
+.rule-name {
+    color: #e4e9f1;
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.rule-code {
+    color: #8d99aa;
+    font-size: 12px;
+    word-break: break-word;
+}
+
+.rule-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    justify-self: end;
+    color: #e4e9f1;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.rule-toggle input {
+    width: 18px;
+    height: 18px;
+    accent-color: #4b6e9e;
+}
+
+.priority-loading,
+.priority-empty {
+    padding: 30px 16px;
+    border: 1px dashed #343d4b;
+    border-radius: 12px;
+    text-align: center;
+    color: #9ba7b6;
+    background: #151b25;
+}
+
+@media (max-width: 720px) {
+    .priority-shell {
+        margin: 12px;
+        padding: 16px;
+    }
+
+    .priority-shell__header {
+        flex-direction: column;
+    }
+
+    .priority-shell__actions {
+        width: 100%;
+    }
+
+    .primary-btn,
+    .secondary-btn {
+        flex: 1;
+    }
+
+    .priority-list-header {
+        display: none;
+    }
+
+    .priority-rule-row {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .rule-toggle {
+        justify-self: start;
+    }
+}

@@ -27,6 +27,8 @@ ENDPOINT_PATHS = {
     "getallorders": "/php/getAllOrders.php",
     "getstockitem": "/php/getStockItem.php",
     "getstockitemprice": "/php/getStockItemPrice.php",
+    "pricingpriorityruleget": "/php/PricingPriorityRuleGet.php",
+    "pricingpriorityrulesave": "/php/PricingPriorityRuleSave.php",
     "insertchatmessage": "/php/insertChatMessage.php",
     "insertdraftquotation": "/php/insertDraftQuotation.php",
     "insertorder": "/php/insertOrder.php",
