@@ -66,6 +66,14 @@ function findEnvFile() {
         $candidates[] = dirname($scriptDir) . DIRECTORY_SEPARATOR . '.env';
     }
 
+    // Common Windows fallback paths when PHP is served from XAMPP but project lives elsewhere.
+    $username = getenv('USERNAME') ?: '';
+    if ($username !== '') {
+        $candidates[] = 'C:' . DIRECTORY_SEPARATOR . 'Users' . DIRECTORY_SEPARATOR . $username . DIRECTORY_SEPARATOR . 'Chatbot' . DIRECTORY_SEPARATOR . '.env';
+    }
+    $candidates[] = 'C:' . DIRECTORY_SEPARATOR . 'Users' . DIRECTORY_SEPARATOR . 'Administrator' . DIRECTORY_SEPARATOR . 'Chatbot' . DIRECTORY_SEPARATOR . '.env';
+    $candidates[] = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'Chatbot' . DIRECTORY_SEPARATOR . '.env';
+
     // Return first existing .env
     foreach ($candidates as $candidate) {
         if (is_string($candidate) && file_exists($candidate)) {

@@ -301,27 +301,31 @@ async function toggleQuotationItems(card) {
                         itemsHtml = '<div style="color: #888; padding: 8px; text-align: center;">No items</div>';
                     } else {
                         itemsHtml = '<table style="width: 100%; border-collapse: collapse;">';
-                        itemsHtml += '<thead><tr style="color: #9ba7b6; font-size: 12px; text-align: left;">';
-                        itemsHtml += '<th style="padding: 6px;">Item</th>';
-                        itemsHtml += '<th style="padding: 6px; text-align: right;">Qty</th>';
-                        itemsHtml += '<th style="padding: 6px; text-align: right;">Price</th>';
-                        itemsHtml += '<th style="padding: 6px; text-align: right;">Amount</th>';
-                        itemsHtml += '</tr></thead><tbody>';
+                            itemsHtml += '<thead><tr style="color: #9ba7b6; font-size: 12px; text-align: left;">';
+                            itemsHtml += '<th style="padding: 6px;">Item</th>';
+                            itemsHtml += '<th style="padding: 6px; text-align: right;">Price</th>';
+                            itemsHtml += '<th style="padding: 6px; text-align: right;">Qty</th>';
+                            itemsHtml += '<th style="padding: 6px; text-align: right;">Discount</th>';
+                            itemsHtml += '<th style="padding: 6px; text-align: right;">Subtotal</th>';
+                            itemsHtml += '</tr></thead><tbody>';
 
-                        items.forEach(item => {
-                            const qty = Number(item.QTY || 0).toFixed(2);
-                            const price = Number(item.UNITPRICE || 0).toFixed(2);
-                            const amount = Number(item.AMOUNT || 0).toFixed(2);
-
-                            itemsHtml += '<tr style="color: #e4e9f1; font-size: 13px; border-top: 1px solid #3d4654;">';
-                            itemsHtml += `<td style="padding: 8px 6px;"><div style="font-weight: 500;">${item.ITEMCODE}</div><div style="color: #9ba7b6; font-size: 11px;">${item.DESCRIPTION}</div></td>`;
-                            itemsHtml += `<td style="padding: 8px 6px; text-align: right;">${qty}</td>`;
-                            itemsHtml += `<td style="padding: 8px 6px; text-align: right;">RM ${price}</td>`;
-                            itemsHtml += `<td style="padding: 8px 6px; text-align: right; font-weight: 600;">RM ${amount}</td>`;
-                            itemsHtml += '</tr>';
-                        });
-
-                        itemsHtml += '</tbody></table>';
+                            let total = 0;
+                            items.forEach(item => {
+                                const qty = Number(item.QTY || 0).toFixed(2);
+                                const price = Number(item.UNITPRICE || 0).toFixed(2);
+                                const discount = Number(item.DISC || 0).toFixed(2);
+                                const amount = Math.max(0, (item.QTY * item.UNITPRICE) - (item.DISC || 0)).toFixed(2);
+                                total += parseFloat(amount);
+                                itemsHtml += '<tr style="color: #e4e9f1; font-size: 13px; border-top: 1px solid #3d4654;">';
+                                itemsHtml += `<td style="padding: 8px 6px;"><div style="font-weight: 500;">${item.ITEMCODE}</div><div style="color: #9ba7b6; font-size: 11px;">${item.DESCRIPTION}</div></td>`;
+                                itemsHtml += `<td style="padding: 8px 6px; text-align: right;">RM ${price}</td>`;
+                                itemsHtml += `<td style="padding: 8px 6px; text-align: right;">${qty}</td>`;
+                                itemsHtml += `<td style="padding: 8px 6px; text-align: right;">RM ${discount}</td>`;
+                                itemsHtml += `<td style="padding: 8px 6px; text-align: right; font-weight: 600;">RM ${amount}</td>`;
+                                itemsHtml += '</tr>';
+                            });
+                            itemsHtml += `<tr style="background: #232a36; color: #f5b301; font-weight: bold;"><td colspan="4" style="padding: 8px 6px; text-align: right;">TOTAL</td><td style="padding: 8px 6px; text-align: right; font-weight: bold;">RM ${total.toFixed(2)}</td></tr>`;
+                            itemsHtml += '</tbody></table>';
                     }
 
                     itemsDiv.innerHTML = itemsHtml;

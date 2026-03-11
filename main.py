@@ -3,6 +3,7 @@ print("[DEBUG] main.py loaded and Flask is starting...", flush=True)
 import os
 from functools import wraps
 from datetime import datetime, timedelta
+import threading
 import re
 import random
 import string
@@ -568,7 +569,19 @@ def api_send_otp():
         </html>
         """
         
-        send_email(email, subject, body)
+        # Send email in background so OTP screen can render immediately.
+        def send_otp_email_async(target_email, target_subject, target_body):
+            try:
+                send_email(target_email, target_subject, target_body)
+            except Exception as mail_err:
+                print(f"[DEBUG OTP] async send_email failed for {target_email}: {mail_err}", flush=True)
+
+        threading.Thread(
+            target=send_otp_email_async,
+            args=(email, subject, body),
+            daemon=True
+        ).start()
+
         response_payload = {
             'success': True,
             'message': f'OTP sent to {email}',

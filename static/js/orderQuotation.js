@@ -285,9 +285,10 @@ if (quotationForm) {
                 productElement.value.trim();
             const qty = parseFloat(item.querySelector('.item-qty').value) || 0;
             const price = parseFloat(item.querySelector('.item-price').value) || 0;
+            const discount = parseFloat(item.querySelector('.item-discount')?.value) || 0;
             
             if (product && qty > 0 && price >= 0) {
-                items.push({ product, qty, price });
+                items.push({ product, qty, price, discount });
             }
         });
         
