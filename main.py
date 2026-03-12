@@ -221,6 +221,167 @@ def build_product_suggestions(search_term, candidates, price_lookup=None, requir
     return [(desc, format_rm(price)) for desc, _, price in top_matches]
 
 
+CATALOG_QUERY_STOP_WORDS = {
+    'a', 'an', 'and', 'any', 'are', 'available', 'can', 'category', 'categories',
+    'do', 'for', 'give', 'have', 'i', 'in', 'is', 'items', 'list', 'me', 'of',
+    'product', 'products', 'sell', 'show', 'stock', 'tell', 'the', 'there', 'type',
+    'types', 'what', 'which', 'with', 'you', 'your'
+}
+
+
+def normalize_catalog_token(token):
+    token = re.sub(r'[^a-z0-9]+', '', (token or '').lower())
+    if len(token) > 4 and token.endswith('ies'):
+        return token[:-3] + 'y'
+    if len(token) > 4 and token.endswith('es'):
+        return token[:-2]
+    if len(token) > 3 and token.endswith('s'):
+        return token[:-1]
+    return token
+
+
+def extract_catalog_terms(user_input):
+    raw_terms = re.findall(r'[a-z0-9]+', (user_input or '').lower())
+    terms = []
+    for raw_term in raw_terms:
+        if raw_term in CATALOG_QUERY_STOP_WORDS:
+            continue
+        normalized = normalize_catalog_token(raw_term)
+        if len(normalized) < 2:
+            continue
+        terms.append(normalized)
+    return terms
+
+
+def is_catalog_query(user_input):
+    text = (user_input or '').lower().strip()
+    if not text:
+        return False
+
+    catalog_phrases = [
+        'what do you sell', 'what do u sell', 'what type', 'what types',
+        'what category', 'what categories', 'what group', 'what groups',
+        'show me', 'tell me', 'available', 'do you have', 'looking for'
+    ]
+    if any(phrase in text for phrase in catalog_phrases):
+        return True
+
+    return bool(extract_catalog_terms(text)) and len(text.split()) <= 8
+
+
+def match_catalog_items(user_input, stockitems, price_lookup=None, limit=8):
+    query = (user_input or '').lower().strip()
+    terms = extract_catalog_terms(query)
+    matches = []
+
+    for item in stockitems:
+        description = (item.get('DESCRIPTION') or '').strip()
+        stock_group = (item.get('STOCKGROUP') or '').strip()
+        if not description:
+            continue
+
+        description_lower = description.lower()
+        stock_group_lower = stock_group.lower()
+        normalized_desc_tokens = {normalize_catalog_token(token) for token in re.findall(r'[a-z0-9]+', description_lower)}
+        normalized_group_tokens = {normalize_catalog_token(token) for token in re.findall(r'[a-z0-9]+', stock_group_lower)}
+
+        score = 0
+        if query and query in description_lower:
+            score += 8
+        if query and query in stock_group_lower:
+            score += 10
+        if stock_group_lower and stock_group_lower in query:
+            score += 6
+
+        for term in terms:
+            if term in normalized_group_tokens:
+                score += 5
+            elif term in normalized_desc_tokens:
+                score += 4
+            elif term in stock_group_lower:
+                score += 3
+            elif term in description_lower:
+                score += 2
+
+        if terms and all(term in (normalized_desc_tokens | normalized_group_tokens) or term in description_lower or term in stock_group_lower for term in terms):
+            score += 4
+
+        if score <= 0:
+            continue
+
+        price = None
+        if price_lookup:
+            price = price_lookup.get(description_lower)
+
+        matches.append((description, stock_group, score, price))
+
+    matches.sort(key=lambda item: (-item[2], item[0]))
+
+    seen = set()
+    results = []
+    for description, stock_group, _, price in matches:
+        if description.lower() in seen:
+            continue
+        seen.add(description.lower())
+        results.append((description, stock_group, price))
+        if len(results) >= limit:
+            break
+
+    return results
+
+
+def build_catalog_response(user_input, stockitems, stock_groups, price_lookup):
+    if not is_catalog_query(user_input):
+        return None
+
+    text = (user_input or '').lower().strip()
+    generic_group_request = any(phrase in text for phrase in [
+        'what do you sell', 'what type', 'what types', 'what category',
+        'what categories', 'what group', 'what groups'
+    ])
+
+    if generic_group_request:
+        if not stock_groups:
+            return 'No items found in the catalog right now.'
+
+        lines = ['These are our available stock groups:', '']
+        for index, stock_group in enumerate(stock_groups, start=1):
+            lines.append(f'{index}. {stock_group}')
+        lines.extend(['', 'Tell me a stock group or product keyword and I will show matching items.'])
+        return '\n'.join(lines)
+
+    matches = match_catalog_items(user_input, stockitems, price_lookup=price_lookup, limit=8)
+    priced_matches = [item for item in matches if item[2] is not None]
+    display_matches = priced_matches or matches
+
+    if display_matches:
+        lines = ['Here are the matching items I found in our catalog:', '']
+        for index, (description, _stock_group, price) in enumerate(display_matches, start=1):
+            if price is not None:
+                lines.append(f'{index}. {description} [PRODUCT: {description} | qty: 1]')
+            else:
+                lines.append(f'{index}. {description}')
+        lines.extend(['', 'Let me know which item you want, or ask for a different keyword.'])
+        return '\n'.join(lines)
+
+    suggestions = build_product_suggestions(
+        user_input,
+        stockitems,
+        price_lookup=price_lookup,
+        require_price=True,
+        threshold=0.2,
+        limit=5
+    )
+    if suggestions:
+        lines = ['No item found for that search.', '', 'Here are some close matches from our catalog:', '']
+        for index, (description, price) in enumerate(suggestions, start=1):
+            lines.append(f'{index}. {description} [PRODUCT: {description} | qty: 1]')
+        lines.extend(['', 'Try one of these or give me another keyword.'])
+        return '\n'.join(lines)
+
+    return 'No item found for that search in our catalog. Please try another product name or stock group.'
+
+
 def add_order_item(orderid, product_info, unitprice):
     """Insert one order item and return a user-facing status message."""
     try:
@@ -248,7 +409,8 @@ def should_include_stock_context(user_input):
     text = (user_input or '').lower()
     stock_terms = [
         'stock', 'price', 'pricing', 'product', 'item', 'catalog', 'available',
-        'order', 'quotation', 'quote', 'buy', 'purchase', 'add', 'qty', 'quantity'
+        'order', 'quotation', 'quote', 'buy', 'purchase', 'add', 'qty', 'quantity',
+        'type', 'types', 'category', 'categories', 'group', 'groups', 'sell'
     ]
     return any(term in text for term in stock_terms)
 
@@ -1203,6 +1365,11 @@ def chat_api():
 
     stock_items_block = format_section(stockitems, ['DESCRIPTION', 'STOCKGROUP'], numbered=True)
     stock_prices_block = format_section(formatted_stockitemprices, ['CODE', 'STOCKVALUE'])
+    stock_groups = sorted({
+        str(item.get('STOCKGROUP', '') or '').strip()
+        for item in stockitems
+        if str(item.get('STOCKGROUP', '') or '').strip()
+    })
 
     messages = []
 
@@ -1216,6 +1383,11 @@ def chat_api():
     # Add stock data context only when relevant to avoid repetitive/static replies.
     stock_context_parts = []
     if should_include_stock_context(user_input):
+        if stock_groups:
+            stock_context_parts.append(
+                "Available Stock Groups (use these as the product categories when the user asks what types/categories/groups you sell):\n"
+                + "\n".join(f"- {stock_group}" for stock_group in stock_groups)
+            )
         if stock_items_block:
             stock_context_parts.append(f"Available Stock Items:\n{stock_items_block}")
         if stock_prices_block:
@@ -1454,9 +1626,15 @@ def chat_api():
                     else:
                         order_response = f"Sorry, '{searched_term}' not available."
     
-    # If order handling happened, use order response, otherwise use GPT
+    catalog_response = None
+    if not order_response:
+        catalog_response = build_catalog_response(user_input, stockitems, stock_groups, price_lookup_by_desc)
+
+    # If order handling happened, use order response, otherwise use catalog response or GPT
     if order_response:
         formatted_reply = order_response
+    elif catalog_response:
+        formatted_reply = catalog_response
     else:
         response = chat_with_gpt(messages)
         # Apply formatting to ensure proper line breaks in lists

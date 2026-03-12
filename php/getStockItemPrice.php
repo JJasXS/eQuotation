@@ -6,10 +6,9 @@ require_once 'db_helper.php';
 try {
     $dbh = getFirebirdConnection();
     $stmt = $dbh->query('
-        SELECT p.CODE, i.DESCRIPTION, p.STOCKVALUE 
-        FROM ST_ITEM_PRICE p
-        LEFT JOIN ST_ITEM i ON p.CODE = i.CODE
-        WHERE p.STOCKVALUE > 0
+        SELECT CODE, DESCRIPTION, UDF_STDPRICE AS STOCKVALUE
+        FROM ST_ITEM
+        WHERE UDF_STDPRICE > 0
     ');
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
     echo json_encode(['success' => true, 'data' => $rows]);

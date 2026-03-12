@@ -165,6 +165,10 @@ async function fetchProductPrice(input) {
     if (!productName) return;
     
     const row = input.closest('.item-row');
+    const orderItem = input.closest('.order-item');
+    if (orderItem) {
+        orderItem.dataset.productDescription = productName;
+    }
     const suggestedPriceInput = row.querySelector('.item-price');
     const priceInput = input.closest('.item-row').querySelector('.item-suggested-price');
     
@@ -596,9 +600,59 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // AUTO-FILL FROM CHATBOT
 // Auto-add product from chatbot to quotation form
-function addProductToQuotation(productDescription, quantity = 1) {
+function updateChatSuggestionButtonState(button, label, stateClass) {
+    if (!button) {
+        return;
+    }
+
+    if (!button.dataset.originalLabel) {
+        button.dataset.originalLabel = button.textContent;
+    }
+
+    button.textContent = label;
+    button.classList.remove('is-added', 'is-updated');
+    if (stateClass) {
+        button.classList.add(stateClass);
+    }
+
+    if (button._resetStateTimeout) {
+        clearTimeout(button._resetStateTimeout);
+    }
+
+    button._resetStateTimeout = setTimeout(() => {
+        button.textContent = button.dataset.originalLabel || button.textContent;
+        button.classList.remove('is-added', 'is-updated');
+    }, 1600);
+}
+
+
+function addProductToQuotation(productDescription, quantity = 1, sourceButton = null) {
     if (!productDescription || !productDescription.trim()) {
         return false;
+    }
+
+    const normalizeProductName = (value) => (value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+    const normalizedProduct = normalizeProductName(productDescription);
+    const parsedQuantity = Number(quantity) || 1;
+
+    const existingItems = document.querySelectorAll('#quotation-items-list .order-item');
+    for (const item of existingItems) {
+        const select = item.querySelector('.item-product');
+        const qtyInput = item.querySelector('.item-qty');
+        const existingProduct = normalizeProductName(
+            item.dataset.productDescription || select?.value || select?.options?.[select.selectedIndex]?.text || ''
+        );
+
+        if (existingProduct && existingProduct === normalizedProduct && qtyInput) {
+            const currentQty = Number(qtyInput.value) || 0;
+            qtyInput.value = currentQty + parsedQuantity;
+            item.dataset.productDescription = productDescription.trim();
+            calculateQuotationTotal();
+            fetchProductPrice(select);
+            item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            updateChatSuggestionButtonState(sourceButton, `Qty updated (+${parsedQuantity})`, 'is-updated');
+            return true;
+        }
     }
     
     // Find the last empty item or add a new one
@@ -625,11 +679,13 @@ function addProductToQuotation(productDescription, quantity = 1) {
     const select = lastItem.querySelector('.item-product');
     const qtyInput = lastItem.querySelector('.item-qty');
     
+    lastItem.dataset.productDescription = productDescription.trim();
     select.value = productDescription;
-    qtyInput.value = quantity;
+    qtyInput.value = parsedQuantity;
     
     // Trigger price fetch
     fetchProductPrice(select);
+    updateChatSuggestionButtonState(sourceButton, 'Added to quotation', 'is-added');
     
     // Scroll to the form
     document.querySelector('.form-container').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -733,7 +789,7 @@ function sendChatMessage() {
             matches.forEach(match => {
                 const productName = match[1].trim();
                 const quantity = match[2];
-                messageHTML += `<button style="padding: 6px 10px; background: #5b82b6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; text-align: left;" onclick="addProductToQuotation('${productName.replace(/'/g, "\\'")}', ${quantity}); return false;">✓ Add ${quantity}x ${productName}</button>`;
+                messageHTML += `<button style="padding: 6px 10px; background: #5b82b6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; text-align: left;" onclick="addProductToQuotation('${productName.replace(/'/g, "\\'")}', ${quantity}, this); return false;">✓ Add ${productName}</button>`;
             });
             messageHTML += '</div>';
         }

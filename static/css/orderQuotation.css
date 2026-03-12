@@ -438,7 +438,7 @@
     position: fixed;
     bottom: 90px;
     right: 24px;
-    width: 500px;
+    width: 680px;
     height: 600px;
     background: #242a33;
     border: 1px solid #3d4654;
@@ -627,4 +627,14 @@
 
 .chat-message button:active {
     transform: scale(0.98);
+}
+
+.chat-message button.is-added {
+    background: #2f855a;
+    border-color: #3da06e;
+}
+
+.chat-message button.is-updated {
+    background: #b7791f;
+    border-color: #d69e2e;
 }
