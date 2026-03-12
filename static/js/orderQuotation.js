@@ -57,7 +57,7 @@ function addQuotationItem() {
             <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
             <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
             <input type="number" class="item-suggested-price" placeholder="Suggested Price" step="0.01" min="0" readonly>
-            <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" readonly>
+            <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" onchange="calculateQuotationTotal()">
             <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
         </div>
     `;
@@ -147,7 +147,7 @@ function clearQuotationForm() {
                     <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
                     <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
                     <input type="number" class="item-suggested-price" placeholder="Suggested Price" step="0.01" min="0" readonly>
-                    <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" readonly>
+                    <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" onchange="calculateQuotationTotal()">
                     <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
                 </div>
             </div>
@@ -536,7 +536,7 @@ async function loadDraftQuotation(dockey) {
                             <input type="number" class="item-qty" placeholder="Qty" min="1" value="${item.QTY || 1}" onchange="calculateQuotationTotal()">
                             <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="${item.DISC || 0}" onchange="calculateQuotationTotal()">
                             <input type="number" class="item-suggested-price" placeholder="Suggested Price" step="0.01" min="0" value="${item.UDF_STDPRICE || 0}" readonly>
-                            <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" value="${item.UNITPRICE || 0}" readonly>
+                            <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" value="${item.UNITPRICE || 0}" onchange="calculateQuotationTotal()">
                             <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
                         </div>
                     `;
@@ -589,7 +589,7 @@ document.addEventListener('DOMContentLoaded', function() {
         input.addEventListener('change', calculateOrderTotal);
     });
     
-    document.querySelectorAll('#quotation-items-list .item-qty, #quotation-items-list .item-suggested-price').forEach(input => {
+    document.querySelectorAll('#quotation-items-list .item-qty, #quotation-items-list .item-price').forEach(input => {
         input.addEventListener('change', calculateQuotationTotal);
     });
 });
@@ -814,6 +814,7 @@ function makeChatPopupDraggable() {
         }
     });
 }
+
 
 
 
