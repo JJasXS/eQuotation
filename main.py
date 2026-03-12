@@ -184,6 +184,69 @@ def proxy_json_request(method, path, payload=None, params=None, timeout=10):
     return response.json(), response.status_code
 
 
+def run_firebird_sql_script(sql_file_path, db_path, db_user, db_password):
+    """Execute a Firebird SQL script file at startup with safe ignore handling."""
+    if not os.path.exists(sql_file_path):
+        print(f"[SQL STARTUP] Script not found: {sql_file_path}")
+        return
+
+    try:
+        with open(sql_file_path, 'r', encoding='utf-8') as handle:
+            raw_sql = handle.read()
+    except Exception as exc:
+        print(f"[SQL STARTUP] Failed to read script {sql_file_path}: {exc}")
+        return
+
+    # Remove block comments and split by semicolon for statement execution.
+    sql_without_comments = re.sub(r'/\*.*?\*/', '', raw_sql, flags=re.DOTALL)
+    statements = [statement.strip() for statement in sql_without_comments.split(';') if statement.strip()]
+
+    ignored_error_tokens = [
+        'already exists', 'name in use', 'attempt to store duplicate value',
+        'violation of primary or unique key constraint', 'unsuccessful metadata update'
+    ]
+
+    executed = 0
+    ignored = 0
+    failed = 0
+    conn = None
+    cur = None
+
+    try:
+        conn = fdb.connect(dsn=db_path, user=db_user, password=db_password, charset='UTF8')
+        cur = conn.cursor()
+
+        for statement in statements:
+            normalized = re.sub(r'\s+', ' ', statement).strip().upper()
+
+            if normalized.startswith('SET SQL DIALECT'):
+                continue
+            if normalized == 'COMMIT':
+                conn.commit()
+                continue
+
+            try:
+                cur.execute(statement)
+                executed += 1
+            except Exception as exc:
+                error_text = str(exc).lower()
+                if any(token in error_text for token in ignored_error_tokens):
+                    ignored += 1
+                    continue
+                failed += 1
+                print(f"[SQL STARTUP] Statement failed: {exc}")
+
+        conn.commit()
+        print(f"[SQL STARTUP] Applied {sql_file_path} (executed={executed}, ignored={ignored}, failed={failed})")
+    except Exception as exc:
+        print(f"[SQL STARTUP] Could not run script {sql_file_path}: {exc}")
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
+
 def require_page_access(require_admin=False, block_admin=False, admin_redirect='/admin'):
     """Return redirect response for unauthorized page access, or None if access is allowed."""
     if 'user_email' not in session:
@@ -2650,5 +2713,7 @@ def api_get_company_names():
 
 if __name__ == "__main__":
     initialize_database(DB_PATH, DB_USER, DB_PASSWORD)
+    pricing_sql_path = os.path.join(os.path.dirname(__file__), 'sql', 'pricing_priority_rule_firebird.sql')
+    run_firebird_sql_script(pricing_sql_path, DB_PATH, DB_USER, DB_PASSWORD)
     print("Starting Flask web server at http://localhost:5000 ...")
     app.run(debug=True, use_reloader=False)
