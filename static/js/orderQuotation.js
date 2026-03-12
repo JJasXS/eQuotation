@@ -307,12 +307,11 @@ if (quotationForm) {
                 productElement.options[productElement.selectedIndex]?.value.trim() : 
                 productElement.value.trim();
             const qty = parseFloat(item.querySelector('.item-qty').value) || 0;
-            const price = parseFloat(item.querySelector('.item-suggested-price').value) || 0;
+            const price = parseFloat(item.querySelector('.item-price').value) || 0;
             const discount = parseFloat(item.querySelector('.item-discount')?.value) || 0;
-            const suggestedPrice = parseFloat(item.querySelector('.item-price')?.value) || 0;
             
             if (product && qty > 0 && price >= 0) {
-                items.push({ product, qty, price, discount, suggestedPrice });
+                items.push({ product, qty, price, discount });
             }
         });
         
@@ -369,7 +368,7 @@ if (quotationForm) {
                     // Calculate total amount (accounting for discount)
                     let totalAmount = 0;
                     items.forEach(item => {
-                        const unitPrice = item.suggestedPrice || 0;
+                        const unitPrice = item.price || 0;
                         const lineSubtotal = item.qty * unitPrice;
                         const discountAmount = item.discount > 0 ? item.discount : 0;
                         totalAmount += Math.max(0, lineSubtotal - discountAmount);
@@ -536,8 +535,8 @@ async function loadDraftQuotation(dockey) {
                             <input type="text" class="item-product" placeholder="Product name..." list="product-list" value="${item.DESCRIPTION || ''}" onchange="fetchProductPrice(this)">
                             <input type="number" class="item-qty" placeholder="Qty" min="1" value="${item.QTY || 1}" onchange="calculateQuotationTotal()">
                             <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="${item.DISC || 0}" onchange="calculateQuotationTotal()">
-                            <input type="number" class="item-suggested-price" placeholder="Suggested Price" step="0.01" min="0" value="${item.UNITPRICE || 0}" readonly>
-                            <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" value="${item.UDF_STDPRICE || item.UNITPRICE || 0}" readonly>
+                            <input type="number" class="item-suggested-price" placeholder="Suggested Price" step="0.01" min="0" value="${item.UDF_STDPRICE || 0}" readonly>
+                            <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" value="${item.UNITPRICE || 0}" readonly>
                             <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
                         </div>
                     `;
@@ -815,3 +814,6 @@ function makeChatPopupDraggable() {
         }
     });
 }
+
+
+

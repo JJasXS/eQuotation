@@ -117,8 +117,6 @@ try {
         $qty = (float)($item['qty'] ?? 0);
         $unitprice = (float)($item['price'] ?? 0);
         $disc = (float)($item['discount'] ?? 0);
-        $unitPriceForStdPrice = (float)($item['suggestedPrice'] ?? $unitprice);
-        $suggestedPrice = applyDiscountAmount($qty, $unitPriceForStdPrice, $disc);
         $amount = applyDiscountAmount($qty, $unitprice, $disc);
         
         if (!$product || $qty <= 0) {
@@ -176,7 +174,7 @@ try {
             $unitprice,
             $disc,
             $amount,
-            $suggestedPrice
+            null
         ]);
         
         $seq++;
@@ -198,3 +196,6 @@ try {
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
 }
 ?>
+
+
+
