@@ -1308,7 +1308,7 @@ def chat_api():
                 else:
                     order_response = "Could not understand the product and quantity. Try: 'I want 5 units of Product A'"
             else:
-                order_response = "❌ Could not create order automatically. Please say 'Create Order' first."
+                order_response = "No active order found. Please start a new order first."
         
         elif order_action == 'update':
             # Update item quantity logic
@@ -1416,7 +1416,7 @@ def chat_api():
                     data = response.json()
                     if data.get('success'):
                         grand_total = format_rm(data.get('grandTotal'))
-                        order_response = f"✓ Order #{orderid} submitted for approval!\nGrand Total: {grand_total}\n\nYour order is now pending admin approval. Type 'Create Order' to start a new order."
+                        order_response = f"✓ Order #{orderid} submitted for approval!\nGrand Total: {grand_total}\n\nYour order is now pending admin approval."
                     else:
                         order_response = f"Error completing order: {data.get('error')}"
                 except Exception as e:
@@ -1586,10 +1586,8 @@ def api_insert_chat():
         # Welcome message for new chat (must be under 255 characters)
         welcome_message = (
             "👋 Hello! I'm your ordering assistant.\n\n"
-            "I can help you create orders and manage purchases.\n\n"
-            "📦 Type 'Create Order' to start!\n"
-            "📋 I'll guide you through the process.\n\n"
-            "What would you like to do?"
+            "I'm here to help you with any questions about products and orders.\n\n"
+            "What would you like to know?"
         )
         
         cur.execute(

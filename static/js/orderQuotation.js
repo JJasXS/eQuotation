@@ -165,25 +165,32 @@ async function fetchProductPrice(input) {
     if (!productName) return;
     
     const row = input.closest('.item-row');
-    const unitPriceInput = row.querySelector('.item-price');
-    const suggestedPriceInput = row.querySelector('.item-suggested-price');
+    const suggestedPriceInput = row.querySelector('.item-price');
+    const priceInput = input.closest('.item-row').querySelector('.item-suggested-price');
     
     try {
         const response = await fetch(`/api/get_product_price?description=${encodeURIComponent(productName)}`);
         const data = await response.json();
         
         if (data.success && data.price !== undefined && data.price !== null) {
-            if (unitPriceInput) {
-                unitPriceInput.value = Number(data.price).toFixed(2);
-            }
-
             if (suggestedPriceInput) {
+                if (data.suggestedPrice !== undefined && data.suggestedPrice !== null) {
+                    suggestedPriceInput.value = Number(data.suggestedPrice).toFixed(2);
+                } else {
+                    suggestedPriceInput.value = '';
+                    if (data.suggestedReason) {
+                        console.log('Suggested price unavailable:', data.suggestedReason, '| source:', data.source, '| rule:', data.matchedRuleCode);
+                    }
+                }
                 const stItemPrice = Number(data.stItemPrice);
-                suggestedPriceInput.value = Number.isFinite(stItemPrice)
-                    ? stItemPrice.toFixed(2)
-                    : Number(data.price).toFixed(2);
+                if (Number.isFinite(stItemPrice)) {
+                    priceInput.value = stItemPrice.toFixed(2);
+                } else {
+                    priceInput.value = data.price.toFixed(2);
+                }
+            } else {
+                priceInput.value = data.price.toFixed(2);
             }
-
             // Trigger total recalculation
             const isOrder = input.closest('#order-items-list') !== null;
             if (isOrder) {
@@ -656,6 +663,11 @@ async function initializeQuotationChat() {
 function toggleChatPopup() {
     const chatPopup = document.getElementById('chat-popup');
     chatPopup.classList.toggle('hidden');
+    
+    // Initialize chat if not already initialized (lazy initialization)
+    if (!quotationChatId && !chatPopup.classList.contains('hidden')) {
+        initializeQuotationChat();
+    }
 }
 
 function closeChatPopup() {
@@ -706,7 +718,13 @@ function sendChatMessage() {
         const botMsgDiv = document.createElement('div');
         botMsgDiv.className = 'chat-message bot-message';
         
-        let messageHTML = `<div class="message-content">${reply.replace(/\[PRODUCT:[^\]]+\]/gi, '').trim()}</div>`;
+        // Replace \n with <br> tags for proper line breaks
+        let formattedReply = reply.replace(/\[PRODUCT:[^\]]+\]/gi, '').trim();
+        
+        // Handle both literal \n and actual newlines
+        formattedReply = formattedReply.replace(/\\n/g, '<br>').replace(/\n/g, '<br>');
+        
+        let messageHTML = `<div class="message-content" style="white-space: pre-wrap; word-wrap: break-word;">${formattedReply}</div>`;
         
         // Add product suggestion buttons if found
         const matches = Array.from(reply.matchAll(/\[PRODUCT:\s*([^\|]+)\s*\|\s*qty:\s*(\d+)\s*\]/gi));
@@ -737,7 +755,7 @@ function sendChatMessage() {
 // Handle Enter key in chat textarea
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize quotation chat session
-    initializeQuotationChat();
+    // initializeQuotationChat(); // DISABLED: Chat functionality disabled for create quotation page
     
     const textarea = document.getElementById('chat-popup-textarea');
     if (textarea) {
@@ -751,6 +769,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Make chat popup draggable
     makeChatPopupDraggable();
+    makeChatPopupResizable();
 });
 
 // Draggable functionality for chat popup
@@ -805,6 +824,58 @@ function makeChatPopupDraggable() {
         if (!isDragging) {
             chatHeader.style.cursor = 'default';
         }
+    });
+}
+
+function makeChatPopupResizable() {
+    const chatPopup = document.getElementById('chat-popup');
+    const resizeHandles = document.querySelectorAll('.resize-handle');
+    
+    if (!chatPopup || !resizeHandles.length) return;
+    
+    let isResizing = false;
+    let startX = 0;
+    let startY = 0;
+    let startWidth = 0;
+    let startHeight = 0;
+    let resizeEdge = null;
+    
+    resizeHandles.forEach(handle => {
+        handle.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            isResizing = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            startWidth = chatPopup.offsetWidth;
+            startHeight = chatPopup.offsetHeight;
+            resizeEdge = handle.getAttribute('data-edge');
+            chatPopup.style.transition = 'none';
+        });
+    });
+    
+    document.addEventListener('mousemove', function(e) {
+        if (!isResizing) return;
+        
+        const deltaX = e.clientX - startX;
+        const deltaY = e.clientY - startY;
+        
+        if (resizeEdge === 'right') {
+            // Resize width only
+            const newWidth = Math.max(300, startWidth + deltaX);
+            chatPopup.style.width = newWidth + 'px';
+        }
+        
+        if (resizeEdge === 'bottom') {
+            // Resize height only
+            const newHeight = Math.max(250, startHeight + deltaY);
+            chatPopup.style.height = newHeight + 'px';
+        }
+    });
+    
+    document.addEventListener('mouseup', function() {
+        isResizing = false;
+        resizeEdge = null;
+        chatPopup.style.transition = 'all 0.3s ease';
     });
 }
 

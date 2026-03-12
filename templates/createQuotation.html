@@ -116,7 +116,7 @@
     </button>
     
     <!-- Chat Popup Modal -->
-    <div id="chat-popup" class="chat-popup hidden">
+    <div id="chat-popup" class="chat-popup hidden" data-size="normal">
         <div class="chat-popup-header">
             <h4>Chat Assistant</h4>
             <button type="button" class="close-btn" onclick="closeChatPopup()">✕</button>
@@ -130,6 +130,9 @@
             <textarea id="chat-popup-textarea" placeholder="Type your message..." rows="1"></textarea>
             <button type="button" class="send-btn" onclick="sendChatMessage()">Send</button>
         </div>
+        <!-- Resize handles for all edges -->
+        <div class="resize-handle right" data-edge="right"></div>
+        <div class="resize-handle bottom" data-edge="bottom"></div>
     </div>
                             <!-- Hide Quotation Name field -->
                             <input type="hidden" id="quotation-name" name="quotationName" value="Quotation">
