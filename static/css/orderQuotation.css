@@ -229,6 +229,21 @@
     text-align: center;
 }
 
+/* Remove browser spinner arrows from numeric inputs */
+.form-group input[type="number"],
+.item-row input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+.form-group input[type="number"]::-webkit-outer-spin-button,
+.form-group input[type="number"]::-webkit-inner-spin-button,
+.item-row input[type="number"]::-webkit-outer-spin-button,
+.item-row input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
 .item-row .item-price {
     background: #252d38 !important;
     color: #8fb5e8 !important;

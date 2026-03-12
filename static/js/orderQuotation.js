@@ -165,32 +165,25 @@ async function fetchProductPrice(input) {
     if (!productName) return;
     
     const row = input.closest('.item-row');
-    const suggestedPriceInput = row.querySelector('.item-price');
-    const priceInput = input.closest('.item-row').querySelector('.item-suggested-price');
+    const unitPriceInput = row.querySelector('.item-price');
+    const suggestedPriceInput = row.querySelector('.item-suggested-price');
     
     try {
         const response = await fetch(`/api/get_product_price?description=${encodeURIComponent(productName)}`);
         const data = await response.json();
         
         if (data.success && data.price !== undefined && data.price !== null) {
-            if (suggestedPriceInput) {
-                if (data.suggestedPrice !== undefined && data.suggestedPrice !== null) {
-                    suggestedPriceInput.value = Number(data.suggestedPrice).toFixed(2);
-                } else {
-                    suggestedPriceInput.value = '';
-                    if (data.suggestedReason) {
-                        console.log('Suggested price unavailable:', data.suggestedReason, '| source:', data.source, '| rule:', data.matchedRuleCode);
-                    }
-                }
-                const stItemPrice = Number(data.stItemPrice);
-                if (Number.isFinite(stItemPrice)) {
-                    priceInput.value = stItemPrice.toFixed(2);
-                } else {
-                    priceInput.value = data.price.toFixed(2);
-                }
-            } else {
-                priceInput.value = data.price.toFixed(2);
+            if (unitPriceInput) {
+                unitPriceInput.value = Number(data.price).toFixed(2);
             }
+
+            if (suggestedPriceInput) {
+                const stItemPrice = Number(data.stItemPrice);
+                suggestedPriceInput.value = Number.isFinite(stItemPrice)
+                    ? stItemPrice.toFixed(2)
+                    : Number(data.price).toFixed(2);
+            }
+
             // Trigger total recalculation
             const isOrder = input.closest('#order-items-list') !== null;
             if (isOrder) {
