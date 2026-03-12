@@ -156,25 +156,24 @@ class PricingService:
         )
 
     def _evaluate_ref_price_based_on_uom(self, cursor, customer_code: str, item_code: str, uom: Optional[str]) -> Optional[PricingResult]:
-        if not self._table_exists(cursor, 'ST_ITEM_PRICE'):
+        if not self._table_exists(cursor, 'ST_ITEM_UOM'):
             return None
 
-        code_column = self._first_existing_column(cursor, 'ST_ITEM_PRICE', ['CODE', 'ITEMCODE'])
-        price_column = self._first_existing_column(cursor, 'ST_ITEM_PRICE', ['STOCKVALUE', 'PRICE', 'UNITPRICE'])
-        uom_column = self._first_existing_column(cursor, 'ST_ITEM_PRICE', ['UOM', 'UOMCODE', 'UNIT', 'BASEUOM'])
-        disc_column = self._first_existing_column(cursor, 'ST_ITEM_PRICE', ['DISCOUNT', 'DISC'])
+        code_column = self._first_existing_column(cursor, 'ST_ITEM_UOM', ['CODE', 'ITEMCODE'])
+        price_column = self._first_existing_column(cursor, 'ST_ITEM_UOM', ['REFPRICE', 'PRICE', 'UNITPRICE'])
+        uom_column = self._first_existing_column(cursor, 'ST_ITEM_UOM', ['UOM', 'UOMCODE', 'UNIT', 'BASEUOM'])
         if not code_column or not price_column:
             return None
 
-        select_cols = f'{price_column}' if not disc_column else f'{price_column}, {disc_column}'
+        select_cols = f'{price_column}'
         if uom and uom_column:
             cursor.execute(
-                f'SELECT FIRST 1 {select_cols} FROM ST_ITEM_PRICE WHERE {code_column} = ? AND {uom_column} = ? AND {price_column} IS NOT NULL',
+                f'SELECT FIRST 1 {select_cols} FROM ST_ITEM_UOM WHERE {code_column} = ? AND {uom_column} = ? AND {price_column} IS NOT NULL',
                 (item_code, uom)
             )
         else:
             cursor.execute(
-                f'SELECT FIRST 1 {select_cols} FROM ST_ITEM_PRICE WHERE {code_column} = ? AND {price_column} IS NOT NULL',
+                f'SELECT FIRST 1 {select_cols} FROM ST_ITEM_UOM WHERE {code_column} = ? AND {price_column} IS NOT NULL',
                 (item_code,)
             )
 
@@ -182,7 +181,7 @@ class PricingService:
         if not row:
             return None
         price = self._coerce_float(row[0])
-        net_price = self._apply_disc(price, row[1] if disc_column else None) if price is not None else None
+        net_price = price if price is not None else None
         if net_price is None or net_price <= 0:
             return None
 
@@ -344,17 +343,16 @@ class PricingService:
             detail_key_column = self._first_existing_column(cursor, detail_table, ['DOCKEY', 'DOCID'])
             detail_item_column = self._first_existing_column(cursor, detail_table, ['ITEMCODE', 'CODE', 'STOCKCODE'])
 
-            # For quotation history, use UDF_STDPRICE only.
-            # If it is empty/null for the latest row, return no match (leave blank).
-            if detail_table.upper() == 'SL_QTDTL' and self._column_exists(cursor, detail_table, 'UDF_STDPRICE'):
-                detail_price_column = 'UDF_STDPRICE'
+            # Pin specific detail tables to UNITPRICE; fall back to generic priority for others.
+            if detail_table.upper() in ('SL_QTDTL', 'SL_SODTL', 'SL_IVDTL') and self._column_exists(cursor, detail_table, 'UNITPRICE'):
+                detail_price_column = 'UNITPRICE'
             else:
                 detail_price_column = self._first_existing_column(cursor, detail_table, ['UNITPRICE', 'PRICE', 'STOCKVALUE'])
             detail_discount_column = self._first_existing_column(cursor, detail_table, ['DISC', 'DISCOUNT'])
             if not all([header_customer_column, header_key_column, header_date_column, detail_key_column, detail_item_column, detail_price_column]):
                 continue
 
-            use_raw_saved_price = str(detail_price_column).upper() == 'UDF_STDPRICE'
+            use_raw_saved_price = False  # Always apply DISC for UNITPRICE-based columns.
 
             select_columns = [
                 f'd.{detail_price_column} AS PRICE_VALUE',
