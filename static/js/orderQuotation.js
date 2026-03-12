@@ -625,6 +625,72 @@ function updateChatSuggestionButtonState(button, label, stateClass) {
     }, 1600);
 }
 
+function escapeChatHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function escapeInlineJsString(value) {
+    return String(value ?? '')
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'");
+}
+
+function buildChatReplyHtml(reply) {
+    const matches = Array.from(reply.matchAll(/\[PRODUCT:\s*([^\|]+)\s*\|\s*qty:\s*(\d+)\s*\]/gi));
+    const cleanedReply = reply.replace(/\[PRODUCT:[^\]]+\]/gi, '').replace(/\r\n/g, '\n').trim();
+    const lines = cleanedReply.length ? cleanedReply.split('\n') : [];
+    const renderedLines = [];
+    let matchIndex = 0;
+
+    lines.forEach(line => {
+        const trimmedLine = line.trim();
+
+        if (!trimmedLine) {
+            renderedLines.push('<div class="chat-reply-line is-empty"></div>');
+            return;
+        }
+
+        const numberedLineMatch = trimmedLine.match(/^\d+\.\s+(.+)$/);
+        if (numberedLineMatch && matchIndex < matches.length) {
+            const productName = matches[matchIndex][1].trim();
+            const quantity = Number(matches[matchIndex][2]) || 1;
+            const escapedProductName = escapeInlineJsString(productName);
+            const escapedLabel = escapeChatHtml(trimmedLine);
+            matchIndex += 1;
+
+            renderedLines.push(
+                `<button type="button" class="chat-inline-product-action" onclick="addProductToQuotation('${escapedProductName}', ${quantity}, this); return false;">${escapedLabel}</button>`
+            );
+            return;
+        }
+
+        renderedLines.push(`<div class="chat-reply-line">${escapeChatHtml(line)}</div>`);
+    });
+
+    if (matchIndex < matches.length) {
+        const fallbackButtons = matches.slice(matchIndex).map(match => {
+            const productName = match[1].trim();
+            const quantity = Number(match[2]) || 1;
+            const escapedProductName = escapeInlineJsString(productName);
+            const escapedLabel = escapeChatHtml(productName);
+            return `<button type="button" class="chat-inline-product-action" onclick="addProductToQuotation('${escapedProductName}', ${quantity}, this); return false;">${escapedLabel}</button>`;
+        });
+
+        renderedLines.push(`<div class="chat-inline-product-list">${fallbackButtons.join('')}</div>`);
+    }
+
+    if (!renderedLines.length) {
+        renderedLines.push('<div class="chat-reply-line"></div>');
+    }
+
+    return `<div class="message-content rich-message-content">${renderedLines.join('')}</div>`;
+}
+
 
 function addProductToQuotation(productDescription, quantity = 1, sourceButton = null) {
     if (!productDescription || !productDescription.trim()) {
@@ -718,11 +784,20 @@ async function initializeQuotationChat() {
 // Chat Popup Functions
 function toggleChatPopup() {
     const chatPopup = document.getElementById('chat-popup');
+    const textarea = document.getElementById('chat-popup-textarea');
     chatPopup.classList.toggle('hidden');
     
     // Initialize chat if not already initialized (lazy initialization)
     if (!quotationChatId && !chatPopup.classList.contains('hidden')) {
         initializeQuotationChat();
+    }
+
+    if (!chatPopup.classList.contains('hidden') && textarea) {
+        window.setTimeout(() => {
+            textarea.focus();
+            const length = textarea.value.length;
+            textarea.setSelectionRange(length, length);
+        }, 0);
     }
 }
 
@@ -765,36 +840,13 @@ function sendChatMessage() {
     })
     .then(data => {
         if (!data) return;
-        
-        // Parse bot response for product suggestions
         const reply = data.reply;
-        const productMatches = reply.matchAll(/\[PRODUCT:\s*([^\|]+)\s*\|\s*qty:\s*(\d+)\s*\]/gi);
-        
+
         // Add bot response to chat
         const botMsgDiv = document.createElement('div');
         botMsgDiv.className = 'chat-message bot-message';
-        
-        // Replace \n with <br> tags for proper line breaks
-        let formattedReply = reply.replace(/\[PRODUCT:[^\]]+\]/gi, '').trim();
-        
-        // Handle both literal \n and actual newlines
-        formattedReply = formattedReply.replace(/\\n/g, '<br>').replace(/\n/g, '<br>');
-        
-        let messageHTML = `<div class="message-content" style="white-space: pre-wrap; word-wrap: break-word;">${formattedReply}</div>`;
-        
-        // Add product suggestion buttons if found
-        const matches = Array.from(reply.matchAll(/\[PRODUCT:\s*([^\|]+)\s*\|\s*qty:\s*(\d+)\s*\]/gi));
-        if (matches.length > 0) {
-            messageHTML += '<div style="margin-top: 8px; display: flex; flex-direction: column; gap: 6px;">';
-            matches.forEach(match => {
-                const productName = match[1].trim();
-                const quantity = match[2];
-                messageHTML += `<button style="padding: 6px 10px; background: #5b82b6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; text-align: left;" onclick="addProductToQuotation('${productName.replace(/'/g, "\\'")}', ${quantity}, this); return false;">✓ Add ${productName}</button>`;
-            });
-            messageHTML += '</div>';
-        }
-        
-        botMsgDiv.innerHTML = messageHTML;
+
+        botMsgDiv.innerHTML = buildChatReplyHtml(reply);
         messagesContainer.appendChild(botMsgDiv);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     })

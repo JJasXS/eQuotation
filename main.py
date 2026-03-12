@@ -1,6 +1,7 @@
 # DEBUG: Confirm Flask main.py is running
 print("[DEBUG] main.py loaded and Flask is starting...", flush=True)
 import os
+import math
 from functools import wraps
 from datetime import datetime, timedelta
 import threading
@@ -228,6 +229,18 @@ CATALOG_QUERY_STOP_WORDS = {
     'types', 'what', 'which', 'with', 'you', 'your'
 }
 
+GREETING_ONLY_TERMS = {
+    'hi', 'hello', 'hey', 'yo', 'sup', 'morning', 'afternoon', 'evening',
+    'goodmorning', 'goodafternoon', 'goodevening'
+}
+
+CATALOG_PAGE_SIZE = 8
+SHOW_MORE_REQUEST_PHRASES = {
+    'more', 'show more', 'more results', 'show more results', 'next', 'next page',
+    'show next', 'show next page', 'see more', 'continue'
+}
+CATALOG_PAGE_REQUEST_PATTERN = re.compile(r'^(?:show\s+)?(?:go\s+to\s+)?page\s+(\d+)$')
+
 
 def normalize_catalog_token(token):
     token = re.sub(r'[^a-z0-9]+', '', (token or '').lower())
@@ -253,10 +266,43 @@ def extract_catalog_terms(user_input):
     return terms
 
 
+def is_greeting_only_message(user_input):
+    tokens = [normalize_catalog_token(token) for token in re.findall(r'[a-z0-9]+', (user_input or '').lower())]
+    tokens = [token for token in tokens if token]
+    if not tokens:
+        return False
+
+    return all(token in GREETING_ONLY_TERMS for token in tokens)
+
+
+def is_show_more_request(user_input):
+    text = re.sub(r'\s+', ' ', (user_input or '').lower()).strip()
+    return text in SHOW_MORE_REQUEST_PHRASES
+
+
+def parse_catalog_page_request(user_input):
+    text = re.sub(r'\s+', ' ', (user_input or '').lower()).strip()
+    match = CATALOG_PAGE_REQUEST_PATTERN.match(text)
+    if not match:
+        return None
+
+    page_number = int(match.group(1))
+    return max(1, page_number)
+
+
 def is_catalog_query(user_input):
     text = (user_input or '').lower().strip()
     if not text:
         return False
+
+    if is_greeting_only_message(text):
+        return False
+
+    if is_show_more_request(text):
+        return True
+
+    if parse_catalog_page_request(text) is not None:
+        return True
 
     catalog_phrases = [
         'what do you sell', 'what do u sell', 'what type', 'what types',
@@ -269,9 +315,45 @@ def is_catalog_query(user_input):
     return bool(extract_catalog_terms(text)) and len(text.split()) <= 8
 
 
-def match_catalog_items(user_input, stockitems, price_lookup=None, limit=8):
+def resolve_catalog_query_context(user_input, chat_history=None):
+    requested_page = parse_catalog_page_request(user_input)
+    if not is_show_more_request(user_input) and requested_page is None:
+        return (user_input or '').strip(), 0, False
+
+    history = chat_history or []
+    latest_query = None
+    latest_query_index = -1
+
+    for index, msg in enumerate(history):
+        sender = (msg.get('SENDER') or '').strip().lower()
+        text = (msg.get('MESSAGETEXT') or '').strip()
+        if sender != 'user' or not text:
+            continue
+        if is_show_more_request(text) or parse_catalog_page_request(text) is not None or not is_catalog_query(text):
+            continue
+        latest_query = text
+        latest_query_index = index
+
+    if latest_query is None:
+        return None, 0, True
+
+    if requested_page is not None:
+        return latest_query, (requested_page - 1) * CATALOG_PAGE_SIZE, requested_page > 1
+
+    prior_show_more_requests = 0
+    for msg in history[latest_query_index + 1:]:
+        sender = (msg.get('SENDER') or '').strip().lower()
+        text = (msg.get('MESSAGETEXT') or '').strip()
+        if sender == 'user' and is_show_more_request(text):
+            prior_show_more_requests += 1
+
+    return latest_query, (prior_show_more_requests + 1) * CATALOG_PAGE_SIZE, True
+
+
+def match_catalog_items(user_input, stockitems, price_lookup=None, limit=None, offset=0):
     query = (user_input or '').lower().strip()
     terms = extract_catalog_terms(query)
+    normalized_query = re.sub(r'\s+', ' ', query)
     matches = []
 
     for item in stockitems:
@@ -282,8 +364,20 @@ def match_catalog_items(user_input, stockitems, price_lookup=None, limit=8):
 
         description_lower = description.lower()
         stock_group_lower = stock_group.lower()
+        normalized_description = re.sub(r'\s+', ' ', description_lower)
+        normalized_stock_group = re.sub(r'\s+', ' ', stock_group_lower)
         normalized_desc_tokens = {normalize_catalog_token(token) for token in re.findall(r'[a-z0-9]+', description_lower)}
         normalized_group_tokens = {normalize_catalog_token(token) for token in re.findall(r'[a-z0-9]+', stock_group_lower)}
+        exact_description_match = bool(normalized_query) and normalized_description == normalized_query
+        exact_group_match = bool(normalized_query) and normalized_stock_group == normalized_query
+        starts_with_description = bool(normalized_query) and normalized_description.startswith(normalized_query)
+        starts_with_group = bool(normalized_query) and normalized_stock_group.startswith(normalized_query)
+        all_terms_in_description = bool(terms) and all(
+            term in normalized_desc_tokens or term in description_lower for term in terms
+        )
+        all_terms_in_group = bool(terms) and all(
+            term in normalized_group_tokens or term in stock_group_lower for term in terms
+        )
 
         score = 0
         if query and query in description_lower:
@@ -306,6 +400,15 @@ def match_catalog_items(user_input, stockitems, price_lookup=None, limit=8):
         if terms and all(term in (normalized_desc_tokens | normalized_group_tokens) or term in description_lower or term in stock_group_lower for term in terms):
             score += 4
 
+        if exact_description_match:
+            score += 20
+        elif exact_group_match:
+            score += 16
+        elif starts_with_description:
+            score += 8
+        elif starts_with_group:
+            score += 6
+
         if score <= 0:
             continue
 
@@ -313,28 +416,55 @@ def match_catalog_items(user_input, stockitems, price_lookup=None, limit=8):
         if price_lookup:
             price = price_lookup.get(description_lower)
 
-        matches.append((description, stock_group, score, price))
+        matches.append((
+            description,
+            stock_group,
+            score,
+            price,
+            exact_description_match,
+            exact_group_match,
+            starts_with_description,
+            starts_with_group,
+            all_terms_in_description,
+            all_terms_in_group,
+        ))
 
-    matches.sort(key=lambda item: (-item[2], item[0]))
+    matches.sort(key=lambda item: (
+        -int(item[4]),
+        -int(item[5]),
+        -int(item[6]),
+        -int(item[7]),
+        -int(item[8]),
+        -int(item[9]),
+        -item[2],
+        item[0]
+    ))
 
     seen = set()
-    results = []
-    for description, stock_group, _, price in matches:
+    deduped_results = []
+    for description, stock_group, _, price, *_ in matches:
         if description.lower() in seen:
             continue
         seen.add(description.lower())
-        results.append((description, stock_group, price))
-        if len(results) >= limit:
-            break
+        deduped_results.append((description, stock_group, price))
 
-    return results
+    if offset:
+        deduped_results = deduped_results[offset:]
+    if limit is not None:
+        deduped_results = deduped_results[:limit]
+
+    return deduped_results
 
 
-def build_catalog_response(user_input, stockitems, stock_groups, price_lookup):
+def build_catalog_response(user_input, stockitems, stock_groups, price_lookup, chat_history=None):
     if not is_catalog_query(user_input):
         return None
 
-    text = (user_input or '').lower().strip()
+    resolved_query, offset, is_follow_up = resolve_catalog_query_context(user_input, chat_history)
+    if resolved_query is None:
+        return "I can show more results after a catalog search. Try a product keyword first, then say 'show more' or 'page 2'."
+
+    text = resolved_query.lower().strip()
     generic_group_request = any(phrase in text for phrase in [
         'what do you sell', 'what type', 'what types', 'what category',
         'what categories', 'what group', 'what groups'
@@ -350,22 +480,40 @@ def build_catalog_response(user_input, stockitems, stock_groups, price_lookup):
         lines.extend(['', 'Tell me a stock group or product keyword and I will show matching items.'])
         return '\n'.join(lines)
 
-    matches = match_catalog_items(user_input, stockitems, price_lookup=price_lookup, limit=8)
-    priced_matches = [item for item in matches if item[2] is not None]
-    display_matches = priced_matches or matches
+    all_matches = match_catalog_items(resolved_query, stockitems, price_lookup=price_lookup, limit=None, offset=0)
+    visible_matches = [item for item in all_matches if item[2] is not None] or all_matches
+    matches = visible_matches[offset:offset + CATALOG_PAGE_SIZE]
+    display_matches = matches
 
     if display_matches:
-        lines = ['Here are the matching items I found in our catalog:', '']
-        for index, (description, _stock_group, price) in enumerate(display_matches, start=1):
+        start_index = offset + 1
+        end_index = offset + len(display_matches)
+        total_matches = len(visible_matches)
+        heading = 'Here are more matching items I found in our catalog:' if is_follow_up else 'Here are the matching items I found in our catalog:'
+
+        lines = [heading, '']
+        for index, (description, _stock_group, price) in enumerate(display_matches, start=start_index):
             if price is not None:
                 lines.append(f'{index}. {description} [PRODUCT: {description} | qty: 1]')
             else:
                 lines.append(f'{index}. {description}')
+
+        lines.extend(['', f'Showing {start_index}-{end_index} of {total_matches} matches.'])
+        if end_index < total_matches:
+            next_page = (offset // CATALOG_PAGE_SIZE) + 2
+            lines.append(f"Say 'show more' or 'page {next_page}' to see more results.")
+        else:
+            lines.append('That is the end of the matching results for this search.')
         lines.extend(['', 'Let me know which item you want, or ask for a different keyword.'])
         return '\n'.join(lines)
 
+    if is_follow_up and visible_matches:
+        total_matches = len(visible_matches)
+        total_pages = max(1, math.ceil(total_matches / CATALOG_PAGE_SIZE))
+        return f"That page is out of range for this search. I found {total_matches} matching items across {total_pages} pages."
+
     suggestions = build_product_suggestions(
-        user_input,
+        resolved_query,
         stockitems,
         price_lookup=price_lookup,
         require_price=True,
@@ -1628,7 +1776,7 @@ def chat_api():
     
     catalog_response = None
     if not order_response:
-        catalog_response = build_catalog_response(user_input, stockitems, stock_groups, price_lookup_by_desc)
+        catalog_response = build_catalog_response(user_input, stockitems, stock_groups, price_lookup_by_desc, chat_history=chat_history)
 
     # If order handling happened, use order response, otherwise use catalog response or GPT
     if order_response:
