@@ -72,7 +72,7 @@
                             <span>Product</span>
                             <span>Qty</span>
                             <span>Discount</span>
-                            <span>Suggested Price ST_ITEM_PRICE.STOCKVALUE</span>
+                            <span>Suggested Price ST_ITEM.UDF_STDPRICE</span>
                             <span>Unit Price</span>
                             <span></span>
                         </div>
@@ -84,8 +84,8 @@
                                     </select>
                                     <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
                                     <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
-                                    <input type="number" class="item-price" placeholder="Suggested Price" step="0.01" min="0" readonly>
-                                    <input type="number" class="item-suggested-price" placeholder="Unit Price" step="0.01" min="0" readonly>
+                                    <input type="number" class="item-suggested-price" placeholder="Suggested Price" step="0.01" min="0" readonly>
+                                    <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" readonly>
                                     <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
                                 </div>
                             </div>

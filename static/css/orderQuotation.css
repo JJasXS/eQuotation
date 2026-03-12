@@ -229,7 +229,7 @@
     text-align: center;
 }
 
-.item-row .item-suggested-price {
+.item-row .item-price {
     background: #252d38 !important;
     color: #8fb5e8 !important;
     cursor: default;

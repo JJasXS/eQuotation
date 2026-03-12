@@ -1768,7 +1768,7 @@ def api_get_product_price():
                     return jsonify({
                         'success': True,
                         'price': selected_price,
-                        'stItemPrice': st_item_udf_stdprice or fallback_price,
+                        'stItemPrice': st_item_udf_stdprice if st_item_udf_stdprice is not None else 0,
                         'suggestedPrice': selected_price,
                         'suggestedSource': pricing_result.get('PriceSource'),
                         'suggestedMatchedRuleCode': pricing_result.get('MatchedRuleCode'),
@@ -1786,7 +1786,7 @@ def api_get_product_price():
         return jsonify({
             'success': True,
             'price': fallback_price,
-            'stItemPrice': st_item_udf_stdprice or fallback_price,
+            'stItemPrice': st_item_udf_stdprice if st_item_udf_stdprice is not None else 0,
             'suggestedPrice': None,
             'suggestedSource': None,
             'suggestedMatchedRuleCode': None,

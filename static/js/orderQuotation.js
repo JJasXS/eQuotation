@@ -56,8 +56,8 @@ function addQuotationItem() {
             </select>
             <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
             <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
-            <input type="number" class="item-price" placeholder="Suggested Price" step="0.01" min="0" readonly>
-            <input type="number" class="item-suggested-price" placeholder="Unit Price" step="0.01" min="0" readonly>
+            <input type="number" class="item-suggested-price" placeholder="Suggested Price" step="0.01" min="0" readonly>
+            <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" readonly>
             <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
         </div>
     `;
@@ -100,7 +100,7 @@ function calculateQuotationTotal() {
     
     items.forEach(item => {
         const qty = parseFloat(item.querySelector('.item-qty').value) || 0;
-        const unitPrice = parseFloat(item.querySelector('.item-suggested-price')?.value) || 0;
+        const unitPrice = parseFloat(item.querySelector('.item-price')?.value) || 0;
         const discount = parseFloat(item.querySelector('.item-discount')?.value) || 0;
         const lineSubtotal = qty * unitPrice;
         const discountAmount = discount > 0 ? discount : 0;
@@ -146,8 +146,8 @@ function clearQuotationForm() {
                     </select>
                     <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
                     <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
-                    <input type="number" class="item-price" placeholder="Suggested Price" step="0.01" min="0" readonly>
-                    <input type="number" class="item-suggested-price" placeholder="Unit Price" step="0.01" min="0" readonly>
+                    <input type="number" class="item-suggested-price" placeholder="Suggested Price" step="0.01" min="0" readonly>
+                    <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" readonly>
                     <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
                 </div>
             </div>
@@ -165,8 +165,8 @@ async function fetchProductPrice(input) {
     if (!productName) return;
     
     const row = input.closest('.item-row');
-    const suggestedPriceInput = row.querySelector('.item-suggested-price');
-    const priceInput = input.closest('.item-row').querySelector('.item-price');
+    const suggestedPriceInput = row.querySelector('.item-price');
+    const priceInput = input.closest('.item-row').querySelector('.item-suggested-price');
     
     try {
         const response = await fetch(`/api/get_product_price?description=${encodeURIComponent(productName)}`);
@@ -307,9 +307,9 @@ if (quotationForm) {
                 productElement.options[productElement.selectedIndex]?.value.trim() : 
                 productElement.value.trim();
             const qty = parseFloat(item.querySelector('.item-qty').value) || 0;
-            const price = parseFloat(item.querySelector('.item-price').value) || 0;
+            const price = parseFloat(item.querySelector('.item-suggested-price').value) || 0;
             const discount = parseFloat(item.querySelector('.item-discount')?.value) || 0;
-            const suggestedPrice = parseFloat(item.querySelector('.item-suggested-price')?.value) || 0;
+            const suggestedPrice = parseFloat(item.querySelector('.item-price')?.value) || 0;
             
             if (product && qty > 0 && price >= 0) {
                 items.push({ product, qty, price, discount, suggestedPrice });
@@ -536,8 +536,8 @@ async function loadDraftQuotation(dockey) {
                             <input type="text" class="item-product" placeholder="Product name..." list="product-list" value="${item.DESCRIPTION || ''}" onchange="fetchProductPrice(this)">
                             <input type="number" class="item-qty" placeholder="Qty" min="1" value="${item.QTY || 1}" onchange="calculateQuotationTotal()">
                             <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="${item.DISC || 0}" onchange="calculateQuotationTotal()">
-                            <input type="number" class="item-price" placeholder="Suggested Price" step="0.01" min="0" value="${item.UNITPRICE || 0}" readonly>
-                            <input type="number" class="item-suggested-price" placeholder="Unit Price" step="0.01" min="0" value="${item.UDF_STDPRICE || item.UNITPRICE || 0}" readonly>
+                            <input type="number" class="item-suggested-price" placeholder="Suggested Price" step="0.01" min="0" value="${item.UNITPRICE || 0}" readonly>
+                            <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" value="${item.UDF_STDPRICE || item.UNITPRICE || 0}" readonly>
                             <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
                         </div>
                     `;
@@ -590,7 +590,7 @@ document.addEventListener('DOMContentLoaded', function() {
         input.addEventListener('change', calculateOrderTotal);
     });
     
-    document.querySelectorAll('#quotation-items-list .item-qty, #quotation-items-list .item-price').forEach(input => {
+    document.querySelectorAll('#quotation-items-list .item-qty, #quotation-items-list .item-suggested-price').forEach(input => {
         input.addEventListener('change', calculateQuotationTotal);
     });
 });
