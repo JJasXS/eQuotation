@@ -462,7 +462,7 @@ def build_catalog_response(user_input, stockitems, stock_groups, price_lookup, c
 
     resolved_query, offset, is_follow_up = resolve_catalog_query_context(user_input, chat_history)
     if resolved_query is None:
-        return "I can show more results after a catalog search. Try a product keyword first, then say 'show more' or 'page 2'."
+        return "I can show more results after a catalog search. Search for a product first, then use the arrow buttons under the result list."
 
     text = resolved_query.lower().strip()
     generic_group_request = any(phrase in text for phrase in [
@@ -489,6 +489,7 @@ def build_catalog_response(user_input, stockitems, stock_groups, price_lookup, c
         start_index = offset + 1
         end_index = offset + len(display_matches)
         total_matches = len(visible_matches)
+        current_page = (offset // CATALOG_PAGE_SIZE) + 1
         heading = 'Here are more matching items I found in our catalog:' if is_follow_up else 'Here are the matching items I found in our catalog:'
 
         lines = [heading, '']
@@ -499,11 +500,16 @@ def build_catalog_response(user_input, stockitems, stock_groups, price_lookup, c
                 lines.append(f'{index}. {description}')
 
         lines.extend(['', f'Showing {start_index}-{end_index} of {total_matches} matches.'])
+        navigation_tags = []
+        if current_page > 1:
+            navigation_tags.append(f'[PAGE: {current_page - 1} | label: ⬅️]')
         if end_index < total_matches:
-            next_page = (offset // CATALOG_PAGE_SIZE) + 2
-            lines.append(f"Say 'show more' or 'page {next_page}' to see more results.")
+            navigation_tags.append(f'[PAGE: {current_page + 1} | label: ➡️]')
         else:
             lines.append('That is the end of the matching results for this search.')
+        if navigation_tags:
+            lines.append('Use the arrows below: ➡️ for next page, ⬅️ for previous page.')
+            lines.extend(['', ' '.join(navigation_tags)])
         lines.extend(['', 'Let me know which item you want, or ask for a different keyword.'])
         return '\n'.join(lines)
 
