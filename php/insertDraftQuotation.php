@@ -65,8 +65,8 @@ try {
     $qtStmt = $dbh->prepare('
         INSERT INTO SL_QT (
             DOCKEY, DOCNO, DOCDATE, CODE, DESCRIPTION, DOCAMT, 
-            CURRENCYCODE, VALIDITY, SHIPPER, STATUS, TERMS, COMPANYNAME, ADDRESS1, ADDRESS2, PHONE1, CANCELLED
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            CURRENCYCODE, VALIDITY, SHIPPER, STATUS, TERMS, COMPANYNAME, ADDRESS1, ADDRESS2, PHONE1, CANCELLED, PROJECT
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ');
     $qtStmt->execute([
         $dockey,
@@ -84,7 +84,8 @@ try {
         $address1,          // Address 1
         $address2,          // Address 2
         $phone1,            // Phone
-        null                // CANCELLED = NULL (acts as DRAFT indicator)
+        null,               // CANCELLED = NULL (acts as DRAFT indicator)
+        '----'              // Default PROJECT
     ]);
     
     echo json_encode([

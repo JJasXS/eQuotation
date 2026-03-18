@@ -12,6 +12,8 @@ $data = json_decode(file_get_contents('php://input'), true);
 $dockey = $data['dockey'] ?? null;
 $description = $data['description'] ?? null;
 $validUntil = $data['validUntil'] ?? null;
+// Default validity: if not provided, use today + 30 days
+$udfValidity = (!empty($validUntil) && $validUntil !== '') ? $validUntil : date('Y-m-d', strtotime('+30 days'));
 $items = $data['items'] ?? [];
 $companyName = $data['companyName'] ?? null;
 $address1 = $data['address1'] ?? null;
@@ -65,10 +67,7 @@ try {
         $totalAmount += applyDiscountAmount($qty, $unitprice, $disc);
     }
     
-    // Convert empty string validity to null for date field
-    $validityDate = (!empty($validUntil) && $validUntil !== '') ? $validUntil : null;
-    
-    error_log("[DEBUG] Update params - DOCKEY: $dockey, VALIDITY: " . var_export($validityDate, true) . ", DOCAMT: $totalAmount");
+    error_log("[DEBUG] Update params - DOCKEY: $dockey, VALIDITY: $udfValidity, DOCAMT: $totalAmount");
     
     // Update quotation header (don't update STATUS or CANCELLED, just content)
     $updateStmt = $dbh->prepare('
@@ -83,11 +82,11 @@ try {
         WHERE DOCKEY = ?
     ');
     
-    error_log("[DEBUG] Updating quotation - DOCKEY: $dockey, DOCAMT: $totalAmount, VALIDITY: $validityDate");
+    error_log("[DEBUG] Updating quotation - DOCKEY: $dockey, DOCAMT: $totalAmount, VALIDITY: $udfValidity");
     
     $updateStmt->execute([
         $description,
-        $validityDate,      // Use converted validity date (null if empty)
+        $udfValidity,       // VALIDITY: user-supplied or today+30
         (float)$totalAmount,  // Explicit cast to float
         $companyName,
         $address1,
@@ -110,6 +109,7 @@ try {
         $unitprice = (float)($item['price'] ?? 0);
         $disc = (float)($item['discount'] ?? 0);
         $amount = applyDiscountAmount($qty, $unitprice, $disc);
+        $deliveryDate = !empty($item['deliveryDate']) ? $item['deliveryDate'] : date('Y-m-d');
         
         if (!$product || $qty <= 0) {
             echo json_encode(['success' => false, 'error' => "Invalid item at index $idx"]);
@@ -153,8 +153,8 @@ try {
         $detailInsert = $dbh->prepare('
             INSERT INTO SL_QTDTL (
                 DTLKEY, DOCKEY, SEQ, ITEMCODE, DESCRIPTION, QTY, 
-                UNITPRICE, DISC, AMOUNT, UDF_STDPRICE
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                UNITPRICE, DISC, AMOUNT, UDF_STDPRICE, DELIVERYDATE
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ');
         $detailInsert->execute([
             $dtlkey,
@@ -166,7 +166,8 @@ try {
             $unitprice,
             $disc,
             $amount,
-            null
+            null,
+            $deliveryDate
         ]);
         
         $seq++;

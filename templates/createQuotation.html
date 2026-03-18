@@ -74,6 +74,7 @@
                             <span>Discount</span>
                             <span>Suggested Price ST_ITEM.UDF_STDPRICE</span>
                             <span>Unit Price</span>
+                            <span>Delivery Date</span>
                             <span></span>
                         </div>
                         <div id="quotation-items-list">
@@ -86,6 +87,7 @@
                                     <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
                                     <input type="number" class="item-suggested-price" placeholder="Suggested Price" step="0.01" min="0" readonly>
                                     <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" onchange="calculateQuotationTotal()">
+                                    <input type="date" class="item-delivery-date">
                                     <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
                                 </div>
                             </div>
@@ -144,6 +146,22 @@
     
     <script src="/static/js/hamburger_menu.js"></script>
     <script src="/static/js/orderQuotation.js?v=20260312_chat_restore"></script>
+    <script>
+        // Set today's date as default for all delivery date inputs on load
+        document.addEventListener('DOMContentLoaded', function() {
+            const today = new Date().toISOString().split('T')[0];
+            document.querySelectorAll('.item-delivery-date').forEach(function(el) {
+                if (!el.value) el.value = today;
+            });
+            // Default validity to today + 30 days
+            const validityInput = document.getElementById('quotation-validity');
+            if (validityInput && !validityInput.value) {
+                const d = new Date();
+                d.setDate(d.getDate() + 30);
+                validityInput.value = d.toISOString().split('T')[0];
+            }
+        });
+    </script>
 </body>
 </html>
 

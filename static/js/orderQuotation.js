@@ -47,6 +47,7 @@ function removeOrderItem(button) {
 // Add Quotation Item
 function addQuotationItem() {
     const container = document.getElementById('quotation-items-list');
+    const today = new Date().toISOString().split('T')[0];
     const newItem = document.createElement('div');
     newItem.className = 'order-item';
     newItem.innerHTML = `
@@ -58,6 +59,7 @@ function addQuotationItem() {
             <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
             <input type="number" class="item-suggested-price" placeholder="Suggested Price" step="0.01" min="0" readonly>
             <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" onchange="calculateQuotationTotal()">
+            <input type="date" class="item-delivery-date" value="${today}">
             <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
         </div>
     `;
@@ -541,6 +543,7 @@ async function loadDraftQuotation(dockey) {
                             <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="${item.DISC || 0}" onchange="calculateQuotationTotal()">
                             <input type="number" class="item-suggested-price" placeholder="Suggested Price" step="0.01" min="0" value="${item.UDF_STDPRICE || 0}" readonly>
                             <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" value="${item.UNITPRICE || 0}" onchange="calculateQuotationTotal()">
+                            <input type="date" class="item-delivery-date" value="${item.DELIVERYDATE || new Date().toISOString().split('T')[0]}">
                             <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
                         </div>
                     `;

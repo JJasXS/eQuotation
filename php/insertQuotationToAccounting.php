@@ -12,6 +12,8 @@ $data = json_decode(file_get_contents('php://input'), true);
 $customerCode = $data['customerCode'] ?? null;
 $description = $data['description'] ?? null;
 $validUntil = $data['validUntil'] ?? null;
+// Default validity: if not provided, use today + 30 days
+$udfValidity = (!empty($validUntil) && $validUntil !== '') ? $validUntil : date('Y-m-d', strtotime('+30 days'));
 $items = $data['items'] ?? [];
 $currencyCode = $data['currencyCode'] ?? 'MYR';
 $companyName = $data['companyName'] ?? null;
@@ -77,8 +79,8 @@ try {
     $qtStmt = $dbh->prepare('
         INSERT INTO SL_QT (
             DOCKEY, DOCNO, DOCDATE, CODE, DESCRIPTION, DOCAMT, 
-            CURRENCYCODE, VALIDITY, SHIPPER, STATUS, TERMS, COMPANYNAME, ADDRESS1, ADDRESS2, PHONE1, CANCELLED
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            CURRENCYCODE, VALIDITY, SHIPPER, STATUS, TERMS, COMPANYNAME, ADDRESS1, ADDRESS2, PHONE1, CANCELLED, PROJECT
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ');
     
     // DEBUG: Log values before insert
@@ -93,7 +95,7 @@ try {
             $description,
             $totalAmount,
             $currencyCode,
-            $validUntil,
+            $udfValidity, // VALIDITY: user-supplied or today+30
             'AUTO',  // Default shipper
             $quotationStatus,
             $terms,
@@ -101,7 +103,8 @@ try {
             $address1,
             $address2,
             $phone1,
-            null
+            null,
+            '----'       // Default PROJECT
         ]);
         error_log("DEBUG: Insert successful for dockey: $dockey");
     } catch (PDOException $e) {
@@ -118,6 +121,7 @@ try {
         $unitprice = (float)($item['price'] ?? 0);
         $disc = (float)($item['discount'] ?? 0);
         $amount = applyDiscountAmount($qty, $unitprice, $disc);
+        $deliveryDate = !empty($item['deliveryDate']) ? $item['deliveryDate'] : date('Y-m-d');
         
         if (!$product || $qty <= 0) {
             echo json_encode(['success' => false, 'error' => "Invalid item at index $idx"]);
@@ -161,8 +165,8 @@ try {
         $detailInsert = $dbh->prepare('
             INSERT INTO SL_QTDTL (
                 DTLKEY, DOCKEY, SEQ, ITEMCODE, DESCRIPTION, QTY, 
-                UNITPRICE, DISC, AMOUNT, UDF_STDPRICE
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                UNITPRICE, DISC, AMOUNT, UDF_STDPRICE, DELIVERYDATE
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ');
         $detailInsert->execute([
             $dtlkey,
@@ -174,7 +178,8 @@ try {
             $unitprice,
             $disc,
             $amount,
-            null
+            null,
+            $deliveryDate
         ]);
         
         $seq++;
