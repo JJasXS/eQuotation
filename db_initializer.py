@@ -427,6 +427,80 @@ def _ensure_sl_qt_localdocamt_sync_trigger(conn):
         cur.close()
 
 
+def _ensure_sl_qtdtl_sqty_sync_trigger(conn):
+    """Ensure SL_QTDTL.SQTY is always kept in sync with QTY * RATE."""
+    cur = conn.cursor()
+    try:
+        try:
+            cur.execute("DROP TRIGGER TRG_SL_QTDTL_SQTY_SYNC")
+            conn.commit()
+        except Exception:
+            pass  # Trigger doesn't exist yet — that's fine
+
+        trigger_sql = """
+        CREATE TRIGGER TRG_SL_QTDTL_SQTY_SYNC FOR SL_QTDTL
+        ACTIVE BEFORE INSERT OR UPDATE POSITION 0
+        AS
+        BEGIN
+          NEW.SQTY = COALESCE(NEW.QTY, 0) * COALESCE(NEW.RATE, 0);
+        END
+        """
+        cur.execute(trigger_sql)
+        conn.commit()
+        print("[DB INIT] Trigger TRG_SL_QTDTL_SQTY_SYNC created: SQTY will mirror QTY * RATE on SL_QTDTL")
+        return True
+    except Exception as e:
+        error_msg = str(e).lower()
+        if 'already exists' in error_msg or 'name in use' in error_msg:
+            print("[DB INIT] Trigger TRG_SL_QTDTL_SQTY_SYNC already exists")
+            return True
+        print(f"[DB INIT WARNING] Could not create TRG_SL_QTDTL_SQTY_SYNC: {e}")
+        return False
+    finally:
+        cur.close()
+
+
+def _ensure_sl_qtdtl_localamount_sync_trigger(conn):
+    """Ensure SL_QTDTL.LOCALAMOUNT is always kept in sync with AMOUNT * SL_QT.CURRENCYRATE."""
+    cur = conn.cursor()
+    try:
+        try:
+            cur.execute("DROP TRIGGER TRG_SL_QTDTL_LOCALAMOUNT_SYNC")
+            conn.commit()
+        except Exception:
+            pass  # Trigger doesn't exist yet — that's fine
+
+        trigger_sql = """
+        CREATE TRIGGER TRG_SL_QTDTL_LOCALAMOUNT_SYNC FOR SL_QTDTL
+        ACTIVE BEFORE INSERT OR UPDATE POSITION 1
+        AS
+        DECLARE VARIABLE V_CURRENCYRATE DECIMAL(18, 8);
+        BEGIN
+          V_CURRENCYRATE = 1;
+
+          SELECT FIRST 1 CURRENCYRATE
+          FROM SL_QT
+          WHERE DOCKEY = NEW.DOCKEY
+          INTO :V_CURRENCYRATE;
+
+          NEW.LOCALAMOUNT = COALESCE(NEW.AMOUNT, 0) * COALESCE(V_CURRENCYRATE, 1);
+        END
+        """
+        cur.execute(trigger_sql)
+        conn.commit()
+        print("[DB INIT] Trigger TRG_SL_QTDTL_LOCALAMOUNT_SYNC created: LOCALAMOUNT will mirror AMOUNT * SL_QT.CURRENCYRATE on SL_QTDTL")
+        return True
+    except Exception as e:
+        error_msg = str(e).lower()
+        if 'already exists' in error_msg or 'name in use' in error_msg:
+            print("[DB INIT] Trigger TRG_SL_QTDTL_LOCALAMOUNT_SYNC already exists")
+            return True
+        print(f"[DB INIT WARNING] Could not create TRG_SL_QTDTL_LOCALAMOUNT_SYNC: {e}")
+        return False
+    finally:
+        cur.close()
+
+
 def _ensure_pricing_priority_rule_table(conn):
     """Ensure PricingPriorityRule table exists for configurable price evaluation."""
     _execute_ddl(
@@ -763,6 +837,12 @@ def initialize_database(db_path, db_user, db_password):
 
         # Keep SL_QT.LOCALDOCAMT in sync with DOCAMT * CURRENCYRATE
         _ensure_sl_qt_localdocamt_sync_trigger(conn)
+
+        # Keep SL_QTDTL.SQTY in sync with QTY * RATE
+        _ensure_sl_qtdtl_sqty_sync_trigger(conn)
+
+        # Keep SL_QTDTL.LOCALAMOUNT in sync with AMOUNT * SL_QT.CURRENCYRATE
+        _ensure_sl_qtdtl_localamount_sync_trigger(conn)
 
         # Ensure pricing priority rule settings table exists and is seeded
         _ensure_pricing_priority_rule_table(conn)

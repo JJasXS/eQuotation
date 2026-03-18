@@ -18,6 +18,12 @@ $items = $data['items'] ?? [];
 $companyName = $data['companyName'] ?? null;
 $address1 = $data['address1'] ?? null;
 $address2 = $data['address2'] ?? null;
+$address3 = $data['address3'] ?? null;
+$address4 = $data['address4'] ?? null;
+$postcode = $data['postcode'] ?? null;
+$city = $data['city'] ?? null;
+$state = $data['state'] ?? null;
+$country = $data['country'] ?? null;
 $phone1 = $data['phone1'] ?? null;
 $draftDockey = $data['draftDockey'] ?? null;
 
@@ -61,6 +67,21 @@ try {
     $customerArea = trim((string)($customerRow['AREA'] ?? ''));
     $customerArea = $customerArea !== '' ? $customerArea : '----';
 
+    // Prefer branch address values from AR_CUSTOMERBRANCH.
+    $branchStmt = $dbh->prepare('SELECT FIRST 1 ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, POSTCODE, CITY, STATE, COUNTRY, PHONE1 FROM AR_CUSTOMERBRANCH WHERE CODE = ? ORDER BY DTLKEY');
+    $branchStmt->execute([$customerCode]);
+    $branchRow = $branchStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+    $address1 = trim((string)($branchRow['ADDRESS1'] ?? $address1 ?? ''));
+    $address2 = trim((string)($branchRow['ADDRESS2'] ?? $address2 ?? ''));
+    $address3 = trim((string)($branchRow['ADDRESS3'] ?? $address3 ?? ''));
+    $address4 = trim((string)($branchRow['ADDRESS4'] ?? $address4 ?? ''));
+    $postcode = trim((string)($branchRow['POSTCODE'] ?? $postcode ?? ''));
+    $city = trim((string)($branchRow['CITY'] ?? $city ?? ''));
+    $state = trim((string)($branchRow['STATE'] ?? $state ?? ''));
+    $country = trim((string)($branchRow['COUNTRY'] ?? $country ?? ''));
+    $phone1 = trim((string)($branchRow['PHONE1'] ?? $phone1 ?? ''));
+
     // Resolve currency buying rate from CURRENCY using AR_CUSTOMER.CURRENCYCODE.
     $currencyRateStmt = $dbh->prepare('SELECT FIRST 1 BUYINGRATE FROM CURRENCY WHERE UPPER(CODE) = UPPER(?)');
     $currencyRateStmt->execute([$customerCurrencyCode]);
@@ -74,12 +95,21 @@ try {
     $stmt->execute();
     $dockey = $stmt->fetchColumn();
     
-    // Generate DOCNO as QT-0001, QT-0002 format
-    $docNoStmt = $dbh->prepare("SELECT MAX(CAST(SUBSTRING(DOCNO FROM 4) AS INTEGER)) AS MAXNO FROM SL_QT WHERE DOCNO STARTING WITH 'QT-'");
+    // Generate DOCNO as QT-00001, QT-00002 format (always 5 digits)
+    $docNoStmt = $dbh->prepare("SELECT DOCNO FROM SL_QT WHERE DOCNO STARTING WITH 'QT-'");
     $docNoStmt->execute();
-    $maxDocNo = $docNoStmt->fetchColumn();
-    $nextDocNo = ($maxDocNo !== null && $maxDocNo !== false) ? ((int)$maxDocNo + 1) : 1;
-    $docno = 'QT-' . str_pad($nextDocNo, 4, '0', STR_PAD_LEFT);
+    $maxDocNo = 0;
+    while ($docNoRow = $docNoStmt->fetch(PDO::FETCH_ASSOC)) {
+        $existingDocNo = (string)($docNoRow['DOCNO'] ?? '');
+        if (preg_match('/^QT-(\d+)$/', $existingDocNo, $matches)) {
+            $docNoNumber = (int)$matches[1];
+            if ($docNoNumber > $maxDocNo) {
+                $maxDocNo = $docNoNumber;
+            }
+        }
+    }
+    $nextDocNo = $maxDocNo + 1;
+    $docno = 'QT-' . str_pad($nextDocNo, 5, '0', STR_PAD_LEFT);
     
     // Calculate total amount from items
     $totalAmount = 0;
@@ -97,8 +127,9 @@ try {
     $qtStmt = $dbh->prepare('
         INSERT INTO SL_QT (
             DOCKEY, DOCNO, DOCDATE, CODE, DESCRIPTION, DOCAMT, 
-            CURRENCYCODE, CURRENCYRATE, VALIDITY, SHIPPER, STATUS, TERMS, AGENT, AREA, COMPANYNAME, ADDRESS1, ADDRESS2, PHONE1, CANCELLED, PROJECT
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            CURRENCYCODE, CURRENCYRATE, VALIDITY, SHIPPER, STATUS, IDTYPE, TERMS, AGENT, AREA, COMPANYNAME,
+            ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, POSTCODE, CITY, STATE, COUNTRY, PHONE1, CANCELLED, PROJECT
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ');
     
     // DEBUG: Log values before insert
@@ -117,12 +148,19 @@ try {
             $udfValidity, // VALIDITY: user-supplied or today+30
             '----',  // Default shipper
             $quotationStatus,
+            1, // IDTYPE default
             $terms,
             $customerAgent,
             $customerArea,
             $companyName,
             $address1,
             $address2,
+            $address3,
+            $address4,
+            $postcode,
+            $city,
+            $state,
+            $country,
             $phone1,
             null,
             '----'       // Default PROJECT
@@ -156,18 +194,22 @@ try {
 
         // Resolve ITEMCODE from ST_ITEM using DESCRIPTION first, then CODE
         $itemCode = null;
-        $itemLookup = $dbh->prepare('SELECT FIRST 1 CODE FROM ST_ITEM WHERE UPPER(DESCRIPTION) = UPPER(?)');
+        $itemUom = null;
+        $itemRate = null;
+        $itemLookup = $dbh->prepare('SELECT FIRST 1 CODE, UDF_UOM FROM ST_ITEM WHERE UPPER(DESCRIPTION) = UPPER(?)');
         $itemLookup->execute([$product]);
         $itemRow = $itemLookup->fetch(PDO::FETCH_ASSOC);
 
         if ($itemRow && !empty($itemRow['CODE'])) {
             $itemCode = $itemRow['CODE'];
+            $itemUom = trim((string)($itemRow['UDF_UOM'] ?? ''));
         } else {
-            $itemLookupByCode = $dbh->prepare('SELECT FIRST 1 CODE FROM ST_ITEM WHERE UPPER(CODE) = UPPER(?)');
+            $itemLookupByCode = $dbh->prepare('SELECT FIRST 1 CODE, UDF_UOM FROM ST_ITEM WHERE UPPER(CODE) = UPPER(?)');
             $itemLookupByCode->execute([$product]);
             $itemCodeRow = $itemLookupByCode->fetch(PDO::FETCH_ASSOC);
             if ($itemCodeRow && !empty($itemCodeRow['CODE'])) {
                 $itemCode = $itemCodeRow['CODE'];
+                $itemUom = trim((string)($itemCodeRow['UDF_UOM'] ?? ''));
             }
         }
 
@@ -180,14 +222,23 @@ try {
             exit;
         }
 
+        if ($itemCode && $itemUom !== '') {
+            $rateLookup = $dbh->prepare('SELECT FIRST 1 RATE FROM ST_ITEM_UOM WHERE CODE = ? AND UOM = ?');
+            $rateLookup->execute([$itemCode, $itemUom]);
+            $resolvedRate = $rateLookup->fetchColumn();
+            if ($resolvedRate !== false && $resolvedRate !== null) {
+                $itemRate = (float)$resolvedRate;
+            }
+        }
+
         // DESCRIPTION in SL_QTDTL is VARCHAR(200)
         $itemDescription = mb_substr($product, 0, 200, 'UTF-8');
         
         $detailInsert = $dbh->prepare('
             INSERT INTO SL_QTDTL (
                 DTLKEY, DOCKEY, SEQ, ITEMCODE, DESCRIPTION, QTY, 
-                UNITPRICE, DISC, AMOUNT, UDF_STDPRICE, DELIVERYDATE, PROJECT, LOCATION
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                UOM, RATE, UNITPRICE, DISC, AMOUNT, UDF_STDPRICE, DELIVERYDATE, IRBM_CLASSIFICATION, PROJECT, LOCATION
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ');
         $detailInsert->execute([
             $dtlkey,
@@ -196,11 +247,14 @@ try {
             $itemCode,
             $itemDescription,
             $qty,
+            $itemUom !== '' ? $itemUom : null,
+            $itemRate,
             $unitprice,
             $disc,
             $amount,
             null,
             $deliveryDate,
+            '022',
             '----',      // Default PROJECT
             '----'       // Default LOCATION
         ]);
