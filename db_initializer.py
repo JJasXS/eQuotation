@@ -381,6 +381,151 @@ def _seed_pricing_priority_rules(conn):
         cur.close()
 
 
+def _ensure_sl_qt_draft_tables(conn):
+    """Ensure draft quotation header/detail tables exist for pre-submission storage."""
+    _execute_ddl(
+        conn,
+        """
+        CREATE TABLE SL_QTDRAFT (
+            DOCKEY INTEGER NOT NULL,
+            DOCNO VARCHAR(160) NOT NULL,
+            DOCNOEX VARCHAR(160),
+            DOCDATE DATE,
+            POSTDATE DATE,
+            TAXDATE DATE,
+            CODE VARCHAR(40),
+            COMPANYNAME VARCHAR(400),
+            ADDRESS1 VARCHAR(240),
+            ADDRESS2 VARCHAR(240),
+            ADDRESS3 VARCHAR(240),
+            ADDRESS4 VARCHAR(240),
+            POSTCODE VARCHAR(40),
+            CITY VARCHAR(200),
+            STATE VARCHAR(200),
+            COUNTRY VARCHAR(8),
+            PHONE1 VARCHAR(800),
+            MOBILE VARCHAR(800),
+            FAX1 VARCHAR(800),
+            ATTENTION VARCHAR(280),
+            AREA VARCHAR(40),
+            AGENT VARCHAR(40),
+            PROJECT VARCHAR(80),
+            TERMS VARCHAR(40),
+            CURRENCYCODE VARCHAR(24),
+            CURRENCYRATE DECIMAL(18,8),
+            SHIPPER VARCHAR(120) NOT NULL,
+            DESCRIPTION VARCHAR(1200),
+            CANCELLED CHAR(1),
+            STATUS INTEGER,
+            DOCAMT DECIMAL(18,2),
+            LOCALDOCAMT DECIMAL(18,2),
+            VALIDITY VARCHAR(1200),
+            DELIVERYTERM VARCHAR(1200),
+            CC VARCHAR(1200),
+            DOCREF1 VARCHAR(160),
+            DOCREF2 VARCHAR(160),
+            DOCREF3 VARCHAR(160),
+            DOCREF4 VARCHAR(160),
+            BRANCHNAME VARCHAR(400),
+            DADDRESS1 VARCHAR(240),
+            DADDRESS2 VARCHAR(240),
+            DADDRESS3 VARCHAR(240),
+            DADDRESS4 VARCHAR(240),
+            DPOSTCODE VARCHAR(40),
+            DCITY VARCHAR(200),
+            DSTATE VARCHAR(200),
+            DCOUNTRY VARCHAR(8),
+            DATTENTION VARCHAR(280),
+            DPHONE1 VARCHAR(800),
+            DMOBILE VARCHAR(800),
+            DFAX1 VARCHAR(800),
+            TAXEXEMPTNO VARCHAR(200),
+            SALESTAXNO VARCHAR(100),
+            SERVICETAXNO VARCHAR(100),
+            TIN VARCHAR(56),
+            IDTYPE SMALLINT,
+            IDNO VARCHAR(80),
+            TOURISMNO VARCHAR(68),
+            SIC VARCHAR(40),
+            INCOTERMS VARCHAR(12),
+            SUBMISSIONTYPE INTEGER,
+            BUSINESSUNIT VARCHAR(40),
+            ATTACHMENTS BLOB SUB_TYPE TEXT,
+            NOTE BLOB SUB_TYPE TEXT,
+            APPROVESTATE BLOB SUB_TYPE TEXT,
+            TRANSFERABLE CHAR(1),
+            UPDATECOUNT INTEGER,
+            PRINTCOUNT INTEGER,
+            LASTMODIFIED DECIMAL(18,0),
+            UDF_STATUS VARCHAR(60),
+            UDF_VALIDITY DATE,
+            CONSTRAINT PK_SL_QTDRAFT PRIMARY KEY (DOCKEY)
+        )
+        """,
+        success_message='[DB INIT] SL_QTDRAFT table created.',
+        ignore_if_contains=['already exists', 'name in use']
+    )
+
+    _execute_ddl(
+        conn,
+        """
+        CREATE TABLE SL_QTDTLDRAFT (
+            DTLKEY INTEGER NOT NULL,
+            DOCKEY INTEGER NOT NULL,
+            SEQ INTEGER,
+            STYLEID VARCHAR(20),
+            NUMBER VARCHAR(20),
+            ITEMCODE VARCHAR(120),
+            LOCATION VARCHAR(80),
+            BATCH VARCHAR(120),
+            PROJECT VARCHAR(80),
+            DESCRIPTION VARCHAR(800),
+            DESCRIPTION2 VARCHAR(800),
+            DESCRIPTION3 BLOB SUB_TYPE TEXT,
+            PERMITNO VARCHAR(80),
+            QTY DECIMAL(18,4),
+            UOM VARCHAR(40),
+            RATE DECIMAL(18,4),
+            SQTY DECIMAL(18,4),
+            SUOMQTY DECIMAL(18,4),
+            UNITPRICE DECIMAL(18,8),
+            DELIVERYDATE DATE,
+            DISC VARCHAR(80),
+            TAX VARCHAR(40),
+            TARIFF VARCHAR(80),
+            TAXEXEMPTIONREASON VARCHAR(1200),
+            IRBM_CLASSIFICATION VARCHAR(3),
+            TAXRATE VARCHAR(80),
+            TAXAMT DECIMAL(18,2),
+            LOCALTAXAMT DECIMAL(18,2),
+            EXEMPTED_TAXRATE VARCHAR(80),
+            EXEMPTED_TAXAMT DECIMAL(18,2),
+            TAXINCLUSIVE CHAR(1),
+            AMOUNT DECIMAL(18,2),
+            LOCALAMOUNT DECIMAL(18,2),
+            PRINTABLE CHAR(1),
+            TRANSFERABLE CHAR(1),
+            REMARK1 VARCHAR(800),
+            REMARK2 VARCHAR(800),
+            INITIALPURCHASECOST DECIMAL(18,2),
+            UDF_STATUS VARCHAR(60),
+            UDF_STDPRICE DECIMAL(18,4),
+            CONSTRAINT PK_SL_QTDTLDRAFT PRIMARY KEY (DTLKEY),
+            CONSTRAINT FK_SL_QTDTLDRAFT_QT FOREIGN KEY (DOCKEY) REFERENCES SL_QTDRAFT(DOCKEY)
+        )
+        """,
+        success_message='[DB INIT] SL_QTDTLDRAFT table created.',
+        ignore_if_contains=['already exists', 'name in use']
+    )
+
+    _execute_ddl(
+        conn,
+        'CREATE ASC INDEX IDX_SL_QTDTLDRAFT_DOCKEY ON SL_QTDTLDRAFT (DOCKEY)',
+        success_message='[DB INIT] SL_QTDTLDRAFT DOCKEY index created.',
+        ignore_if_contains=['already exists', 'name in use']
+    )
+
+
 def initialize_database(db_path, db_user, db_password):
     conn = None
     try:
@@ -479,6 +624,9 @@ def initialize_database(db_path, db_user, db_password):
         # Auto-creating FK_SL_QTDTL_QT is disabled to avoid startup failures
         # on accounting databases that contain historical orphan rows.
         print("[DB INIT WARNING] FK_SL_QTDTL_QT auto-creation is skipped.")
+
+        # Ensure dedicated draft quotation tables exist.
+        _ensure_sl_qt_draft_tables(conn)
 
         # Ensure SL_QT has STATUS column for quotation lifecycle
         _ensure_sl_qt_status_column(conn)
