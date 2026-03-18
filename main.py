@@ -2274,6 +2274,7 @@ def api_create_quotation():
     customer_code = session.get('customer_code')
     data = request.get_json() or {}
     dockey = data.get('dockey', None)  # If present, update existing quotation
+    draft_dockey = data.get('draftDockey', None)  # If present, delete this draft after successful submission
     description = data.get('description', '').strip()
     valid_until = data.get('validUntil', '')
     items = data.get('items', [])
@@ -2332,6 +2333,23 @@ def api_create_quotation():
         if not quotation_data.get('success'):
             return jsonify({'success': False, 'error': quotation_data.get('error', 'Failed to create quotation')}), 500
         
+        # Delete the draft from SL_QTDRAFT now that it has been submitted to SL_QT
+        if draft_dockey:
+            try:
+                del_response = requests.post(
+                    f"{BASE_API_URL}/php/deleteDraftQuotation.php",
+                    json={"dockey": int(draft_dockey)},
+                    timeout=10
+                )
+                del_data = del_response.json()
+                if del_data.get('success'):
+                    print(f"DEBUG [Flask api_create_quotation]: Deleted draft dockey={draft_dockey} after submission", flush=True)
+                else:
+                    print(f"WARNING [Flask api_create_quotation]: PHP could not delete draft {draft_dockey}: {del_data.get('error')}", flush=True)
+            except Exception as draft_del_err:
+                print(f"WARNING [Flask api_create_quotation]: Could not delete draft {draft_dockey}: {draft_del_err}", flush=True)
+                # Non-fatal — submission succeeded, just log the cleanup failure
+        
         return jsonify({
             'success': True, 
             'dockey': quotation_data.get('dockey'),
@@ -2341,6 +2359,156 @@ def api_create_quotation():
     except Exception as e:
         print(f"Error creating/updating quotation: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/save_draft_quotation', methods=['POST'])
+@api_login_required(unauth_message='Session expired. Please log in again.')
+def api_save_draft_quotation():
+    """Save quotation draft into SL_QTDRAFT/SL_QTDTLDRAFT."""
+    customer_code = session.get('customer_code')
+    data = request.get_json() or {}
+
+    if not customer_code:
+        return jsonify({'success': False, 'error': 'Customer code not found in session'}), 400
+
+    payload = {
+        'dockey': data.get('dockey'),
+        'customerCode': customer_code,
+        'description': data.get('description', '').strip() or 'Draft Quotation',
+        'validUntil': data.get('validUntil', ''),
+        'currencyCode': data.get('currencyCode', 'MYR'),
+        'companyName': data.get('companyName', ''),
+        'address1': data.get('address1', ''),
+        'address2': data.get('address2', ''),
+        'phone1': data.get('phone1', ''),
+        'items': data.get('items', [])
+    }
+
+    try:
+        response = requests.post(
+            f"{BASE_API_URL}/php/saveDraftQuotation.php",
+            json=payload,
+            timeout=10
+        )
+        result = response.json()
+        if not result.get('success'):
+            return jsonify({'success': False, 'error': result.get('error', 'Failed to save draft quotation')}), 500
+
+        return jsonify({
+            'success': True,
+            'dockey': result.get('dockey'),
+            'docno': result.get('docno'),
+            'message': result.get('message', 'Draft saved')
+        })
+    except Exception as e:
+        print(f"Error saving draft quotation: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/get_my_draft_quotations')
+@api_login_required(unauth_message='Unauthorized')
+def api_get_my_draft_quotations():
+    """Get saved drafts from SL_QTDRAFT for the current user."""
+    customer_code = session.get('customer_code')
+    if not customer_code:
+        user_email = session.get('user_email')
+        try:
+            con = get_db_connection()
+            cur = con.cursor()
+            cur.execute('SELECT CODE FROM AR_CUSTOMERBRANCH WHERE EMAIL = ?', (user_email,))
+            row = cur.fetchone()
+            cur.close()
+            con.close()
+            if row:
+                customer_code = row[0]
+                session['customer_code'] = customer_code
+            else:
+                return jsonify({'success': False, 'error': 'Customer code not found'}), 400
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        cur.execute(
+            '''
+            SELECT DOCKEY, DOCNO, DOCDATE, DESCRIPTION, DOCAMT, VALIDITY, TERMS
+            FROM SL_QTDRAFT
+            WHERE CODE = ?
+            ORDER BY DOCDATE DESC, DOCKEY DESC
+            ''',
+            (customer_code,)
+        )
+        rows = cur.fetchall()
+        cur.close()
+        con.close()
+        drafts = []
+        for row in rows:
+            drafts.append({
+                'DOCKEY': int(row[0]) if row[0] is not None else None,
+                'DOCNO': row[1],
+                'DOCDATE': str(row[2]) if row[2] is not None else None,
+                'DESCRIPTION': row[3],
+                'DOCAMT': float(row[4]) if row[4] is not None else 0,
+                'VALIDITY': str(row[5]) if row[5] is not None else None,
+                'CREDITTERM': str(row[6]) if row[6] is not None else 'N/A',
+            })
+        return jsonify({'success': True, 'data': drafts})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/get_draft_quotation_details')
+@api_login_required(unauth_message='Unauthorized')
+def api_get_draft_quotation_details():
+    """Get SL_QTDRAFT header + SL_QTDTLDRAFT line items."""
+    dockey = request.args.get('dockey')
+    if not dockey:
+        return jsonify({'success': False, 'error': 'dockey parameter required'}), 400
+    customer_code = session.get('customer_code')
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        cur.execute(
+            'SELECT DOCKEY, DOCNO, DOCDATE, DESCRIPTION, DOCAMT, VALIDITY, TERMS, COMPANYNAME, ADDRESS1, ADDRESS2, PHONE1 FROM SL_QTDRAFT WHERE DOCKEY = ?',
+            (int(dockey),)
+        )
+        hdr = cur.fetchone()
+        if not hdr:
+            cur.close()
+            con.close()
+            return jsonify({'success': False, 'error': 'Draft not found'}), 404
+        cur.execute(
+            'SELECT DTLKEY, SEQ, ITEMCODE, DESCRIPTION, QTY, UNITPRICE, DISC, AMOUNT, UDF_STDPRICE, DELIVERYDATE FROM SL_QTDTLDRAFT WHERE DOCKEY = ? ORDER BY SEQ',
+            (int(dockey),)
+        )
+        item_rows = cur.fetchall()
+        cur.close()
+        con.close()
+        items = []
+        for r in item_rows:
+            items.append({
+                'DTLKEY': r[0], 'SEQ': r[1], 'ITEMCODE': r[2], 'DESCRIPTION': r[3],
+                'QTY': float(r[4]) if r[4] is not None else 0,
+                'UNITPRICE': float(r[5]) if r[5] is not None else 0,
+                'DISC': str(r[6]) if r[6] is not None else '0',
+                'AMOUNT': float(r[7]) if r[7] is not None else 0,
+                'UDF_STDPRICE': float(r[8]) if r[8] is not None else 0,
+                'DELIVERYDATE': str(r[9]) if r[9] is not None else None,
+            })
+        data = {
+            'DOCKEY': int(hdr[0]), 'DOCNO': hdr[1],
+            'DOCDATE': str(hdr[2]) if hdr[2] is not None else None,
+            'DESCRIPTION': hdr[3],
+            'DOCAMT': float(hdr[4]) if hdr[4] is not None else 0,
+            'VALIDITY': str(hdr[5]) if hdr[5] is not None else None,
+            'TERMS': hdr[6], 'COMPANYNAME': hdr[7],
+            'ADDRESS1': hdr[8], 'ADDRESS2': hdr[9], 'PHONE1': hdr[10],
+            'items': items
+        }
+        return jsonify({'success': True, 'data': data})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 
 @app.route('/api/get_my_quotations')
 @api_login_required(unauth_message='Unauthorized')

@@ -44,6 +44,34 @@ function removeOrderItem(button) {
     }
 }
 
+function buildQuotationPayload() {
+    const items = [];
+    document.querySelectorAll('#quotation-items-list .order-item').forEach(item => {
+        const productElement = item.querySelector('.item-product');
+        const product = productElement.tagName === 'SELECT' ?
+            productElement.options[productElement.selectedIndex]?.value.trim() :
+            productElement.value.trim();
+        const qty = parseFloat(item.querySelector('.item-qty').value) || 0;
+        const price = parseFloat(item.querySelector('.item-price').value) || 0;
+        const discount = parseFloat(item.querySelector('.item-discount')?.value) || 0;
+        const deliveryDate = item.querySelector('.item-delivery-date')?.value || null;
+
+        if (product && qty > 0 && price >= 0) {
+            items.push({ product, qty, price, discount, deliveryDate });
+        }
+    });
+
+    return {
+        description: 'Quotation',
+        validUntil: document.getElementById('quotation-validity').value,
+        companyName: document.getElementById('quotation-company').value.trim(),
+        address1: document.getElementById('quotation-address1').value.trim(),
+        address2: document.getElementById('quotation-address2').value.trim(),
+        phone1: document.getElementById('quotation-phone').value.trim(),
+        items: items
+    };
+}
+
 // Add Quotation Item
 function addQuotationItem() {
     const container = document.getElementById('quotation-items-list');
@@ -303,46 +331,73 @@ if (orderForm) {
 
 const quotationForm = document.getElementById('quotation-form');
 if (quotationForm) {
-    quotationForm.addEventListener('submit', async function(e) {
-        e.preventDefault();
-        
-        const items = [];
-        document.querySelectorAll('#quotation-items-list .order-item').forEach(item => {
-            const productElement = item.querySelector('.item-product');
-            const product = productElement.tagName === 'SELECT' ? 
-                productElement.options[productElement.selectedIndex]?.value.trim() : 
-                productElement.value.trim();
-            const qty = parseFloat(item.querySelector('.item-qty').value) || 0;
-            const price = parseFloat(item.querySelector('.item-price').value) || 0;
-            const discount = parseFloat(item.querySelector('.item-discount')?.value) || 0;
-            
-            if (product && qty > 0 && price >= 0) {
-                items.push({ product, qty, price, discount });
+    const saveDraftButton = document.getElementById('save-draft-btn');
+
+    if (saveDraftButton) {
+        saveDraftButton.addEventListener('click', async function() {
+            const quotationData = buildQuotationPayload();
+            const draftDockey = quotationForm.dataset.draftDockey;
+
+            if (draftDockey) {
+                quotationData.dockey = draftDockey;
+            }
+
+            try {
+                saveDraftButton.disabled = true;
+                const response = await fetch('/api/save_draft_quotation', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(quotationData)
+                });
+
+                if (response.status === 401) {
+                    alert('Your session has expired. Please log in again.');
+                    window.location.href = '/login';
+                    return;
+                }
+
+                const result = await response.json();
+                if (result.success) {
+                    if (result.dockey) {
+                        quotationForm.dataset.draftDockey = result.dockey;
+                    }
+                    const draftNo = result.docno || result.dockey;
+                    alert(`Draft ${draftNo} saved successfully.`);
+                } else {
+                    alert('Failed to save draft: ' + (result.error || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Error saving draft quotation:', error);
+                alert('Failed to save draft. Please try again.');
+            } finally {
+                saveDraftButton.disabled = false;
             }
         });
-        
-        if (items.length === 0) {
+    }
+
+    quotationForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+
+        const quotationData = buildQuotationPayload();
+        if (quotationData.items.length === 0) {
             alert('Please add at least one valid item');
             return;
         }
-        
+
+        const items = quotationData.items;
         const dockey = quotationForm.dataset.dockey;
-        const quotationData = {
-            description: 'Quotation',
-            validUntil: document.getElementById('quotation-validity').value,
-            companyName: document.getElementById('quotation-company').value.trim(),
-            address1: document.getElementById('quotation-address1').value.trim(),
-            address2: document.getElementById('quotation-address2').value.trim(),
-            phone1: document.getElementById('quotation-phone').value.trim(),
-            items: items
-        };
+        const draftDockey = quotationForm.dataset.draftDockey;
         
         // DEBUG: Log the data being sent
         console.log('Quotation Data being sent:', quotationData);
         
-        // Include dockey if editing existing quotation
+        // Include dockey if editing existing SL_QT quotation
         if (dockey) {
             quotationData.dockey = dockey;
+        }
+        // Pass draftDockey so server can delete the draft after successful submission
+        if (draftDockey) {
+            quotationData.draftDockey = draftDockey;
         }
         
         try {
@@ -571,15 +626,75 @@ async function loadDraftQuotation(dockey) {
     }
 }
 
+// Load a SL_QTDRAFT draft into the quotation form for editing
+async function loadSlQtDraftForEdit(draftDockey) {
+    if (!draftDockey) return;
+    try {
+        const response = await fetch(`/api/get_draft_quotation_details?dockey=${draftDockey}`);
+        const data = await response.json();
+        if (!data.success || !data.data) {
+            console.error('Failed to load SL_QTDRAFT draft:', data.error);
+            return;
+        }
+        const draft = data.data;
+        const fillField = (id, val) => { const el = document.getElementById(id); if (el && val != null) el.value = val; };
+        fillField('quotation-description', draft.DESCRIPTION);
+        if (draft.VALIDITY) {
+            fillField('quotation-validity', draft.VALIDITY.split(' ')[0]);
+        }
+        fillField('quotation-terms', draft.TERMS);
+        fillField('quotation-company', draft.COMPANYNAME);
+        fillField('quotation-address1', draft.ADDRESS1);
+        fillField('quotation-address2', draft.ADDRESS2);
+        fillField('quotation-phone', draft.PHONE1);
+
+        if (draft.items && draft.items.length > 0) {
+            const container = document.getElementById('quotation-items-list');
+            container.innerHTML = '';
+            draft.items.forEach(item => {
+                const newItem = document.createElement('div');
+                newItem.className = 'order-item';
+                newItem.innerHTML = `
+                    <div class="item-row">
+                        <input type="text" class="item-product" placeholder="Product name..." list="product-list" value="${item.DESCRIPTION || ''}" onchange="fetchProductPrice(this)">
+                        <input type="number" class="item-qty" placeholder="Qty" min="1" value="${item.QTY || 1}" onchange="calculateQuotationTotal()">
+                        <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="${item.DISC || 0}" onchange="calculateQuotationTotal()">
+                        <input type="number" class="item-suggested-price" placeholder="Suggested Price" step="0.01" min="0" value="${item.UDF_STDPRICE || 0}" readonly>
+                        <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" value="${item.UNITPRICE || 0}" onchange="calculateQuotationTotal()">
+                        <input type="date" class="item-delivery-date" value="${item.DELIVERYDATE || new Date().toISOString().split('T')[0]}">
+                        <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
+                    </div>
+                `;
+                container.appendChild(newItem);
+            });
+            calculateQuotationTotal();
+        }
+
+        const quotationForm = document.getElementById('quotation-form');
+        if (quotationForm) quotationForm.dataset.draftDockey = draftDockey;
+
+        const pageTitle = document.querySelector('.header-title');
+        if (pageTitle) pageTitle.textContent = 'Edit Draft Quotation';
+        const formTitle = document.querySelector('#quotation-form').previousElementSibling;
+        if (formTitle && formTitle.tagName === 'H3') formTitle.textContent = `Edit Draft - ${draft.DOCNO || ''}`;
+    } catch (error) {
+        console.error('Error loading SL_QTDRAFT draft:', error);
+    }
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
     loadProducts();
-    
-    // Check if editing a draft quotation
+
     const quotationForm = document.getElementById('quotation-form');
+    const urlParams = new URLSearchParams(window.location.search);
+    const draftDockey = urlParams.get('draftDockey');
     const dockey = quotationForm ? quotationForm.dataset.dockey : null;
-    
-    if (dockey) {
+
+    if (draftDockey) {
+        // Load from SL_QTDRAFT
+        loadSlQtDraftForEdit(draftDockey);
+    } else if (dockey) {
         // Load draft quotation data
         loadDraftQuotation(dockey);
     } else {

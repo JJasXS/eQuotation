@@ -2,6 +2,8 @@ let activeQuotationsCache = [];
 let cancelledQuotationsCache = [];
 let draftQuotationsCache = [];
 let pendingQuotationsCache = [];
+let slQtDraftCache = [];
+let slQtDraftLoaded = false;
 
 async function loadQuotations() {
     const content = document.getElementById('quotation-content');
@@ -101,10 +103,10 @@ function setQuotationTab(tabName) {
         cancelledBtn.style.color = '#fff';
         cancelledBtn.style.border = 'none';
     } else if (tabName === 'drafts') {
-        tabContent.innerHTML = renderQuotationList(draftQuotationsCache, 'draft');
         draftsBtn.style.background = '#5b82b6';
         draftsBtn.style.color = '#fff';
         draftsBtn.style.border = 'none';
+        loadSlQtDraftTab(tabContent);
     } else if (tabName === 'pending') {
         tabContent.innerHTML = renderQuotationList(pendingQuotationsCache, 'pending');
         pendingBtn.style.background = '#b0892f';
@@ -117,11 +119,7 @@ function setQuotationTab(tabName) {
         activeBtn.style.border = 'none';
     }
 
-    document.querySelectorAll('.quotation-card').forEach(card => {
-        card.addEventListener('click', function() {
-            toggleQuotationItems(this);
-        });
-    });
+    attachQuotationCardListeners();
 }
 
 function renderQuotationList(list, listType) {
@@ -168,11 +166,15 @@ async function toggleQuotationItems(card) {
     const itemsDiv = card.querySelector('.quotation-items');
     const arrow = card.querySelector('.expand-arrow');
     const dockey = card.dataset.dockey;
+    const isDraftSource = card.dataset.source === 'slqtdraft';
 
     if (itemsDiv.style.display === 'none') {
         if (!itemsDiv.dataset.loaded) {
             try {
-                const response = await fetch(`/api/get_quotation_details?dockey=${dockey}`);
+                const endpoint = isDraftSource
+                    ? `/api/get_draft_quotation_details?dockey=${dockey}`
+                    : `/api/get_quotation_details?dockey=${dockey}`;
+                const response = await fetch(endpoint);
                 const data = await response.json();
 
                 if (data.success && data.data.items) {
@@ -229,6 +231,72 @@ async function toggleQuotationItems(card) {
         itemsDiv.style.display = 'none';
         arrow.style.transform = 'rotate(0deg)';
     }
+}
+
+async function loadSlQtDraftTab(tabContent) {
+    if (slQtDraftLoaded) {
+        tabContent.innerHTML = renderDraftList(slQtDraftCache);
+        attachQuotationCardListeners();
+        return;
+    }
+    tabContent.innerHTML = '<div style="padding: 12px; text-align: center; color: #888;">Loading drafts...</div>';
+    try {
+        const res = await fetch('/api/get_my_draft_quotations');
+        const data = await res.json();
+        if (!data.success) {
+            tabContent.innerHTML = `<div style="padding: 12px; text-align: center; color: #ff6b6b;">${data.error || 'Failed to load drafts'}</div>`;
+            return;
+        }
+        slQtDraftCache = data.data || [];
+        slQtDraftLoaded = true;
+        tabContent.innerHTML = renderDraftList(slQtDraftCache);
+        attachQuotationCardListeners();
+    } catch (e) {
+        tabContent.innerHTML = '<div style="padding: 12px; text-align: center; color: #ff6b6b;">Error loading drafts</div>';
+        console.error('loadSlQtDraftTab error:', e);
+    }
+}
+
+function attachQuotationCardListeners() {
+    document.querySelectorAll('.quotation-card').forEach(card => {
+        card.addEventListener('click', function() {
+            toggleQuotationItems(this);
+        });
+    });
+}
+
+function renderDraftList(list) {
+    if (!list || list.length === 0) {
+        return '<div style="padding: 12px; text-align: center; color: #888;">No saved drafts</div>';
+    }
+    let html = '';
+    list.forEach(qt => {
+        const amount = Number(qt.DOCAMT || 0).toFixed(2);
+        const docDate = qt.DOCDATE || '-';
+        const validity = qt.VALIDITY || '-';
+        const creditTerm = qt.CREDITTERM || 'N/A';
+        const description = qt.DESCRIPTION || 'Draft Quotation';
+        html += `
+            <div class="quotation-card" data-dockey="${qt.DOCKEY}" data-source="slqtdraft" style="background: #2d3440; padding: 12px; margin-bottom: 12px; border-radius: 8px; border-left: 3px solid #5b82b6; cursor: pointer;">
+                <div style="display: flex; align-items: center; gap: 16px; flex-wrap: nowrap; margin-bottom: 12px;">
+                    <span class="expand-arrow" style="color: #9ba7b6; font-size: 12px; transition: transform 0.2s; flex-shrink: 0;">▼</span>
+                    <span style="font-weight: 600; color: #e4e9f1; flex-shrink: 0;">${qt.DOCNO || ('DOCKEY #' + qt.DOCKEY)}</span>
+                    <span style="color: #9ba7b6; font-size: 13px; white-space: nowrap;">Date: ${docDate} | Valid Until: ${validity} | Terms: ${creditTerm}</span>
+                    <span style="color: #e4e9f1; font-size: 14px; flex-shrink: 0;">${description}</span>
+                    <span style="background: #5b82b6; color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 12px; flex-shrink: 0; margin-left: auto;">RM ${amount}</span>
+                    <button onclick="event.stopPropagation(); editSlQtDraft(${qt.DOCKEY});" style="background: #5b82b6; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600; margin-left: 8px;">Edit Draft</button>
+                </div>
+                <div class="quotation-items" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid #3d4654;">
+                    <div style="text-align: center; color: #888; padding: 8px;">Loading items...</div>
+                </div>
+            </div>
+        `;
+    });
+    return html;
+}
+
+function editSlQtDraft(dockey) {
+    window.location.href = `/create-quotation?draftDockey=${dockey}`;
 }
 
 document.addEventListener('DOMContentLoaded', loadQuotations);
