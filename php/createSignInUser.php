@@ -30,7 +30,6 @@ $udfEmail = trim($data['UDF_EMAIL'] ?? '');
 $brn = trim($data['BRN'] ?? '');
 $brn2 = trim($data['BRN2'] ?? '');
 $tin = trim($data['TIN'] ?? '');
-$customerCode = trim($data['CUSTOMERCODE'] ?? '');
 
 $address1 = trim($data['ADDRESS1'] ?? '');
 $address2 = trim($data['ADDRESS2'] ?? '');
@@ -96,40 +95,33 @@ try {
     }
     $currencyCode = trim((string)$currencyCode);
 
-    // Get or generate customer code
-    if (!empty($customerCode)) {
-        // Use provided customer code (already validated by backend)
-        $code = $customerCode;
-    } else {
-        // Auto-generate customer code in fixed format: %.3s-%.1s%.4d (e.g., 300-E0888)
-        $fixedPrefix = '300';
-        $fixedLetter = 'E';
+    // Auto-generate customer code in fixed format: %.3s-%.1s%.4d (e.g., 300-E0888)
+    $fixedPrefix = '300';
+    $fixedLetter = 'E';
 
-        // Find the next sequence number for the fixed 300-E#### series.
-        $maxQuery = $dbh->prepare("SELECT MAX(CAST(SUBSTRING(CODE FROM 6) AS INTEGER)) as maxSeq FROM AR_CUSTOMER WHERE CODE LIKE ?");
-        $pattern = $fixedPrefix . '-' . $fixedLetter . '%';
-        $maxQuery->execute([$pattern]);
-        $result = $maxQuery->fetch(PDO::FETCH_ASSOC);
-        $nextSeq = (int)($result['maxSeq'] ?? 0) + 1;
+    // Find the next sequence number for the fixed 300-E#### series.
+    $maxQuery = $dbh->prepare("SELECT MAX(CAST(SUBSTRING(CODE FROM 6) AS INTEGER)) as maxSeq FROM AR_CUSTOMER WHERE CODE LIKE ?");
+    $pattern = $fixedPrefix . '-' . $fixedLetter . '%';
+    $maxQuery->execute([$pattern]);
+    $result = $maxQuery->fetch(PDO::FETCH_ASSOC);
+    $nextSeq = (int)($result['maxSeq'] ?? 0) + 1;
 
-        // Ensure sequence doesn't exceed 4 digits
+    // Ensure sequence doesn't exceed 4 digits
+    if ($nextSeq > 9999) {
+        throw new Exception('Maximum customer code sequence reached for ' . $fixedPrefix . '-' . $fixedLetter . '####');
+    }
+
+    // Keep incrementing until an unused code is found.
+    $checkStmt = $dbh->prepare('SELECT COUNT(*) FROM AR_CUSTOMER WHERE CODE = ?');
+    do {
         if ($nextSeq > 9999) {
             throw new Exception('Maximum customer code sequence reached for ' . $fixedPrefix . '-' . $fixedLetter . '####');
         }
-
-        // Requested template equivalent in PHP with zero-padded 4 digits.
-        // If there is a collision, keep incrementing until an unused code is found.
-        $checkStmt = $dbh->prepare('SELECT COUNT(*) FROM AR_CUSTOMER WHERE CODE = ?');
-        do {
-            if ($nextSeq > 9999) {
-                throw new Exception('Maximum customer code sequence reached for ' . $fixedPrefix . '-' . $fixedLetter . '####');
-            }
-            $code = sprintf('%.3s-%.1s%04d', $fixedPrefix, $fixedLetter, $nextSeq);
-            $checkStmt->execute([$code]);
-            $exists = (int)$checkStmt->fetchColumn();
-            $nextSeq++;
-        } while ($exists > 0);
-    }
+        $code = sprintf('%.3s-%.1s%04d', $fixedPrefix, $fixedLetter, $nextSeq);
+        $checkStmt->execute([$code]);
+        $exists = (int)$checkStmt->fetchColumn();
+        $nextSeq++;
+    } while ($exists > 0);
 
     // Apply required defaults for guest sign-in AR_CUSTOMER creation.
     $insertCustomer = $dbh->prepare('        

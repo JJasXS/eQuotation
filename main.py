@@ -793,6 +793,9 @@ def create_signin_user():
     """Forward guest sign-in payload to PHP endpoint for AR_CUSTOMER inserts."""
     data = request.get_json() or {}
 
+    # Customer code is always server-generated for guest sign-in.
+    data.pop('CUSTOMERCODE', None)
+
     # Server-side validation (secure)
     validation_error = validate_registration_fields(data)
     if validation_error:
