@@ -85,16 +85,16 @@ try {
     }
     $areaCode = trim((string)$areaCode);
 
-    // Always store SYMBOL in AR_CUSTOMER.CURRENCYCODE.
-    // Accept either SYMBOL or CODE from frontend, then resolve to SYMBOL.
-    $currencyStmt = $dbh->prepare('SELECT FIRST 1 SYMBOL FROM CURRENCY WHERE UPPER(SYMBOL) = UPPER(?) OR UPPER(CODE) = UPPER(?)');
+    // Always store CODE in AR_CUSTOMER.CURRENCYCODE.
+    // Accept either CODE or SYMBOL from frontend, then resolve to CODE.
+    $currencyStmt = $dbh->prepare('SELECT FIRST 1 CODE FROM CURRENCY WHERE UPPER(CODE) = UPPER(?) OR UPPER(SYMBOL) = UPPER(?)');
     $currencyStmt->execute([$currencyInput, $currencyInput]);
     $currencyRow = $currencyStmt->fetch(PDO::FETCH_ASSOC);
-    $currencySymbol = $currencyRow['SYMBOL'] ?? null;
-    if (!$currencySymbol || trim((string)$currencySymbol) === '') {
+    $currencyCode = $currencyRow['CODE'] ?? null;
+    if (!$currencyCode || trim((string)$currencyCode) === '') {
         throw new Exception('Invalid currency: ' . $currencyInput);
     }
-    $currencySymbol = trim((string)$currencySymbol);
+    $currencyCode = trim((string)$currencyCode);
 
     // Get or generate customer code
     if (!empty($customerCode)) {
@@ -172,7 +172,7 @@ try {
         30000,
         0,
         'O',
-        $currencySymbol,
+        $currencyCode,
         0,
         'I',
         'P',

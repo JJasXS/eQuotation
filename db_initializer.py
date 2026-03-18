@@ -394,6 +394,39 @@ def _ensure_sl_qt_validity_sync_trigger(conn):
         cur.close()
 
 
+def _ensure_sl_qt_localdocamt_sync_trigger(conn):
+    """Ensure SL_QT.LOCALDOCAMT is always kept in sync with DOCAMT * CURRENCYRATE."""
+    cur = conn.cursor()
+    try:
+        try:
+            cur.execute("DROP TRIGGER TRG_SL_QT_LOCALDOCAMT_SYNC")
+            conn.commit()
+        except Exception:
+            pass  # Trigger doesn't exist yet — that's fine
+
+        trigger_sql = """
+        CREATE TRIGGER TRG_SL_QT_LOCALDOCAMT_SYNC FOR SL_QT
+        ACTIVE BEFORE INSERT OR UPDATE POSITION 2
+        AS
+        BEGIN
+          NEW.LOCALDOCAMT = NEW.DOCAMT * NEW.CURRENCYRATE;
+        END
+        """
+        cur.execute(trigger_sql)
+        conn.commit()
+        print("[DB INIT] Trigger TRG_SL_QT_LOCALDOCAMT_SYNC created: LOCALDOCAMT will mirror DOCAMT * CURRENCYRATE on SL_QT")
+        return True
+    except Exception as e:
+        error_msg = str(e).lower()
+        if 'already exists' in error_msg or 'name in use' in error_msg:
+            print("[DB INIT] Trigger TRG_SL_QT_LOCALDOCAMT_SYNC already exists")
+            return True
+        print(f"[DB INIT WARNING] Could not create TRG_SL_QT_LOCALDOCAMT_SYNC: {e}")
+        return False
+    finally:
+        cur.close()
+
+
 def _ensure_pricing_priority_rule_table(conn):
     """Ensure PricingPriorityRule table exists for configurable price evaluation."""
     _execute_ddl(
@@ -727,6 +760,9 @@ def initialize_database(db_path, db_user, db_password):
 
         # Keep SL_QT.UDF_VALIDITY in sync with VALIDITY
         _ensure_sl_qt_validity_sync_trigger(conn)
+
+        # Keep SL_QT.LOCALDOCAMT in sync with DOCAMT * CURRENCYRATE
+        _ensure_sl_qt_localdocamt_sync_trigger(conn)
 
         # Ensure pricing priority rule settings table exists and is seeded
         _ensure_pricing_priority_rule_table(conn)

@@ -15,7 +15,6 @@ $validUntil = $data['validUntil'] ?? null;
 // Default validity: if not provided, use today + 30 days
 $udfValidity = (!empty($validUntil) && $validUntil !== '') ? $validUntil : date('Y-m-d', strtotime('+30 days'));
 $items = $data['items'] ?? [];
-$currencyCode = $data['currencyCode'] ?? 'MYR';
 $companyName = $data['companyName'] ?? null;
 $address1 = $data['address1'] ?? null;
 $address2 = $data['address2'] ?? null;
@@ -46,11 +45,29 @@ function applyDiscountAmount(float $qty, float $unitprice, float $discAmount): f
 try {
     $dbh = getFirebirdConnection();
     
-    // Fetch CREDITTERM from AR_CUSTOMER (store into SL_QT.TERMS)
-    $termsStmt = $dbh->prepare('SELECT CREDITTERM FROM AR_CUSTOMER WHERE CODE = ?');
-    $termsStmt->execute([$customerCode]);
-    $terms = $termsStmt->fetchColumn();
-    $terms = $terms ?: 'N/A';
+    // Fetch CREDITTERM, CURRENCYCODE, AGENT and AREA from AR_CUSTOMER.
+    $customerStmt = $dbh->prepare('SELECT CREDITTERM, CURRENCYCODE, AGENT, AREA FROM AR_CUSTOMER WHERE CODE = ?');
+    $customerStmt->execute([$customerCode]);
+    $customerRow = $customerStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$customerRow) {
+        throw new Exception('Customer not found for code: ' . $customerCode);
+    }
+    $terms = trim((string)($customerRow['CREDITTERM'] ?? ''));
+    $terms = $terms !== '' ? $terms : 'N/A';
+    $customerCurrencyCode = trim((string)($customerRow['CURRENCYCODE'] ?? ''));
+    $customerCurrencyCode = $customerCurrencyCode !== '' ? $customerCurrencyCode : 'MYR';
+    $customerAgent = trim((string)($customerRow['AGENT'] ?? ''));
+    $customerAgent = $customerAgent !== '' ? $customerAgent : '----';
+    $customerArea = trim((string)($customerRow['AREA'] ?? ''));
+    $customerArea = $customerArea !== '' ? $customerArea : '----';
+
+    // Resolve currency buying rate from CURRENCY using AR_CUSTOMER.CURRENCYCODE.
+    $currencyRateStmt = $dbh->prepare('SELECT FIRST 1 BUYINGRATE FROM CURRENCY WHERE UPPER(CODE) = UPPER(?)');
+    $currencyRateStmt->execute([$customerCurrencyCode]);
+    $customerCurrencyRate = $currencyRateStmt->fetchColumn();
+    $customerCurrencyRate = ($customerCurrencyRate !== false && $customerCurrencyRate !== null)
+        ? (float)$customerCurrencyRate
+        : 1;
     
     // Get next DOCKEY
     $stmt = $dbh->prepare('SELECT COALESCE(MAX(DOCKEY), 0) + 1 FROM SL_QT');
@@ -80,8 +97,8 @@ try {
     $qtStmt = $dbh->prepare('
         INSERT INTO SL_QT (
             DOCKEY, DOCNO, DOCDATE, CODE, DESCRIPTION, DOCAMT, 
-            CURRENCYCODE, VALIDITY, SHIPPER, STATUS, TERMS, COMPANYNAME, ADDRESS1, ADDRESS2, PHONE1, CANCELLED, PROJECT
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            CURRENCYCODE, CURRENCYRATE, VALIDITY, SHIPPER, STATUS, TERMS, AGENT, AREA, COMPANYNAME, ADDRESS1, ADDRESS2, PHONE1, CANCELLED, PROJECT
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ');
     
     // DEBUG: Log values before insert
@@ -95,11 +112,14 @@ try {
             $customerCode,
             $description,
             $totalAmount,
-            $currencyCode,
+            $customerCurrencyCode,
+            $customerCurrencyRate,
             $udfValidity, // VALIDITY: user-supplied or today+30
             '----',  // Default shipper
             $quotationStatus,
             $terms,
+            $customerAgent,
+            $customerArea,
             $companyName,
             $address1,
             $address2,
