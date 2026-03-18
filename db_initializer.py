@@ -252,6 +252,40 @@ def _ensure_email_sync_trigger(conn):
         cur.close()
 
 
+def _ensure_ar_customer_idno_from_brn2_trigger(conn):
+    """Ensure AR_CUSTOMER.IDNO is auto-copied from BRN2 on insert/update."""
+    cur = conn.cursor()
+    try:
+        try:
+            cur.execute("DROP TRIGGER TRG_AR_CUSTOMER_BRN2_IDNO")
+            conn.commit()
+        except Exception:
+            pass
+
+        trigger_sql = """
+        CREATE TRIGGER TRG_AR_CUSTOMER_BRN2_IDNO FOR AR_CUSTOMER
+        ACTIVE BEFORE INSERT OR UPDATE POSITION 0
+        AS
+        BEGIN
+          IF (NEW.BRN2 IS NOT NULL) THEN
+            NEW.IDNO = NEW.BRN2;
+        END
+        """
+        cur.execute(trigger_sql)
+        conn.commit()
+        print("[DB INIT] Trigger TRG_AR_CUSTOMER_BRN2_IDNO created successfully")
+        return True
+    except Exception as e:
+        error_msg = str(e).lower()
+        if 'already exists' in error_msg or 'name in use' in error_msg:
+            print("[DB INIT] Trigger TRG_AR_CUSTOMER_BRN2_IDNO already exists")
+            return True
+        print(f"[DB INIT WARNING] Could not create BRN2->IDNO trigger: {e}")
+        return False
+    finally:
+        cur.close()
+
+
 def _ensure_pricing_priority_rule_table(conn):
     """Ensure PricingPriorityRule table exists for configurable price evaluation."""
     _execute_ddl(
@@ -428,6 +462,9 @@ def initialize_database(db_path, db_user, db_password):
         
         # Create trigger to sync AR_CUSTOMERBRANCH.EMAIL to UDF_EMAIL and downstream tables
         _ensure_email_sync_trigger(conn)
+
+        # Keep AR_CUSTOMER.IDNO synchronized with BRN2 for inserts/updates
+        _ensure_ar_customer_idno_from_brn2_trigger(conn)
 
         # Ensure pricing priority rule settings table exists and is seeded
         _ensure_pricing_priority_rule_table(conn)

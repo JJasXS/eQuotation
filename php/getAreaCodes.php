@@ -18,7 +18,8 @@ try {
     $codes = [];
     foreach ($rows as $row) {
         $code = isset($row['CODE']) ? trim((string)$row['CODE']) : '';
-        if ($code !== '') {
+        $normalized = preg_replace('/[^A-Za-z0-9]/', '', $code);
+        if ($code !== '' && strlen($normalized) >= 3) {
             $codes[] = $code;
         }
     }

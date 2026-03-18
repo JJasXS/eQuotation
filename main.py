@@ -53,6 +53,9 @@ except KeyboardInterrupt:
     print("⚠️  AI model import interrupted - using OpenAI only")
     print("   To disable AI models, rename/move the ai_models folder")
 
+# Import validation functions
+from validationSignIn import validate_registration_fields
+
 # Import order management configuration
 from config.order_config import (
     CREATE_ORDER_KEYWORDS,
@@ -788,6 +791,11 @@ def update_quotation_cancelled():
 def create_signin_user():
     """Forward guest sign-in payload to PHP endpoint for AR_CUSTOMER inserts."""
     data = request.get_json() or {}
+
+    # Server-side validation (secure)
+    validation_error = validate_registration_fields(data)
+    if validation_error:
+        return jsonify({'success': False, 'error': validation_error}), 400
 
     try:
         php_url = f"{BASE_API_URL}/php/createSignInUser.php"

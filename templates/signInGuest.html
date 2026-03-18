@@ -48,12 +48,19 @@
                     <div class="form-grid">
                         <div class="form-group">
                             <input type="text" id="BRN" name="BRN" placeholder="Reg No. (old)" required>
+                            <div style="font-size:12px;color:#9ba7b6;margin-top:4px;">Alphanumeric, no limit</div>
                         </div>
                         <div class="form-group">
                             <input type="text" id="BRN2" name="BRN2" placeholder="Reg No. (new)" required>
+                            <div style="font-size:12px;color:#9ba7b6;margin-top:4px;">Exactly 12 numeric digits</div>
                         </div>
                         <div class="form-group full-width">
                             <input type="text" id="TIN" name="TIN" placeholder="TIN No." required>
+                            <div style="font-size:12px;color:#9ba7b6;margin-top:4px;">Alphanumeric, no fixed length</div>
+                        </div>
+                        <div class="form-group full-width">
+                            <input type="text" id="CUSTOMERCODE" name="CUSTOMERCODE" placeholder="Customer Code (optional)">
+                            <div style="font-size:12px;color:#9ba7b6;margin-top:4px;">Format: 3 chars - 1 char + 4 digits (e.g., 300-E0888)</div>
                         </div>
                     </div>
                 </div>
@@ -61,7 +68,10 @@
                 <div class="form-section">
                     <div class="section-title">Address and Contact</div>
                     <div class="form-grid">
-                        <div class="form-group full-width">
+                         <div class="form-group full-width">
+                            <input type="text" id="ATTENTION" name="ATTENTION" placeholder="Attention" required>
+                        </div>
+                        <div class="form-group">
                             <input type="text" id="ADDRESS1" name="ADDRESS1" placeholder="Address 1" required>
                         </div>
                         <div class="form-group">
@@ -76,9 +86,7 @@
                         <div class="form-group">
                             <input type="text" id="POSTCODE" name="POSTCODE" placeholder="Postcode" required>
                         </div>
-                        <div class="form-group">
-                            <input type="text" id="ATTENTION" name="ATTENTION" placeholder="Attention" required>
-                        </div>
+                       
                         <div class="form-group">
                             <input type="text" id="PHONE1" name="PHONE1" placeholder="Phone Number" required>
                         </div>

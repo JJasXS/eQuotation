@@ -1,0 +1,118 @@
+{
+  "description": "Sample test data for guest sign-in validation",
+  "note": "CUSTOMERCODE regex updated: XXX-X0000 where X=LETTER ONLY (not digit)",
+  "pass_cases": [
+    {
+      "case_id": "PASS-1",
+      "description": "Valid: All fields correct format",
+      "data": {
+        "COMPANYNAME": "Tech Solutions Ltd",
+        "AREA": "300",
+        "CURRENCYCODE": "USD",
+        "UDF_EMAIL": "contact@techsolutions.com",
+        "BRN": "BR123456",
+        "BRN2": "123456789012",
+        "TIN": "TIN123ABC789",
+        "CUSTOMERCODE": "",
+        "ADDRESS1": "123 Technology Park",
+        "ADDRESS2": "Tech Valley",
+        "ADDRESS3": "",
+        "ADDRESS4": "",
+        "POSTCODE": "12345",
+        "ATTENTION": "John Smith",
+        "PHONE1": "555-0100"
+      },
+      "expected": "VALID - auto-generates 300-A0001"
+    },
+    {
+      "case_id": "PASS-2",
+      "description": "Valid: With manual customer code",
+      "data": {
+        "COMPANYNAME": "Global Trading Inc",
+        "AREA": "500",
+        "CURRENCYCODE": "EUR",
+        "UDF_EMAIL": "sales@globaltrading.com",
+        "BRN": "BRN2024001",
+        "BRN2": "987654321098",
+        "TIN": "EU123456789",
+        "CUSTOMERCODE": "500-B1234",
+        "ADDRESS1": "456 Commerce Street",
+        "ADDRESS2": "Business District",
+        "ADDRESS3": "Floor 2",
+        "ADDRESS4": "",
+        "POSTCODE": "54321",
+        "ATTENTION": "Maria Garcia",
+        "PHONE1": "555-0200"
+      },
+      "expected": "VALID - uses 500-B1234 (letter B)"
+    }
+  ],
+  "fail_cases": [
+    {
+      "case_id": "FAIL-1",
+      "description": "Invalid: BRN2 only 11 digits",
+      "data": {
+        "COMPANYNAME": "Invalid Company A",
+        "AREA": "300",
+        "CURRENCYCODE": "USD",
+        "UDF_EMAIL": "bad@example.com",
+        "BRN": "BRN123",
+        "BRN2": "12345678901",
+        "TIN": "TIN123",
+        "CUSTOMERCODE": "",
+        "ADDRESS1": "Address",
+        "ADDRESS2": "",
+        "ADDRESS3": "",
+        "ADDRESS4": "",
+        "POSTCODE": "12345",
+        "ATTENTION": "Contact",
+        "PHONE1": "555-0000"
+      },
+      "expected": "INVALID - BRN2 must be exactly 12 numeric digits"
+    },
+    {
+      "case_id": "FAIL-2",
+      "description": "Invalid: Customer code 300-10888 (digit instead of letter)",
+      "data": {
+        "COMPANYNAME": "Invalid Company B",
+        "AREA": "300",
+        "CURRENCYCODE": "USD",
+        "UDF_EMAIL": "bad@example.com",
+        "BRN": "BRN123",
+        "BRN2": "123456789012",
+        "TIN": "TIN123",
+        "CUSTOMERCODE": "300-10888",
+        "ADDRESS1": "Address",
+        "ADDRESS2": "",
+        "ADDRESS3": "",
+        "ADDRESS4": "",
+        "POSTCODE": "12345",
+        "ATTENTION": "Contact",
+        "PHONE1": "555-0000"
+      },
+      "expected": "INVALID - Middle char must be LETTER not digit. Use 300-A0888, 300-E0888, etc."
+    },
+    {
+      "case_id": "FAIL-3",
+      "description": "Invalid: Customer code without dash 300E0888",
+      "data": {
+        "COMPANYNAME": "Invalid Company C",
+        "AREA": "300",
+        "CURRENCYCODE": "USD",
+        "UDF_EMAIL": "bad@example.com",
+        "BRN": "BRN123",
+        "BRN2": "123456789012",
+        "TIN": "TIN123",
+        "CUSTOMERCODE": "300E0888",
+        "ADDRESS1": "Address",
+        "ADDRESS2": "",
+        "ADDRESS3": "",
+        "ADDRESS4": "",
+        "POSTCODE": "12345",
+        "ATTENTION": "Contact",
+        "PHONE1": "555-0000"
+      },
+      "expected": "INVALID - Missing dash (XXX-X0000 format)"
+    }
+  ]
+}

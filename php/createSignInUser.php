@@ -30,6 +30,7 @@ $udfEmail = trim($data['UDF_EMAIL'] ?? '');
 $brn = trim($data['BRN'] ?? '');
 $brn2 = trim($data['BRN2'] ?? '');
 $tin = trim($data['TIN'] ?? '');
+$customerCode = trim($data['CUSTOMERCODE'] ?? '');
 
 $address1 = trim($data['ADDRESS1'] ?? '');
 $address2 = trim($data['ADDRESS2'] ?? '');
@@ -38,44 +39,23 @@ $address4 = trim($data['ADDRESS4'] ?? '');
 $postcode = trim($data['POSTCODE'] ?? '');
 $attention = trim($data['ATTENTION'] ?? '');
 $phone1 = trim($data['PHONE1'] ?? '');
+$branchName = trim($data['BRANCHNAME'] ?? $companyName);
+$branchType = trim($data['BRANCHTYPE'] ?? '');
+$city = trim($data['CITY'] ?? '');
+$state = trim($data['STATE'] ?? '');
+$country = trim($data['COUNTRY'] ?? '');
+$phone2 = trim($data['PHONE2'] ?? '');
+$mobile = trim($data['MOBILE'] ?? '');
+$fax1 = trim($data['FAX1'] ?? '');
+$fax2 = trim($data['FAX2'] ?? '');
+$branchEmail = trim($data['EMAIL'] ?? $udfEmail);
 
 if ($companyName === '' || $area === '' || $currencyInput === '' || $udfEmail === '' || $brn === '' || $brn2 === '' || $tin === '' || $address1 === '' || $postcode === '' || $attention === '' || $phone1 === '') {
     echo json_encode(['success' => false, 'error' => 'Missing required fields']);
     exit;
 }
 
-function generateGuestCustomerCode(PDO $dbh) {
-    // Find max SIG-#### code
-    $stmt = $dbh->prepare("SELECT MAX(CODE) AS max_code FROM AR_CUSTOMER WHERE CODE LIKE 'SIG-%'");
-    $stmt->execute();
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    $maxCode = $row['max_code'] ?? '';
 
-    if (preg_match('/SIG-(\d{4})/', $maxCode, $matches)) {
-        $nextNum = (int)$matches[1] + 1;
-    } else {
-        $nextNum = 1;
-    }
-    $newCode = sprintf('SIG-%04d', $nextNum);
-
-    // Double-check uniqueness (should not be needed, but safe)
-    $checkStmt = $dbh->prepare('SELECT COUNT(*) FROM AR_CUSTOMER WHERE CODE = ?');
-    $checkStmt->execute([$newCode]);
-    $exists = (int)$checkStmt->fetchColumn();
-    if ($exists === 0) {
-        return $newCode;
-    }
-    // If collision, try next numbers up to 10 times
-    for ($i = 1; $i <= 10; $i++) {
-        $tryCode = sprintf('SIG-%04d', $nextNum + $i);
-        $checkStmt->execute([$tryCode]);
-        $exists = (int)$checkStmt->fetchColumn();
-        if ($exists === 0) {
-            return $tryCode;
-        }
-    }
-    throw new Exception('Unable to generate unique SIG-#### customer code');
-}
 
 function generateDTLKEY(PDO $dbh) {
     // Find the next available DTLKEY by checking for existing ones
@@ -116,29 +96,149 @@ try {
     }
     $currencySymbol = trim((string)$currencySymbol);
 
-    $customerCode = generateGuestCustomerCode($dbh);
+    // Get or generate customer code
+    if (!empty($customerCode)) {
+        // Use provided customer code (already validated by backend)
+        $code = $customerCode;
+    } else {
+        // Auto-generate customer code in fixed format: %.3s-%.1s%.4d (e.g., 300-E0888)
+        $fixedPrefix = '300';
+        $fixedLetter = 'E';
 
-    // AR_CUSTOMER.STATUS appears to be CHAR(1), so use code 'P' for Prospect.
+        // Find the next sequence number for the fixed 300-E#### series.
+        $maxQuery = $dbh->prepare("SELECT MAX(CAST(SUBSTRING(CODE FROM 6) AS INTEGER)) as maxSeq FROM AR_CUSTOMER WHERE CODE LIKE ?");
+        $pattern = $fixedPrefix . '-' . $fixedLetter . '%';
+        $maxQuery->execute([$pattern]);
+        $result = $maxQuery->fetch(PDO::FETCH_ASSOC);
+        $nextSeq = (int)($result['maxSeq'] ?? 0) + 1;
+
+        // Ensure sequence doesn't exceed 4 digits
+        if ($nextSeq > 9999) {
+            throw new Exception('Maximum customer code sequence reached for ' . $fixedPrefix . '-' . $fixedLetter . '####');
+        }
+
+        // Requested template equivalent in PHP with zero-padded 4 digits.
+        // If there is a collision, keep incrementing until an unused code is found.
+        $checkStmt = $dbh->prepare('SELECT COUNT(*) FROM AR_CUSTOMER WHERE CODE = ?');
+        do {
+            if ($nextSeq > 9999) {
+                throw new Exception('Maximum customer code sequence reached for ' . $fixedPrefix . '-' . $fixedLetter . '####');
+            }
+            $code = sprintf('%.3s-%.1s%04d', $fixedPrefix, $fixedLetter, $nextSeq);
+            $checkStmt->execute([$code]);
+            $exists = (int)$checkStmt->fetchColumn();
+            $nextSeq++;
+        } while ($exists > 0);
+    }
+
+    // Apply required defaults for guest sign-in AR_CUSTOMER creation.
     $insertCustomer = $dbh->prepare('        
-        INSERT INTO AR_CUSTOMER (CODE, COMPANYNAME, AREA, CURRENCYCODE, UDF_EMAIL, BRN, BRN2, TIN, CREDITTERM, STATUS, CREATIONDATE)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        INSERT INTO AR_CUSTOMER (
+            CODE,
+            CONTROLACCOUNT,
+            COMPANYNAME,
+            COMPANYCATEGORY,
+            AREA,
+            AGENT,
+            CREDITTERM,
+            CREDITLIMIT,
+            OVERDUELIMIT,
+            STATEMENTTYPE,
+            CURRENCYCODE,
+            OUTSTANDING,
+            ALLOWEXCEEDCREDITLIMIT,
+            ADDPDCTOCRLIMIT,
+            AGINGON,
+            STATUS,
+            BRN,
+            BRN2,
+            TIN,
+            IDTYPE,
+            IDNO,
+            CREATIONDATE,
+            SUBMISSIONTYPE,
+            UDF_EMAIL
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, TRUE, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
     ');
-    $insertCustomer->execute([$customerCode, $companyName, $areaCode, $currencySymbol, $udfEmail, $brn, $brn2, $tin, '30 Days', 'P']);
+    $insertCustomer->execute([
+        $code,
+        '300-000',
+        $companyName,
+        '----',
+        $areaCode,
+        '----',
+        '30 Days',
+        30000,
+        0,
+        'O',
+        $currencySymbol,
+        0,
+        'I',
+        'P',
+        $brn,
+        $brn2,
+        $tin,
+        1,
+        $brn2,
+        17,
+        $udfEmail
+    ]);
 
     $dtlkey = generateDTLKEY($dbh);
 
     $insertBranch = $dbh->prepare('
-        INSERT INTO AR_CUSTOMERBRANCH (DTLKEY, CODE, ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, POSTCODE, ATTENTION, PHONE1)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO AR_CUSTOMERBRANCH (
+            DTLKEY,
+            CODE,
+            BRANCHTYPE,
+            BRANCHNAME,
+            ADDRESS1,
+            ADDRESS2,
+            ADDRESS3,
+            ADDRESS4,
+            POSTCODE,
+            CITY,
+            STATE,
+            COUNTRY,
+            ATTENTION,
+            PHONE1,
+            PHONE2,
+            MOBILE,
+            FAX1,
+            FAX2,
+            EMAIL
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ');
-    $insertBranch->execute([$dtlkey, $customerCode, $address1, $address2, $address3, $address4, $postcode, $attention, $phone1]);
+    $insertBranch->execute([
+        $dtlkey,
+        $code,
+        $branchType,
+        $branchName,
+        $address1,
+        $address2,
+        $address3,
+        $address4,
+        $postcode,
+        $city,
+        $state,
+        $country,
+        $attention,
+        $phone1,
+        $phone2,
+        $mobile,
+        $fax1,
+        $fax2,
+        $branchEmail
+    ]);
 
     $dbh->commit();
 
     echo json_encode([
         'success' => true,
         'message' => 'Guest sign-in user created successfully',
-        'customerCode' => $customerCode
+        'customerCode' => $code
     ]);
 } catch (Exception $e) {
     if (isset($dbh) && $dbh->inTransaction()) {
