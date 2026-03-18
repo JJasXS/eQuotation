@@ -199,47 +199,79 @@ def _backfill_udf_email_from_branch_email(conn):
 
 def _ensure_email_sync_trigger(conn):
     """
-    Drop and recreate trigger to sync AR_CUSTOMERBRANCH.EMAIL changes to AR_CUSTOMER.UDF_EMAIL.
-    Then sync to OWNEREMAIL in CHAT_TPL and ORDER_TPL.
+    Drop and recreate bi-directional email sync triggers:
+    - AR_CUSTOMERBRANCH.EMAIL -> AR_CUSTOMER.UDF_EMAIL
+    - AR_CUSTOMER.UDF_EMAIL -> AR_CUSTOMERBRANCH.EMAIL
+    Also sync to OWNEREMAIL in CHAT_TPL and ORDER_TPL.
     """
     cur = conn.cursor()
     try:
-        # Drop trigger if exists (to allow re-creation)
+        # Drop triggers if they exist (to allow re-creation)
         try:
             cur.execute("DROP TRIGGER TRG_SYNC_CUSTOMERBRANCH_EMAIL")
             conn.commit()
-        except:
+        except Exception:
             pass  # Trigger doesn't exist, that's fine
-        
-        # Create trigger that syncs EMAIL to UDF_EMAIL and downstream tables
-        trigger_sql = """
+
+        try:
+            cur.execute("DROP TRIGGER TRG_SYNC_CUSTOMER_UDF_EMAIL")
+            conn.commit()
+        except Exception:
+            pass  # Trigger doesn't exist, that's fine
+
+        # Sync branch email up to customer header and downstream owner email.
+        branch_to_customer_trigger_sql = """
         CREATE TRIGGER TRG_SYNC_CUSTOMERBRANCH_EMAIL FOR AR_CUSTOMERBRANCH
-        ACTIVE AFTER INSERT, UPDATE POSITION 0
+        ACTIVE AFTER INSERT OR UPDATE POSITION 0
         AS
         BEGIN
-          /* Sync EMAIL to AR_CUSTOMER.UDF_EMAIL */
           UPDATE AR_CUSTOMER c
           SET c.UDF_EMAIL = NEW.EMAIL
           WHERE c.CODE = NEW.CODE
-            AND (c.UDF_EMAIL IS NULL OR c.UDF_EMAIL <> NEW.EMAIL)
-            AND NEW.EMAIL IS NOT NULL;
-          
-          /* Sync to OWNEREMAIL in CHAT_TPL */
+            AND NEW.EMAIL IS NOT NULL
+            AND (c.UDF_EMAIL IS NULL OR c.UDF_EMAIL <> NEW.EMAIL);
+
           UPDATE CHAT_TPL
           SET OWNEREMAIL = NEW.EMAIL
           WHERE CUSTOMERCODE = NEW.CODE
             AND NEW.EMAIL IS NOT NULL;
-          
-          /* Sync to OWNEREMAIL in ORDER_TPL */
+
           UPDATE ORDER_TPL
           SET OWNEREMAIL = NEW.EMAIL
           WHERE CUSTOMERCODE = NEW.CODE
             AND NEW.EMAIL IS NOT NULL;
         END
         """
-        cur.execute(trigger_sql)
+        cur.execute(branch_to_customer_trigger_sql)
         conn.commit()
-        print("[DB INIT] Email sync trigger TRG_SYNC_CUSTOMERBRANCH_EMAIL created successfully")
+
+        # Sync customer header email down to branches and downstream owner email.
+        customer_to_branch_trigger_sql = """
+        CREATE TRIGGER TRG_SYNC_CUSTOMER_UDF_EMAIL FOR AR_CUSTOMER
+        ACTIVE AFTER INSERT OR UPDATE POSITION 0
+        AS
+        BEGIN
+          UPDATE AR_CUSTOMERBRANCH b
+          SET b.EMAIL = NEW.UDF_EMAIL
+          WHERE b.CODE = NEW.CODE
+            AND NEW.UDF_EMAIL IS NOT NULL
+            AND (b.EMAIL IS NULL OR b.EMAIL <> NEW.UDF_EMAIL);
+
+          UPDATE CHAT_TPL
+          SET OWNEREMAIL = NEW.UDF_EMAIL
+          WHERE CUSTOMERCODE = NEW.CODE
+            AND NEW.UDF_EMAIL IS NOT NULL;
+
+          UPDATE ORDER_TPL
+          SET OWNEREMAIL = NEW.UDF_EMAIL
+          WHERE CUSTOMERCODE = NEW.CODE
+            AND NEW.UDF_EMAIL IS NOT NULL;
+        END
+        """
+        cur.execute(customer_to_branch_trigger_sql)
+        conn.commit()
+
+        print("[DB INIT] Email sync triggers created: TRG_SYNC_CUSTOMERBRANCH_EMAIL, TRG_SYNC_CUSTOMER_UDF_EMAIL")
         return True
     except Exception as e:
         error_msg = str(e).lower()
