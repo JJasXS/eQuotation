@@ -88,7 +88,7 @@ function getFirebirdConnection() {
     $envPath = findEnvFile();
     $env = $envPath ? loadEnvFile($envPath) : [];
 
-    $host = 'localhost';
+    $host = isset($env['DB_HOST']) ? trim($env['DB_HOST']) : trim(getenv('DB_HOST') ?: 'localhost');
     $db = isset($env['DB_PATH']) ? $env['DB_PATH'] : (getenv('DB_PATH') ?: '');
     $user = isset($env['DB_USER']) ? $env['DB_USER'] : (getenv('DB_USER') ?: 'sysdba');
     $pass = isset($env['DB_PASSWORD']) ? $env['DB_PASSWORD'] : (getenv('DB_PASSWORD') ?: 'masterkey');

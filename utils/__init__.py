@@ -3,7 +3,7 @@
 from utils.db_utils import (
     get_db_connection, user_owns_chat, get_chat_history,
     update_chat_last_message, get_active_order, test_firebird_connection,
-    set_db_config
+    set_db_config, build_firebird_dsn
 )
 
 from utils.api_utils import (
@@ -38,7 +38,7 @@ __all__ = [
     # DB utils
     'get_db_connection', 'user_owns_chat', 'get_chat_history',
     'update_chat_last_message', 'get_active_order', 'test_firebird_connection',
-    'set_db_config',
+    'set_db_config', 'build_firebird_dsn',
     
     # API utils
     'fetch_data_from_api', 'format_rm', 'set_api_config',

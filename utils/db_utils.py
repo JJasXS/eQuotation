@@ -1,17 +1,34 @@
 """Database utility functions for Firebird database operations."""
 import fdb
-import os
 
 # Database configuration (will be set from main.py)
 DB_PATH = None
+DB_HOST = None
 DB_USER = None
 DB_PASSWORD = None
 
 
-def set_db_config(db_path, db_user, db_password):
+def build_firebird_dsn(db_path, db_host=None):
+    """Build a Firebird DSN from optional host and required database path."""
+    if not db_path:
+        raise ValueError("DB_PATH is not configured.")
+
+    cleaned_path = db_path.strip()
+    cleaned_host = (db_host or '').strip()
+
+    if not cleaned_host:
+        return cleaned_path
+
+    # Firebird remote DSN works reliably with forward slashes in Windows paths.
+    normalized_path = cleaned_path.replace('\\', '/')
+    return f"{cleaned_host}:{normalized_path}"
+
+
+def set_db_config(db_path, db_user, db_password, db_host=None):
     """Set database configuration."""
-    global DB_PATH, DB_USER, DB_PASSWORD
+    global DB_PATH, DB_HOST, DB_USER, DB_PASSWORD
     DB_PATH = db_path
+    DB_HOST = db_host
     DB_USER = db_user
     DB_PASSWORD = db_password
 
@@ -19,7 +36,7 @@ def set_db_config(db_path, db_user, db_password):
 def get_db_connection():
     """Get a Firebird database connection."""
     return fdb.connect(
-        dsn=DB_PATH,
+        dsn=build_firebird_dsn(DB_PATH, DB_HOST),
         user=DB_USER,
         password=DB_PASSWORD,
         charset='UTF8'

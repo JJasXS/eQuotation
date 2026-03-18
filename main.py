@@ -21,7 +21,7 @@ from db_initializer import initialize_database
 # Import utility modules
 from utils import (
     get_db_connection, user_owns_chat, get_chat_history, update_chat_last_message,
-    get_active_order, test_firebird_connection, set_db_config,
+    get_active_order, test_firebird_connection, set_db_config, build_firebird_dsn,
     fetch_data_from_api, format_rm, set_api_config,
     load_typo_corrections, normalize_intent_text, contains_intent_phrase,
     parse_order_intent, set_text_config,
@@ -84,6 +84,7 @@ from config.otp_config import generate_otp, OTP_LENGTH, OTP_EXPIRY_SECONDS
 # ============================================
 BASE_API_URL = os.getenv('BASE_API_URL', 'http://localhost')
 DB_PATH = os.getenv('DB_PATH')
+DB_HOST = os.getenv('DB_HOST')
 DB_USER = os.getenv('DB_USER', 'sysdba')
 DB_PASSWORD = os.getenv('DB_PASSWORD', 'masterkey')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
@@ -101,7 +102,8 @@ openai.api_key = OPENAI_API_KEY
 # INITIALIZE UTILITY MODULES
 # ============================================
 # Configure database utils
-set_db_config(DB_PATH, DB_USER, DB_PASSWORD)
+DB_DSN = build_firebird_dsn(DB_PATH, DB_HOST)
+set_db_config(DB_PATH, DB_USER, DB_PASSWORD, DB_HOST)
 
 
 # Helper configuration (moved up to ensure ENDPOINT_PATHS is defined before use)
@@ -1470,7 +1472,7 @@ def view_order_proof(orderid):
         
         # Verify ownership for regular users
         if user_type == 'user':
-            conn = fdb.connect(dsn=DB_PATH, user=DB_USER, password=DB_PASSWORD)
+            conn = fdb.connect(dsn=DB_DSN, user=DB_USER, password=DB_PASSWORD)
             cur = conn.cursor()
             cur.execute('''
                 SELECT OWNEREMAIL FROM CHAT_TPL WHERE CHATID = ? 
@@ -2712,8 +2714,8 @@ def api_get_company_names():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 if __name__ == "__main__":
-    initialize_database(DB_PATH, DB_USER, DB_PASSWORD)
+    initialize_database(DB_DSN, DB_USER, DB_PASSWORD)
     pricing_sql_path = os.path.join(os.path.dirname(__file__), 'sql', 'pricing_priority_rule_firebird.sql')
-    run_firebird_sql_script(pricing_sql_path, DB_PATH, DB_USER, DB_PASSWORD)
+    run_firebird_sql_script(pricing_sql_path, DB_DSN, DB_USER, DB_PASSWORD)
     print("Starting Flask web server at http://localhost:5000 ...")
     app.run(debug=True, use_reloader=False)
