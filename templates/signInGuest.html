@@ -9,9 +9,8 @@
 <body>
     <div class="guest-container">
         <div class="guest-card">
-            <h1>Guest Sign In</h1>
-            <p class="subtitle">Fill in guest details. This form is prepared for database fields, but submission is front-end only for now.</p>
-
+           <center><h1>Guest Sign In</h1>
+  </center>          
             <form id="guest-signin-form" onsubmit="handleGuestSignIn(event)">
                 <div class="form-section">
                     <div class="section-title">Company Details</div>
@@ -89,13 +88,15 @@
                     </div>
                 </div>
 
-                <button type="submit" class="btn-submit">Continue as Guest</button>
+                <div class="form-actions">
+                    
+                    <a href="/login" class="btn-back">Back to Login</a><button type="submit" class="btn-submit">Continue as Guest</button>
+                </div>
             </form>
 
             <div id="guest-message" class="guest-message"></div>
             <pre id="payload-preview" class="payload-preview"></pre>
 
-            <center><a href="/login" class="btn-back">Back to Login</a></center>
         </div>
     </div>
 
