@@ -1318,9 +1318,11 @@ def create_quotation_page():
     if page_error:
         return page_error
     dockey = request.args.get('dockey', '')
+    draft_dockey = request.args.get('draftDockey', '')
     return render_template('createQuotation.html', 
                          user_email=session.get('user_email', ''),
-                         dockey=dockey)
+                         dockey=dockey,
+                         draft_dockey=draft_dockey)
 
 
 @app.route('/view-quotation')
@@ -2323,6 +2325,7 @@ def api_create_quotation():
                     "address1": address1,
                     "address2": address2,
                     "phone1": phone1,
+                    "draftDockey": draft_dockey,
                     "items": items
                 },
                 timeout=10
@@ -2332,23 +2335,6 @@ def api_create_quotation():
         
         if not quotation_data.get('success'):
             return jsonify({'success': False, 'error': quotation_data.get('error', 'Failed to create quotation')}), 500
-        
-        # Delete the draft from SL_QTDRAFT now that it has been submitted to SL_QT
-        if draft_dockey:
-            try:
-                del_response = requests.post(
-                    f"{BASE_API_URL}/php/deleteDraftQuotation.php",
-                    json={"dockey": int(draft_dockey)},
-                    timeout=10
-                )
-                del_data = del_response.json()
-                if del_data.get('success'):
-                    print(f"DEBUG [Flask api_create_quotation]: Deleted draft dockey={draft_dockey} after submission", flush=True)
-                else:
-                    print(f"WARNING [Flask api_create_quotation]: PHP could not delete draft {draft_dockey}: {del_data.get('error')}", flush=True)
-            except Exception as draft_del_err:
-                print(f"WARNING [Flask api_create_quotation]: Could not delete draft {draft_dockey}: {draft_del_err}", flush=True)
-                # Non-fatal — submission succeeded, just log the cleanup failure
         
         return jsonify({
             'success': True, 

@@ -20,6 +20,7 @@ $companyName = $data['companyName'] ?? null;
 $address1 = $data['address1'] ?? null;
 $address2 = $data['address2'] ?? null;
 $phone1 = $data['phone1'] ?? null;
+$draftDockey = $data['draftDockey'] ?? null;
 
 // DEBUG: Log received data
 error_log("DEBUG: insertQuotationToAccounting received - companyName: $companyName, address1: $address1, address2: $address2, phone1: $phone1");
@@ -188,6 +189,19 @@ try {
     // Move quotation status to COMPLETED (1) once all lines are inserted successfully
     $completeStmt = $dbh->prepare('UPDATE SL_QT SET STATUS = ? WHERE DOCKEY = ?');
     $completeStmt->execute([1, $dockey]); // 1 = COMPLETED
+
+    // If submitted from SL_QTDRAFT edit flow, remove the saved draft rows
+    if ($draftDockey !== null && $draftDockey !== '' && is_numeric($draftDockey)) {
+        $draftKey = (int)$draftDockey;
+
+        $deleteDraftDtl = $dbh->prepare('DELETE FROM SL_QTDTLDRAFT WHERE DOCKEY = ?');
+        $deleteDraftDtl->execute([$draftKey]);
+
+        $deleteDraftHdr = $dbh->prepare('DELETE FROM SL_QTDRAFT WHERE DOCKEY = ?');
+        $deleteDraftHdr->execute([$draftKey]);
+
+        error_log("DEBUG: Draft deleted after submission - draftDockey: $draftKey");
+    }
     
     echo json_encode([
         'success' => true,
