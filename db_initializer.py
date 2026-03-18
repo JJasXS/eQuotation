@@ -318,6 +318,82 @@ def _ensure_ar_customer_idno_from_brn2_trigger(conn):
         cur.close()
 
 
+def _ensure_sl_qt_date_sync_trigger(conn):
+    """Ensure POSTDATE and TAXDATE on SL_QT are always kept in sync with DOCDATE.
+
+    The trigger fires BEFORE INSERT OR UPDATE so both INSERT (new quotation) and
+    any subsequent UPDATE (e.g. status change) propagate the document date to the
+    posting and tax date columns automatically.
+    """
+    cur = conn.cursor()
+    try:
+        try:
+            cur.execute("DROP TRIGGER TRG_SL_QT_DATE_SYNC")
+            conn.commit()
+        except Exception:
+            pass  # Trigger doesn't exist yet — that's fine
+
+        trigger_sql = """
+        CREATE TRIGGER TRG_SL_QT_DATE_SYNC FOR SL_QT
+        ACTIVE BEFORE INSERT OR UPDATE POSITION 0
+        AS
+        BEGIN
+          IF (NEW.DOCDATE IS NOT NULL) THEN
+          BEGIN
+            NEW.POSTDATE = NEW.DOCDATE;
+            NEW.TAXDATE  = NEW.DOCDATE;
+          END
+        END
+        """
+        cur.execute(trigger_sql)
+        conn.commit()
+        print("[DB INIT] Trigger TRG_SL_QT_DATE_SYNC created: POSTDATE and TAXDATE will mirror DOCDATE on SL_QT")
+        return True
+    except Exception as e:
+        error_msg = str(e).lower()
+        if 'already exists' in error_msg or 'name in use' in error_msg:
+            print("[DB INIT] Trigger TRG_SL_QT_DATE_SYNC already exists")
+            return True
+        print(f"[DB INIT WARNING] Could not create TRG_SL_QT_DATE_SYNC: {e}")
+        return False
+    finally:
+        cur.close()
+
+
+def _ensure_sl_qt_validity_sync_trigger(conn):
+    """Ensure SL_QT.UDF_VALIDITY is always kept in sync with SL_QT.VALIDITY."""
+    cur = conn.cursor()
+    try:
+        try:
+            cur.execute("DROP TRIGGER TRG_SL_QT_VALIDITY_SYNC")
+            conn.commit()
+        except Exception:
+            pass  # Trigger doesn't exist yet — that's fine
+
+        trigger_sql = """
+        CREATE TRIGGER TRG_SL_QT_VALIDITY_SYNC FOR SL_QT
+        ACTIVE BEFORE INSERT OR UPDATE POSITION 1
+        AS
+        BEGIN
+          IF (NEW.VALIDITY IS NOT NULL) THEN
+            NEW.UDF_VALIDITY = NEW.VALIDITY;
+        END
+        """
+        cur.execute(trigger_sql)
+        conn.commit()
+        print("[DB INIT] Trigger TRG_SL_QT_VALIDITY_SYNC created: UDF_VALIDITY will mirror VALIDITY on SL_QT")
+        return True
+    except Exception as e:
+        error_msg = str(e).lower()
+        if 'already exists' in error_msg or 'name in use' in error_msg:
+            print("[DB INIT] Trigger TRG_SL_QT_VALIDITY_SYNC already exists")
+            return True
+        print(f"[DB INIT WARNING] Could not create TRG_SL_QT_VALIDITY_SYNC: {e}")
+        return False
+    finally:
+        cur.close()
+
+
 def _ensure_pricing_priority_rule_table(conn):
     """Ensure PricingPriorityRule table exists for configurable price evaluation."""
     _execute_ddl(
@@ -645,6 +721,12 @@ def initialize_database(db_path, db_user, db_password):
 
         # Keep AR_CUSTOMER.IDNO synchronized with BRN2 for inserts/updates
         _ensure_ar_customer_idno_from_brn2_trigger(conn)
+
+        # Keep SL_QT.POSTDATE and TAXDATE in sync with DOCDATE
+        _ensure_sl_qt_date_sync_trigger(conn)
+
+        # Keep SL_QT.UDF_VALIDITY in sync with VALIDITY
+        _ensure_sl_qt_validity_sync_trigger(conn)
 
         # Ensure pricing priority rule settings table exists and is seeded
         _ensure_pricing_priority_rule_table(conn)

@@ -97,7 +97,7 @@ try {
             $totalAmount,
             $currencyCode,
             $udfValidity, // VALIDITY: user-supplied or today+30
-            'AUTO',  // Default shipper
+            '----',  // Default shipper
             $quotationStatus,
             $terms,
             $companyName,
@@ -166,8 +166,8 @@ try {
         $detailInsert = $dbh->prepare('
             INSERT INTO SL_QTDTL (
                 DTLKEY, DOCKEY, SEQ, ITEMCODE, DESCRIPTION, QTY, 
-                UNITPRICE, DISC, AMOUNT, UDF_STDPRICE, DELIVERYDATE
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                UNITPRICE, DISC, AMOUNT, UDF_STDPRICE, DELIVERYDATE, PROJECT, LOCATION
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ');
         $detailInsert->execute([
             $dtlkey,
@@ -180,7 +180,9 @@ try {
             $disc,
             $amount,
             null,
-            $deliveryDate
+            $deliveryDate,
+            '----',      // Default PROJECT
+            '----'       // Default LOCATION
         ]);
         
         $seq++;

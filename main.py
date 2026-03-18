@@ -29,7 +29,8 @@ from utils import (
     chat_with_gpt, detect_intent_hybrid, load_chatbot_instructions,
     set_ai_config, init_local_classifier,
     extract_product_and_quantity, get_product_price, set_order_config,
-    resolve_numbered_reference, get_selling_price
+    resolve_numbered_reference, get_selling_price,
+    create_or_update_quotation, save_draft_quotation
 )
 
 # Load environment variables from .env file
@@ -2272,19 +2273,11 @@ def api_create_order():
 @api_login_required(unauth_message='Session expired. Please log in again.')
 def api_create_quotation():
     """Create or update a quotation in the accounting system (SL_QT)"""
-    user_email = session.get('user_email')
     customer_code = session.get('customer_code')
     data = request.get_json() or {}
     dockey = data.get('dockey', None)  # If present, update existing quotation
-    draft_dockey = data.get('draftDockey', None)  # If present, delete this draft after successful submission
-    description = data.get('description', '').strip()
-    valid_until = data.get('validUntil', '')
     items = data.get('items', [])
-    currency_code = data.get('currencyCode', 'MYR')
     company_name = data.get('companyName', '')
-    address1 = data.get('address1', '')
-    address2 = data.get('address2', '')
-    phone1 = data.get('phone1', '')
     
     # DEBUG: Log entry point and dockey value
     print(f"DEBUG [Flask api_create_quotation]: ENTERED - dockey={dockey}, companyName={company_name}", flush=True)
@@ -2294,44 +2287,12 @@ def api_create_quotation():
         return jsonify({'success': False, 'error': 'At least one item is required'}), 400
     
     try:
-        # If dockey is provided, update the existing draft quotation
         if dockey:
             print(f"DEBUG [Flask]: UPDATING quotation - dockey={dockey}", flush=True)
-            quotation_response = requests.post(
-                f"{BASE_API_URL}/php/updateDraftQuotation.php",
-                json={
-                    "dockey": dockey,
-                    "description": description,
-                    "validUntil": valid_until,
-                    "companyName": company_name,
-                    "address1": address1,
-                    "address2": address2,
-                    "phone1": phone1,
-                    "items": items
-                },
-                timeout=10
-            )
         else:
-            # Create new quotation in SL_QT
-            print(f"DEBUG [Flask]: CREATING new quotation - companyName: {company_name}, address1: {address1}, address2: {address2}, phone1: {phone1}", flush=True)
-            quotation_response = requests.post(
-                f"{BASE_API_URL}/php/insertQuotationToAccounting.php",
-                json={
-                    "customerCode": customer_code,
-                    "description": description,
-                    "validUntil": valid_until,
-                    "currencyCode": currency_code,
-                    "companyName": company_name,
-                    "address1": address1,
-                    "address2": address2,
-                    "phone1": phone1,
-                    "draftDockey": draft_dockey,
-                    "items": items
-                },
-                timeout=10
-            )
-        
-        quotation_data = quotation_response.json()
+            print(f"DEBUG [Flask]: CREATING new quotation - companyName: {company_name}", flush=True)
+
+        quotation_data = create_or_update_quotation(BASE_API_URL, customer_code, data)
         
         if not quotation_data.get('success'):
             return jsonify({'success': False, 'error': quotation_data.get('error', 'Failed to create quotation')}), 500
@@ -2357,26 +2318,8 @@ def api_save_draft_quotation():
     if not customer_code:
         return jsonify({'success': False, 'error': 'Customer code not found in session'}), 400
 
-    payload = {
-        'dockey': data.get('dockey'),
-        'customerCode': customer_code,
-        'description': data.get('description', '').strip() or 'Draft Quotation',
-        'validUntil': data.get('validUntil', ''),
-        'currencyCode': data.get('currencyCode', 'MYR'),
-        'companyName': data.get('companyName', ''),
-        'address1': data.get('address1', ''),
-        'address2': data.get('address2', ''),
-        'phone1': data.get('phone1', ''),
-        'items': data.get('items', [])
-    }
-
     try:
-        response = requests.post(
-            f"{BASE_API_URL}/php/saveDraftQuotation.php",
-            json=payload,
-            timeout=10
-        )
-        result = response.json()
+        result = save_draft_quotation(BASE_API_URL, customer_code, data)
         if not result.get('success'):
             return jsonify({'success': False, 'error': result.get('error', 'Failed to save draft quotation')}), 500
 

@@ -34,6 +34,10 @@ from utils.pricing_service import (
     PricingResult, PricingService, get_selling_price
 )
 
+from utils.quotation_api import (
+    create_or_update_quotation, save_draft_quotation
+)
+
 __all__ = [
     # DB utils
     'get_db_connection', 'user_owns_chat', 'get_chat_history',
@@ -59,5 +63,8 @@ __all__ = [
     'resolve_numbered_reference',
 
     # Pricing service
-    'PricingResult', 'PricingService', 'get_selling_price'
+    'PricingResult', 'PricingService', 'get_selling_price',
+
+    # Quotation API helpers
+    'create_or_update_quotation', 'save_draft_quotation'
 ]
