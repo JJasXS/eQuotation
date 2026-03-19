@@ -318,6 +318,47 @@ def _ensure_ar_customer_idno_from_brn2_trigger(conn):
         cur.close()
 
 
+def _ensure_ar_customerbranch_branchtype_branchname_trigger(conn):
+    """
+    Ensure AR_CUSTOMERBRANCH defaults/enforces:
+    - BRANCHTYPE defaults to 'B' on INSERT when missing/blank
+    - BRANCHNAME forced to 'BILLING' when BRANCHTYPE = 'B'
+    """
+    cur = conn.cursor()
+    try:
+        try:
+            cur.execute("DROP TRIGGER TRG_AR_CUSTOMERBRANCH_BILLING")
+            conn.commit()
+        except Exception:
+            pass
+
+        trigger_sql = """
+        CREATE TRIGGER TRG_AR_CUSTOMERBRANCH_BILLING FOR AR_CUSTOMERBRANCH
+        ACTIVE BEFORE INSERT OR UPDATE POSITION 0
+        AS
+        BEGIN
+          IF (INSERTING AND (NEW.BRANCHTYPE IS NULL OR TRIM(NEW.BRANCHTYPE) = '')) THEN
+            NEW.BRANCHTYPE = 'B';
+
+          IF (NEW.BRANCHTYPE = 'B') THEN
+            NEW.BRANCHNAME = 'BILLING';
+        END
+        """
+        cur.execute(trigger_sql)
+        conn.commit()
+        print("[DB INIT] Trigger TRG_AR_CUSTOMERBRANCH_BILLING created: BRANCHTYPE default 'B', BRANCHNAME 'BILLING' when BRANCHTYPE='B'")
+        return True
+    except Exception as e:
+        error_msg = str(e).lower()
+        if 'already exists' in error_msg or 'name in use' in error_msg:
+            print("[DB INIT] Trigger TRG_AR_CUSTOMERBRANCH_BILLING already exists")
+            return True
+        print(f"[DB INIT WARNING] Could not create TRG_AR_CUSTOMERBRANCH_BILLING: {e}")
+        return False
+    finally:
+        cur.close()
+
+
 def _ensure_sl_qt_date_sync_trigger(conn):
     """Ensure POSTDATE and TAXDATE on SL_QT are always kept in sync with DOCDATE.
 
@@ -828,6 +869,9 @@ def initialize_database(db_path, db_user, db_password):
 
         # Keep AR_CUSTOMER.IDNO synchronized with BRN2 for inserts/updates
         _ensure_ar_customer_idno_from_brn2_trigger(conn)
+
+        # Default/enforce branch type/name for AR_CUSTOMERBRANCH
+        _ensure_ar_customerbranch_branchtype_branchname_trigger(conn)
 
         # Keep SL_QT.POSTDATE and TAXDATE in sync with DOCDATE
         _ensure_sl_qt_date_sync_trigger(conn)

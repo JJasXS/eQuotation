@@ -38,7 +38,9 @@ $address4 = trim($data['ADDRESS4'] ?? '');
 $postcode = trim($data['POSTCODE'] ?? '');
 $attention = trim($data['ATTENTION'] ?? '');
 $phone1 = trim($data['PHONE1'] ?? '');
-$branchName = trim($data['BRANCHNAME'] ?? $companyName);
+// BRANCHNAME / BRANCHTYPE are enforced by DB trigger (e.g. BRANCHTYPE='B' => BRANCHNAME='BILLING').
+// Keep payload values optional; let database decide defaults.
+$branchName = trim($data['BRANCHNAME'] ?? '');
 $branchType = trim($data['BRANCHTYPE'] ?? '');
 $city = trim($data['CITY'] ?? '');
 $state = trim($data['STATE'] ?? '');
