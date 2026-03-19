@@ -59,25 +59,9 @@ from validationSignIn import validate_registration_fields
 
 # Import order management configuration
 from config.order_config import (
-    CREATE_ORDER_KEYWORDS,
-    COMPLETE_ORDER_KEYWORDS,
-    REMOVE_ORDER_KEYWORDS,
-    ADD_ORDER_KEYWORDS,
-    PRODUCT_EXTRACTION_KEYWORDS,
-    MIN_PRODUCT_NAME_LENGTH,
-    MIN_PRODUCT_CODE_LENGTH,
-    QUANTITY_FILLER_WORDS,
-    QUANTITY_FILLER_PATTERN,
-    WELCOME_MESSAGE,
-    SHOW_WELCOME_MESSAGE,
-    HELP_MESSAGE,
-    NUMBERED_REFERENCE_PATTERNS,
-    ORDINAL_WORD_MAP,
-    PRODUCT_PREFIX_PATTERN,
-    FUZZY_MATCH_THRESHOLD,
-    SUBSTRING_MATCH_BONUS,
-    PRICE_MATCH_THRESHOLD,
-    PRODUCT_EXTRACTION_VERBS
+    CREATE_ORDER_KEYWORDS, COMPLETE_ORDER_KEYWORDS, REMOVE_ORDER_KEYWORDS, ADD_ORDER_KEYWORDS, PRODUCT_EXTRACTION_KEYWORDS, MIN_PRODUCT_NAME_LENGTH, MIN_PRODUCT_CODE_LENGTH,
+    QUANTITY_FILLER_WORDS, QUANTITY_FILLER_PATTERN, WELCOME_MESSAGE, SHOW_WELCOME_MESSAGE, HELP_MESSAGE, NUMBERED_REFERENCE_PATTERNS, ORDINAL_WORD_MAP,
+    PRODUCT_PREFIX_PATTERN, FUZZY_MATCH_THRESHOLD, SUBSTRING_MATCH_BONUS, PRICE_MATCH_THRESHOLD,PRODUCT_EXTRACTION_VERBS
 )
 
 # Import OTP configuration
@@ -190,6 +174,49 @@ def proxy_json_request(method, path, payload=None, params=None, timeout=10):
     return response.json(), response.status_code
 
 
+def proxy_post_with_auth(
+    path,
+    *,
+    admin_only=False,
+    error_message='Failed to process request',
+    log_context='request',
+    timeout_message=None,
+    connection_message=None,
+    include_exception_detail=False,
+):
+    """Proxy authenticated POST requests with consistent payload handling and errors."""
+    auth_error = require_api_auth(admin_only=admin_only)
+    if auth_error:
+        return auth_error
+
+    payload = request.get_json() or {}
+    try:
+        return proxy_json_request('POST', path, payload=payload)
+    except requests.exceptions.Timeout:
+        print(f"Timeout connecting to XAMPP at {BASE_API_URL}")
+        return jsonify({'success': False, 'error': timeout_message or error_message}), 500
+    except requests.exceptions.ConnectionError:
+        print(f"Connection error to XAMPP at {BASE_API_URL}")
+        return jsonify({'success': False, 'error': connection_message or error_message}), 500
+    except Exception as e:
+        print(f"Error proxying {log_context} to XAMPP: {e}")
+        final_error = f'{error_message}: {str(e)}' if include_exception_detail else error_message
+        return jsonify({'success': False, 'error': final_error}), 500
+
+
+def proxy_get_with_auth(path, *, params=None, admin_only=False, error_message='Failed to fetch data', log_context='request'):
+    """Proxy authenticated GET requests with consistent error handling."""
+    auth_error = require_api_auth(admin_only=admin_only)
+    if auth_error:
+        return auth_error
+
+    try:
+        return proxy_json_request('GET', path, params=params)
+    except Exception as e:
+        print(f"Error proxying {log_context} to XAMPP: {e}")
+        return jsonify({'success': False, 'error': error_message}), 500
+
+
 def run_firebird_sql_script(sql_file_path, db_path, db_user, db_password):
     """Execute a Firebird SQL script file at startup with safe ignore handling."""
     if not os.path.exists(sql_file_path):
@@ -264,6 +291,21 @@ def require_page_access(require_admin=False, block_admin=False, admin_redirect='
     if block_admin and user_type == 'admin':
         return redirect(admin_redirect)
     return None
+
+
+def render_protected_template(template_name, *, require_admin=False, block_admin=False, admin_redirect='/admin', **context):
+    """Render a template after applying shared page access checks and default session context."""
+    page_error = require_page_access(
+        require_admin=require_admin,
+        block_admin=block_admin,
+        admin_redirect=admin_redirect,
+    )
+    if page_error:
+        return page_error
+
+    template_context = {'user_email': session.get('user_email', '')}
+    template_context.update(context)
+    return render_template(template_name, **template_context)
 
 
 def build_product_suggestions(search_term, candidates, price_lookup=None, require_price=True, threshold=0.3, limit=3):
@@ -695,17 +737,11 @@ def add_no_cache_headers(response):
 @app.route('/php/deleteOrderDetail.php', methods=['POST'])
 def proxy_delete_order_detail():
     """Proxy endpoint to delete order detail via XAMPP PHP."""
-    auth_error = require_api_auth()
-    if auth_error:
-        return auth_error
-
-    payload = request.get_json() or {}
-
-    try:
-        return proxy_json_request('POST', '/php/deleteOrderDetail.php', payload=payload)
-    except Exception as e:
-        print(f"Error proxying deleteOrderDetail to XAMPP: {e}")
-        return jsonify({'success': False, 'error': 'Failed to delete order detail'}), 500
+    return proxy_post_with_auth(
+        '/php/deleteOrderDetail.php',
+        error_message='Failed to delete order detail',
+        log_context='deleteOrderDetail'
+    )
 
 # ============================================
 # ROUTE: Update Quotation Cancelled Status
@@ -1134,154 +1170,106 @@ def proxy_get_orders_by_status():
 @app.route('/php/updateOrderStatus.php', methods=['POST'])
 def proxy_update_order_status():
     """Proxy endpoint to update order status via XAMPP PHP."""
-    auth_error = require_api_auth(admin_only=True)
-    if auth_error:
-        return auth_error
+    return proxy_post_with_auth(
+        ENDPOINT_PATHS['updateorderstatus'],
+        admin_only=True,
+        error_message='Failed to update order status',
+        log_context='status update'
+    )
 
-    payload = request.get_json() or {}
 
-    try:
-        return proxy_json_request('POST', ENDPOINT_PATHS['updateorderstatus'], payload=payload)
-    except Exception as e:
-        print(f"Error proxying status update to XAMPP: {e}")
-        return jsonify({'success': False, 'error': 'Failed to update order status'}), 500
 @app.route('/php/getOrderDetails.php')
 def proxy_get_order_details():
     """Proxy endpoint to fetch order details via XAMPP PHP."""
-    auth_error = require_api_auth()
-    if auth_error:
-        return auth_error
-
     orderid = request.args.get('orderid')
     if not orderid:
         return jsonify({'success': False, 'error': 'orderid parameter required'}), 400
 
-    try:
-        return proxy_json_request('GET', ENDPOINT_PATHS['getorderdetails'], params={'orderid': orderid})
-    except Exception as e:
-        print(f"Error proxying getOrderDetails to XAMPP: {e}")
-        return jsonify({'success': False, 'error': 'Failed to fetch order details'}), 500
+    return proxy_get_with_auth(
+        ENDPOINT_PATHS['getorderdetails'],
+        params={'orderid': orderid},
+        error_message='Failed to fetch order details',
+        log_context='getOrderDetails'
+    )
 
 
 @app.route('/php/updateOrderDetail.php', methods=['POST'])
 def proxy_update_order_detail():
     """Proxy endpoint to update order detail via XAMPP PHP."""
-    auth_error = require_api_auth(admin_only=True)
-    if auth_error:
-        return auth_error
-
-    payload = request.get_json() or {}
-
-    try:
-        return proxy_json_request('POST', ENDPOINT_PATHS['updateorderdetail'], payload=payload)
-    except Exception as e:
-        print(f"Error proxying updateOrderDetail to XAMPP: {e}")
-        return jsonify({'success': False, 'error': 'Failed to update order detail'}), 500
+    return proxy_post_with_auth(
+        ENDPOINT_PATHS['updateorderdetail'],
+        admin_only=True,
+        error_message='Failed to update order detail',
+        log_context='updateOrderDetail'
+    )
 
 
 @app.route('/php/insertOrderDetail.php', methods=['POST'])
 def proxy_insert_order_detail():
     """Proxy endpoint to insert order detail via XAMPP PHP."""
-    auth_error = require_api_auth(admin_only=True)
-    if auth_error:
-        return auth_error
-
-    payload = request.get_json() or {}
-
-    try:
-        return proxy_json_request('POST', ENDPOINT_PATHS['insertorderdetail'], payload=payload)
-    except Exception as e:
-        print(f"Error proxying insertOrderDetail to XAMPP: {e}")
-        return jsonify({'success': False, 'error': 'Failed to insert order detail'}), 500
+    return proxy_post_with_auth(
+        ENDPOINT_PATHS['insertorderdetail'],
+        admin_only=True,
+        error_message='Failed to insert order detail',
+        log_context='insertOrderDetail'
+    )
 
 
 @app.route('/php/requestOrderChange.php', methods=['POST'])
 def proxy_request_order_change():
     """Proxy endpoint to submit order change request."""
-    auth_error = require_api_auth()
-    if auth_error:
-        return auth_error
-
-    payload = request.get_json() or {}
-
-    try:
-        return proxy_json_request('POST', '/php/requestOrderChange.php', payload=payload)
-    except requests.exceptions.Timeout:
-        print(f"Timeout connecting to XAMPP at {BASE_API_URL}")
-        return jsonify({'success': False, 'error': 'Request timed out. Please check if XAMPP is running.'}), 500
-    except requests.exceptions.ConnectionError:
-        print(f"Connection error to XAMPP at {BASE_API_URL}")
-        return jsonify({'success': False, 'error': 'Cannot connect to database server. Please ensure XAMPP is running.'}), 500
-    except Exception as e:
-        print(f"Error proxying change request to XAMPP: {e}")
-        return jsonify({'success': False, 'error': f'Failed to submit change request: {str(e)}'}), 500
+    return proxy_post_with_auth(
+        '/php/requestOrderChange.php',
+        error_message='Failed to submit change request',
+        log_context='change request',
+        timeout_message='Request timed out. Please check if XAMPP is running.',
+        connection_message='Cannot connect to database server. Please ensure XAMPP is running.',
+        include_exception_detail=True,
+    )
 
 
 @app.route('/php/getOrderRemarks.php')
 def proxy_get_order_remarks():
     """Proxy endpoint to get order remarks."""
-    auth_error = require_api_auth()
-    if auth_error:
-        return auth_error
-    
     orderid = request.args.get('orderid')
     if not orderid:
         return jsonify({'success': False, 'error': 'orderid parameter required'}), 400
-    
-    try:
-        return proxy_json_request('GET', '/php/getOrderRemarks.php', params={'orderid': orderid})
-    except Exception as e:
-        print(f"Error proxying get remarks to XAMPP: {e}")
-        return jsonify({'success': False, 'error': 'Failed to fetch remarks'}), 500
+
+    return proxy_get_with_auth(
+        '/php/getOrderRemarks.php',
+        params={'orderid': orderid},
+        error_message='Failed to fetch remarks',
+        log_context='getOrderRemarks'
+    )
 
 @app.route('/php/insertDraftQuotation.php', methods=['POST'])
 def proxy_insert_draft_quotation():
     """Proxy endpoint to create draft quotation via XAMPP PHP."""
-    auth_error = require_api_auth()
-    if auth_error:
-        return auth_error
-    
-    payload = request.get_json() or {}
-    
-    try:
-        return proxy_json_request('POST', '/php/insertDraftQuotation.php', payload=payload)
-    except Exception as e:
-        print(f"Error proxying insertDraftQuotation to XAMPP: {e}")
-        return jsonify({'success': False, 'error': 'Failed to create draft quotation'}), 500
+    return proxy_post_with_auth(
+        '/php/insertDraftQuotation.php',
+        error_message='Failed to create draft quotation',
+        log_context='insertDraftQuotation'
+    )
 
 @app.route('/php/updateDraftQuotation.php', methods=['POST'])
 def proxy_update_draft_quotation():
     """Proxy endpoint to update draft quotation via XAMPP PHP."""
-    auth_error = require_api_auth()
-    if auth_error:
-        return auth_error
-    
-    payload = request.get_json() or {}
-    
-    try:
-        return proxy_json_request('POST', '/php/updateDraftQuotation.php', payload=payload)
-    except Exception as e:
-        print(f"Error proxying updateDraftQuotation to XAMPP: {e}")
-        return jsonify({'success': False, 'error': 'Failed to update draft quotation'}), 500
+    return proxy_post_with_auth(
+        '/php/updateDraftQuotation.php',
+        error_message='Failed to update draft quotation',
+        log_context='updateDraftQuotation'
+    )
 
 @app.route('/admin')
 def admin():
     """Display admin dashboard (requires authentication and admin role)"""
-    page_error = require_page_access(require_admin=True)
-    if page_error:
-        return page_error
-    return render_template('admin.html', user_email=session.get('user_email', ''))
+    return render_protected_template('admin.html', require_admin=True)
 
 
 @app.route('/admin/pending-approvals')
 def admin_pending_approvals():
     """Display pending approvals page (admin only)."""
-    page_error = require_page_access(require_admin=True)
-    if page_error:
-        return page_error
-    return render_template('adminApproval.html', 
-                         user_email=session.get('user_email', ''),
-                         user_type='admin')
+    return render_protected_template('adminApproval.html', require_admin=True, user_type='admin')
 
 
 
@@ -1289,78 +1277,60 @@ def admin_pending_approvals():
 @app.route('/user/approvals')
 def user_approvals():
     """Display user approvals page (regular users)."""
-    page_error = require_page_access()
-    if page_error:
-        return page_error
-    return render_template('userApproval.html', 
-                         user_email=session.get('user_email', ''))
+    return render_protected_template('userApproval.html')
 
 
 @app.route('/user/draft-orders')
 def user_draft_orders():
     """Display draft orders page (regular users)."""
-    page_error = require_page_access()
-    if page_error:
-        return page_error
-    return render_template('draftOrders.html', 
-                         user_email=session.get('user_email', ''))
+    return render_protected_template('draftOrders.html')
 
 
 @app.route('/create-order')
 def create_order_page():
     """Display create order page (regular users)."""
-    page_error = require_page_access(block_admin=True, admin_redirect='/admin')
-    if page_error:
-        return page_error
-    return render_template('createOrder.html', 
-                         user_email=session.get('user_email', ''))
+    return render_protected_template('createOrder.html', block_admin=True, admin_redirect='/admin')
 
 @app.route('/create-quotation')
 def create_quotation_page():
     """Display create quotation page (regular users)."""
-    page_error = require_page_access(block_admin=True, admin_redirect='/admin')
-    if page_error:
-        return page_error
     dockey = request.args.get('dockey', '')
     draft_dockey = request.args.get('draftDockey', '')
-    return render_template('createQuotation.html', 
-                         user_email=session.get('user_email', ''),
-                         dockey=dockey,
-                         draft_dockey=draft_dockey)
+    return render_protected_template(
+        'createQuotation.html',
+        block_admin=True,
+        admin_redirect='/admin',
+        dockey=dockey,
+        draft_dockey=draft_dockey,
+    )
 
 
 @app.route('/view-quotation')
 def view_quotation_page():
     """Display quotation listing page (regular users)."""
-    page_error = require_page_access(block_admin=True, admin_redirect='/admin/view-quotations')
-    if page_error:
-        return page_error
-    # Always render the user template for users
-    return render_template('viewQuotation.html',
-                         user_email=session.get('user_email', ''),
-                         user_type=session.get('user_type', ''))
+    return render_protected_template(
+        'viewQuotation.html',
+        block_admin=True,
+        admin_redirect='/admin/view-quotations',
+        user_type=session.get('user_type', ''),
+    )
 
 @app.route('/admin/view-quotations')
 def admin_view_quotations():
     """Display all quotations page (admin only)."""
-    page_error = require_page_access(require_admin=True)
-    if page_error:
-        return page_error
-    # Always render the admin template for admins
-    return render_template('adminViewQuotations.html', 
-                         user_email=session.get('user_email', ''),
-                         user_type=session.get('user_type', ''))
+    return render_protected_template(
+        'adminViewQuotations.html',
+        require_admin=True,
+        user_type=session.get('user_type', ''),
+    )
 
 
 @app.route('/admin/pricing-priority-rules')
 def admin_pricing_priority_rules():
     """Display pricing priority rule settings page (admin only)."""
-    page_error = require_page_access(require_admin=True)
-    if page_error:
-        return page_error
-    return render_template(
+    return render_protected_template(
         'pricingPriorityRules.html',
-        user_email=session.get('user_email', ''),
+        require_admin=True,
         user_type=session.get('user_type', 'admin')
     )
 
@@ -1382,10 +1352,7 @@ def admin_update_quotation():
 @app.route('/admin/pending-approvals/edit/<int:orderid>')
 def admin_edit_approval(orderid):
     """Display admin edit approval page."""
-    page_error = require_page_access(require_admin=True)
-    if page_error:
-        return page_error
-    return render_template('admin_edit_approval.html', user_email=session.get('user_email', ''), orderid=orderid)
+    return render_protected_template('admin_edit_approval.html', require_admin=True, orderid=orderid)
 
 
 @app.route('/admin/api/update-order', methods=['POST'])
