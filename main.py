@@ -308,6 +308,35 @@ def render_protected_template(template_name, *, require_admin=False, block_admin
     return render_template(template_name, **template_context)
 
 
+def get_current_customer_code(*, resolve_missing=False):
+    """Return current session customer code, optionally resolving it from AR_CUSTOMERBRANCH by user email."""
+    customer_code = session.get('customer_code')
+    if customer_code or not resolve_missing:
+        return customer_code
+
+    user_email = session.get('user_email')
+    if not user_email:
+        return None
+
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        cur.execute('SELECT CODE FROM AR_CUSTOMERBRANCH WHERE EMAIL = ?', (user_email,))
+        row = cur.fetchone()
+        if row and row[0]:
+            customer_code = row[0]
+            session['customer_code'] = customer_code
+            return customer_code
+        return None
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
+
+
 def build_product_suggestions(search_term, candidates, price_lookup=None, require_price=True, threshold=0.3, limit=3):
     """Return top-N similar product suggestions as (description, formatted_price)."""
     matches = []
@@ -1844,7 +1873,7 @@ def chat_api():
     # Save messages if chatid provided
     if chatid:
         try:
-            # Truncate messages to 4000 characters for database field limit (after DbInitializer.py runs)
+            # Truncate messages to 4000 characters for database field limit (after db_initializer.py runs)
             user_msg = user_input[:4000] if len(user_input) > 4000 else user_input
             system_msg = formatted_reply[:4000] if len(formatted_reply) > 4000 else formatted_reply
             
@@ -2282,7 +2311,7 @@ def api_create_quotation():
 @api_login_required(unauth_message='Session expired. Please log in again.')
 def api_save_draft_quotation():
     """Save quotation draft into SL_QTDRAFT/SL_QTDTLDRAFT."""
-    customer_code = session.get('customer_code')
+    customer_code = get_current_customer_code(resolve_missing=True)
     data = request.get_json() or {}
 
     if not customer_code:
@@ -2307,23 +2336,13 @@ def api_save_draft_quotation():
 @api_login_required(unauth_message='Unauthorized')
 def api_get_my_draft_quotations():
     """Get saved drafts from SL_QTDRAFT for the current user."""
-    customer_code = session.get('customer_code')
+    try:
+        customer_code = get_current_customer_code(resolve_missing=True)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
     if not customer_code:
-        user_email = session.get('user_email')
-        try:
-            con = get_db_connection()
-            cur = con.cursor()
-            cur.execute('SELECT CODE FROM AR_CUSTOMERBRANCH WHERE EMAIL = ?', (user_email,))
-            row = cur.fetchone()
-            cur.close()
-            con.close()
-            if row:
-                customer_code = row[0]
-                session['customer_code'] = customer_code
-            else:
-                return jsonify({'success': False, 'error': 'Customer code not found'}), 400
-        except Exception as e:
-            return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': 'Customer code not found'}), 400
 
     try:
         con = get_db_connection()
@@ -2413,28 +2432,14 @@ def api_get_draft_quotation_details():
 @api_login_required(unauth_message='Unauthorized')
 def api_get_my_quotations():
     """Get quotations for current logged in user by customer code."""
-    customer_code = session.get('customer_code')
-    
-    # If customer_code not in session, fetch it from AR_CUSTOMERBRANCH (for old sessions)
+    try:
+        customer_code = get_current_customer_code(resolve_missing=True)
+    except Exception as e:
+        print(f"[Error] Failed to fetch customer_code: {e}")
+        return jsonify({'success': False, 'error': 'Failed to retrieve customer information'}), 500
+
     if not customer_code:
-        user_email = session.get('user_email')
-        try:
-            con = get_db_connection()
-            cur = con.cursor()
-            cur.execute('SELECT CODE FROM AR_CUSTOMERBRANCH WHERE EMAIL = ?', (user_email,))
-            customer_row = cur.fetchone()
-            cur.close()
-            con.close()
-            
-            if customer_row:
-                customer_code = customer_row[0]
-                session['customer_code'] = customer_code  # Update session for next time
-                print(f"[Session Fix] Retrieved customer_code for {user_email}: {customer_code}")
-            else:
-                return jsonify({'success': False, 'error': 'Customer code not found. Please logout and login again.'}), 400
-        except Exception as e:
-            print(f"[Error] Failed to fetch customer_code: {e}")
-            return jsonify({'success': False, 'error': 'Failed to retrieve customer information'}), 500
+        return jsonify({'success': False, 'error': 'Customer code not found. Please logout and login again.'}), 400
 
     try:
         con = get_db_connection()
@@ -2753,7 +2758,7 @@ def api_admin_update_quotation():
 @api_login_required(unauth_message='Unauthorized')
 def api_get_user_info():
     """Proxy to PHP getUserInfo.php for customer info."""
-    customer_code = session.get('customer_code')
+    customer_code = get_current_customer_code(resolve_missing=True)
     if not customer_code:
         print("[DEBUG] get_user_info: customer_code not in session", flush=True)
         return jsonify({'success': False, 'error': 'Customer code not found'}), 400

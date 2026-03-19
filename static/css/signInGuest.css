@@ -67,6 +67,40 @@ h1 {
     gap: 14px;
 }
 
+/* Two-column layout for Address and Contact section */
+.address-contact-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 18px 24px;
+}
+.address-contact-grid .full-width {
+    grid-column: 1 / -1;
+}
+.postcode-city-state-group {
+    grid-column: 1 / -1;
+}
+.postcode-city-state-row {
+    display: flex;
+    gap: 10px;
+}
+.postcode-city-state-row .small-input {
+    flex: 1 1 0;
+    min-width: 0;
+    max-width: 120px;
+}
+
+@media (max-width: 900px) {
+    .address-contact-grid {
+        grid-template-columns: 1fr;
+    }
+    .postcode-city-state-row {
+        flex-direction: column;
+        gap: 8px;
+    }
+    .postcode-city-state-row .small-input {
+        max-width: 100%;
+    }
+}
+
 .form-group {
     display: flex;
     flex-direction: column;

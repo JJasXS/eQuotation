@@ -24,7 +24,7 @@ OPENAI_MODEL=gpt-3.5-turbo
 ### 3. Initialize Database (First Time Only)
 Run the database initializer to expand message field sizes:
 ```bash
-python DbInitializer.py
+python db_initializer.py
 ```
 
 This will:
@@ -54,9 +54,10 @@ The chatbot recognizes these exact keywords (customizable in [config/order_confi
 ```
 Chatbot/
 ├── main.py                     # Flask application
-├── DbInitializer.py            # Database schema initialization
+├── db_initializer.py           # Database schema initialization
 ├── .env                        # Environment variables (not in git)
 ├── requirements.txt            # Python dependencies
+├── docs/                       # Project documentation and guides
 ├── config/                     # Configuration files
 │   ├── order_config.py         # Order keywords & filters (customizable)
 │   ├── chatbot_instructions.txt # GPT system prompt

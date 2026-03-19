@@ -62,8 +62,8 @@
 
                 <div class="form-section">
                     <div class="section-title">Address and Contact</div>
-                    <div class="form-grid">
-                         <div class="form-group full-width">
+                    <div class="form-grid address-contact-grid">
+                        <div class="form-group full-width">
                             <input type="text" id="ATTENTION" name="ATTENTION" placeholder="Attention" required>
                         </div>
                         <div class="form-group">
@@ -78,10 +78,16 @@
                         <div class="form-group">
                             <input type="text" id="ADDRESS4" name="ADDRESS4" placeholder="Address 4">
                         </div>
-                        <div class="form-group">
-                            <input type="text" id="POSTCODE" name="POSTCODE" placeholder="Postcode" required>
+                        <div class="form-group country-group">
+                            <input type="text" id="COUNTRY" name="COUNTRY" placeholder="Country" required>
                         </div>
-                       
+                        <div class="form-group postcode-city-state-group">
+                            <div class="postcode-city-state-row">
+                                <input type="text" id="POSTCODE" name="POSTCODE" placeholder="Postcode" required class="small-input">
+                                <input type="text" id="CITY" name="CITY" placeholder="City" required class="small-input">
+                                <input type="text" id="STATE" name="STATE" placeholder="State" required class="small-input">
+                            </div>
+                        </div>
                         <div class="form-group">
                             <input type="text" id="PHONE1" name="PHONE1" placeholder="Phone Number" required>
                         </div>

@@ -109,16 +109,16 @@ This is **correct behavior** - the format allows codes like:
 
 ## Files Generated
 
-1. **test_validation_cases.py** - Automated validation test suite with 22 test cases
-2. **SAMPLE_TEST_DATA.json** - Real-world example payloads (9 pass + 9 fail scenarios)
-3. **VALIDATION_SUMMARY.md** - This report
+1. **tests/test_validation_cases.py** - Automated validation test suite with 22 test cases
+2. **_archive_unused/SAMPLE_TEST_DATA.json** - Archived real-world example payloads (9 pass + 9 fail scenarios)
+3. **docs/VALIDATION_SUMMARY.md** - This report
 
 ---
 
 ## How to Use Sample Test Data
 
 ### Via Frontend Form
-Copy values from SAMPLE_TEST_DATA.json into signInGuest.html form fields and submit.
+Copy values from _archive_unused/SAMPLE_TEST_DATA.json into signInGuest.html form fields and submit.
 
 ### Via API (POST to Flask)
 ```bash

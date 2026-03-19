@@ -60,7 +60,7 @@ test_intent_classifier.py
 
 ### 6. Comprehensive Guide
 ```
-AI_MODEL_IMPROVEMENT_GUIDE.md
+docs/AI_MODEL_IMPROVEMENT_GUIDE.md
 ```
 Complete documentation with:
 - Problem analysis
@@ -159,7 +159,7 @@ Chatbot/
 │   └── intent_predictions.log                 # Auto-generated
 │
 ├── test_intent_classifier.py                  # ⭐ NEW: Quick test
-└── AI_MODEL_IMPROVEMENT_GUIDE.md              # ⭐ NEW: Full docs
+└── docs/AI_MODEL_IMPROVEMENT_GUIDE.md         # ⭐ NEW: Full docs
 ```
 
 ---
