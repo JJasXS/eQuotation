@@ -142,27 +142,26 @@ async function loadQuotations() {
 
         const html = `
             <div style="padding: 16px;">
-                <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #3d4654; padding-bottom: 10px;">
-                    <div style="display: flex; gap: 8px; align-items: center;">
-                        <select id="company-filter-dropdown" style="padding: 8px 12px; border-radius: 6px; border: 1px solid #3d4654; background: #232a36; color: #e4e9f1; font-size: 13px; width: 240px;">
-                            <option value="">All Companies</option>
-                        </select>
-                        <button id="company-filter-clear" style="padding: 8px 12px; border-radius: 6px; background: #2d3440; color: #9ba7b6; border: 1px solid #3d4654; cursor: pointer; font-size: 13px;">Clear</button>
-                    </div>
-                    <div style="flex: 1;"></div>
-                    <div style="display: flex; gap: 8px;">
-                        <button id="tab-active" onclick="setQuotationTab('active')" style="background: #4b6e9e; color: #fff; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;">
-                            Active (${activeQuotationsCache.length})
-                        </button>
-                        <button id="tab-cancelled" onclick="setQuotationTab('cancelled')" style="background: #2d3440; color: #9ba7b6; border: 1px solid #3d4654; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;">
-                            Cancelled (${cancelledQuotationsCache.length})
-                        </button>
-                        <button id="tab-pending" onclick="setQuotationTab('pending')" style="background: #2d3440; color: #9ba7b6; border: 1px solid #3d4654; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;">
-                            Pending (${pendingQuotationsCache.length})
-                        </button>
-                    </div>
+                <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px;">
+                    <select id="company-filter-dropdown" style="padding: 8px 12px; border-radius: 6px; border: 1px solid #3d4654; background: #232a36; color: #e4e9f1; font-size: 13px; width: 240px;">
+                        <option value="">All Companies</option>
+                    </select>
+                    <button id="company-filter-clear" style="padding: 8px 12px; border-radius: 6px; background: #2d3440; color: #9ba7b6; border: 1px solid #3d4654; cursor: pointer; font-size: 13px;">Clear</button>
                 </div>
-                <div id="quotation-tab-content" style="background: #232a36; border: 1px solid #3d4654; border-radius: 8px; padding: 12px;"></div>
+
+                <div class="approvals-tabs" style="margin: 0 -16px;">
+                    <button id="tab-active" class="approval-tab" onclick="setQuotationTab('active')">
+                        Active (${activeQuotationsCache.length})
+                    </button>
+                    <button id="tab-pending" class="approval-tab" onclick="setQuotationTab('pending')">
+                        Pending (${pendingQuotationsCache.length})
+                    </button>
+                    <button id="tab-cancelled" class="approval-tab" onclick="setQuotationTab('cancelled')">
+                        Cancelled (${cancelledQuotationsCache.length})
+                    </button>
+                </div>
+
+                <div id="quotation-tab-content" style="padding-top: 12px;"></div>
             </div>
         `;
 
@@ -187,48 +186,19 @@ function setQuotationTab(tabName) {
     const cancelledList = filterQuotationsByCompany(cancelledQuotationsCache);
     const pendingList = filterQuotationsByCompany(pendingQuotationsCache);
 
+    activeBtn.classList.remove('active');
+    pendingBtn.classList.remove('active');
+    cancelledBtn.classList.remove('active');
+
     if (tabName === 'cancelled') {
         tabContent.innerHTML = renderQuotationList(cancelledList, { isCancelled: true, isPending: false });
-
-        cancelledBtn.style.background = '#a65c5c';
-        cancelledBtn.style.color = '#fff';
-        cancelledBtn.style.border = 'none';
-
-        activeBtn.style.background = '#2d3440';
-        activeBtn.style.color = '#9ba7b6';
-        activeBtn.style.border = '1px solid #3d4654';
-
-        pendingBtn.style.background = '#2d3440';
-        pendingBtn.style.color = '#9ba7b6';
-        pendingBtn.style.border = '1px solid #3d4654';
+        cancelledBtn.classList.add('active');
     } else if (tabName === 'pending') {
         tabContent.innerHTML = renderQuotationList(pendingList, { isCancelled: false, isPending: true });
-
-        pendingBtn.style.background = '#b0892f';
-        pendingBtn.style.color = '#fff';
-        pendingBtn.style.border = 'none';
-
-        activeBtn.style.background = '#2d3440';
-        activeBtn.style.color = '#9ba7b6';
-        activeBtn.style.border = '1px solid #3d4654';
-
-        cancelledBtn.style.background = '#2d3440';
-        cancelledBtn.style.color = '#9ba7b6';
-        cancelledBtn.style.border = '1px solid #3d4654';
+        pendingBtn.classList.add('active');
     } else {
         tabContent.innerHTML = renderQuotationList(activeList, { isCancelled: false, isPending: false });
-
-        activeBtn.style.background = '#4b6e9e';
-        activeBtn.style.color = '#fff';
-        activeBtn.style.border = 'none';
-
-        cancelledBtn.style.background = '#2d3440';
-        cancelledBtn.style.color = '#9ba7b6';
-        cancelledBtn.style.border = '1px solid #3d4654';
-
-        pendingBtn.style.background = '#2d3440';
-        pendingBtn.style.color = '#9ba7b6';
-        pendingBtn.style.border = '1px solid #3d4654';
+        activeBtn.classList.add('active');
     }
 
     document.querySelectorAll('.quotation-card').forEach(card => {
