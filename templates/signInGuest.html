@@ -50,7 +50,17 @@
                             <div style="font-size:12px;color:#9ba7b6;margin-top:4px;">Alphanumeric, no limit</div>
                         </div>
                         <div class="form-group">
-                            <input type="text" id="BRN2" name="BRN2" placeholder="Reg No. (new)" required>
+                            <input
+                                type="text"
+                                id="BRN2"
+                                name="BRN2"
+                                placeholder="Reg No. (new)"
+                                required
+                                inputmode="numeric"
+                                pattern="\d{12}"
+                                maxlength="12"
+                                autocomplete="off"
+                            >
                             <div style="font-size:12px;color:#9ba7b6;margin-top:4px;">Exactly 12 numeric digits</div>
                         </div>
                         <div class="form-group full-width">

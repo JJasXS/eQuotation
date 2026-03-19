@@ -124,6 +124,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadCurrencySymbols();
     loadAreaCodes();
     initPostcodeAutofill();
+    initBrn2NumericOnly();
 });
 
 function normalizePostcode(value) {
@@ -181,4 +182,14 @@ function initPostcodeAutofill() {
     postcodeEl.addEventListener('input', scheduleLookup);
     postcodeEl.addEventListener('change', runLookup);
     postcodeEl.addEventListener('blur', runLookup);
+}
+
+function initBrn2NumericOnly() {
+    const el = document.getElementById('BRN2');
+    if (!el) return;
+
+    el.addEventListener('input', () => {
+        const digitsOnly = String(el.value || '').replace(/\D+/g, '').slice(0, 12);
+        if (el.value !== digitsOnly) el.value = digitsOnly;
+    });
 }
