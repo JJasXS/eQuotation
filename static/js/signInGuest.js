@@ -123,4 +123,62 @@ async function loadAreaCodes() {
 document.addEventListener('DOMContentLoaded', () => {
     loadCurrencySymbols();
     loadAreaCodes();
+    initPostcodeAutofill();
 });
+
+function normalizePostcode(value) {
+    return String(value || '').trim();
+}
+
+function initPostcodeAutofill() {
+    const postcodeEl = document.getElementById('POSTCODE');
+    const cityEl = document.getElementById('CITY');
+    const stateEl = document.getElementById('STATE');
+
+    if (!postcodeEl || !cityEl || !stateEl) return;
+
+    let timer = null;
+
+    async function runLookup() {
+        const postcode = normalizePostcode(postcodeEl.value);
+
+        // Clear auto fields if postcode not usable yet
+        if (!postcode || postcode.length < 5) {
+            cityEl.value = '';
+            stateEl.value = '';
+            return;
+        }
+
+        try {
+            const res = await fetch(`/api/lookup_postcode?postcode=${encodeURIComponent(postcode)}`);
+            const data = await res.json();
+
+            if (!data || !data.success) {
+                cityEl.value = '';
+                stateEl.value = '';
+                return;
+            }
+
+            if (data.found && data.data) {
+                cityEl.value = data.data.city || '';
+                stateEl.value = data.data.state || '';
+            } else {
+                cityEl.value = '';
+                stateEl.value = '';
+            }
+        } catch (e) {
+            console.error('postcode lookup failed:', e);
+            cityEl.value = '';
+            stateEl.value = '';
+        }
+    }
+
+    function scheduleLookup() {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(runLookup, 250);
+    }
+
+    postcodeEl.addEventListener('input', scheduleLookup);
+    postcodeEl.addEventListener('change', runLookup);
+    postcodeEl.addEventListener('blur', runLookup);
+}

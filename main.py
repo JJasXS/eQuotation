@@ -1,5 +1,7 @@
 # DEBUG: Confirm Flask main.py is running
 print("[DEBUG] main.py loaded and Flask is starting...", flush=True)
+import csv
+import json
 import os
 import math
 from functools import wraps
@@ -861,6 +863,24 @@ def create_signin_user():
     # Customer code is always server-generated for guest sign-in.
     data.pop('CUSTOMERCODE', None)
 
+    # Normalize country to alpha-2 when possible (prevents Firebird truncation on CHAR(2)).
+    if 'COUNTRY' in data:
+        data['COUNTRY'] = _normalize_country_alpha2(data.get('COUNTRY'))
+
+    # Ensure CITY/STATE are populated from postcode when possible.
+    # (Frontend auto-fill can be blocked by caching/JS issues; backend must be authoritative.)
+    try:
+        postcode = (data.get('POSTCODE') or '').strip()
+        city = (data.get('CITY') or '').strip()
+        state = (data.get('STATE') or '').strip()
+        if postcode and (not city or not state):
+            hit = _lookup_postcode(postcode)
+            if hit:
+                data['CITY'] = hit.get('city') or data.get('CITY') or ''
+                data['STATE'] = hit.get('state') or data.get('STATE') or ''
+    except Exception as e:
+        print(f"[WARN] Failed to auto-fill CITY/STATE from postcode during sign-in: {e}")
+
     # Server-side validation (secure)
     validation_error = validate_registration_fields(data)
     if validation_error:
@@ -941,7 +961,146 @@ def login():
 @app.route('/signInGuest')
 def sign_in_guest():
     """Show guest sign-in page (front-end only for now)."""
-    return render_template('signInGuest.html')
+    countries = []
+    try:
+        csv_path = os.path.join(os.path.dirname(__file__), 'csv', 'CountryCodeWNames.csv')
+        with open(csv_path, 'r', encoding='utf-8-sig', newline='') as f:
+            reader = csv.DictReader(f)
+            seen = set()
+            for row in reader:
+                name = (row.get('name') or '').strip()
+                alpha2 = (row.get('alpha-2') or '').strip().upper()
+                if not name or not alpha2 or name in seen:
+                    continue
+                seen.add(name)
+                countries.append({'name': name, 'alpha2': alpha2})
+    except Exception as e:
+        print(f"[WARN] Failed to load countries CSV for signInGuest: {e}")
+
+    return render_template('signInGuest.html', countries=countries)
+
+
+_POSTCODE_LOOKUP_CACHE = None
+_COUNTRY_ALPHA2_CACHE = None
+
+
+def _build_postcode_lookup():
+    """
+    Build a lookup structure from json/all.json.
+    Supports both explicit postcode lists and postcode ranges expressed as ["NNNNN","MMMMM"].
+    """
+    json_path = os.path.join(os.path.dirname(__file__), 'json', 'all.json')
+    with open(json_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    exact = {}
+    ranges = []
+
+    for state_obj in (data.get('state') or []):
+        state_name = (state_obj.get('name') or '').strip()
+        for city_obj in (state_obj.get('city') or []):
+            city_name = (city_obj.get('name') or '').strip()
+            postcodes = city_obj.get('postcode') or []
+
+            # Normalize to list
+            if isinstance(postcodes, str):
+                postcodes = [postcodes]
+
+            # Range encoding appears in the dataset as ["86900","86999"]
+            if (
+                isinstance(postcodes, list)
+                and len(postcodes) == 2
+                and all(isinstance(p, str) for p in postcodes)
+                and all(p.strip().isdigit() for p in postcodes)
+            ):
+                a = int(postcodes[0].strip())
+                b = int(postcodes[1].strip())
+                if b > a + 1:
+                    ranges.append((a, b, city_name, state_name))
+                    continue
+
+            for p in postcodes:
+                if not isinstance(p, str):
+                    continue
+                code = p.strip()
+                if not code:
+                    continue
+                # Some entries might not be 5 digits; still map exact string.
+                exact.setdefault(code, (city_name, state_name))
+
+    return {"exact": exact, "ranges": ranges}
+
+
+def _lookup_postcode(postcode: str):
+    global _POSTCODE_LOOKUP_CACHE
+    if _POSTCODE_LOOKUP_CACHE is None:
+        _POSTCODE_LOOKUP_CACHE = _build_postcode_lookup()
+
+    code = (postcode or '').strip()
+    if not code:
+        return None
+
+    exact = _POSTCODE_LOOKUP_CACHE["exact"]
+    hit = exact.get(code)
+    if hit:
+        city, state = hit
+        return {"postcode": code, "city": city, "state": state}
+
+    if code.isdigit():
+        n = int(code)
+        for a, b, city, state in _POSTCODE_LOOKUP_CACHE["ranges"]:
+            if a <= n <= b:
+                return {"postcode": code, "city": city, "state": state}
+
+    return None
+
+
+def _load_country_alpha2_map():
+    csv_path = os.path.join(os.path.dirname(__file__), 'csv', 'CountryCodeWNames.csv')
+    name_to_alpha2 = {}
+    with open(csv_path, 'r', encoding='utf-8-sig', newline='') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            name = (row.get('name') or '').strip()
+            alpha2 = (row.get('alpha-2') or '').strip()
+            if name and alpha2:
+                name_to_alpha2[name.lower()] = alpha2.upper()
+    return name_to_alpha2
+
+
+def _normalize_country_alpha2(value: str):
+    """
+    AR_CUSTOMERBRANCH.COUNTRY is commonly CHAR(2) in Firebird.
+    Accept alpha-2 codes, or map full country names to alpha-2.
+    """
+    global _COUNTRY_ALPHA2_CACHE
+    v = (value or '').strip()
+    if not v:
+        return ''
+    if len(v) == 2:
+        return v.upper()
+    try:
+        if _COUNTRY_ALPHA2_CACHE is None:
+            _COUNTRY_ALPHA2_CACHE = _load_country_alpha2_map()
+        return _COUNTRY_ALPHA2_CACHE.get(v.lower(), v)
+    except Exception:
+        return v
+
+
+@app.route('/api/lookup_postcode', methods=['GET'])
+def api_lookup_postcode():
+    postcode = request.args.get('postcode', '').strip()
+    if not postcode:
+        return jsonify({'success': False, 'error': 'postcode is required'}), 400
+
+    try:
+        result = _lookup_postcode(postcode)
+        if not result:
+            return jsonify({'success': True, 'found': False, 'data': None})
+        return jsonify({'success': True, 'found': True, 'data': result})
+    except Exception as e:
+        print(f"[ERROR] lookup_postcode failed: {e}")
+        return jsonify({'success': False, 'error': 'Failed to lookup postcode'}), 500
 
 @app.route('/api/send_otp', methods=['POST'])
 def api_send_otp():
