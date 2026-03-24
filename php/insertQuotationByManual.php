@@ -17,10 +17,12 @@ $items = $data['items'] ?? [];
 $companyName = $data['companyName'] ?? null;
 $address1 = $data['address1'] ?? null;
 $address2 = $data['address2'] ?? null;
+$address3 = $data['address3'] ?? null;
+$address4 = $data['address4'] ?? null;
 $phone1 = $data['phone1'] ?? null;
 
 // DEBUG: Log received data
-error_log("DEBUG: insertQuotationByManual received - companyName: $companyName, address1: $address1, address2: $address2, phone1: $phone1");
+error_log("DEBUG: insertQuotationByManual received - companyName: $companyName, address1: $address1, address2: $address2, address3: $address3, address4: $address4, phone1: $phone1");
 
 if (!$ownerEmail) {
     echo json_encode(['success' => false, 'error' => 'ownerEmail required']);

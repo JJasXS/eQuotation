@@ -199,6 +199,8 @@ function buildQuotationPayload() {
         companyName: document.getElementById('quotation-company').value.trim(),
         address1: document.getElementById('quotation-address1').value.trim(),
         address2: document.getElementById('quotation-address2').value.trim(),
+        address3: document.getElementById('quotation-address3').value.trim(),
+        address4: document.getElementById('quotation-address4').value.trim(),
         phone1: document.getElementById('quotation-phone').value.trim(),
         items: items
     };
@@ -632,6 +634,18 @@ async function loadUserInfo() {
                 address2Input.value = data.data.ADDRESS2 || 'N/A';
             }
             
+            // Populate address 3
+            const address3Input = document.getElementById('quotation-address3');
+            if (address3Input) {
+                address3Input.value = data.data.ADDRESS3 || '';
+            }
+            
+            // Populate address 4
+            const address4Input = document.getElementById('quotation-address4');
+            if (address4Input) {
+                address4Input.value = data.data.ADDRESS4 || '';
+            }
+            
             // Populate phone 1
             const phoneInput = document.getElementById('quotation-phone');
             if (phoneInput) {
@@ -655,7 +669,7 @@ async function loadUserInfo() {
 
 // Helper function to set all customer fields to N/A
 function setDefaultCustomerInfo() {
-    const fields = ['quotation-company', 'quotation-address1', 'quotation-address2', 'quotation-phone', 'quotation-terms'];
+    const fields = ['quotation-company', 'quotation-address1', 'quotation-address2', 'quotation-address3', 'quotation-address4', 'quotation-phone', 'quotation-terms'];
     fields.forEach(fieldId => {
         const field = document.getElementById(fieldId);
         if (field) {
@@ -708,6 +722,16 @@ async function loadDraftQuotation(dockey) {
             const address2Input = document.getElementById('quotation-address2');
             if (address2Input && quotation.ADDRESS2) {
                 address2Input.value = quotation.ADDRESS2;
+            }
+            
+            const address3Input = document.getElementById('quotation-address3');
+            if (address3Input && quotation.ADDRESS3) {
+                address3Input.value = quotation.ADDRESS3;
+            }
+            
+            const address4Input = document.getElementById('quotation-address4');
+            if (address4Input && quotation.ADDRESS4) {
+                address4Input.value = quotation.ADDRESS4;
             }
             
             const phoneInput = document.getElementById('quotation-phone');
@@ -778,6 +802,8 @@ async function loadSlQtDraftForEdit(draftDockey) {
         fillField('quotation-company', draft.COMPANYNAME);
         fillField('quotation-address1', draft.ADDRESS1);
         fillField('quotation-address2', draft.ADDRESS2);
+        fillField('quotation-address3', draft.ADDRESS3);
+        fillField('quotation-address4', draft.ADDRESS4);
         fillField('quotation-phone', draft.PHONE1);
 
         if (draft.items && draft.items.length > 0) {

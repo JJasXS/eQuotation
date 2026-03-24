@@ -234,6 +234,14 @@ function renderQuotationList(list, options = {}) {
         const borderColor = isPending ? '#b0892f' : (isCancelled ? '#a65c5c' : '#4b6e9e');
         const badgeColor = isPending ? '#b0892f' : (isCancelled ? '#a65c5c' : '#4b6e9e');
 
+        const email = qt.EMAIL || '-';
+        const phone = qt.PHONE1 || '-';
+        const terms = qt.TERMS || '-';
+        const address1 = qt.ADDRESS1 || '-';
+        const address2 = qt.ADDRESS2 || '-';
+        const address3 = qt.ADDRESS3 || '-';
+        const address4 = qt.ADDRESS4 || '-';
+
         html += `
             <div class="quotation-card" data-dockey="${qt.DOCKEY}" style="background: #2d3440; padding: 12px; margin-bottom: 12px; border-radius: 8px; border-left: 3px solid ${borderColor}; cursor: pointer; width: auto;">
                 <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 12px;">
@@ -246,6 +254,20 @@ function renderQuotationList(list, options = {}) {
                     ${isPending ? `<button class="activate-btn" onclick="activateQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #4b9e6e; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; white-space: nowrap; flex-shrink: 0;">Activate</button>` : ''}
                     ${!isPending && !isCancelled ? `<button class="toggle-cancelled-btn" onclick="console.log('[BUTTON CLICK] DOCKEY:', ${qt.DOCKEY}, 'isCancelled param:', ${isCancelled}); event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, ${isCancelled});" style="background: #a65c5c; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; white-space: nowrap; flex-shrink: 0;">Cancel</button>` : ''}
                     ${isCancelled ? `<button class="toggle-cancelled-btn" onclick="console.log('[BUTTON CLICK] DOCKEY:', ${qt.DOCKEY}, 'isCancelled param:', ${isCancelled}); event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, ${isCancelled});" style="background: #4b6e9e; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; white-space: nowrap; flex-shrink: 0;">Restore</button>` : ''}
+                </div>
+                <div style="background: #232a36; padding: 10px; border-radius: 4px; margin-bottom: 12px;">
+                    <div style="display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-bottom: 8px; font-size: 12px; color: #9ba7b6;">
+                        <div><strong>Email:</strong> ${email}</div>
+                        <div><strong>Company:</strong> ${companyName}</div>
+                        <div><strong>Phone:</strong> ${phone}</div>
+                        <div><strong>Terms:</strong> ${terms}</div>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; font-size: 12px; color: #9ba7b6;">
+                        <div><strong>ADDRESS1:</strong> ${address1}</div>
+                        <div><strong>ADDRESS2:</strong> ${address2}</div>
+                        <div><strong>ADDRESS3:</strong> ${address3}</div>
+                        <div><strong>ADDRESS4:</strong> ${address4}</div>
+                    </div>
                 </div>
                 <div class="quotation-items" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid #3d4654;">
                     <div style="text-align: center; color: #888; padding: 8px;">Loading items...</div>

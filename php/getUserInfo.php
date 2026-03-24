@@ -25,9 +25,17 @@ try {
             c.CREDITTERM,
             cb.ADDRESS1,
             cb.ADDRESS2,
+            cb.ADDRESS3,
+            cb.ADDRESS4,
             cb.PHONE1
         FROM AR_CUSTOMER c
-        LEFT JOIN AR_CUSTOMERBRANCH cb ON c.CODE = cb.CODE
+        LEFT JOIN AR_CUSTOMERBRANCH cb 
+            ON cb.CODE = c.CODE
+           AND cb.DTLKEY = (
+               SELECT MIN(b.DTLKEY)
+               FROM AR_CUSTOMERBRANCH b
+               WHERE b.CODE = c.CODE
+           )
         WHERE c.CODE = ?
     ';
     $stmt = $con->prepare($query);
@@ -43,6 +51,8 @@ try {
                 'CREDITTERM' => $result['CREDITTERM'] ?? 'N/A',
                 'ADDRESS1' => $result['ADDRESS1'] ?? 'N/A',
                 'ADDRESS2' => $result['ADDRESS2'] ?? 'N/A',
+                'ADDRESS3' => $result['ADDRESS3'] ?? '',
+                'ADDRESS4' => $result['ADDRESS4'] ?? '',
                 'PHONE1' => $result['PHONE1'] ?? 'N/A'
             ]
         ]);
