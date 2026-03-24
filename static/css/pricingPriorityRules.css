@@ -2,9 +2,19 @@ body {
     overflow: auto;
 }
 
+/* One background for main column, card, list rows, and empty/loading — avoids layered tints */
+.pricing-priority-page {
+    --priority-surface: #1a1f2e;
+}
+
+/* .container is display:flex; row (chat.css). Without flex:1, .main-content only
+   shrinks to content width (~960px), so the card sits left with empty space right. */
 .pricing-priority-page .main-content {
+    flex: 1;
+    min-width: 0;
+    width: 100%;
     min-height: 100vh;
-    background: #0d1118;
+    background: var(--priority-surface);
 }
 
 .header-subtitle {
@@ -17,7 +27,7 @@ body {
     max-width: 960px;
     margin: 24px auto;
     padding: 24px;
-    background: #1a1f2e;
+    background: var(--priority-surface);
     border: 1px solid #343b46;
     border-radius: 14px;
     box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
@@ -132,6 +142,16 @@ body {
     letter-spacing: 0.08em;
 }
 
+.priority-list-header > span:nth-child(1) {
+    justify-self: center;
+    text-align: center;
+}
+
+.priority-list-header > span:first-child {
+    justify-self: center;
+    text-align: center;
+}
+
 .priority-rule-list {
     display: flex;
     flex-direction: column;
@@ -139,7 +159,7 @@ body {
 }
 
 .priority-rule-row {
-    background: #232a36;
+    background: var(--priority-surface);
     border: 1px solid #343d4b;
     border-radius: 12px;
     padding: 14px;
@@ -157,6 +177,10 @@ body {
 .priority-number {
     display: flex;
     align-items: center;
+    justify-content: center;
+    justify-self: center;
+    width: 100%;
+    text-align: center;
     gap: 12px;
     font-weight: 700;
     color: #e4e9f1;
@@ -170,7 +194,7 @@ body {
     height: 34px;
     border-radius: 8px;
     border: 1px solid #3d4654;
-    background: #1a1f2e;
+    background: var(--priority-surface);
     color: #9ba7b6;
     cursor: grab;
     user-select: none;
@@ -222,7 +246,7 @@ body {
     border-radius: 12px;
     text-align: center;
     color: #9ba7b6;
-    background: #151b25;
+    background: var(--priority-surface);
 }
 
 @media (max-width: 720px) {
