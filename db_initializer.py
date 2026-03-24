@@ -435,6 +435,160 @@ def _ensure_sl_qt_validity_sync_trigger(conn):
         cur.close()
 
 
+def _ensure_sl_qt_address_sync_trigger(conn):
+    """Ensure SL_QT billing address fields are always kept in sync with delivery address fields."""
+    cur = conn.cursor()
+    try:
+        try:
+            cur.execute("DROP TRIGGER TR_SL_QT_SET_ADDRESS")
+            conn.commit()
+        except Exception:
+            pass  # Trigger doesn't exist yet — that's fine
+
+        trigger_sql = """
+        CREATE TRIGGER TR_SL_QT_SET_ADDRESS FOR SL_QT
+        ACTIVE BEFORE INSERT OR UPDATE POSITION 0
+        AS
+        BEGIN
+          -- Sync when either side changes; use OLD values on UPDATE to know which field was modified.
+          -- On INSERT, apply whichever value exists (billing or delivery), with billing as source if both non-empty.
+
+          IF (INSERTING OR (NEW.ADDRESS1 IS DISTINCT FROM OLD.ADDRESS1)) THEN
+          BEGIN
+            IF (NEW.ADDRESS1 IS NOT NULL AND TRIM(NEW.ADDRESS1) <> '') THEN
+              NEW.DADDRESS1 = NEW.ADDRESS1;
+            ELSE
+              NEW.ADDRESS1 = NEW.DADDRESS1;
+          END
+          ELSE IF (NEW.DADDRESS1 IS DISTINCT FROM OLD.DADDRESS1) THEN
+            NEW.ADDRESS1 = NEW.DADDRESS1;
+
+          IF (INSERTING OR (NEW.ADDRESS2 IS DISTINCT FROM OLD.ADDRESS2)) THEN
+          BEGIN
+            IF (NEW.ADDRESS2 IS NOT NULL AND TRIM(NEW.ADDRESS2) <> '') THEN
+              NEW.DADDRESS2 = NEW.ADDRESS2;
+            ELSE
+              NEW.ADDRESS2 = NEW.DADDRESS2;
+          END
+          ELSE IF (NEW.DADDRESS2 IS DISTINCT FROM OLD.DADDRESS2) THEN
+            NEW.ADDRESS2 = NEW.DADDRESS2;
+
+          IF (INSERTING OR (NEW.ADDRESS3 IS DISTINCT FROM OLD.ADDRESS3)) THEN
+          BEGIN
+            IF (NEW.ADDRESS3 IS NOT NULL AND TRIM(NEW.ADDRESS3) <> '') THEN
+              NEW.DADDRESS3 = NEW.ADDRESS3;
+            ELSE
+              NEW.ADDRESS3 = NEW.DADDRESS3;
+          END
+          ELSE IF (NEW.DADDRESS3 IS DISTINCT FROM OLD.DADDRESS3) THEN
+            NEW.ADDRESS3 = NEW.DADDRESS3;
+
+          IF (INSERTING OR (NEW.ADDRESS4 IS DISTINCT FROM OLD.ADDRESS4)) THEN
+          BEGIN
+            IF (NEW.ADDRESS4 IS NOT NULL AND TRIM(NEW.ADDRESS4) <> '') THEN
+              NEW.DADDRESS4 = NEW.ADDRESS4;
+            ELSE
+              NEW.ADDRESS4 = NEW.DADDRESS4;
+          END
+          ELSE IF (NEW.DADDRESS4 IS DISTINCT FROM OLD.DADDRESS4) THEN
+            NEW.ADDRESS4 = NEW.DADDRESS4;
+
+          IF (INSERTING OR (NEW.POSTCODE IS DISTINCT FROM OLD.POSTCODE)) THEN
+          BEGIN
+            IF (NEW.POSTCODE IS NOT NULL AND TRIM(NEW.POSTCODE) <> '') THEN
+              NEW.DPOSTCODE = NEW.POSTCODE;
+            ELSE
+              NEW.POSTCODE = NEW.DPOSTCODE;
+          END
+          ELSE IF (NEW.DPOSTCODE IS DISTINCT FROM OLD.DPOSTCODE) THEN
+            NEW.POSTCODE = NEW.DPOSTCODE;
+
+          IF (INSERTING OR (NEW.CITY IS DISTINCT FROM OLD.CITY)) THEN
+          BEGIN
+            IF (NEW.CITY IS NOT NULL AND TRIM(NEW.CITY) <> '') THEN
+              NEW.DCITY = NEW.CITY;
+            ELSE
+              NEW.CITY = NEW.DCITY;
+          END
+          ELSE IF (NEW.DCITY IS DISTINCT FROM OLD.DCITY) THEN
+            NEW.CITY = NEW.DCITY;
+
+          IF (INSERTING OR (NEW.STATE IS DISTINCT FROM OLD.STATE)) THEN
+          BEGIN
+            IF (NEW.STATE IS NOT NULL AND TRIM(NEW.STATE) <> '') THEN
+              NEW.DSTATE = NEW.STATE;
+            ELSE
+              NEW.STATE = NEW.DSTATE;
+          END
+          ELSE IF (NEW.DSTATE IS DISTINCT FROM OLD.DSTATE) THEN
+            NEW.STATE = NEW.DSTATE;
+
+          IF (INSERTING OR (NEW.COUNTRY IS DISTINCT FROM OLD.COUNTRY)) THEN
+          BEGIN
+            IF (NEW.COUNTRY IS NOT NULL AND TRIM(NEW.COUNTRY) <> '') THEN
+              NEW.DCOUNTRY = NEW.COUNTRY;
+            ELSE
+              NEW.COUNTRY = NEW.DCOUNTRY;
+          END
+          ELSE IF (NEW.DCOUNTRY IS DISTINCT FROM OLD.DCOUNTRY) THEN
+            NEW.COUNTRY = NEW.DCOUNTRY;
+
+          IF (INSERTING OR (NEW.PHONE1 IS DISTINCT FROM OLD.PHONE1)) THEN
+          BEGIN
+            IF (NEW.PHONE1 IS NOT NULL AND TRIM(NEW.PHONE1) <> '') THEN
+              NEW.DPHONE1 = NEW.PHONE1;
+            ELSE
+              NEW.PHONE1 = NEW.DPHONE1;
+          END
+          ELSE IF (NEW.DPHONE1 IS DISTINCT FROM OLD.DPHONE1) THEN
+            NEW.PHONE1 = NEW.DPHONE1;
+
+          IF (INSERTING OR (NEW.MOBILE IS DISTINCT FROM OLD.MOBILE)) THEN
+          BEGIN
+            IF (NEW.MOBILE IS NOT NULL AND TRIM(NEW.MOBILE) <> '') THEN
+              NEW.DMOBILE = NEW.MOBILE;
+            ELSE
+              NEW.MOBILE = NEW.DMOBILE;
+          END
+          ELSE IF (NEW.DMOBILE IS DISTINCT FROM OLD.DMOBILE) THEN
+            NEW.MOBILE = NEW.DMOBILE;
+
+          IF (INSERTING OR (NEW.FAX1 IS DISTINCT FROM OLD.FAX1)) THEN
+          BEGIN
+            IF (NEW.FAX1 IS NOT NULL AND TRIM(NEW.FAX1) <> '') THEN
+              NEW.DFAX1 = NEW.FAX1;
+            ELSE
+              NEW.FAX1 = NEW.DFAX1;
+          END
+          ELSE IF (NEW.DFAX1 IS DISTINCT FROM OLD.DFAX1) THEN
+            NEW.FAX1 = NEW.DFAX1;
+
+          IF (INSERTING OR (NEW.ATTENTION IS DISTINCT FROM OLD.ATTENTION)) THEN
+          BEGIN
+            IF (NEW.ATTENTION IS NOT NULL AND TRIM(NEW.ATTENTION) <> '') THEN
+              NEW.DATTENTION = NEW.ATTENTION;
+            ELSE
+              NEW.ATTENTION = NEW.DATTENTION;
+          END
+          ELSE IF (NEW.DATTENTION IS DISTINCT FROM OLD.DATTENTION) THEN
+            NEW.ATTENTION = NEW.DATTENTION;
+        END
+        """
+        cur.execute(trigger_sql)
+        conn.commit()
+        print("[DB INIT] Trigger TR_SL_QT_SET_ADDRESS created: billing address fields will mirror delivery address fields on SL_QT")
+        return True
+    except Exception as e:
+        error_msg = str(e).lower()
+        if 'already exists' in error_msg or 'name in use' in error_msg:
+            print("[DB INIT] Trigger TR_SL_QT_SET_ADDRESS already exists")
+            return True
+        print(f"[DB INIT WARNING] Could not create TR_SL_QT_SET_ADDRESS: {e}")
+        return False
+    finally:
+        cur.close()
+
+
 def _ensure_sl_qt_cancelled_status_sync_trigger(conn):
     """Ensure SL_QT.STATUS always follows SL_QT.CANCELLED.
 
@@ -919,6 +1073,9 @@ def initialize_database(db_path, db_user, db_password):
 
         # Keep SL_QT.UDF_VALIDITY in sync with VALIDITY
         _ensure_sl_qt_validity_sync_trigger(conn)
+
+        # Keep SL_QT billing address fields in sync with delivery address fields
+        _ensure_sl_qt_address_sync_trigger(conn)
 
         # Keep SL_QT.STATUS in sync with CANCELLED (-10 when cancelled, else 0)
         _ensure_sl_qt_cancelled_status_sync_trigger(conn)

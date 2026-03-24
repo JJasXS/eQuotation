@@ -51,8 +51,8 @@ function applyDiscountAmount(float $qty, float $unitprice, float $discAmount): f
 try {
     $dbh = getFirebirdConnection();
     
-    // Fetch CREDITTERM, CURRENCYCODE, AGENT, AREA and SUBMISSIONTYPE from AR_CUSTOMER.
-    $customerStmt = $dbh->prepare('SELECT CREDITTERM, CURRENCYCODE, AGENT, AREA, SUBMISSIONTYPE FROM AR_CUSTOMER WHERE CODE = ?');
+    // Fetch CREDITTERM, CURRENCYCODE, AGENT, AREA, SUBMISSIONTYPE, SALESTAXNO, SERVICETAXNO, TIN from AR_CUSTOMER.
+    $customerStmt = $dbh->prepare('SELECT CREDITTERM, CURRENCYCODE, AGENT, AREA, SUBMISSIONTYPE, SALESTAXNO, SERVICETAXNO, TIN, TAXEXEMPTNO FROM AR_CUSTOMER WHERE CODE = ?');
     $customerStmt->execute([$customerCode]);
     $customerRow = $customerStmt->fetch(PDO::FETCH_ASSOC);
     if (!$customerRow) {
@@ -68,9 +68,13 @@ try {
     $customerArea = $customerArea !== '' ? $customerArea : '----';
     $customerSubmissionType = $customerRow['SUBMISSIONTYPE'] ?? null;
     $customerSubmissionType = $customerSubmissionType !== null ? (int)$customerSubmissionType : 17;
+    $customerSalesTaxNo = trim((string)($customerRow['SALESTAXNO'] ?? ''));
+    $customerServiceTaxNo = trim((string)($customerRow['SERVICETAXNO'] ?? ''));
+    $customerTin = trim((string)($customerRow['TIN'] ?? ''));
+    $customerTaxExemptNo = trim((string)($customerRow['TAXEXEMPTNO'] ?? ''));
 
     // Prefer branch values from AR_CUSTOMERBRANCH.
-    $branchStmt = $dbh->prepare('SELECT FIRST 1 BRANCHNAME, ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, POSTCODE, CITY, STATE, COUNTRY, PHONE1 FROM AR_CUSTOMERBRANCH WHERE CODE = ? ORDER BY DTLKEY');
+    $branchStmt = $dbh->prepare('SELECT FIRST 1 BRANCHNAME, ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, POSTCODE, CITY, STATE, COUNTRY, PHONE1, ATTENTION FROM AR_CUSTOMERBRANCH WHERE CODE = ? ORDER BY DTLKEY');
     $branchStmt->execute([$customerCode]);
     $branchRow = $branchStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
@@ -85,6 +89,7 @@ try {
     $state = trim((string)($branchRow['STATE'] ?? $state ?? ''));
     $country = trim((string)($branchRow['COUNTRY'] ?? $country ?? ''));
     $phone1 = trim((string)($branchRow['PHONE1'] ?? $phone1 ?? ''));
+    $branchAttention = trim((string)($branchRow['ATTENTION'] ?? ''));
 
     // Resolve currency buying rate from CURRENCY using AR_CUSTOMER.CURRENCYCODE.
     $currencyRateStmt = $dbh->prepare('SELECT FIRST 1 BUYINGRATE FROM CURRENCY WHERE UPPER(CODE) = UPPER(?)');
@@ -132,9 +137,10 @@ try {
         INSERT INTO SL_QT (
             DOCKEY, DOCNO, DOCDATE, CODE, DESCRIPTION, DOCAMT, 
             CURRENCYCODE, CURRENCYRATE, VALIDITY, SHIPPER, STATUS, IDTYPE, TERMS, AGENT, AREA, COMPANYNAME,
-            BRANCHNAME, ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, POSTCODE, CITY, STATE, COUNTRY, PHONE1,
-            TRANSFERABLE, PRINTCOUNT, SUBMISSIONTYPE, CANCELLED, PROJECT
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            BRANCHNAME, ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, POSTCODE, CITY, STATE, COUNTRY, PHONE1, ATTENTION,
+            DADDRESS1, DADDRESS2, DADDRESS3, DADDRESS4, DPOSTCODE, DCITY, DSTATE, DCOUNTRY, DPHONE1, DMOBILE, DFAX1, DATTENTION,
+            SALESTAXNO, SERVICETAXNO, TIN, TAXEXEMPTNO, TRANSFERABLE, PRINTCOUNT, SUBMISSIONTYPE, CANCELLED, PROJECT
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ');
     
     // DEBUG: Log values before insert
@@ -168,6 +174,23 @@ try {
             $state,
             $country,
             $phone1,
+            $branchAttention,     // ATTENTION from AR_CUSTOMERBRANCH
+            $address1,    // DADDRESS1 - same as billing
+            $address2,    // DADDRESS2 - same as billing
+            $address3,    // DADDRESS3 - same as billing
+            $address4,    // DADDRESS4 - same as billing
+            $postcode,    // DPOSTCODE - same as billing
+            $city,        // DCITY - same as billing
+            $state,       // DSTATE - same as billing
+            $country,     // DCOUNTRY - same as billing
+            $phone1,      // DPHONE1 - same as billing
+            null,         // DMOBILE - not provided, set to null
+            null,         // DFAX1 - not provided, set to null
+            $branchAttention,  // DATTENTION from AR_CUSTOMERBRANCH
+            $customerSalesTaxNo,   // SALESTAXNO from AR_CUSTOMER
+            $customerServiceTaxNo,  // SERVICETAXNO from AR_CUSTOMER
+            $customerTin,   // TIN from AR_CUSTOMER
+            $customerTaxExemptNo,  // TAXEXEMPTNO from AR_CUSTOMER
             true,         // SL_QTTRANSFERABLE
             0,            // PRINTCOUNT
             $customerSubmissionType,
