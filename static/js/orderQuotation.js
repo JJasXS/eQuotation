@@ -1,3 +1,135 @@
+// Centered popup with slide in/out, replacing browser alert() dialogs.
+function showAppPopup(message, type = 'info') {
+    const styleId = 'app-popup-notice-style';
+    if (!document.getElementById(styleId)) {
+        const style = document.createElement('style');
+        style.id = styleId;
+        style.textContent = `
+            .app-popup-notice {
+                position: fixed;
+                top: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                z-index: 99999;
+                width: min(92vw, 440px);
+                border-radius: 12px;
+                padding: 14px 16px;
+                box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+                font-size: 14px;
+                line-height: 1.45;
+                display: flex;
+                align-items: flex-start;
+                gap: 10px;
+                opacity: 0;
+                animation: appPopupSlideIn 0.24s ease forwards;
+            }
+
+            .app-popup-notice.is-hiding {
+                animation: appPopupSlideOut 0.2s ease forwards;
+            }
+
+            .app-popup-notice__text {
+                flex: 1;
+            }
+
+            .app-popup-notice__close {
+                border: none;
+                background: transparent;
+                color: inherit;
+                cursor: pointer;
+                font-size: 18px;
+                line-height: 1;
+                padding: 0 2px;
+            }
+
+            @keyframes appPopupSlideIn {
+                from {
+                    opacity: 0;
+                    transform: translate(-50%, -14px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translate(-50%, 0);
+                }
+            }
+
+            @keyframes appPopupSlideOut {
+                from {
+                    opacity: 1;
+                    transform: translate(-50%, 0);
+                }
+                to {
+                    opacity: 0;
+                    transform: translate(-50%, -14px);
+                }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    const existing = document.querySelector('.app-popup-notice');
+    if (existing) {
+        existing.remove();
+    }
+
+    const popup = document.createElement('div');
+    popup.className = 'app-popup-notice';
+
+    const bg = type === 'error' ? '#fde8e8' : type === 'success' ? '#e7f7ee' : '#eef5ff';
+    const border = type === 'error' ? '#f2b8b5' : type === 'success' ? '#b7e3c7' : '#b9d3ff';
+    const color = type === 'error' ? '#8a1f17' : type === 'success' ? '#14532d' : '#1e3a8a';
+
+    popup.style.background = bg;
+    popup.style.border = `1px solid ${border}`;
+    popup.style.color = color;
+
+    const text = document.createElement('div');
+    text.className = 'app-popup-notice__text';
+    text.textContent = String(message || '');
+
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'app-popup-notice__close';
+    closeBtn.setAttribute('aria-label', 'Close notification');
+    closeBtn.textContent = '×';
+
+    let hideTimer = null;
+    const hidePopup = () => {
+        if (!popup.isConnected || popup.classList.contains('is-hiding')) {
+            return;
+        }
+        popup.classList.add('is-hiding');
+        window.setTimeout(() => {
+            if (popup.isConnected) {
+                popup.remove();
+            }
+        }, 210);
+    };
+
+    closeBtn.addEventListener('click', hidePopup);
+    popup.appendChild(text);
+    popup.appendChild(closeBtn);
+    document.body.appendChild(popup);
+
+    hideTimer = window.setTimeout(hidePopup, 3200);
+    popup.addEventListener('mouseenter', () => {
+        if (hideTimer) {
+            clearTimeout(hideTimer);
+            hideTimer = null;
+        }
+    });
+    popup.addEventListener('mouseleave', () => {
+        if (!hideTimer) {
+            hideTimer = window.setTimeout(hidePopup, 1400);
+        }
+    });
+}
+
+// Keep existing code unchanged: any alert(...) now uses custom popup.
+window.alert = function(message) {
+    showAppPopup(message, 'error');
+};
+
 // Tab Switching
 function switchTab(tabName) {
     // Hide all tabs
