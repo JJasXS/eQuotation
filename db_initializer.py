@@ -435,6 +435,47 @@ def _ensure_sl_qt_validity_sync_trigger(conn):
         cur.close()
 
 
+def _ensure_sl_qt_cancelled_status_sync_trigger(conn):
+    """Ensure SL_QT.STATUS always follows SL_QT.CANCELLED.
+
+    Rules:
+    - CANCELLED = TRUE  -> STATUS = -10
+    - CANCELLED = FALSE -> STATUS = 0
+    """
+    cur = conn.cursor()
+    try:
+        try:
+            cur.execute("DROP TRIGGER TRG_SL_QT_CANCELLED_STATUS_SYNC")
+            conn.commit()
+        except Exception:
+            pass  # Trigger doesn't exist yet — that's fine
+
+        trigger_sql = """
+        CREATE TRIGGER TRG_SL_QT_CANCELLED_STATUS_SYNC FOR SL_QT
+        ACTIVE BEFORE INSERT OR UPDATE POSITION 3
+        AS
+        BEGIN
+          IF (NEW.CANCELLED = TRUE) THEN
+            NEW.STATUS = -10;
+          ELSE
+            NEW.STATUS = 0;
+        END
+        """
+        cur.execute(trigger_sql)
+        conn.commit()
+        print("[DB INIT] Trigger TRG_SL_QT_CANCELLED_STATUS_SYNC created: STATUS=-10 when CANCELLED=TRUE, otherwise STATUS=0")
+        return True
+    except Exception as e:
+        error_msg = str(e).lower()
+        if 'already exists' in error_msg or 'name in use' in error_msg:
+            print("[DB INIT] Trigger TRG_SL_QT_CANCELLED_STATUS_SYNC already exists")
+            return True
+        print(f"[DB INIT WARNING] Could not create TRG_SL_QT_CANCELLED_STATUS_SYNC: {e}")
+        return False
+    finally:
+        cur.close()
+
+
 def _ensure_sl_qt_localdocamt_sync_trigger(conn):
     """Ensure SL_QT.LOCALDOCAMT is always kept in sync with DOCAMT * CURRENCYRATE."""
     cur = conn.cursor()
@@ -878,6 +919,9 @@ def initialize_database(db_path, db_user, db_password):
 
         # Keep SL_QT.UDF_VALIDITY in sync with VALIDITY
         _ensure_sl_qt_validity_sync_trigger(conn)
+
+        # Keep SL_QT.STATUS in sync with CANCELLED (-10 when cancelled, else 0)
+        _ensure_sl_qt_cancelled_status_sync_trigger(conn)
 
         # Keep SL_QT.LOCALDOCAMT in sync with DOCAMT * CURRENCYRATE
         _ensure_sl_qt_localdocamt_sync_trigger(conn)

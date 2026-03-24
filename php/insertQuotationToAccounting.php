@@ -51,8 +51,8 @@ function applyDiscountAmount(float $qty, float $unitprice, float $discAmount): f
 try {
     $dbh = getFirebirdConnection();
     
-    // Fetch CREDITTERM, CURRENCYCODE, AGENT and AREA from AR_CUSTOMER.
-    $customerStmt = $dbh->prepare('SELECT CREDITTERM, CURRENCYCODE, AGENT, AREA FROM AR_CUSTOMER WHERE CODE = ?');
+    // Fetch CREDITTERM, CURRENCYCODE, AGENT, AREA and SUBMISSIONTYPE from AR_CUSTOMER.
+    $customerStmt = $dbh->prepare('SELECT CREDITTERM, CURRENCYCODE, AGENT, AREA, SUBMISSIONTYPE FROM AR_CUSTOMER WHERE CODE = ?');
     $customerStmt->execute([$customerCode]);
     $customerRow = $customerStmt->fetch(PDO::FETCH_ASSOC);
     if (!$customerRow) {
@@ -66,12 +66,16 @@ try {
     $customerAgent = $customerAgent !== '' ? $customerAgent : '----';
     $customerArea = trim((string)($customerRow['AREA'] ?? ''));
     $customerArea = $customerArea !== '' ? $customerArea : '----';
+    $customerSubmissionType = $customerRow['SUBMISSIONTYPE'] ?? null;
+    $customerSubmissionType = $customerSubmissionType !== null ? (int)$customerSubmissionType : 17;
 
-    // Prefer branch address values from AR_CUSTOMERBRANCH.
-    $branchStmt = $dbh->prepare('SELECT FIRST 1 ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, POSTCODE, CITY, STATE, COUNTRY, PHONE1 FROM AR_CUSTOMERBRANCH WHERE CODE = ? ORDER BY DTLKEY');
+    // Prefer branch values from AR_CUSTOMERBRANCH.
+    $branchStmt = $dbh->prepare('SELECT FIRST 1 BRANCHNAME, ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, POSTCODE, CITY, STATE, COUNTRY, PHONE1 FROM AR_CUSTOMERBRANCH WHERE CODE = ? ORDER BY DTLKEY');
     $branchStmt->execute([$customerCode]);
     $branchRow = $branchStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
+    $branchName = trim((string)($branchRow['BRANCHNAME'] ?? ''));
+    $branchName = $branchName !== '' ? $branchName : 'BILLING';
     $address1 = trim((string)($branchRow['ADDRESS1'] ?? $address1 ?? ''));
     $address2 = trim((string)($branchRow['ADDRESS2'] ?? $address2 ?? ''));
     $address3 = trim((string)($branchRow['ADDRESS3'] ?? $address3 ?? ''));
@@ -128,8 +132,9 @@ try {
         INSERT INTO SL_QT (
             DOCKEY, DOCNO, DOCDATE, CODE, DESCRIPTION, DOCAMT, 
             CURRENCYCODE, CURRENCYRATE, VALIDITY, SHIPPER, STATUS, IDTYPE, TERMS, AGENT, AREA, COMPANYNAME,
-            ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, POSTCODE, CITY, STATE, COUNTRY, PHONE1, CANCELLED, PROJECT
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            BRANCHNAME, ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, POSTCODE, CITY, STATE, COUNTRY, PHONE1,
+            TRANSFERABLE, PRINTCOUNT, SUBMISSIONTYPE, CANCELLED, PROJECT
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ');
     
     // DEBUG: Log values before insert
@@ -153,6 +158,7 @@ try {
             $customerAgent,
             $customerArea,
             $companyName,
+            $branchName,
             $address1,
             $address2,
             $address3,
@@ -162,6 +168,9 @@ try {
             $state,
             $country,
             $phone1,
+            true,         // SL_QTTRANSFERABLE
+            0,            // PRINTCOUNT
+            $customerSubmissionType,
             null,
             '----'       // Default PROJECT
         ]);
