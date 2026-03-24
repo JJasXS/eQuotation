@@ -21,6 +21,7 @@ $city = $data['city'] ?? null;
 $state = $data['state'] ?? null;
 $country = $data['country'] ?? null;
 $phone1 = $data['phone1'] ?? null;
+$remarks = $data['remarks'] ?? null;
 
 if (!$customerCode) {
     echo json_encode(['success' => false, 'error' => 'customerCode required']);
@@ -96,8 +97,8 @@ try {
         INSERT INTO SL_QT (
             DOCKEY, DOCNO, DOCDATE, CODE, DESCRIPTION, DOCAMT, 
             CURRENCYCODE, VALIDITY, SHIPPER, STATUS, IDTYPE, TERMS, COMPANYNAME,
-            ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, POSTCODE, CITY, STATE, COUNTRY, PHONE1, CANCELLED, PROJECT
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, POSTCODE, CITY, STATE, COUNTRY, PHONE1, REMARKS, CANCELLED, PROJECT
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ');
     $qtStmt->execute([
         $dockey,
@@ -122,6 +123,7 @@ try {
         $state,             // State
         $country,           // Country
         $phone1,            // Phone
+        $remarks,           // Remarks (new)
         null,               // CANCELLED = NULL (acts as DRAFT indicator)
         '----'              // Default PROJECT
     ]);

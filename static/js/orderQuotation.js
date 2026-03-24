@@ -179,10 +179,19 @@ function removeOrderItem(button) {
 function buildQuotationPayload() {
     const items = [];
     document.querySelectorAll('#quotation-items-list .order-item').forEach(item => {
-        const productElement = item.querySelector('.item-product');
-        const product = productElement.tagName === 'SELECT' ?
-            productElement.options[productElement.selectedIndex]?.value.trim() :
-            productElement.value.trim();
+        const source = item.querySelector('.item-source')?.value || 'catalog';
+        let product = '';
+        if (source === 'custom') {
+            product = item.querySelector('.item-product-custom')?.value.trim() || '';
+        } else {
+            const productElement = item.querySelector('.item-product');
+            if (productElement) {
+                product = productElement.tagName === 'SELECT'
+                    ? productElement.options[productElement.selectedIndex]?.value.trim()
+                    : productElement.value.trim();
+            }
+        }
+
         const qty = parseFloat(item.querySelector('.item-qty').value) || 0;
         const price = parseFloat(item.querySelector('.item-price').value) || 0;
         const discount = parseFloat(item.querySelector('.item-discount')?.value) || 0;
@@ -202,6 +211,7 @@ function buildQuotationPayload() {
         address3: document.getElementById('quotation-address3').value.trim(),
         address4: document.getElementById('quotation-address4').value.trim(),
         phone1: document.getElementById('quotation-phone').value.trim(),
+        remarks: document.getElementById('quotation-remarks')?.value.trim() || '',
         items: items
     };
 }
@@ -214,9 +224,14 @@ function addQuotationItem() {
     newItem.className = 'order-item';
     newItem.innerHTML = `
         <div class="item-row">
+            <select class="item-source" onchange="onProductSourceChange(this)">
+                <option value="catalog">From catalog</option>
+                <option value="custom">Custom order</option>
+            </select>
             <select class="item-product" onchange="fetchProductPrice(this)">
                 <option value="">Select product...</option>
             </select>
+            <input type="text" class="item-product-custom" placeholder="Custom product" style="display:none;" onchange="fetchProductPrice(this)">
             <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
             <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
             <input type="number" class="item-suggested-price" placeholder="Suggested Price" step="0.01" min="0" readonly>
@@ -230,6 +245,33 @@ function addQuotationItem() {
     // Populate the new select with products
     const select = newItem.querySelector('.item-product');
     populateProductSelect(select);
+}
+
+// Handle product source change (catalog vs custom)
+function onProductSourceChange(selectElement) {
+    const row = selectElement.closest('.item-row');
+    const catalogSelect = row.querySelector('.item-product');
+    const customInput = row.querySelector('.item-product-custom');
+    const suggestedPriceInput = row.querySelector('.item-suggested-price');
+    const priceInput = row.querySelector('.item-price');
+    
+    if (selectElement.value === 'custom') {
+        catalogSelect.style.display = 'none';
+        customInput.style.display = 'inline-block';
+        // Clear catalog values and enable manual price entry
+        catalogSelect.value = '';
+        suggestedPriceInput.value = '';
+        priceInput.readOnly = false;
+        priceInput.value = '';
+    } else {
+        catalogSelect.style.display = 'inline-block';
+        customInput.style.display = 'none';
+        // Clear custom values and make price readonly
+        customInput.value = '';
+        priceInput.readOnly = true;
+        priceInput.value = '';
+        suggestedPriceInput.value = '';
+    }
 }
 
 // Remove Quotation Item
@@ -305,13 +347,19 @@ function clearQuotationForm() {
         container.innerHTML = `
             <div class="order-item">
                 <div class="item-row">
+                    <select class="item-source" onchange="onProductSourceChange(this)">
+                        <option value="catalog">From catalog</option>
+                        <option value="custom">Custom order</option>
+                    </select>
                     <select class="item-product" onchange="fetchProductPrice(this)">
                         <option value="">Select product...</option>
                     </select>
+                    <input type="text" class="item-product-custom" placeholder="Custom product" style="display:none;" onchange="fetchProductPrice(this)">
                     <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
                     <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
                     <input type="number" class="item-suggested-price" placeholder="Suggested Price" step="0.01" min="0" readonly>
                     <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" onchange="calculateQuotationTotal()">
+                    <input type="date" class="item-delivery-date" value="${new Date().toISOString().split('T')[0]}">
                     <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
                 </div>
             </div>
@@ -325,6 +373,11 @@ function clearQuotationForm() {
 
 // Fetch product price when a product is selected
 async function fetchProductPrice(input) {
+    // Skip API call for custom product inputs
+    if (input.classList.contains('item-product-custom')) {
+        return;
+    }
+    
     const productName = input.value.trim();
     if (!productName) return;
     

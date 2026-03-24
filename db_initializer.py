@@ -101,8 +101,8 @@ def _ensure_sl_qt_terms_column(conn):
         if result:
             print("[DB INIT] TERMS column already exists in SL_QT")
             return True
-        
-        # Add TERMS column if it doesn't exist
+
+        # Add TERMS column if it doesn’t exist
         conn.commit()
         cur.execute('ALTER TABLE SL_QT ADD TERMS VARCHAR(100)')
         conn.commit()
@@ -114,6 +114,38 @@ def _ensure_sl_qt_terms_column(conn):
             print("[DB INIT] TERMS column already exists in SL_QT")
             return True
         print(f"[DB INIT WARNING] Could not add TERMS to SL_QT: {e}")
+        return False
+    finally:
+        cur.close()
+
+
+def _ensure_sl_qt_remarks_column(conn):
+    """Ensure SL_QT table has a REMARKS column for manual quotation remarks."""
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            '''
+            SELECT f.RDB$FIELD_NAME
+            FROM RDB$RELATION_FIELDS f
+            WHERE f.RDB$RELATION_NAME = 'SL_QT' AND f.RDB$FIELD_NAME = 'REMARKS'
+            '''
+        )
+        result = cur.fetchone()
+        if result:
+            print("[DB INIT] REMARKS column already exists in SL_QT")
+            return True
+
+        conn.commit()
+        cur.execute('ALTER TABLE SL_QT ADD REMARKS VARCHAR(1000)')
+        conn.commit()
+        print("[DB INIT] REMARKS column added to SL_QT")
+        return True
+    except Exception as e:
+        error_msg = str(e).lower()
+        if 'already exists' in error_msg or 'duplicate' in error_msg:
+            print("[DB INIT] REMARKS column already exists in SL_QT")
+            return True
+        print(f"[DB INIT WARNING] Could not add REMARKS to SL_QT: {e}")
         return False
     finally:
         cur.close()
@@ -1052,6 +1084,9 @@ def initialize_database(db_path, db_user, db_password):
         
         # Ensure SL_QT has TERMS column to store payment terms
         _ensure_sl_qt_terms_column(conn)
+
+        # Ensure SL_QT has REMARKS column for manual notes
+        _ensure_sl_qt_remarks_column(conn)
 
         # Ensure AR_CUSTOMER has UDF_EMAIL for guest sign-in payload
         _ensure_ar_customer_udf_email_column(conn)
