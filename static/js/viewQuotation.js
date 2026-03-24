@@ -5,6 +5,11 @@ let pendingQuotationsCache = [];
 let slQtDraftCache = [];
 let slQtDraftLoaded = false;
 
+function isPendingQuotation(qt) {
+    // Priority rule: UPDATECOUNT determines Pending first.
+    return qt.UPDATECOUNT === null || qt.UPDATECOUNT === undefined;
+}
+
 async function loadQuotations() {
     const content = document.getElementById('quotation-content');
     if (!content) return;
@@ -36,9 +41,9 @@ async function loadQuotations() {
             cancelledType: typeof qt.CANCELLED
         })));
 
-        activeQuotationsCache = quotations.filter(qt => qt.CANCELLED === false && qt.STATUS !== 'DRAFT');
-        pendingQuotationsCache = quotations.filter(qt => qt.CANCELLED === null);
-        cancelledQuotationsCache = quotations.filter(qt => qt.CANCELLED === true);
+        pendingQuotationsCache = quotations.filter(qt => isPendingQuotation(qt));
+        cancelledQuotationsCache = quotations.filter(qt => !isPendingQuotation(qt) && qt.CANCELLED === true);
+        activeQuotationsCache = quotations.filter(qt => !isPendingQuotation(qt) && qt.CANCELLED === false && qt.STATUS !== 'DRAFT');
         draftQuotationsCache = quotations.filter(qt => qt.STATUS === 'DRAFT');
 
         console.log(`[DEBUG] Filtered counts - Drafts: ${draftQuotationsCache.length}, Pending: ${pendingQuotationsCache.length}, Active: ${activeQuotationsCache.length}, Cancelled: ${cancelledQuotationsCache.length}`);

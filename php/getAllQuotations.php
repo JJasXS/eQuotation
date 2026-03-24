@@ -12,7 +12,7 @@ try {
     // Build query based on status filter
     $baseQuery = '
         SELECT qt.DOCKEY, qt.DOCNO, qt.DOCDATE, qt.CODE, qt.DESCRIPTION, 
-               qt.DOCAMT, qt.CURRENCYCODE, qt.VALIDITY, qt.CANCELLED,
+               qt.DOCAMT, qt.CURRENCYCODE, qt.VALIDITY, qt.CANCELLED, qt.UPDATECOUNT,
                ac.COMPANYNAME, ab.ADDRESS1, ab.PHONE1
         FROM SL_QT qt
         LEFT JOIN AR_CUSTOMER ac ON qt.CODE = ac.CODE
@@ -40,14 +40,13 @@ try {
     foreach ($quotations as &$qt) {
         $qt['DOCKEY'] = intval($qt['DOCKEY']);
         $qt['DOCAMT'] = floatval($qt['DOCAMT'] ?? 0);
+        $qt['UPDATECOUNT'] = ($qt['UPDATECOUNT'] === null) ? null : intval($qt['UPDATECOUNT']);
         
         // Log original value before conversion
         $originalCancelled = $qt['CANCELLED'];
         
-        // Handle CANCELLED: could be null, 'True'/'False' string, or 1/0 numeric, or boolean
-        if ($qt['CANCELLED'] === null) {
-            $qt['CANCELLED'] = null;
-        } elseif (is_bool($qt['CANCELLED'])) {
+        // Handle CANCELLED as strict boolean only.
+        if (is_bool($qt['CANCELLED'])) {
             // Firebird sometimes returns as direct boolean
             $qt['CANCELLED'] = (bool)$qt['CANCELLED'];
         } elseif (is_numeric($qt['CANCELLED'])) {

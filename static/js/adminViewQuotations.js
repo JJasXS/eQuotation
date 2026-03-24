@@ -4,6 +4,11 @@ let pendingQuotationsCache = [];
 let companyFilter = '';
 let currentTab = 'active';
 
+function isPendingQuotation(qt) {
+    // Priority rule: UPDATECOUNT determines Pending first.
+    return qt.UPDATECOUNT === null || qt.UPDATECOUNT === undefined;
+}
+
 window.toggleCancelledStatus = async function(dockey, isCancelled) {
     console.log('[DEBUG] toggleCancelledStatus called - dockey:', dockey, 'isCancelled:', isCancelled);
     
@@ -134,9 +139,9 @@ async function loadQuotations() {
         console.log('[DEBUG] Total quotations fetched:', allQuotations.length);
         console.log('[DEBUG] Full sample data:', JSON.stringify(allQuotations.slice(0, 2), null, 2));
         
-        activeQuotationsCache = allQuotations.filter(qt => qt.CANCELLED === false);
-        cancelledQuotationsCache = allQuotations.filter(qt => qt.CANCELLED === true);
-        pendingQuotationsCache = allQuotations.filter(qt => qt.CANCELLED === null);
+        pendingQuotationsCache = allQuotations.filter(qt => isPendingQuotation(qt));
+        cancelledQuotationsCache = allQuotations.filter(qt => !isPendingQuotation(qt) && qt.CANCELLED === true);
+        activeQuotationsCache = allQuotations.filter(qt => !isPendingQuotation(qt) && qt.CANCELLED === false);
         
         console.log('[DEBUG] Filtered caches - Active:', activeQuotationsCache.length, 'Cancelled:', cancelledQuotationsCache.length, 'Pending:', pendingQuotationsCache.length);
 

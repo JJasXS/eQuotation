@@ -171,7 +171,7 @@ try {
             true,         // SL_QTTRANSFERABLE
             0,            // PRINTCOUNT
             $customerSubmissionType,
-            null,
+            false,        // CANCELLED defaults to FALSE on create
             '----'       // Default PROJECT
         ]);
         error_log("DEBUG: Insert successful for dockey: $dockey");
