@@ -212,6 +212,9 @@ function buildQuotationPayload() {
         address4: document.getElementById('quotation-address4').value.trim(),
         phone1: document.getElementById('quotation-phone').value.trim(),
         remarks: document.getElementById('quotation-remarks')?.value.trim() || '',
+
+
+
         items: items
     };
 }
