@@ -1,5 +1,6 @@
 """Validation functions for guest sign-in registration."""
 import re
+from datetime import datetime
 
 
 _EMAIL_RE = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
@@ -104,5 +105,23 @@ def validate_registration_fields(data):
     address4 = _get(data, 'ADDRESS4')
     if len(address2) > 240 or len(address3) > 240 or len(address4) > 240:
         return 'Address line is too long.'
+
+    # Optional tax fields for AR_CUSTOMER
+    sales_tax_no = _get(data, 'SALESTAXNO')
+    service_tax_no = _get(data, 'SERVICETAXNO')
+    tax_exempt_no = _get(data, 'TAXEXEMPTNO')
+    tax_exp_date = _get(data, 'TAXEXPDATE')
+
+    if len(sales_tax_no) > 120:
+        return 'Sales Tax Number is too long.'
+    if len(service_tax_no) > 120:
+        return 'Service Tax Number is too long.'
+    if len(tax_exempt_no) > 120:
+        return 'Exemption Number is too long.'
+    if tax_exp_date:
+        try:
+            datetime.strptime(tax_exp_date, '%Y-%m-%d')
+        except ValueError:
+            return 'Expiry Date must be a valid date (YYYY-MM-DD).'
 
     return None

@@ -30,6 +30,11 @@ $udfEmail = trim($data['UDF_EMAIL'] ?? '');
 $brn = trim($data['BRN'] ?? '');
 $brn2 = trim($data['BRN2'] ?? '');
 $tin = trim($data['TIN'] ?? '');
+$salesTaxNo = trim($data['SALESTAXNO'] ?? '');
+$serviceTaxNo = trim($data['SERVICETAXNO'] ?? '');
+$taxExemptNo = trim($data['TAXEXEMPTNO'] ?? '');
+$taxExpDateRaw = trim($data['TAXEXPDATE'] ?? '');
+$taxExpDate = $taxExpDateRaw === '' ? null : $taxExpDateRaw;
 
 $address1 = trim($data['ADDRESS1'] ?? '');
 $address2 = trim($data['ADDRESS2'] ?? '');
@@ -147,13 +152,17 @@ try {
             BRN,
             BRN2,
             TIN,
+            SALESTAXNO,
+            SERVICETAXNO,
+            TAXEXEMPTNO,
+            TAXEXPDATE,
             IDTYPE,
             IDNO,
             CREATIONDATE,
             SUBMISSIONTYPE,
             UDF_EMAIL
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, TRUE, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, TRUE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
     ');
     $insertCustomer->execute([
         $code,
@@ -173,6 +182,10 @@ try {
         $brn,
         $brn2,
         $tin,
+        $salesTaxNo,
+        $serviceTaxNo,
+        $taxExemptNo,
+        $taxExpDate,
         1,
         $brn2,
         17,
