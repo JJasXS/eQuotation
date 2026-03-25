@@ -214,7 +214,7 @@ try {
         0,
         'I',      // AGINGON (FIXED: should be 'I' not 'P')
         'P',      // STATUS: P for Prospect/Pending (FIXED: should be 'P' not 'A')
-        $brn, $brn2, $tin, $salesTaxNo, $serviceTaxNo, $taxExemptNo, $taxExpDate, 1, $brn2, 17, $udfEmail
+        $brn, $brn2, $tin, $salesTaxNo, $serviceTaxNo, $taxExemptNo, $taxExpDate, 1, $brn2, 17, $udfEmail, $attachments
     ]);
 
     $dtlkey = generateDTLKEY($dbh);
