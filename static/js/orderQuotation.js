@@ -198,7 +198,7 @@ function buildQuotationPayload() {
         const deliveryDate = item.querySelector('.item-delivery-date')?.value || null;
 
         if (product && qty > 0 && price >= 0) {
-            items.push({ product, qty, price, discount, deliveryDate });
+            items.push({ product, source, qty, price, discount, deliveryDate });
         }
     });
 

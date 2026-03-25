@@ -208,6 +208,7 @@ try {
     $seq = 1;
     foreach ($items as $idx => $item) {
         $product = $item['product'] ?? '';
+        $source = $item['source'] ?? 'catalog';
         $qty = (float)($item['qty'] ?? 0);
         $unitprice = (float)($item['price'] ?? 0);
         $disc = (float)($item['discount'] ?? 0);
@@ -224,34 +225,52 @@ try {
         $dtlStmt->execute();
         $dtlkey = $dtlStmt->fetchColumn();
 
-        // Resolve ITEMCODE from ST_ITEM using DESCRIPTION first, then CODE
+        // Resolve ITEMCODE: custom lines use fixed code; catalog lines resolve from ST_ITEM
         $itemCode = null;
         $itemUom = null;
         $itemRate = null;
-        $itemLookup = $dbh->prepare('SELECT FIRST 1 CODE, UDF_UOM FROM ST_ITEM WHERE UPPER(DESCRIPTION) = UPPER(?)');
-        $itemLookup->execute([$product]);
-        $itemRow = $itemLookup->fetch(PDO::FETCH_ASSOC);
 
-        if ($itemRow && !empty($itemRow['CODE'])) {
-            $itemCode = $itemRow['CODE'];
-            $itemUom = trim((string)($itemRow['UDF_UOM'] ?? ''));
+        if ($source === 'custom') {
+            $itemCode = 'CUSTOM';
+            // Align UOM with ST_ITEM for CUSTOM (SL_QTDTL.UOM / RATE are NOT NULL in many schemas)
+            $custStmt = $dbh->prepare('SELECT FIRST 1 CODE, UDF_UOM FROM ST_ITEM WHERE UPPER(CODE) = UPPER(?)');
+            $custStmt->execute([$itemCode]);
+            $custRow = $custStmt->fetch(PDO::FETCH_ASSOC);
+            if ($custRow && !empty($custRow['CODE'])) {
+                $itemUom = trim((string)($custRow['UDF_UOM'] ?? ''));
+            }
         } else {
-            $itemLookupByCode = $dbh->prepare('SELECT FIRST 1 CODE, UDF_UOM FROM ST_ITEM WHERE UPPER(CODE) = UPPER(?)');
-            $itemLookupByCode->execute([$product]);
-            $itemCodeRow = $itemLookupByCode->fetch(PDO::FETCH_ASSOC);
-            if ($itemCodeRow && !empty($itemCodeRow['CODE'])) {
-                $itemCode = $itemCodeRow['CODE'];
-                $itemUom = trim((string)($itemCodeRow['UDF_UOM'] ?? ''));
+            $itemLookup = $dbh->prepare('SELECT FIRST 1 CODE, UDF_UOM FROM ST_ITEM WHERE UPPER(DESCRIPTION) = UPPER(?)');
+            $itemLookup->execute([$product]);
+            $itemRow = $itemLookup->fetch(PDO::FETCH_ASSOC);
+
+            if ($itemRow && !empty($itemRow['CODE'])) {
+                $itemCode = $itemRow['CODE'];
+                $itemUom = trim((string)($itemRow['UDF_UOM'] ?? ''));
+            } else {
+                $itemLookupByCode = $dbh->prepare('SELECT FIRST 1 CODE, UDF_UOM FROM ST_ITEM WHERE UPPER(CODE) = UPPER(?)');
+                $itemLookupByCode->execute([$product]);
+                $itemCodeRow = $itemLookupByCode->fetch(PDO::FETCH_ASSOC);
+                if ($itemCodeRow && !empty($itemCodeRow['CODE'])) {
+                    $itemCode = $itemCodeRow['CODE'];
+                    $itemUom = trim((string)($itemCodeRow['UDF_UOM'] ?? ''));
+                }
+            }
+
+            if (!$itemCode) {
+                echo json_encode([
+                    'success' => false,
+                    'error' => "Item code not found in ST_ITEM for product: {$product}"
+                ]);
+                exit;
             }
         }
 
-        // ITEMCODE must come from ST_ITEM.CODE
-        if (!$itemCode) {
-            echo json_encode([
-                'success' => false,
-                'error' => "Item code not found in ST_ITEM for product: {$product}"
-            ]);
-            exit;
+        // Custom lines: ensure NOT NULL UOM/RATE for PDO/Firebird when ST_ITEM has no UOM row
+        if ($source === 'custom') {
+            if ($itemUom === null || $itemUom === '') {
+                $itemUom = '----';
+            }
         }
 
         if ($itemCode && $itemUom !== '') {
@@ -261,6 +280,10 @@ try {
             if ($resolvedRate !== false && $resolvedRate !== null) {
                 $itemRate = (float)$resolvedRate;
             }
+        }
+
+        if ($source === 'custom' && ($itemRate === null)) {
+            $itemRate = 1.0;
         }
 
         // DESCRIPTION in SL_QTDTL is VARCHAR(200)

@@ -4,14 +4,39 @@ These functions encapsulate the request payload mapping and PHP endpoint calls
 for quotation create/update and draft save flows.
 """
 
+import json
+
 import requests
+
+
+def _decode_php_json_response(response, endpoint_path):
+    """Parse JSON from PHP; return a dict or a failed-result dict if body is empty/HTML."""
+    text = (response.text or "").strip()
+    if not text:
+        return {
+            "success": False,
+            "error": (
+                f"Empty response from {endpoint_path} (HTTP {response.status_code}). "
+                "Check that Apache/PHP is running and BASE_API_URL points at your web root."
+            ),
+        }
+    try:
+        return response.json()
+    except json.JSONDecodeError:
+        snippet = text[:400].replace("\n", " ")
+        return {
+            "success": False,
+            "error": (
+                f"Non-JSON response from {endpoint_path} (HTTP {response.status_code}): {snippet}"
+            ),
+        }
 
 
 def create_or_update_quotation(base_api_url, customer_code, data):
     """Create or update a quotation via PHP endpoints.
 
-    Returns the decoded JSON payload from the PHP endpoint.
-    Raises exceptions from requests/json parsing to the caller.
+    Returns a dict from the PHP JSON body, or ``{'success': False, 'error': ...}``
+    if the response is empty or not valid JSON.
     """
     dockey = data.get('dockey')
 
@@ -30,7 +55,7 @@ def create_or_update_quotation(base_api_url, customer_code, data):
             },
             timeout=10,
         )
-        return response.json()
+        return _decode_php_json_response(response, "updateDraftQuotation.php")
 
     response = requests.post(
         f"{base_api_url}/php/insertQuotationToAccounting.php",
@@ -48,14 +73,14 @@ def create_or_update_quotation(base_api_url, customer_code, data):
         },
         timeout=10,
     )
-    return response.json()
+    return _decode_php_json_response(response, "insertQuotationToAccounting.php")
 
 
 def save_draft_quotation(base_api_url, customer_code, data):
     """Save a quotation draft via PHP endpoint.
 
-    Returns the decoded JSON payload from the PHP endpoint.
-    Raises exceptions from requests/json parsing to the caller.
+    Returns a dict from the PHP JSON body, or ``{'success': False, 'error': ...}``
+    if the response is empty or not valid JSON.
     """
     payload = {
         "dockey": data.get('dockey'),
@@ -75,4 +100,4 @@ def save_draft_quotation(base_api_url, customer_code, data):
         json=payload,
         timeout=10,
     )
-    return response.json()
+    return _decode_php_json_response(response, "saveDraftQuotation.php")
