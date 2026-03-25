@@ -1,0 +1,95 @@
+/* Admin View All Quotations — force left-aligned rows (overrides inherited flex) */
+
+.admin-quotations-view {
+    text-align: left;
+}
+
+.admin-quotations-view .quotation-card {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    text-align: left;
+}
+
+.admin-quotations-view .quotation-card__row {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: wrap !important;
+    justify-content: flex-start !important;
+    align-content: flex-start !important;
+    align-items: center !important;
+    width: 100% !important;
+    box-sizing: border-box;
+    gap: 10px 14px !important;
+}
+
+/* Nothing in the row grows to fill space — keeps RM + buttons at the start */
+.admin-quotations-view .quotation-card__row > * {
+    flex: 0 0 auto !important;
+}
+
+.admin-quotations-view .quotation-card__actions {
+    display: inline-flex !important;
+    flex: 0 0 auto !important;
+    align-items: center !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+    margin-left: 0 !important;
+}
+
+/* Expanded line items: fixed columns so every row lines up */
+.admin-quotations-view .quotation-items-table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+}
+
+.admin-quotations-view .quotation-items-table thead th {
+    color: #9ba7b6;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 8px 10px;
+    vertical-align: bottom;
+    border-bottom: 1px solid #3d4654;
+}
+
+.admin-quotations-view .quotation-items-table thead th:first-child {
+    text-align: left;
+}
+
+.admin-quotations-view .quotation-items-table thead th:not(:first-child) {
+    text-align: right;
+}
+
+.admin-quotations-view .quotation-items-table tbody td {
+    color: #e4e9f1;
+    font-size: 13px;
+    padding: 8px 10px;
+    vertical-align: top;
+    border-top: 1px solid #3d4654;
+    box-sizing: border-box;
+}
+
+.admin-quotations-view .quotation-items-table tbody td:first-child {
+    text-align: left;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.admin-quotations-view .quotation-items-table tbody td:not(:first-child) {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.admin-quotations-view .quotation-items-table .quotation-items-total td {
+    vertical-align: middle;
+    font-weight: bold;
+    background: #232a36;
+    color: #f5b301;
+    border-top: 1px solid #3d4654;
+}
+
+.admin-quotations-view .quotation-items-table .quotation-items-total td:first-child {
+    text-align: right;
+}

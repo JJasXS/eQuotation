@@ -146,7 +146,7 @@ async function loadQuotations() {
         console.log('[DEBUG] Filtered caches - Active:', activeQuotationsCache.length, 'Cancelled:', cancelledQuotationsCache.length, 'Pending:', pendingQuotationsCache.length);
 
         const html = `
-            <div style="padding: 16px;">
+            <div class="admin-quotations-view" style="padding: 16px;">
                 <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px;">
                     <select id="company-filter-dropdown" style="padding: 8px 12px; border-radius: 6px; border: 1px solid #3d4654; background: #232a36; color: #e4e9f1; font-size: 13px; width: 240px;">
                         <option value="">All Companies</option>
@@ -208,7 +208,11 @@ function setQuotationTab(tabName) {
 
     document.querySelectorAll('.quotation-card').forEach(card => {
         card.addEventListener('click', function(e) {
-            if (!e.target.closest('.edit-button') && !e.target.closest('.toggle-cancelled-btn')) {
+            if (
+                !e.target.closest('.edit-button')
+                && !e.target.closest('.activate-btn')
+                && !e.target.closest('.toggle-cancelled-btn')
+            ) {
                 toggleQuotationItems(this);
             }
         });
@@ -228,46 +232,25 @@ function renderQuotationList(list, options = {}) {
         const amount = Number(qt.DOCAMT || 0).toFixed(2);
         const docDate = qt.DOCDATE || '-';
         const validity = qt.VALIDITY || '-';
-        const description = qt.DESCRIPTION || 'Quotation';
         const companyName = qt.COMPANYNAME || 'N/A';
         const customerCode = qt.CODE || 'N/A';
         const borderColor = isPending ? '#b0892f' : (isCancelled ? '#a65c5c' : '#4b6e9e');
         const badgeColor = isPending ? '#b0892f' : (isCancelled ? '#a65c5c' : '#4b6e9e');
 
-        const email = qt.EMAIL || '-';
-        const phone = qt.PHONE1 || '-';
-        const terms = qt.TERMS || '-';
-        const address1 = qt.ADDRESS1 || '-';
-        const address2 = qt.ADDRESS2 || '-';
-        const address3 = qt.ADDRESS3 || '-';
-        const address4 = qt.ADDRESS4 || '-';
-
         html += `
-            <div class="quotation-card" data-dockey="${qt.DOCKEY}" style="background: #2d3440; padding: 12px; margin-bottom: 12px; border-radius: 8px; border-left: 3px solid ${borderColor}; cursor: pointer; width: auto;">
-                <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 12px;">
-                    <span class="expand-arrow" style="color: #9ba7b6; font-size: 12px; transition: transform 0.2s; flex-shrink: 0;">?</span>
-                    <span style="font-weight: 600; color: #e4e9f1; flex-shrink: 0;">${qt.DOCNO || ('DOCKEY #' + qt.DOCKEY)}</span>
+            <div class="quotation-card" data-dockey="${qt.DOCKEY}" style="background: #2d3440; padding: 12px; margin-bottom: 12px; border-radius: 8px; border-left: 3px solid ${borderColor}; cursor: pointer;">
+                <div class="quotation-card__row">
+                    <span class="expand-arrow" style="color: #9ba7b6; font-size: 11px; transition: transform 0.2s;">▼</span>
+                    <span style="font-weight: 600; color: #e4e9f1;">${qt.DOCNO || ('DOCKEY #' + qt.DOCKEY)}</span>
                     <span style="color: #9ba7b6; font-size: 13px;">Customer: ${companyName} (${customerCode})</span>
                     <span style="color: #9ba7b6; font-size: 13px; white-space: nowrap;">Date: ${docDate} | Valid Until: ${validity}</span>
-                    <span style="background: ${badgeColor}; color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 12px; flex-shrink: 0;">RM ${amount}</span>
-                    ${isPending ? `<button class="edit-button" onclick="editQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #5a8fc4; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; white-space: nowrap; flex-shrink: 0;">Edit</button>` : ''}
-                    ${isPending ? `<button class="activate-btn" onclick="activateQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #4b9e6e; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; white-space: nowrap; flex-shrink: 0;">Activate</button>` : ''}
-                    ${!isPending && !isCancelled ? `<button class="toggle-cancelled-btn" onclick="console.log('[BUTTON CLICK] DOCKEY:', ${qt.DOCKEY}, 'isCancelled param:', ${isCancelled}); event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, ${isCancelled});" style="background: #a65c5c; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; white-space: nowrap; flex-shrink: 0;">Cancel</button>` : ''}
-                    ${isCancelled ? `<button class="toggle-cancelled-btn" onclick="console.log('[BUTTON CLICK] DOCKEY:', ${qt.DOCKEY}, 'isCancelled param:', ${isCancelled}); event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, ${isCancelled});" style="background: #4b6e9e; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; white-space: nowrap; flex-shrink: 0;">Restore</button>` : ''}
-                </div>
-                <div style="background: #232a36; padding: 10px; border-radius: 4px; margin-bottom: 12px;">
-                    <div style="display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-bottom: 8px; font-size: 12px; color: #9ba7b6;">
-                        <div><strong>Email:</strong> ${email}</div>
-                        <div><strong>Company:</strong> ${companyName}</div>
-                        <div><strong>Phone:</strong> ${phone}</div>
-                        <div><strong>Terms:</strong> ${terms}</div>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; font-size: 12px; color: #9ba7b6;">
-                        <div><strong>ADDRESS1:</strong> ${address1}</div>
-                        <div><strong>ADDRESS2:</strong> ${address2}</div>
-                        <div><strong>ADDRESS3:</strong> ${address3}</div>
-                        <div><strong>ADDRESS4:</strong> ${address4}</div>
-                    </div>
+                    <span class="quotation-card__actions">
+                        <span style="background: ${badgeColor}; color: #fff; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; white-space: nowrap;">RM ${amount}</span>
+                        ${isPending ? `<button class="edit-button" onclick="editQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #5a8fc4; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Edit</button>` : ''}
+                        ${isPending ? `<button class="activate-btn" onclick="activateQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #4b9e6e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Activate</button>` : ''}
+                        ${!isPending && !isCancelled ? `<button class="toggle-cancelled-btn" onclick="console.log('[BUTTON CLICK] DOCKEY:', ${qt.DOCKEY}, 'isCancelled param:', ${isCancelled}); event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, ${isCancelled});" style="background: #a65c5c; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Cancel</button>` : ''}
+                        ${isCancelled ? `<button class="toggle-cancelled-btn" onclick="console.log('[BUTTON CLICK] DOCKEY:', ${qt.DOCKEY}, 'isCancelled param:', ${isCancelled}); event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, ${isCancelled});" style="background: #4b6e9e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Restore</button>` : ''}
+                    </span>
                 </div>
                 <div class="quotation-items" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid #3d4654;">
                     <div style="text-align: center; color: #888; padding: 8px;">Loading items...</div>
@@ -297,13 +280,14 @@ async function toggleQuotationItems(card) {
                     if (items.length === 0) {
                         itemsHtml = '<div style="color: #888; padding: 8px; text-align: center;">No items</div>';
                     } else {
-                        itemsHtml = '<table style="width: 100%; border-collapse: collapse;">';
-                            itemsHtml += '<thead><tr style="color: #9ba7b6; font-size: 12px; text-align: left;">';
-                            itemsHtml += '<th style="padding: 6px;">Item</th>';
-                            itemsHtml += '<th style="padding: 6px; text-align: right;">Price</th>';
-                            itemsHtml += '<th style="padding: 6px; text-align: right;">Qty</th>';
-                            itemsHtml += '<th style="padding: 6px; text-align: right;">Discount</th>';
-                            itemsHtml += '<th style="padding: 6px; text-align: right;">Subtotal</th>';
+                        itemsHtml = '<table class="quotation-items-table">';
+                            itemsHtml += '<colgroup><col style="width:36%" /><col style="width:16%" /><col style="width:14%" /><col style="width:16%" /><col style="width:18%" /></colgroup>';
+                            itemsHtml += '<thead><tr>';
+                            itemsHtml += '<th scope="col">Item</th>';
+                            itemsHtml += '<th scope="col">Price</th>';
+                            itemsHtml += '<th scope="col">Qty</th>';
+                            itemsHtml += '<th scope="col">Discount</th>';
+                            itemsHtml += '<th scope="col">Subtotal</th>';
                             itemsHtml += '</tr></thead><tbody>';
 
                             let total = 0;
@@ -313,15 +297,15 @@ async function toggleQuotationItems(card) {
                                 const discount = Number(item.DISC || 0).toFixed(2);
                                 const amount = Math.max(0, (item.QTY * item.UNITPRICE) - (item.DISC || 0)).toFixed(2);
                                 total += parseFloat(amount);
-                                itemsHtml += '<tr style="color: #e4e9f1; font-size: 13px; border-top: 1px solid #3d4654;">';
-                                itemsHtml += `<td style="padding: 8px 6px;"><div style="font-weight: 500;">${item.ITEMCODE}</div><div style="color: #9ba7b6; font-size: 11px;">${item.DESCRIPTION}</div></td>`;
-                                itemsHtml += `<td style="padding: 8px 6px; text-align: right;">RM ${price}</td>`;
-                                itemsHtml += `<td style="padding: 8px 6px; text-align: right;">${qty}</td>`;
-                                itemsHtml += `<td style="padding: 8px 6px; text-align: right;">RM ${discount}</td>`;
-                                itemsHtml += `<td style="padding: 8px 6px; text-align: right; font-weight: 600;">RM ${amount}</td>`;
+                                itemsHtml += '<tr>';
+                                itemsHtml += `<td><div style="font-weight: 500;">${item.ITEMCODE}</div><div style="color: #9ba7b6; font-size: 11px;">${item.DESCRIPTION}</div></td>`;
+                                itemsHtml += `<td>RM ${price}</td>`;
+                                itemsHtml += `<td>${qty}</td>`;
+                                itemsHtml += `<td>RM ${discount}</td>`;
+                                itemsHtml += `<td style="font-weight: 600;">RM ${amount}</td>`;
                                 itemsHtml += '</tr>';
                             });
-                            itemsHtml += `<tr style="background: #232a36; color: #f5b301; font-weight: bold;"><td colspan="4" style="padding: 8px 6px; text-align: right;">TOTAL</td><td style="padding: 8px 6px; text-align: right; font-weight: bold;">RM ${total.toFixed(2)}</td></tr>`;
+                            itemsHtml += `<tr class="quotation-items-total"><td colspan="4">TOTAL</td><td>RM ${total.toFixed(2)}</td></tr>`;
                             itemsHtml += '</tbody></table>';
                     }
 
