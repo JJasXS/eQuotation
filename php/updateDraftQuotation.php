@@ -218,9 +218,10 @@ try {
         
         $detailInsert = $dbh->prepare('
             INSERT INTO SL_QTDTL (
-                DTLKEY, DOCKEY, SEQ, ITEMCODE, DESCRIPTION, QTY, 
-                UOM, RATE, UNITPRICE, DISC, AMOUNT, UDF_STDPRICE, DELIVERYDATE, IRBM_CLASSIFICATION
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                DTLKEY, DOCKEY, SEQ, ITEMCODE, DESCRIPTION, QTY,
+                UOM, RATE, UNITPRICE, DISC, AMOUNT, UDF_STDPRICE, DELIVERYDATE, IRBM_CLASSIFICATION,
+                SUOMQTY, TAXAMT, LOCALTAXAMT, EXEMPTED_TAXAMT, TAXINCLUSIVE, PRINTABLE, TRANSFERABLE, INITIALPURCHASECOST
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ');
         $detailInsert->execute([
             $dtlkey,
@@ -236,7 +237,15 @@ try {
             $amount,
             null,
             $deliveryDate,
-            '022'
+            '022',
+            0,
+            0,
+            0,
+            0,
+            true,
+            true,
+            true,
+            0,
         ]);
         
         $seq++;
