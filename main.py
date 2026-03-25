@@ -858,37 +858,69 @@ def update_quotation_cancelled():
 @app.route('/api/create_signin_user', methods=['POST'])
 def create_signin_user():
     """Forward guest sign-in payload to PHP endpoint for AR_CUSTOMER inserts."""
-    data = request.get_json() or {}
+    if request.content_type and 'multipart/form-data' in request.content_type:
+        # Handle multipart/form-data
+        data = request.form.to_dict()
+        files = request.files
+        # Apply same processing as JSON
+        data.pop('CUSTOMERCODE', None)
+        if 'COUNTRY' in data:
+            data['COUNTRY'] = _normalize_country_alpha2(data.get('COUNTRY'))
+        try:
+            postcode = (data.get('POSTCODE') or '').strip()
+            city = (data.get('CITY') or '').strip()
+            state = (data.get('STATE') or '').strip()
+            if postcode and (not city or not state):
+                hit = _lookup_postcode(postcode)
+                if hit:
+                    data['CITY'] = hit.get('city') or data.get('CITY') or ''
+                    data['STATE'] = hit.get('state') or data.get('STATE') or ''
+        except Exception as e:
+            print(f"[WARN] Failed to auto-fill CITY/STATE from postcode during sign-in: {e}")
+        validation_error = validate_registration_fields(data)
+        if validation_error:
+            return jsonify({'success': False, 'error': validation_error}), 400
+        php_url = f"{BASE_API_URL}/php/createSignInUser.php"
+        # Send as multipart
+        files_dict = {}
+        for key, file in files.items():
+            if file:
+                files_dict[key] = (file.filename, file.stream, file.mimetype)
+        response = requests.post(php_url, data=data, files=files_dict, timeout=10)
+    else:
+        # Handle JSON
+        data = request.get_json() or {}
 
-    # Customer code is always server-generated for guest sign-in.
-    data.pop('CUSTOMERCODE', None)
+        # Customer code is always server-generated for guest sign-in.
+        data.pop('CUSTOMERCODE', None)
 
-    # Normalize country to alpha-2 when possible (prevents Firebird truncation on CHAR(2)).
-    if 'COUNTRY' in data:
-        data['COUNTRY'] = _normalize_country_alpha2(data.get('COUNTRY'))
+        # Normalize country to alpha-2 when possible (prevents Firebird truncation on CHAR(2)).
+        if 'COUNTRY' in data:
+            data['COUNTRY'] = _normalize_country_alpha2(data.get('COUNTRY'))
 
-    # Ensure CITY/STATE are populated from postcode when possible.
-    # (Frontend auto-fill can be blocked by caching/JS issues; backend must be authoritative.)
-    try:
-        postcode = (data.get('POSTCODE') or '').strip()
-        city = (data.get('CITY') or '').strip()
-        state = (data.get('STATE') or '').strip()
-        if postcode and (not city or not state):
-            hit = _lookup_postcode(postcode)
-            if hit:
-                data['CITY'] = hit.get('city') or data.get('CITY') or ''
-                data['STATE'] = hit.get('state') or data.get('STATE') or ''
-    except Exception as e:
-        print(f"[WARN] Failed to auto-fill CITY/STATE from postcode during sign-in: {e}")
+        # Ensure CITY/STATE are populated from postcode when possible.
+        # (Frontend auto-fill can be blocked by caching/JS issues; backend must be authoritative.)
+        try:
+            postcode = (data.get('POSTCODE') or '').strip()
+            city = (data.get('CITY') or '').strip()
+            state = (data.get('STATE') or '').strip()
+            if postcode and (not city or not state):
+                hit = _lookup_postcode(postcode)
+                if hit:
+                    data['CITY'] = hit.get('city') or data.get('CITY') or ''
+                    data['STATE'] = hit.get('state') or data.get('STATE') or ''
+        except Exception as e:
+            print(f"[WARN] Failed to auto-fill CITY/STATE from postcode during sign-in: {e}")
 
-    # Server-side validation (secure)
-    validation_error = validate_registration_fields(data)
-    if validation_error:
-        return jsonify({'success': False, 'error': validation_error}), 400
+        # Server-side validation (secure)
+        validation_error = validate_registration_fields(data)
+        if validation_error:
+            return jsonify({'success': False, 'error': validation_error}), 400
 
-    try:
         php_url = f"{BASE_API_URL}/php/createSignInUser.php"
         response = requests.post(php_url, json=data, timeout=10)
+
+    try:
         response.raise_for_status()
         result = response.json()
 

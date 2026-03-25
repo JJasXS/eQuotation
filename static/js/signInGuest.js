@@ -6,10 +6,17 @@ function handleGuestSignIn(event) {
     const payloadPreview = document.getElementById('payload-preview');
 
     const formData = new FormData(form);
-    const payload = Object.fromEntries(formData.entries());
 
-    // Keep visible mapping of frontend field keys for backend payload verification.
-    payloadPreview.textContent = JSON.stringify(payload, null, 2);
+    // For preview, convert FormData to object (excluding files)
+    const previewData = {};
+    for (let [key, value] of formData.entries()) {
+        if (value instanceof File) {
+            previewData[key] = `${value.name} (${(value.size / 1024).toFixed(2)} KB)`;
+        } else {
+            previewData[key] = value;
+        }
+    }
+    payloadPreview.textContent = JSON.stringify(previewData, null, 2);
     payloadPreview.classList.add('show');
 
     const submitBtn = form.querySelector('.btn-submit');
@@ -18,10 +25,7 @@ function handleGuestSignIn(event) {
 
     fetch('/api/create_signin_user', {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
+        body: formData
     })
         .then((res) => res.json())
         .then((data) => {

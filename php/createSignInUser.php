@@ -19,8 +19,15 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $data = json_decode(file_get_contents('php://input'), true);
 if (!is_array($data)) {
-    echo json_encode(['success' => false, 'error' => 'Invalid JSON payload']);
-    exit;
+    // Check if it's multipart/form-data or has POST data
+    if (!empty($_POST)) {
+        $data = $_POST;
+    } elseif ($_SERVER['CONTENT_TYPE'] && strpos($_SERVER['CONTENT_TYPE'], 'multipart/form-data') !== false) {
+        $data = $_POST;
+    } else {
+        echo json_encode(['success' => false, 'error' => 'Invalid JSON payload']);
+        exit;
+    }
 }
 
 $companyName = trim($data['COMPANYNAME'] ?? '');
@@ -62,6 +69,7 @@ $mobile = trim($data['MOBILE'] ?? '');
 $fax1 = trim($data['FAX1'] ?? '');
 $fax2 = trim($data['FAX2'] ?? '');
 $branchEmail = trim($data['EMAIL'] ?? $udfEmail);
+$attachments = trim($data['ATTACHMENTS'] ?? '');
 
 if ($companyName === '' || $area === '' || $currencyInput === '' || $udfEmail === '' || $brn === '' || $brn2 === '' || $tin === '' || $address1 === '' || $postcode === '' || $attention === '' || $phone1 === '' || $branchType === '' || $branchName === '') {
     echo json_encode(['success' => false, 'error' => 'Missing required fields']);
@@ -137,6 +145,25 @@ try {
         $nextSeq++;
     } while ($exists > 0);
 
+    // Handle file uploads for attachments
+    $attachmentsDir = '';
+    if (isset($_FILES['ATTACHMENTS']) && is_array($_FILES['ATTACHMENTS']['name'])) {
+        $uploadDir = __DIR__ . '/../uploads/customers/' . $code . '/';
+        if (!is_dir($uploadDir)) {
+            mkdir($uploadDir, 0755, true);
+        }
+        $attachmentsDir = 'uploads/customers/' . $code . '/'; // Store relative path
+
+        foreach ($_FILES['ATTACHMENTS']['name'] as $key => $name) {
+            if ($_FILES['ATTACHMENTS']['error'][$key] === UPLOAD_ERR_OK) {
+                $tmpName = $_FILES['ATTACHMENTS']['tmp_name'][$key];
+                $safeName = preg_replace('/[^a-zA-Z0-9._-]/', '_', $name);
+                move_uploaded_file($tmpName, $uploadDir . $safeName);
+            }
+        }
+    }
+    $attachments = $attachmentsDir;
+
     // Apply required defaults for guest sign-in AR_CUSTOMER creation.
     $insertCustomer = $dbh->prepare('        
         INSERT INTO AR_CUSTOMER (
@@ -167,9 +194,10 @@ try {
             IDNO,
             CREATIONDATE,
             SUBMISSIONTYPE,
-            UDF_EMAIL
+            UDF_EMAIL,
+            ATTACHMENTS
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, TRUE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, TRUE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?)
     ');
     $insertCustomer->execute([
         $code,
@@ -184,21 +212,9 @@ try {
         'O',
         $currencyCode,
         0,
-        TRUE,     // ALLOWEXCEEDCREDITLIMIT
-        TRUE,     // ADDPDCTOCRLIMIT
         'I',      // AGINGON (FIXED: should be 'I' not 'P')
         'P',      // STATUS: P for Prospect/Pending (FIXED: should be 'P' not 'A')
-        $brn,
-        $brn2,
-        $tin,
-        $salesTaxNo,
-        $serviceTaxNo,
-        $taxExemptNo,
-        $taxExpDate,
-        1,
-        $brn2,
-        17,
-        $udfEmail
+        $brn, $brn2, $tin, $salesTaxNo, $serviceTaxNo, $taxExemptNo, $taxExpDate, 1, $brn2, 17, $udfEmail
     ]);
 
     $dtlkey = generateDTLKEY($dbh);

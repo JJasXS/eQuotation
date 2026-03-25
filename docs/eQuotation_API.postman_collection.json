@@ -1,0 +1,182 @@
+{
+  "info": {
+    "_postman_id": "equotation-api-collection",
+    "name": "eQuotation API",
+    "description": "REST API collection for eQuotation system",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health & Info",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Access-Key",
+                "value": "{{api_access_key}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Secret-Key",
+                "value": "{{api_secret_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/health",
+              "host": ["{{base_url}}"],
+              "path": ["api", "health"]
+            }
+          }
+        },
+        {
+          "name": "API Info",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/",
+              "host": ["{{base_url}}"],
+              "path": ["api", ""]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Customers",
+      "item": [
+        {
+          "name": "Create Customer",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "X-Access-Key",
+                "value": "{{api_access_key}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Secret-Key",
+                "value": "{{api_secret_key}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"companyCode\": \"300-000\",\n  \"companyName\": \"Acme Corporation\",\n  \"phone1\": \"0123456789\",\n  \"email\": \"contact@acme.com\",\n  \"address1\": \"123 Main Street\",\n  \"address2\": \"Suite 100\",\n  \"postcode\": \"50000\",\n  \"city\": \"Kuala Lumpur\",\n  \"state\": \"Federal Territory\",\n  \"country\": \"Malaysia\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/customers",
+              "host": ["{{base_url}}"],
+              "path": ["api", "customers"]
+            }
+          }
+        },
+        {
+          "name": "Get Customer",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Access-Key",
+                "value": "{{api_access_key}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Secret-Key",
+                "value": "{{api_secret_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/customers/300-E0001",
+              "host": ["{{base_url}}"],
+              "path": ["api", "customers", "300-E0001"]
+            }
+          }
+        },
+        {
+          "name": "Update Customer",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "X-Access-Key",
+                "value": "{{api_access_key}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Secret-Key",
+                "value": "{{api_secret_key}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"companyName\": \"Updated Acme Corporation\",\n  \"phone1\": \"0198765432\",\n  \"email\": \"newemail@acme.com\",\n  \"address1\": \"456 New Avenue\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/customers/300-E0001",
+              "host": ["{{base_url}}"],
+              "path": ["api", "customers", "300-E0001"]
+            }
+          }
+        },
+        {
+          "name": "Delete Customer",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-Access-Key",
+                "value": "{{api_access_key}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Secret-Key",
+                "value": "{{api_secret_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/customers/300-E0001",
+              "host": ["{{base_url}}"],
+              "path": ["api", "customers", "300-E0001"]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "api_access_key",
+      "value": "your-secure-access-key",
+      "type": "string"
+    },
+    {
+      "key": "api_secret_key",
+      "value": "your-secure-secret-key",
+      "type": "string"
+    }
+  ]
+}
