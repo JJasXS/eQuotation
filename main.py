@@ -2842,14 +2842,20 @@ def api_admin_update_quotation():
     if not items:
         return jsonify({'success': False, 'error': 'At least one item is required'}), 400
     
-    # Format data for PHP endpoint
+    # Format data for PHP endpoint (must match updateDraftQuotation.php fields)
     update_data = {
         'dockey': dockey,
+        'description': (data.get('description') or 'Quotation').strip(),
         'validUntil': data.get('validUntil'),
+        'companyName': data.get('companyName'),
+        'address1': data.get('address1'),
+        'address2': data.get('address2'),
+        'address3': data.get('address3'),
+        'address4': data.get('address4'),
+        'phone1': data.get('phone1'),
         'items': items,
-        'cancelled': False  # Set to active when updating
     }
-    
+
     try:
         # Use the update draft quotation endpoint
         response = requests.post(
@@ -2857,7 +2863,13 @@ def api_admin_update_quotation():
             json=update_data,
             timeout=10
         )
-        result = response.json()
+        try:
+            result = response.json()
+        except ValueError:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid response from quotation service',
+            }), 502
         print(f"[EDIT DEBUG] UpdateDraftQuotation response success: {result.get('success')}")
         
         # If update successful, send email to customer

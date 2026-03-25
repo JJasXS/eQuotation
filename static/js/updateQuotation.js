@@ -135,27 +135,42 @@ window.alert = function(message) {
 let availableProducts = [];
 let quotationData = null;
 
-// Add Quotation Item
+function formatDateInput(value) {
+    if (!value) return '';
+    const s = String(value).trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? '' : d.toISOString().split('T')[0];
+}
+
+// Add Quotation Item (same column layout as create quotation)
 function addQuotationItem() {
     const container = document.getElementById('quotation-items-list');
+    const today = new Date().toISOString().split('T')[0];
     const newItem = document.createElement('div');
     newItem.className = 'order-item';
     newItem.innerHTML = `
         <div class="item-row">
+            <select class="item-source" onchange="onProductSourceChange(this)">
+                <option value="catalog">From catalog</option>
+                <option value="custom">Custom order</option>
+            </select>
             <select class="item-product" onchange="fetchProductPrice(this)">
                 <option value="">Select product...</option>
             </select>
+            <input type="text" class="item-product-custom" placeholder="Custom product" style="display:none;" onchange="fetchProductPrice(this)">
             <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
-            <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
+            <input type="number" class="item-discount" placeholder="Discount (RM)" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
+            <input type="number" class="item-suggested-price" placeholder="Suggested Price" step="0.01" min="0" readonly>
             <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" onchange="calculateQuotationTotal()">
+            <input type="date" class="item-delivery-date" value="${today}">
             <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
         </div>
     `;
     container.appendChild(newItem);
-    
-    // Populate the new select with products
     const select = newItem.querySelector('.item-product');
     populateProductSelect(select);
+    onProductSourceChange(newItem.querySelector('.item-source'));
 }
 
 // Remove Quotation Item
@@ -169,36 +184,81 @@ function removeQuotationItem(button) {
     }
 }
 
-// Calculate Quotation Total
+// Calculate Quotation Total (fixed RM discount per line — same as create quotation)
 function calculateQuotationTotal() {
     const items = document.querySelectorAll('#quotation-items-list .order-item');
     let total = 0;
-    
+
     items.forEach(item => {
         const qty = parseFloat(item.querySelector('.item-qty').value) || 0;
-        const price = parseFloat(item.querySelector('.item-price').value) || 0;
-        const discountPct = parseFloat(item.querySelector('.item-discount')?.value) || 0;
-        const lineSubtotal = qty * price;
-        const discountAmount = discountPct > 0 ? (lineSubtotal * discountPct / 100) : 0;
+        const unitPrice = parseFloat(item.querySelector('.item-price')?.value) || 0;
+        const discount = parseFloat(item.querySelector('.item-discount')?.value) || 0;
+        const lineSubtotal = qty * unitPrice;
+        const discountAmount = discount > 0 ? discount : 0;
         total += Math.max(0, lineSubtotal - discountAmount);
     });
-    
+
     document.getElementById('quotation-total').textContent = `RM ${total.toFixed(2)}`;
 }
 
-// Fetch product price when a product is selected
+function onProductSourceChange(selectElement) {
+    const row = selectElement.closest('.item-row');
+    const catalogSelect = row.querySelector('.item-product');
+    const customInput = row.querySelector('.item-product-custom');
+    const suggestedPriceInput = row.querySelector('.item-suggested-price');
+    const priceInput = row.querySelector('.item-price');
+
+    if (selectElement.value === 'custom') {
+        catalogSelect.style.display = 'none';
+        customInput.style.display = 'inline-block';
+        catalogSelect.value = '';
+        if (suggestedPriceInput) suggestedPriceInput.value = '';
+        priceInput.readOnly = false;
+    } else {
+        catalogSelect.style.display = 'inline-block';
+        customInput.style.display = 'none';
+        customInput.value = '';
+        priceInput.readOnly = true;
+    }
+}
+
+// Same pricing behaviour as create quotation (orderQuotation.js)
 async function fetchProductPrice(input) {
+    if (input.classList.contains('item-product-custom')) {
+        return;
+    }
+
     const productName = input.value.trim();
     if (!productName) return;
-    
-    const priceInput = input.closest('.item-row').querySelector('.item-price');
-    
+
+    const row = input.closest('.item-row');
+    const orderItem = input.closest('.order-item');
+    if (orderItem) {
+        orderItem.dataset.productDescription = productName;
+    }
+    const suggestedPriceInput = row.querySelector('.item-price');
+    const priceInput = row.querySelector('.item-suggested-price');
+
     try {
         const response = await fetch(`/api/get_product_price?description=${encodeURIComponent(productName)}`);
         const data = await response.json();
-        
+
         if (data.success && data.price !== undefined && data.price !== null) {
-            priceInput.value = data.price.toFixed(2);
+            if (suggestedPriceInput) {
+                if (data.suggestedPrice !== undefined && data.suggestedPrice !== null) {
+                    suggestedPriceInput.value = Number(data.suggestedPrice).toFixed(2);
+                } else {
+                    suggestedPriceInput.value = '';
+                }
+                const stItemPrice = Number(data.stItemPrice);
+                if (Number.isFinite(stItemPrice)) {
+                    priceInput.value = stItemPrice.toFixed(2);
+                } else {
+                    priceInput.value = data.price.toFixed(2);
+                }
+            } else if (priceInput) {
+                priceInput.value = data.price.toFixed(2);
+            }
             calculateQuotationTotal();
         }
     } catch (error) {
@@ -279,6 +339,10 @@ async function loadQuotationData(dockey) {
         document.getElementById('quotation-phone').value = quotation.PHONE1 || 'N/A';
         document.getElementById('quotation-address1').value = quotation.ADDRESS1 || 'N/A';
         document.getElementById('quotation-address2').value = quotation.ADDRESS2 || 'N/A';
+        const a3 = document.getElementById('quotation-address3');
+        const a4 = document.getElementById('quotation-address4');
+        if (a3) a3.value = quotation.ADDRESS3 || '';
+        if (a4) a4.value = quotation.ADDRESS4 || '';
         document.getElementById('quotation-terms').value = quotation.CREDITTERM || 'N/A';
         
         console.log('📝 Form fields populated');
@@ -304,33 +368,62 @@ async function loadQuotationData(dockey) {
             console.log('⚠️ No items, adding empty item');
             addQuotationItem();
         } else {
+            const today = new Date().toISOString().split('T')[0];
             items.forEach((item, index) => {
                 console.log(`📦 Item ${index}:`, item);
-                
+
+                const isCustom = String(item.ITEMCODE || '').trim().toUpperCase() === 'CUSTOM';
+                const sourceVal = isCustom ? 'custom' : 'catalog';
+                const delivery = formatDateInput(item.DELIVERYDATE) || today;
+
                 const newItemDiv = document.createElement('div');
                 newItemDiv.className = 'order-item';
                 newItemDiv.innerHTML = `
                     <div class="item-row">
+                        <select class="item-source" onchange="onProductSourceChange(this)">
+                            <option value="catalog">From catalog</option>
+                            <option value="custom">Custom order</option>
+                        </select>
                         <select class="item-product" onchange="fetchProductPrice(this)">
                             <option value="">Select product...</option>
                         </select>
+                        <input type="text" class="item-product-custom" placeholder="Custom product" style="display:none;" value="" onchange="fetchProductPrice(this)">
                         <input type="number" class="item-qty" placeholder="Qty" min="1" value="${item.QTY || 1}" onchange="calculateQuotationTotal()">
-                        <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="${item.DISC || 0}" onchange="calculateQuotationTotal()">
-                        <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" value="${item.UNITPRICE || 0}" onchange="calculateQuotationTotal()">
+                        <input type="number" class="item-discount" placeholder="Discount (RM)" step="0.01" min="0" value="${item.DISC || 0}" onchange="calculateQuotationTotal()">
+                        <input type="number" class="item-suggested-price" placeholder="Suggested Price" step="0.01" min="0" readonly value="${Number(item.UDF_STDPRICE || 0).toFixed(2)}">
+                        <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" value="${Number(item.UNITPRICE || 0).toFixed(2)}" onchange="calculateQuotationTotal()">
+                        <input type="date" class="item-delivery-date" value="${delivery}">
                         <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
                     </div>
                 `;
                 container.appendChild(newItemDiv);
-                
-                // Populate select and set value
+
+                const sourceSel = newItemDiv.querySelector('.item-source');
                 const select = newItemDiv.querySelector('.item-product');
+                const customIn = newItemDiv.querySelector('.item-product-custom');
+
+                sourceSel.value = sourceVal;
                 populateProductSelect(select);
-                console.log(`🔤 Setting product value to: "${item.DESCRIPTION}"`);
-                // Set the description after products are loaded
-                setTimeout(() => {
-                    select.value = item.DESCRIPTION || '';
-                    console.log(`✓ Product set`);
-                }, 100);
+
+                if (!isCustom && item.DESCRIPTION) {
+                    const d = String(item.DESCRIPTION);
+                    const found = Array.from(select.options).some(o => o.value === d);
+                    if (!found) {
+                        const opt = document.createElement('option');
+                        opt.value = d;
+                        opt.textContent = d;
+                        select.appendChild(opt);
+                    }
+                    select.value = d;
+                }
+                if (isCustom) {
+                    customIn.value = item.DESCRIPTION || '';
+                }
+
+                onProductSourceChange(sourceSel);
+                if (isCustom) {
+                    newItemDiv.querySelector('.item-price').readOnly = false;
+                }
             });
         }
         
@@ -382,22 +475,31 @@ document.addEventListener('DOMContentLoaded', async () => {
             
             const items = [];
             document.querySelectorAll('#quotation-items-list .order-item').forEach(item => {
-                const productElement = item.querySelector('.item-product');
-                const product = productElement.options[productElement.selectedIndex]?.value.trim();
+                const source = item.querySelector('.item-source')?.value || 'catalog';
+                let product = '';
+                if (source === 'custom') {
+                    product = item.querySelector('.item-product-custom')?.value.trim() || '';
+                } else {
+                    const productElement = item.querySelector('.item-product');
+                    if (productElement) {
+                        product = productElement.options[productElement.selectedIndex]?.value.trim() || '';
+                    }
+                }
                 const qty = parseFloat(item.querySelector('.item-qty').value) || 0;
                 const price = parseFloat(item.querySelector('.item-price').value) || 0;
                 const discount = parseFloat(item.querySelector('.item-discount')?.value) || 0;
-                
+                const deliveryDate = item.querySelector('.item-delivery-date')?.value || null;
+
                 if (product && qty > 0 && price >= 0) {
-                    items.push({ product, qty, price, discount });
+                    items.push({ product, source, qty, price, discount, deliveryDate });
                 }
             });
-            
+
             if (items.length === 0) {
                 alert('Please add at least one valid item');
                 return;
             }
-            
+
             const updateData = {
                 dockey: dockey,
                 description: 'Quotation',
@@ -405,6 +507,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 companyName: document.getElementById('quotation-company').value.trim(),
                 address1: document.getElementById('quotation-address1').value.trim(),
                 address2: document.getElementById('quotation-address2').value.trim(),
+                address3: document.getElementById('quotation-address3')?.value.trim() || '',
+                address4: document.getElementById('quotation-address4')?.value.trim() || '',
                 phone1: document.getElementById('quotation-phone').value.trim(),
                 items: items
             };
