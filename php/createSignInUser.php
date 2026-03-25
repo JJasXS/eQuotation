@@ -47,6 +47,13 @@ $phone1 = trim($data['PHONE1'] ?? '');
 // Keep payload values optional; let database decide defaults.
 $branchName = trim($data['BRANCHNAME'] ?? '');
 $branchType = trim($data['BRANCHTYPE'] ?? '');
+// Set defaults if empty to ensure SQL Account compatibility
+if ($branchType === '') {
+    $branchType = 'B';
+}
+if ($branchName === '') {
+    $branchName = 'BILLING';
+}
 $city = trim($data['CITY'] ?? '');
 $state = trim($data['STATE'] ?? '');
 $country = trim($data['COUNTRY'] ?? '');
@@ -56,7 +63,7 @@ $fax1 = trim($data['FAX1'] ?? '');
 $fax2 = trim($data['FAX2'] ?? '');
 $branchEmail = trim($data['EMAIL'] ?? $udfEmail);
 
-if ($companyName === '' || $area === '' || $currencyInput === '' || $udfEmail === '' || $brn === '' || $brn2 === '' || $tin === '' || $address1 === '' || $postcode === '' || $attention === '' || $phone1 === '') {
+if ($companyName === '' || $area === '' || $currencyInput === '' || $udfEmail === '' || $brn === '' || $brn2 === '' || $tin === '' || $address1 === '' || $postcode === '' || $attention === '' || $phone1 === '' || $branchType === '' || $branchName === '') {
     echo json_encode(['success' => false, 'error' => 'Missing required fields']);
     exit;
 }
@@ -177,8 +184,10 @@ try {
         'O',
         $currencyCode,
         0,
-        'I',
-        'P',
+        TRUE,     // ALLOWEXCEEDCREDITLIMIT
+        TRUE,     // ADDPDCTOCRLIMIT
+        'I',      // AGINGON (FIXED: should be 'I' not 'P')
+        'P',      // STATUS: P for Prospect/Pending (FIXED: should be 'P' not 'A')
         $brn,
         $brn2,
         $tin,
