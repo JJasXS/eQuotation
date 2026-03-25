@@ -855,6 +855,59 @@ def update_quotation_cancelled():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/admin/bulk_cancel_quotations', methods=['POST'])
+@api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
+def bulk_cancel_quotations():
+    """Bulk cancel multiple quotations (admin only)."""
+    data = request.get_json() or {}
+    dockey_list = data.get('dockeyList', [])
+
+    if not dockey_list or not isinstance(dockey_list, list):
+        return jsonify({'success': False, 'error': 'Invalid dockeyList'}), 400
+
+    try:
+        deleted_count = 0
+        failed_count = 0
+        errors = []
+
+        php_url = f"{BASE_API_URL}/php/updateQuotationCancelled.php"
+        
+        for dockey in dockey_list:
+            try:
+                response = requests.post(
+                    php_url,
+                    json={'dockey': dockey, 'cancelled': True},
+                    timeout=10
+                )
+                response.raise_for_status()
+                result = response.json()
+                
+                if result.get('success'):
+                    deleted_count += 1
+                else:
+                    failed_count += 1
+                    errors.append(f"DOCKEY {dockey}: {result.get('error', 'Unknown error')}")
+            except Exception as e:
+                failed_count += 1
+                errors.append(f"DOCKEY {dockey}: {str(e)}")
+
+        message = f"Deleted {deleted_count} quotation(s)"
+        if failed_count > 0:
+            message += f" ({failed_count} failed)"
+
+        return jsonify({
+            'success': True,
+            'deleted_count': deleted_count,
+            'failed_count': failed_count,
+            'message': message,
+            'errors': errors if errors else None
+        }), 200
+
+    except Exception as e:
+        print(f"Error bulk canceling quotations: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/create_signin_user', methods=['POST'])
 def create_signin_user():
     """Forward guest sign-in payload to PHP endpoint for AR_CUSTOMER inserts."""
@@ -1540,6 +1593,16 @@ def admin_view_quotations():
     """Display all quotations page (admin only)."""
     return render_protected_template(
         'adminViewQuotations.html',
+        require_admin=True,
+        user_type=session.get('user_type', ''),
+    )
+
+
+@app.route('/admin/delete-quotations')
+def admin_delete_quotations():
+    """Display delete quotations page (admin only)."""
+    return render_protected_template(
+        'deleteQuotations.html',
         require_admin=True,
         user_type=session.get('user_type', ''),
     )

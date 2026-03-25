@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Delete Quotations</title>
+    <link rel="stylesheet" href="/static/css/adminViewQuotations.css">
+    <link rel="stylesheet" href="/static/css/deleteQuotations.css">
+</head>
+<body>
+    <div class="admin-container">
+        <!-- Side Sidebar -->
+        <div style="display: flex; gap: 20px; width: 100%;">
+            <!-- Hamburger Menu -->
+            <div style="width: 100%;">
+                {% include 'components/admin_hamburger_menu.html' %}
+
+                <!-- Main Content -->
+                <main class="admin-content">
+                    <div class="admin-header">
+                        <h1>Delete Quotations</h1>
+                        <p>Select quotations to delete. Selected quotations will be marked as cancelled.</p>
+                    </div>
+
+                    <!-- Select All / Clear All Controls -->
+                    <div class="delete-controls">
+                        <label class="select-all-label">
+                            <input type="checkbox" id="select-all-checkbox"> Select All
+                        </label>
+                        <button id="bulk-delete-btn" class="btn-delete-bulk" disabled>
+                            Delete Selected
+                        </button>
+                        <span class="selected-count">0 selected</span>
+                    </div>
+
+                    <!-- Quotations List -->
+                    <div id="quotations-container" class="quotations-list">
+                        <div class="loading">Loading quotations...</div>
+                    </div>
+
+                </main>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div id="delete-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Confirm Delete</h2>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete <span id="delete-count">0</span> quotation(s)?</p>
+                <p class="warning-text">⚠️ This action will mark the quotations as cancelled. They cannot be easily recovered.</p>
+            </div>
+            <div class="modal-footer">
+                <button id="cancel-delete-btn" class="btn-cancel">Cancel</button>
+                <button id="confirm-delete-btn" class="btn-delete-confirm">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Success Message -->
+    <div id="success-message" class="success-message">
+        <span>✓ Quotations deleted successfully!</span>
+    </div>
+
+    <!-- Error Message -->
+    <div id="error-message" class="error-message">
+        <span></span>
+    </div>
+
+    <script src="/static/js/deleteQuotations.js"></script>
+    <script src="/static/js/admin_hamburger_menu.js"></script>
+</body>
+</html>
