@@ -406,3 +406,8 @@
         max-width: calc(100% - 20px);
     }
 }
+
+
+.quotation-amount.cancelled-amount {
+    color: red;
+}

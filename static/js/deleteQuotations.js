@@ -80,8 +80,8 @@ function renderQuotationsList() {
                     <div class="quotation-date">
                         ${formatDate(quotation.DOCDATE)}
                     </div>
-                    <div class="quotation-amount">
-                        ${formatCurrency(quotation.DOCAMT)}
+                    <div class="quotation-amount ${quotation.CANCELLED ? 'cancelled-amount' : ''}">
+                    ${formatCurrency(quotation.DOCAMT)}
                     </div>
                 </div>
                 <div class="quotation-details">
