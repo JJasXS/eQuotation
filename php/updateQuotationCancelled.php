@@ -12,34 +12,84 @@ $data = json_decode(file_get_contents('php://input'), true);
 $dockey = $data['dockey'] ?? null;
 $cancelled = $data['cancelled'] ?? null;
 
+error_log("[UPDATE QUOTATION] Received request: dockey=$dockey, cancelled=" . ($cancelled ? 'true' : 'false'));
+
 if (!$dockey || !isset($cancelled)) {
+    error_log("[UPDATE QUOTATION] Missing parameters! dockey=$dockey, cancelled=" . var_export($cancelled, true));
     echo json_encode(['success' => false, 'error' => 'dockey and cancelled required']);
     exit;
 }
 
+$dbh = null;
 try {
     $dbh = getFirebirdConnection();
+    error_log("[UPDATE QUOTATION] Database connection established");
     
-    // Firebird BOOLEAN stored as 'True'/'False' strings (matching getAllQuotations.php expectations)
+    // Firebird BOOLEAN stored as 'True'/'False' strings
     $cancelledValue = $cancelled ? 'True' : 'False';
-    error_log("[DEBUG] updateQuotationCancelled: Setting DOCKEY=$dockey to CANCELLED='$cancelledValue'");
+    error_log("[UPDATE QUOTATION] Setting DOCKEY=$dockey to CANCELLED='$cancelledValue'");
     
+    // First, verify the record exists
+    $checkStmt = $dbh->prepare('SELECT DOCKEY, DOCNO, CANCELLED FROM SL_QT WHERE DOCKEY = ?');
+    $checkStmt->execute([$dockey]);
+    $record = $checkStmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$record) {
+        error_log("[UPDATE QUOTATION] ERROR: DOCKEY $dockey not found in database!");
+        echo json_encode(['success' => false, 'error' => "Quotation DOCKEY $dockey not found"]);
+        exit;
+    }
+    
+    error_log("[UPDATE QUOTATION] Found record: DOCNO=" . $record['DOCNO'] . ", current CANCELLED=" . $record['CANCELLED']);
+    
+    // Update the quotation
     $stmt = $dbh->prepare('UPDATE SL_QT SET CANCELLED = ? WHERE DOCKEY = ?');
     $result = $stmt->execute([$cancelledValue, $dockey]);
     
-    // IMPORTANT: Commit the transaction to save changes to Firebird
+    error_log("[UPDATE QUOTATION] Update executed. Result=" . ($result ? 'true' : 'false'));
+    error_log("[UPDATE QUOTATION] Rows affected: " . $stmt->rowCount());
+    
+    // Commit the transaction
     $dbh->commit();
+    error_log("[UPDATE QUOTATION] Transaction committed");
     
-    error_log("[DEBUG] updateQuotationCancelled: Execute result=" . ($result ? 'true' : 'false'));
-    
-    // Verify the update worked
+    // Verify the update worked by querying again
     $verifyStmt = $dbh->prepare('SELECT CANCELLED FROM SL_QT WHERE DOCKEY = ?');
     $verifyStmt->execute([$dockey]);
-    $record = $verifyStmt->fetch(PDO::FETCH_ASSOC);
-    error_log("[DEBUG] updateQuotationCancelled: After update, DOCKEY=$dockey has CANCELLED=" . $record['CANCELLED']);
+    $verifiedRecord = $verifyStmt->fetch(PDO::FETCH_ASSOC);
     
-    echo json_encode(['success' => true]);
+    if ($verifiedRecord) {
+        $verifiedValue = $verifiedRecord['CANCELLED'];
+        error_log("[UPDATE QUOTATION] VERIFICATION: DOCKEY=$dockey now has CANCELLED='$verifiedValue'");
+        
+        if ($verifiedValue === $cancelledValue) {
+            error_log("[UPDATE QUOTATION] ✓ SUCCESS: Update verified in database!");
+            echo json_encode(['success' => true, 'message' => "Quotation $dockey updated to CANCELLED=$cancelledValue"]);
+        } else {
+            error_log("[UPDATE QUOTATION] ✗ VERIFICATION FAILED: Expected '$cancelledValue' but got '$verifiedValue'");
+            echo json_encode(['success' => false, 'error' => "Update verification failed"]);
+        }
+    } else {
+        error_log("[UPDATE QUOTATION] ✗ VERIFICATION FAILED: Record not found after update!");
+        echo json_encode(['success' => false, 'error' => "Verification query returned no results"]);
+    }
+    
 } catch (Exception $e) {
-    error_log("[ERROR] updateQuotationCancelled: " . $e->getMessage());
+    error_log("[UPDATE QUOTATION] EXCEPTION: " . $e->getMessage());
+    error_log("[UPDATE QUOTATION] Trace: " . $e->getTraceAsString());
+    
+    // Try to rollback if connection exists
+    if ($dbh) {
+        try {
+            $dbh->rollBack();
+            error_log("[UPDATE QUOTATION] Transaction rolled back");
+        } catch (Exception $rollbackError) {
+            error_log("[UPDATE QUOTATION] Rollback failed: " . $rollbackError->getMessage());
+        }
+    }
+    
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+} finally {
+    // Close connection
+    $dbh = null;
 }

@@ -99,9 +99,10 @@ function getFirebirdConnection() {
 
     try {
         $dbh = new PDO("firebird:dbname=$db;host=$host", $user, $pass);
+        error_log("[DB CONNECTION] Firebird connection established");
         return $dbh;
     } catch (PDOException $e) {
-        // You can handle the error here or rethrow
+        error_log("[DB CONNECTION ERROR] Failed to connect: " . $e->getMessage());
         throw $e;
     }
 }

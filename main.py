@@ -855,57 +855,144 @@ def update_quotation_cancelled():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@app.route('/api/admin/bulk_cancel_quotations', methods=['POST'])
+@app.route('/api/admin/cancel_single_quotation', methods=['POST'])
 @api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
-def bulk_cancel_quotations():
-    """Bulk cancel multiple quotations (admin only)."""
+def cancel_single_quotation():
+    """Cancel a single quotation (admin only)."""
+    data = request.get_json() or {}
+    dockey = data.get('dockey')
+    
+    print(f"[CANCEL SINGLE] Received request for DOCKEY: {dockey}", flush=True)
+
+    if not dockey:
+        print(f"[CANCEL SINGLE] Missing dockey parameter", flush=True)
+        return jsonify({'success': False, 'error': 'dockey parameter required'}), 400
+
+    try:
+        # Call PHP endpoint to update database
+        php_url = f"{BASE_API_URL}/php/updateQuotationCancelled.php"
+        payload = {'dockey': dockey, 'cancelled': True}
+        
+        print(f"[CANCEL SINGLE] Calling PHP: {php_url}", flush=True)
+        print(f"[CANCEL SINGLE] Payload: {payload}", flush=True)
+        
+        response = requests.post(
+            php_url,
+            json=payload,
+            timeout=10
+        )
+        response.raise_for_status()
+        result = response.json()
+        
+        print(f"[CANCEL SINGLE] PHP Response: {result}", flush=True)
+        
+        if result.get('success'):
+            print(f"[CANCEL SINGLE] Successfully cancelled DOCKEY {dockey}", flush=True)
+            return jsonify({
+                'success': True,
+                'message': f'Quotation {dockey} cancelled successfully'
+            }), 200
+        else:
+            error_msg = result.get('error', 'Unknown error')
+            print(f"[CANCEL SINGLE] Failed: {error_msg}", flush=True)
+            return jsonify({
+                'success': False,
+                'error': error_msg
+            }), 500
+    
+    except Exception as e:
+        print(f"[CANCEL SINGLE] Exception: {str(e)}", flush=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/delete_quotations', methods=['POST'])
+@api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
+def delete_quotations():
+    """Delete (cancel) multiple quotations - main deletion API."""
     data = request.get_json() or {}
     dockey_list = data.get('dockeyList', [])
 
+    print(f"\n[DELETE QUOTATIONS] ========== START ==========", flush=True)
+    print(f"[DELETE QUOTATIONS] Received request with {len(dockey_list)} quotations to delete", flush=True)
+    print(f"[DELETE QUOTATIONS] DOCKEYs: {dockey_list}", flush=True)
+
     if not dockey_list or not isinstance(dockey_list, list):
-        return jsonify({'success': False, 'error': 'Invalid dockeyList'}), 400
+        print(f"[DELETE QUOTATIONS] ERROR: Invalid dockeyList format", flush=True)
+        return jsonify({'success': False, 'error': 'Invalid dockeyList - must be an array'}), 400
 
     try:
         deleted_count = 0
         failed_count = 0
-        errors = []
-
+        failed_details = []
+        
         php_url = f"{BASE_API_URL}/php/updateQuotationCancelled.php"
         
         for dockey in dockey_list:
+            print(f"\n[DELETE QUOTATIONS] Processing DOCKEY: {dockey}", flush=True)
+            
             try:
+                # Prepare payload
+                payload = {
+                    'dockey': int(dockey),
+                    'cancelled': True
+                }
+                print(f"[DELETE QUOTATIONS] Sending to PHP: {payload}", flush=True)
+                
+                # Call PHP endpoint
                 response = requests.post(
                     php_url,
-                    json={'dockey': dockey, 'cancelled': True},
+                    json=payload,
                     timeout=10
                 )
-                response.raise_for_status()
+                
+                print(f"[DELETE QUOTATIONS] PHP response status: {response.status_code}", flush=True)
+                
+                if response.status_code != 200:
+                    print(f"[DELETE QUOTATIONS] ERROR: Bad status code: {response.text[:500]}", flush=True)
+                    failed_count += 1
+                    failed_details.append(f"DOCKEY {dockey}: HTTP {response.status_code}")
+                    continue
+                
                 result = response.json()
+                print(f"[DELETE QUOTATIONS] PHP result: {result}", flush=True)
                 
                 if result.get('success'):
                     deleted_count += 1
+                    print(f"[DELETE QUOTATIONS] ✓ DOCKEY {dockey} deleted successfully", flush=True)
                 else:
                     failed_count += 1
-                    errors.append(f"DOCKEY {dockey}: {result.get('error', 'Unknown error')}")
+                    error_msg = result.get('error', 'Unknown error')
+                    failed_details.append(f"DOCKEY {dockey}: {error_msg}")
+                    print(f"[DELETE QUOTATIONS] ✗ DOCKEY {dockey} failed: {error_msg}", flush=True)
+                    
             except Exception as e:
                 failed_count += 1
-                errors.append(f"DOCKEY {dockey}: {str(e)}")
-
-        message = f"Deleted {deleted_count} quotation(s)"
-        if failed_count > 0:
-            message += f" ({failed_count} failed)"
-
+                failed_details.append(f"DOCKEY {dockey}: {str(e)}")
+                print(f"[DELETE QUOTATIONS] ✗ EXCEPTION for DOCKEY {dockey}: {str(e)}", flush=True)
+        
+        print(f"\n[DELETE QUOTATIONS] Summary: deleted={deleted_count}, failed={failed_count}", flush=True)
+        print(f"[DELETE QUOTATIONS] ========== END ==========\n", flush=True)
+        
         return jsonify({
             'success': True,
             'deleted_count': deleted_count,
             'failed_count': failed_count,
-            'message': message,
-            'errors': errors if errors else None
+            'failed_details': failed_details if failed_details else None,
+            'message': f'Deleted {deleted_count} quotation(s)' + (f' ({failed_count} failed)' if failed_count > 0 else '')
         }), 200
 
     except Exception as e:
-        print(f"Error bulk canceling quotations: {e}")
+        print(f"[DELETE QUOTATIONS] CRITICAL ERROR: {str(e)}", flush=True)
+        print(f"[DELETE QUOTATIONS] ========== END (ERROR) ==========\n", flush=True)
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/bulk_cancel_quotations', methods=['POST'])
+@api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
+def bulk_cancel_quotations():
+    """Deprecated: Use /api/admin/delete_quotations instead. This endpoint now forwards to it."""
+    # Forward to the new endpoint
+    return delete_quotations()
 
 
 @app.route('/api/create_signin_user', methods=['POST'])
@@ -2761,20 +2848,28 @@ def api_get_quotation_details():
 def api_admin_get_all_quotations():
     """Get all quotations for admin view with optional status filter."""
     cancelled = request.args.get('cancelled')  # 'true' or 'false'
-    print(f"[DEBUG] api_admin_get_all_quotations: cancelled param = {cancelled}", flush=True)
+    print(f"[GET ALL QUOTATIONS] cancelled param = {cancelled}", flush=True)
 
     try:
         php_url = f"{BASE_API_URL}{ENDPOINT_PATHS['getallquotations']}"
         params = {}
         if cancelled is not None:
             params['cancelled'] = cancelled
-        print(f"[DEBUG] Calling PHP with params: {params}, full URL: {php_url}?cancelled={cancelled}", flush=True)
+            print(f"[GET ALL QUOTATIONS] Calling PHP with filter: cancelled={cancelled}", flush=True)
+        else:
+            print(f"[GET ALL QUOTATIONS] Calling PHP with no filter", flush=True)
+        
+        print(f"[GET ALL QUOTATIONS] URL: {php_url}", flush=True)
         response = requests.get(php_url, params=params, timeout=10)
+        
+        print(f"[GET ALL QUOTATIONS] Response status: {response.status_code}", flush=True)
+        print(f"[GET ALL QUOTATIONS] Response text: {response.text[:200]}", flush=True)
+        
         result = response.json()
-        print(f"[DEBUG] PHP returned {result.get('count', 0)} quotations", flush=True)
+        print(f"[GET ALL QUOTATIONS] PHP returned {result.get('count', 0)} quotations", flush=True)
         return jsonify(result)
     except Exception as e:
-        print(f"[Error] Failed to fetch all quotations: {e}")
+        print(f"[GET ALL QUOTATIONS] Error: {e}", flush=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

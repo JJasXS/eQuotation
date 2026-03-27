@@ -81,7 +81,7 @@ function renderQuotationsList() {
                         ${formatDate(quotation.DOCDATE)}
                     </div>
                     <div class="quotation-amount">
-                        ${formatCurrency(quotation.DOCAMT)} ${quotation.CURRENCYCODE || ''}
+                        ${formatCurrency(quotation.DOCAMT)}
                     </div>
                 </div>
                 <div class="quotation-details">
@@ -170,6 +170,8 @@ function closeDeleteModal() {
 async function performBulkDelete() {
     const dockeyArray = Array.from(selectedQuotations);
     
+    console.log('[DELETE] Starting bulk delete with DOCKEYs:', dockeyArray);
+    
     if (dockeyArray.length === 0) {
         showError('No quotations selected');
         return;
@@ -177,30 +179,39 @@ async function performBulkDelete() {
     
     try {
         // Perform bulk delete via API
+        const payload = {
+            dockeyList: dockeyArray
+        };
+        
+        console.log('[DELETE] Sending payload:', JSON.stringify(payload));
+        
         const response = await fetch('/api/admin/bulk_cancel_quotations', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-                dockeyList: dockeyArray
-            })
+            body: JSON.stringify(payload)
         });
         
+        console.log('[DELETE] Response status:', response.status);
+        
         const result = await response.json();
+        console.log('[DELETE] Response data:', result);
         
         closeDeleteModal();
         
         if (result.success) {
+            console.log('[DELETE] Success! Deleted count:', result.deleted_count);
             showSuccess(`${result.deleted_count || dockeyArray.length} quotation(s) deleted successfully`);
             selectedQuotations.clear();
             await loadQuotations();
             updateControlsState();
         } else {
+            console.error('[DELETE] API returned error:', result.error);
             showError(result.error || 'Failed to delete quotations');
         }
     } catch (error) {
-        console.error('Error deleting quotations:', error);
+        console.error('[DELETE] Exception:', error);
         closeDeleteModal();
         showError('Error deleting quotations: ' + error.message);
     }
