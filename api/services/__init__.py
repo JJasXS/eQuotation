@@ -1,156 +1,114 @@
-"""Customer business logic service."""
-from typing import Optional, Dict, Any, List, TYPE_CHECKING
+"""Services for SQL Account COM middleware."""
+from __future__ import annotations
 
-if TYPE_CHECKING:
-    from api.models import CustomerRequest, CustomerResponse
-    from api.adapters import SQLAccountAdapter
+import logging
+from typing import Any
+
+from api.adapters import COMConnectionError, COMConnectionHandler
+from api.models import CustomerRequest, CustomerResponse
+
+logger = logging.getLogger(__name__)
+
+
+class COMOperationError(Exception):
+    """Raised when SQL Account COM operations fail."""
 
 
 class CustomerService:
-    """Service layer for customer operations."""
-    
-    def __init__(self, sql_account_adapter: Optional['SQLAccountAdapter'] = None):
+    """Service layer for customer operations through COM only."""
+
+    def __init__(self, com_handler: COMConnectionHandler | None = None) -> None:
+        self.com_handler = com_handler or COMConnectionHandler()
+
+    def create_customer(self, customer_request: CustomerRequest) -> CustomerResponse:
+        """Create customer in SQL Account using SQLAcc.BizApp COM."""
+        try:
+            with self.com_handler.session() as biz:
+                customer = biz.Customer()
+                customer.New()
+
+                customer.Code = customer_request.code
+                customer.CompanyName = customer_request.company_name
+                customer.CreditTerm = customer_request.credit_term
+
+                if customer_request.phone:
+                    self._set_if_exists(customer, "Phone1", customer_request.phone)
+                if customer_request.address1:
+                    self._set_if_exists(customer, "Address1", customer_request.address1)
+
+                self._try_create_branch(biz, customer_request)
+
+                save_result = customer.Save()
+                if save_result is False:
+                    raise COMOperationError(
+                        "Customer Save() returned False. Required fields may be missing or invalid."
+                    )
+
+                return CustomerResponse(
+                    code=customer_request.code,
+                    company_name=customer_request.company_name,
+                    credit_term=customer_request.credit_term,
+                    phone=customer_request.phone,
+                    address1=customer_request.address1,
+                    saved=True,
+                )
+        except COMConnectionError:
+            raise
+        except COMOperationError:
+            raise
+        except Exception as exc:
+            logger.exception("Unexpected COM error during customer creation")
+            raise COMOperationError(str(exc)) from exc
+
+    def health_check(self) -> dict[str, Any]:
+        """Check if COM server can be instantiated."""
+        try:
+            with self.com_handler.session() as biz:
+                prog_id = getattr(self.com_handler, "prog_id", "SQLAcc.BizApp")
+                connected = biz is not None
+                return {"status": "healthy", "com_connected": connected, "prog_id": prog_id}
+        except COMConnectionError as exc:
+            logger.exception("COM health check failed")
+            return {"status": "unhealthy", "com_connected": False, "error": str(exc)}
+
+    @staticmethod
+    def _set_if_exists(obj: object, attr_name: str, value: Any) -> None:
+        """Set COM field only when object exposes the field."""
+        if hasattr(obj, attr_name):
+            setattr(obj, attr_name, value)
+
+    def _try_create_branch(self, biz: object, customer_request: CustomerRequest) -> None:
         """
-        Initialize the customer service.
-        
-        Args:
-            sql_account_adapter: Optional SQL Account adapter instance
+        Attempt to create a customer branch when API exposes it.
+
+        SQL Account COM APIs vary by version; branch creation is best-effort.
         """
-        if sql_account_adapter is None:
-            from api.adapters import SQLAccountAdapter
-            sql_account_adapter = SQLAccountAdapter()
-        self.adapter = sql_account_adapter
-    
-    def create_customer(self, customer_request: 'CustomerRequest') -> 'CustomerResponse':
-        """
-        Create a new customer.
-        
-        Args:
-            customer_request: Customer data from API request
-            
-        Returns:
-            Created customer response
-            
-        Raises:
-            ValueError: If validation fails
-            Exception: If SQL Account operation fails
-        """
-        from api.models import CustomerResponse
-        
-        # Validate required fields
-        if not customer_request.companyName:
-            raise ValueError("Company name is required")
-        if not customer_request.email:
-            raise ValueError("Email is required")
-        if not customer_request.phone1:
-            raise ValueError("Phone number is required")
-        if not customer_request.address1:
-            raise ValueError("Address is required")
-        
-        # Prepare data for adapter
-        data = customer_request.dict()
-        
-        # Call SQL Account adapter to create customer
-        # (This will be implemented when adapter methods are ready)
-        # result = self.adapter.create_customer(data)
-        
-        # For now, return placeholder response
-        response = CustomerResponse(
-            customerCode=customer_request.customerCode or "TBD",
-            companyName=customer_request.companyName,
-            phone1=customer_request.phone1,
-            email=customer_request.email,
-            address1=customer_request.address1,
-            address2=customer_request.address2,
-            address3=customer_request.address3,
-            address4=customer_request.address4,
-            postcode=customer_request.postcode,
-            city=customer_request.city,
-            state=customer_request.state,
-            country=customer_request.country,
-        )
-        return response
-    
-    def get_customer(self, customer_code: str) -> Optional['CustomerResponse']:
-        """
-        Retrieve customer by code.
-        
-        Args:
-            customer_code: Customer code to retrieve
-            
-        Returns:
-            Customer data or None if not found
-        """
-        # Call SQL Account adapter
-        # data = self.adapter.get_customer(customer_code)
-        # if data:
-        #     return CustomerResponse(**data)
-        
-        # Placeholder for testing
-        return None
-    
-    def update_customer(self, customer_code: str, customer_request: 'CustomerRequest') -> 'CustomerResponse':
-        """
-        Update an existing customer.
-        
-        Args:
-            customer_code: Customer code to update
-            customer_request: Updated customer data
-            
-        Returns:
-            Updated customer response
-            
-        Raises:
-            ValueError: If customer not found or validation fails
-        """
-        from api.models import CustomerResponse
-        
-        # Validate that customer exists
-        existing = self.get_customer(customer_code)
-        if not existing:
-            raise ValueError(f"Customer {customer_code} not found")
-        
-        # Validate required fields
-        if not customer_request.companyName:
-            raise ValueError("Company name is required")
-        
-        # Call SQL Account adapter to update
-        # self.adapter.update_customer(customer_code, customer_request.dict())
-        
-        # Return updated response
-        response = CustomerResponse(
-            customerCode=customer_code,
-            companyName=customer_request.companyName,
-            phone1=customer_request.phone1,
-            email=customer_request.email,
-            address1=customer_request.address1,
-            address2=customer_request.address2,
-            address3=customer_request.address3,
-            address4=customer_request.address4,
-            postcode=customer_request.postcode,
-            city=customer_request.city,
-            state=customer_request.state,
-            country=customer_request.country,
-        )
-        return response
-    
-    def delete_customer(self, customer_code: str) -> bool:
-        """
-        Delete a customer.
-        
-        Args:
-            customer_code: Customer code to delete
-            
-        Returns:
-            True if successful
-            
-        Raises:
-            ValueError: If customer not found
-        """
-        existing = self.get_customer(customer_code)
-        if not existing:
-            raise ValueError(f"Customer {customer_code} not found")
-        
-        # Call SQL Account adapter
-        # return self.adapter.delete_customer(customer_code)
-        return True
+        if not customer_request.address1 and not customer_request.phone:
+            return
+
+        try:
+            branch_obj = None
+            if hasattr(biz, "CustomerBranch"):
+                branch_obj = biz.CustomerBranch()
+                branch_obj.New()
+            elif hasattr(biz, "CustomerBranches"):
+                branches = biz.CustomerBranches()
+                if hasattr(branches, "New"):
+                    branch_obj = branches.New()
+
+            if branch_obj is None:
+                return
+
+            self._set_if_exists(branch_obj, "Code", customer_request.code)
+            self._set_if_exists(branch_obj, "BranchType", "B")
+            self._set_if_exists(branch_obj, "BranchName", "BILLING")
+            if customer_request.address1:
+                self._set_if_exists(branch_obj, "Address1", customer_request.address1)
+            if customer_request.phone:
+                self._set_if_exists(branch_obj, "Phone1", customer_request.phone)
+
+            if hasattr(branch_obj, "Save"):
+                branch_obj.Save()
+        except Exception:
+            # Do not fail customer creation if branch API differs by SQL Account build.
+            logger.exception("Branch creation skipped due to COM API mismatch")

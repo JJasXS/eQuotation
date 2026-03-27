@@ -165,6 +165,7 @@ try {
     $attachments = $attachmentsDir;
 
     // Apply required defaults for guest sign-in AR_CUSTOMER creation.
+    // CORRECTED: Match working customer structure from SQL Account UI
     $insertCustomer = $dbh->prepare('        
         INSERT INTO AR_CUSTOMER (
             CODE,
@@ -197,24 +198,27 @@ try {
             UDF_EMAIL,
             ATTACHMENTS
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, TRUE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, TRUE, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, CURRENT_TIMESTAMP, NULL, ?, ?)
     ');
     $insertCustomer->execute([
         $code,
         '300-000',
         $companyName,
-        '----',
+        '----',             // COMPANYCATEGORY (default)
         $areaCode,
-        '----',
+        '----',             // AGENT (default, not specific agent)
         '30 Days',
         30000,
         0,
         'O',
-        $currencyCode,
+        '----',             // CURRENCYCODE (empty, not 'SGD')
         0,
-        'I',      // AGINGON (FIXED: should be 'I' not 'P')
-        'P',      // STATUS: P for Prospect/Pending (FIXED: should be 'P' not 'A')
-        $brn, $brn2, $tin, $salesTaxNo, $serviceTaxNo, $taxExemptNo, $taxExpDate, 1, $brn2, 17, $udfEmail, $attachments
+        'I',                // AGINGON
+        'A',                // STATUS (Active, not 'P')
+        $brn,
+        // BRN2, TIN, SALESTAXNO, SERVICETAXNO, TAXEXEMPTNO, TAXEXPDATE, IDTYPE, IDNO, SUBMISSIONTYPE - REMOVED (leave NULL)
+        $udfEmail,
+        $attachments
     ]);
 
     $dtlkey = generateDTLKEY($dbh);

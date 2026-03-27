@@ -1,64 +1,37 @@
-"""Customer data models."""
+"""Customer data models for SQL Account COM API."""
 from typing import Optional
-from pydantic import BaseModel, EmailStr, Field
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class CustomerRequest(BaseModel):
-    """Request model for creating/updating a customer."""
-    companyCode: Optional[str] = None
-    customerCode: Optional[str] = None
-    companyName: str = Field(..., min_length=1, description="Company name is required")
-    phone1: str = Field(..., min_length=1, description="Phone number is required")
-    email: EmailStr = Field(..., description="Valid email is required")
-    address1: str = Field(..., min_length=1, description="Address is required")
-    address2: Optional[str] = None
-    address3: Optional[str] = None
-    address4: Optional[str] = None
-    postcode: Optional[str] = None
-    city: Optional[str] = None
-    state: Optional[str] = None
-    country: Optional[str] = None
+    """Request model for creating customer via COM."""
 
-    class Config:
-        example = {
-            "companyCode": "300-000",
-            "customerCode": "300-E0001",
-            "companyName": "Acme Corporation",
-            "phone1": "0123456789",
-            "email": "contact@acme.com",
-            "address1": "123 Main Street",
-            "address2": "Suite 100",
-            "postcode": "50000",
-            "city": "Kuala Lumpur",
-            "state": "Federal Territory",
-            "country": "Malaysia"
+    code: str = Field(..., min_length=1, description="Customer code")
+    company_name: str = Field(..., min_length=1, description="Company name")
+    credit_term: str = Field(..., min_length=1, description="Credit term")
+    phone: Optional[str] = Field(default=None, description="Primary phone")
+    address1: Optional[str] = Field(default=None, description="Address line 1")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "code": "CUST001",
+                "company_name": "ABC Sdn Bhd",
+                "credit_term": "30",
+                "phone": "0123456789",
+                "address1": "Address line 1",
+            }
         }
+    )
 
 
 class CustomerResponse(BaseModel):
-    """Response model for customer data."""
-    customerCode: str
-    companyName: str
-    phone1: str
-    email: str
-    address1: str
-    address2: Optional[str] = None
-    address3: Optional[str] = None
-    address4: Optional[str] = None
-    postcode: Optional[str] = None
-    city: Optional[str] = None
-    state: Optional[str] = None
-    country: Optional[str] = None
-    createdAt: Optional[str] = None
-    updatedAt: Optional[str] = None
+    """Response model for customer create result."""
 
-    class Config:
-        example = {
-            "customerCode": "300-E0001",
-            "companyName": "Acme Corporation",
-            "phone1": "0123456789",
-            "email": "contact@acme.com",
-            "address1": "123 Main Street",
-            "postcode": "50000",
-            "city": "Kuala Lumpur"
-        }
+    code: str
+    company_name: str
+    credit_term: str
+    phone: Optional[str] = None
+    address1: Optional[str] = None
+    saved: bool = True
