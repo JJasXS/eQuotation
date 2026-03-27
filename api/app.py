@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Import routes
-from api.routes import health, customers
+from api.routes import health, customers, debug
 
 # Create FastAPI app
 app = FastAPI(
@@ -31,6 +31,7 @@ app.add_middleware(
 # Include routes
 app.include_router(health.router)
 app.include_router(customers.router)
+app.include_router(debug.router)
 
 # Health check at root
 @app.get("/")

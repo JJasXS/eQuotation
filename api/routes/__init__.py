@@ -1,4 +1,4 @@
 """FastAPI routes."""
-from . import health, customers
+from . import health, customers, debug
 
-__all__ = ['health', 'customers']
+__all__ = ['health', 'customers', 'debug']

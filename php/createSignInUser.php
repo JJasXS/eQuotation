@@ -1,5 +1,5 @@
 <?php
-// createSignInUser.php - Insert guest sign-in payload into AR_CUSTOMER and AR_CUSTOMERBRANCH
+// createSignInUser.php - Create guest sign-in customer through FastAPI COM middleware only
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, OPTIONS');
@@ -30,9 +30,67 @@ if (!is_array($data)) {
     }
 }
 
-$companyName = trim($data['COMPANYNAME'] ?? '');
+function envOrDefault(string $name, string $default): string
+{
+    $value = getenv($name);
+    if ($value === false || trim($value) === '') {
+        return $default;
+    }
+    return trim($value);
+}
+
+function formatTaxDate(?string $value): ?string
+{
+    $value = trim((string)$value);
+    if ($value === '') {
+        return null;
+    }
+    $ts = strtotime($value);
+    if ($ts === false) {
+        return null;
+    }
+    return date('Y-m-d', $ts);
+}
+
+function generateCustomerCode(PDO $dbh): string
+{
+    $fixedPrefix = '300';
+    $fixedLetter = 'E';
+    $pattern = $fixedPrefix . '-' . $fixedLetter . '%';
+
+    $maxQuery = $dbh->prepare("SELECT MAX(CAST(SUBSTRING(CODE FROM 6) AS INTEGER)) as maxSeq FROM AR_CUSTOMER WHERE CODE LIKE ?");
+    $maxQuery->execute([$pattern]);
+    $result = $maxQuery->fetch(PDO::FETCH_ASSOC);
+    $nextSeq = (int)($result['maxSeq'] ?? 0) + 1;
+
+    $checkStmt = $dbh->prepare('SELECT COUNT(*) FROM AR_CUSTOMER WHERE CODE = ?');
+    for ($i = 0; $i < 5000; $i++) {
+        if ($nextSeq > 9999) {
+            throw new Exception('Maximum customer code sequence reached for 300-E####');
+        }
+        $code = sprintf('%.3s-%.1s%04d', $fixedPrefix, $fixedLetter, $nextSeq);
+        $checkStmt->execute([$code]);
+        $exists = (int)$checkStmt->fetchColumn();
+        if ($exists === 0) {
+            return $code;
+        }
+        $nextSeq++;
+    }
+
+    throw new Exception('Unable to generate unique customer code');
+}
+
+function generateBranchDtlKey(PDO $dbh): string
+{
+    $stmt = $dbh->query('SELECT COALESCE(MAX(DTLKEY), 0) AS max_dtlkey FROM AR_CUSTOMERBRANCH');
+    $row = $stmt ? $stmt->fetch(PDO::FETCH_ASSOC) : null;
+    $next = ((int)($row['MAX_DTLKEY'] ?? $row['max_dtlkey'] ?? 0)) + 1;
+    return (string)$next;
+}
+
 $area = trim($data['AREA'] ?? '');
 $currencyInput = trim($data['CURRENCYCODE'] ?? '');
+$companyName = trim($data['COMPANYNAME'] ?? '');
 $udfEmail = trim($data['UDF_EMAIL'] ?? '');
 $brn = trim($data['BRN'] ?? '');
 $brn2 = trim($data['BRN2'] ?? '');
@@ -40,247 +98,175 @@ $tin = trim($data['TIN'] ?? '');
 $salesTaxNo = trim($data['SALESTAXNO'] ?? '');
 $serviceTaxNo = trim($data['SERVICETAXNO'] ?? '');
 $taxExemptNo = trim($data['TAXEXEMPTNO'] ?? '');
-$taxExpDateRaw = trim($data['TAXEXPDATE'] ?? '');
-$taxExpDate = $taxExpDateRaw === '' ? null : $taxExpDateRaw;
-
-$address1 = trim($data['ADDRESS1'] ?? '');
-$address2 = trim($data['ADDRESS2'] ?? '');
-$address3 = trim($data['ADDRESS3'] ?? '');
-$address4 = trim($data['ADDRESS4'] ?? '');
-$postcode = trim($data['POSTCODE'] ?? '');
-$attention = trim($data['ATTENTION'] ?? '');
+$taxExpDate = formatTaxDate($data['TAXEXPDATE'] ?? null);
+$attachments = trim($data['ATTACHMENTS'] ?? '');
 $phone1 = trim($data['PHONE1'] ?? '');
-// BRANCHNAME / BRANCHTYPE are enforced by DB trigger (e.g. BRANCHTYPE='B' => BRANCHNAME='BILLING').
-// Keep payload values optional; let database decide defaults.
-$branchName = trim($data['BRANCHNAME'] ?? '');
-$branchType = trim($data['BRANCHTYPE'] ?? '');
-// Set defaults if empty to ensure SQL Account compatibility
-if ($branchType === '') {
-    $branchType = 'B';
-}
-if ($branchName === '') {
-    $branchName = 'BILLING';
-}
-$city = trim($data['CITY'] ?? '');
-$state = trim($data['STATE'] ?? '');
-$country = trim($data['COUNTRY'] ?? '');
 $phone2 = trim($data['PHONE2'] ?? '');
 $mobile = trim($data['MOBILE'] ?? '');
 $fax1 = trim($data['FAX1'] ?? '');
 $fax2 = trim($data['FAX2'] ?? '');
 $branchEmail = trim($data['EMAIL'] ?? $udfEmail);
-$attachments = trim($data['ATTACHMENTS'] ?? '');
+$branchType = trim($data['BRANCHTYPE'] ?? 'B');
+$branchName = trim($data['BRANCHNAME'] ?? 'BILLING');
+$attention = trim($data['ATTENTION'] ?? '');
+$address1 = trim($data['ADDRESS1'] ?? '');
+$address2 = trim($data['ADDRESS2'] ?? '');
+$address3 = trim($data['ADDRESS3'] ?? '');
+$address4 = trim($data['ADDRESS4'] ?? '');
+$postcode = trim($data['POSTCODE'] ?? '');
+$city = trim($data['CITY'] ?? '');
+$state = trim($data['STATE'] ?? '');
+$country = trim($data['COUNTRY'] ?? '');
+$creditTerm = trim((string)($data['CREDITTERM'] ?? '30'));
 
-if ($companyName === '' || $area === '' || $currencyInput === '' || $udfEmail === '' || $brn === '' || $brn2 === '' || $tin === '' || $address1 === '' || $postcode === '' || $attention === '' || $phone1 === '' || $branchType === '' || $branchName === '') {
-    echo json_encode(['success' => false, 'error' => 'Missing required fields']);
+if ($companyName === '' || $phone1 === '' || $address1 === '' || $area === '' || $currencyInput === '' || $udfEmail === '' || $brn === '') {
+    echo json_encode([
+        'success' => false,
+        'error' => 'Missing required fields: COMPANYNAME, PHONE1, ADDRESS1, AREA, CURRENCYCODE, UDF_EMAIL, BRN'
+    ]);
     exit;
-}
-
-
-
-function generateDTLKEY(PDO $dbh) {
-    // Find the next available DTLKEY by checking for existing ones
-    $checkStmt = $dbh->prepare('SELECT COUNT(*) FROM AR_CUSTOMERBRANCH WHERE DTLKEY = ?');
-    
-    for ($i = 1; $i <= 1000000; $i++) {
-        $checkStmt->execute([$i]);
-        $exists = (int)$checkStmt->fetchColumn();
-        if ($exists === 0) {
-            return $i;  // Return first available DTLKEY
-        }
-    }
-    throw new Exception('Unable to generate unique DTLKEY');
 }
 
 try {
     $dbh = getFirebirdConnection();
-    $dbh->beginTransaction();
 
-    // AREA in AR_CUSTOMER must come from AREA.CODE.
     $areaStmt = $dbh->prepare('SELECT FIRST 1 CODE FROM AREA WHERE UPPER(CODE) = UPPER(?)');
     $areaStmt->execute([$area]);
     $areaRow = $areaStmt->fetch(PDO::FETCH_ASSOC);
-    $areaCode = $areaRow['CODE'] ?? null;
-    if (!$areaCode || trim((string)$areaCode) === '') {
-        throw new Exception('Invalid area: ' . $area);
+    $areaCode = trim((string)($areaRow['CODE'] ?? ''));
+    if ($areaCode === '') {
+        throw new Exception('Invalid AREA: ' . $area);
     }
-    $areaCode = trim((string)$areaCode);
 
-    // Always store CODE in AR_CUSTOMER.CURRENCYCODE.
-    // Accept either CODE or SYMBOL from frontend, then resolve to CODE.
-    $currencyStmt = $dbh->prepare('SELECT FIRST 1 CODE FROM CURRENCY WHERE UPPER(CODE) = UPPER(?) OR UPPER(SYMBOL) = UPPER(?)');
+    $currencyStmt = $dbh->prepare(
+        'SELECT FIRST 1 CODE FROM CURRENCY WHERE UPPER(CODE) = UPPER(?) OR UPPER(SYMBOL) = UPPER(?)'
+    );
     $currencyStmt->execute([$currencyInput, $currencyInput]);
     $currencyRow = $currencyStmt->fetch(PDO::FETCH_ASSOC);
-    $currencyCode = $currencyRow['CODE'] ?? null;
-    if (!$currencyCode || trim((string)$currencyCode) === '') {
-        throw new Exception('Invalid currency: ' . $currencyInput);
-    }
-    $currencyCode = trim((string)$currencyCode);
-
-    // Auto-generate customer code in fixed format: %.3s-%.1s%.4d (e.g., 300-E0888)
-    $fixedPrefix = '300';
-    $fixedLetter = 'E';
-
-    // Find the next sequence number for the fixed 300-E#### series.
-    $maxQuery = $dbh->prepare("SELECT MAX(CAST(SUBSTRING(CODE FROM 6) AS INTEGER)) as maxSeq FROM AR_CUSTOMER WHERE CODE LIKE ?");
-    $pattern = $fixedPrefix . '-' . $fixedLetter . '%';
-    $maxQuery->execute([$pattern]);
-    $result = $maxQuery->fetch(PDO::FETCH_ASSOC);
-    $nextSeq = (int)($result['maxSeq'] ?? 0) + 1;
-
-    // Ensure sequence doesn't exceed 4 digits
-    if ($nextSeq > 9999) {
-        throw new Exception('Maximum customer code sequence reached for ' . $fixedPrefix . '-' . $fixedLetter . '####');
+    $currencyCode = trim((string)($currencyRow['CODE'] ?? ''));
+    if ($currencyCode === '') {
+        throw new Exception('Invalid CURRENCYCODE: ' . $currencyInput);
     }
 
-    // Keep incrementing until an unused code is found.
-    $checkStmt = $dbh->prepare('SELECT COUNT(*) FROM AR_CUSTOMER WHERE CODE = ?');
-    do {
-        if ($nextSeq > 9999) {
-            throw new Exception('Maximum customer code sequence reached for ' . $fixedPrefix . '-' . $fixedLetter . '####');
-        }
-        $code = sprintf('%.3s-%.1s%04d', $fixedPrefix, $fixedLetter, $nextSeq);
-        $checkStmt->execute([$code]);
-        $exists = (int)$checkStmt->fetchColumn();
-        $nextSeq++;
-    } while ($exists > 0);
+    $customerCode = generateCustomerCode($dbh);
+    $branchDtlKey = generateBranchDtlKey($dbh);
+} catch (Exception $e) {
+    error_log('createSignInUser.php lookup/generation error: ' . $e->getMessage());
+    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    exit;
+}
 
-    // Handle file uploads for attachments
-    $attachmentsDir = '';
-    if (isset($_FILES['ATTACHMENTS']) && is_array($_FILES['ATTACHMENTS']['name'])) {
-        $uploadDir = __DIR__ . '/../uploads/customers/' . $code . '/';
-        if (!is_dir($uploadDir)) {
-            mkdir($uploadDir, 0755, true);
-        }
-        $attachmentsDir = 'uploads/customers/' . $code . '/'; // Store relative path
+$apiBaseUrl = rtrim(envOrDefault('FASTAPI_BASE_URL', 'http://127.0.0.1:8000'), '/');
+$customersUrl = $apiBaseUrl . '/customers';
 
-        foreach ($_FILES['ATTACHMENTS']['name'] as $key => $name) {
-            if ($_FILES['ATTACHMENTS']['error'][$key] === UPLOAD_ERR_OK) {
-                $tmpName = $_FILES['ATTACHMENTS']['tmp_name'][$key];
-                $safeName = preg_replace('/[^a-zA-Z0-9._-]/', '_', $name);
-                move_uploaded_file($tmpName, $uploadDir . $safeName);
-            }
-        }
-    }
-    $attachments = $attachmentsDir;
+$payload = [
+    'code' => $customerCode,
+    'company_name' => $companyName,
+    'credit_term' => $creditTerm !== '' ? $creditTerm : '30 Days',
+    'control_account' => '300-000',
+    'company_category' => '----',
+    'area' => $areaCode,
+    'agent' => '----',
+    'statement_type' => 'O',
+    'currency_code' => $currencyCode,
+    'aging_on' => 'I',
+    'status' => 'A',
+    'submission_type' => null,
+    'brn' => $brn,
+    'brn2' => $brn2 !== '' ? $brn2 : null,
+    'tin' => $tin !== '' ? $tin : null,
+    'sales_tax_no' => $salesTaxNo !== '' ? $salesTaxNo : null,
+    'service_tax_no' => $serviceTaxNo !== '' ? $serviceTaxNo : null,
+    'tax_exempt_no' => $taxExemptNo !== '' ? $taxExemptNo : null,
+    'tax_exp_date' => $taxExpDate,
+    'udf_email' => $udfEmail,
+    'attachments' => $attachments !== '' ? $attachments : null,
+    'phone' => $phone1,
+    'phone2' => $phone2 !== '' ? $phone2 : null,
+    'mobile' => $mobile !== '' ? $mobile : null,
+    'fax1' => $fax1 !== '' ? $fax1 : null,
+    'fax2' => $fax2 !== '' ? $fax2 : null,
+    'email' => $branchEmail !== '' ? $branchEmail : $udfEmail,
+    'branch_type' => $branchType !== '' ? $branchType : 'B',
+    'branch_name' => $branchName !== '' ? $branchName : 'BILLING',
+    'branch_dtlkey' => $branchDtlKey,
+    'attention' => $attention !== '' ? $attention : null,
+    'address1' => $address1,
+    'address2' => $address2 !== '' ? $address2 : null,
+    'address3' => $address3 !== '' ? $address3 : null,
+    'address4' => $address4 !== '' ? $address4 : null,
+    'postcode' => $postcode !== '' ? $postcode : null,
+    'city' => $city !== '' ? $city : null,
+    'state' => $state !== '' ? $state : null,
+    'country' => $country !== '' ? $country : null,
+];
+$ch = curl_init($customersUrl);
+curl_setopt_array($ch, [
+    CURLOPT_POST => true,
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+    CURLOPT_POSTFIELDS => json_encode($payload),
+    CURLOPT_CONNECTTIMEOUT => 10,
+    CURLOPT_TIMEOUT => 30,
+]);
 
-    // Apply required defaults for guest sign-in AR_CUSTOMER creation.
-    // CORRECTED: Match working customer structure from SQL Account UI
-    $insertCustomer = $dbh->prepare('        
-        INSERT INTO AR_CUSTOMER (
-            CODE,
-            CONTROLACCOUNT,
-            COMPANYNAME,
-            COMPANYCATEGORY,
-            AREA,
-            AGENT,
-            CREDITTERM,
-            CREDITLIMIT,
-            OVERDUELIMIT,
-            STATEMENTTYPE,
-            CURRENCYCODE,
-            OUTSTANDING,
-            ALLOWEXCEEDCREDITLIMIT,
-            ADDPDCTOCRLIMIT,
-            AGINGON,
-            STATUS,
-            BRN,
-            BRN2,
-            TIN,
-            SALESTAXNO,
-            SERVICETAXNO,
-            TAXEXEMPTNO,
-            TAXEXPDATE,
-            IDTYPE,
-            IDNO,
-            CREATIONDATE,
-            SUBMISSIONTYPE,
-            UDF_EMAIL,
-            ATTACHMENTS
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, TRUE, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, CURRENT_TIMESTAMP, NULL, ?, ?)
-    ');
-    $insertCustomer->execute([
-        $code,
-        '300-000',
-        $companyName,
-        '----',             // COMPANYCATEGORY (default)
-        $areaCode,
-        '----',             // AGENT (default, not specific agent)
-        '30 Days',
-        30000,
-        0,
-        'O',
-        '----',             // CURRENCYCODE (empty, not 'SGD')
-        0,
-        'I',                // AGINGON
-        'A',                // STATUS (Active, not 'P')
-        $brn,
-        // BRN2, TIN, SALESTAXNO, SERVICETAXNO, TAXEXEMPTNO, TAXEXPDATE, IDTYPE, IDNO, SUBMISSIONTYPE - REMOVED (leave NULL)
-        $udfEmail,
-        $attachments
+$responseBody = curl_exec($ch);
+$curlError = curl_error($ch);
+$httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+curl_close($ch);
+
+if ($responseBody === false) {
+    error_log('createSignInUser.php cURL error: ' . $curlError);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Failed to connect to COM middleware',
+        'details' => $curlError
     ]);
+    exit;
+}
 
-    $dtlkey = generateDTLKEY($dbh);
-
-    $insertBranch = $dbh->prepare('
-        INSERT INTO AR_CUSTOMERBRANCH (
-            DTLKEY,
-            CODE,
-            BRANCHTYPE,
-            BRANCHNAME,
-            ADDRESS1,
-            ADDRESS2,
-            ADDRESS3,
-            ADDRESS4,
-            POSTCODE,
-            CITY,
-            STATE,
-            COUNTRY,
-            ATTENTION,
-            PHONE1,
-            PHONE2,
-            MOBILE,
-            FAX1,
-            FAX2,
-            EMAIL
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ');
-    $insertBranch->execute([
-        $dtlkey,
-        $code,
-        $branchType,
-        $branchName,
-        $address1,
-        $address2,
-        $address3,
-        $address4,
-        $postcode,
-        $city,
-        $state,
-        $country,
-        $attention,
-        $phone1,
-        $phone2,
-        $mobile,
-        $fax1,
-        $fax2,
-        $branchEmail
+$responseJson = json_decode($responseBody, true);
+if (!is_array($responseJson)) {
+    error_log('createSignInUser.php invalid middleware response: ' . $responseBody);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Invalid response from COM middleware',
+        'httpCode' => $httpCode
     ]);
+    exit;
+}
 
-    $dbh->commit();
-
+if ($httpCode >= 200 && $httpCode < 300 && !empty($responseJson['success'])) {
+    $createdCode = $responseJson['data']['customer']['code']
+        ?? $responseJson['data']['code']
+        ?? $customerCode;
     echo json_encode([
         'success' => true,
         'message' => 'Guest sign-in user created successfully',
-        'customerCode' => $code
+        'customerCode' => $createdCode,
+        'postCreateState' => $responseJson['data']['post_create_state'] ?? null,
+        'middleware' => [
+            'status' => $httpCode,
+            'message' => $responseJson['message'] ?? null
+        ]
     ]);
-} catch (Exception $e) {
-    if (isset($dbh) && $dbh->inTransaction()) {
-        $dbh->rollBack();
-    }
-    error_log('createSignInUser.php error: ' . $e->getMessage());
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    exit;
 }
+
+$errorMessage = $responseJson['detail']
+    ?? $responseJson['message']
+    ?? $responseJson['error']
+    ?? 'Customer creation rejected by COM middleware';
+
+error_log('createSignInUser.php middleware error: HTTP ' . $httpCode . ' ' . $errorMessage);
+echo json_encode([
+    'success' => false,
+    'error' => $errorMessage,
+    'middleware' => [
+        'status' => $httpCode,
+        'response' => $responseJson
+    ]
+]);
+exit;
+
 ?>

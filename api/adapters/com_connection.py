@@ -53,12 +53,14 @@ class COMConnectionHandler:
             )
 
         pythoncom.CoInitialize()
+        biz = None
         try:
             biz = win32com.client.Dispatch(self.prog_id)
-            yield biz
         except Exception as exc:
             raise COMConnectionError(
                 f"Unable to initialize COM object '{self.prog_id}': {_format_com_error(exc)}"
             ) from exc
+        try:
+            yield biz
         finally:
             pythoncom.CoUninitialize()
