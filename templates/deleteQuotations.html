@@ -5,24 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin - Delete Quotations</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/chat.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/hamburger_menu.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/adminViewQuotations.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/deleteQuotations.css') }}">
 </head>
 <body>
-    <div class="admin-container">
-        <!-- Side Sidebar -->
-        <div style="display: flex; gap: 20px; width: 100%;">
-            <!-- Hamburger Menu -->
-            <div style="width: 100%;">
+    <div class="container">
+        <div class="main-content">
+            <div class="header">
                 {% include 'components/admin_hamburger_menu.html' %}
+                <div>
+                    <h3 class="header-title">Delete Quotations</h3>
+                    <div class="header-subtitle">Admin: {{ user_email }}</div>
+                </div>
+            </div>
 
-                <!-- Main Content -->
-                <main class="admin-content">
-                    <div class="admin-header">
-                        <h1>Delete Quotations</h1>
-                        <p>Select quotations to delete. Selected quotations will be marked as cancelled.</p>
-                    </div>
+            <div class="tab-content active">
+                <div id="quotation-content" style="padding: 20px;">
+                    <div class="header-subtitle" style="margin-bottom: 16px;">Select quotations to delete. Selected quotations will be marked as cancelled.</div>
 
                     <!-- Select All / Clear All Controls -->
                     <div class="delete-controls">
@@ -39,8 +40,7 @@
                     <div id="quotations-container" class="quotations-list">
                         <div class="loading">Loading quotations...</div>
                     </div>
-
-                </main>
+                </div>
             </div>
         </div>
     </div>
