@@ -3,6 +3,7 @@ let cancelledQuotationsCache = [];
 let pendingQuotationsCache = [];
 let companyFilter = '';
 let currentTab = 'active';
+let selectedActiveQuotations = new Set();
 
 function isPendingQuotation(qt) {
     // Priority rule: UPDATECOUNT determines Pending first.
@@ -212,6 +213,7 @@ function setQuotationTab(tabName) {
                 !e.target.closest('.edit-button')
                 && !e.target.closest('.activate-btn')
                 && !e.target.closest('.toggle-cancelled-btn')
+                && !e.target.closest('.quotation-checkbox-active')
             ) {
                 toggleQuotationItems(this);
             }
@@ -222,12 +224,29 @@ function setQuotationTab(tabName) {
 function renderQuotationList(list, options = {}) {
     const isCancelled = !!options.isCancelled;
     const isPending = !!options.isPending;
+    const isActive = !isCancelled && !isPending;
 
     if (!list || list.length === 0) {
         return '<div style="padding: 12px; text-align: center; color: #888;">No quotations</div>';
     }
 
-    let html = '';
+    let controlsHtml = '';
+    if (isActive) {
+        controlsHtml = `
+            <div class="active-tab-controls show">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; user-select: none; color: #e4e9f1;">
+                    <input type="checkbox" id="select-all-active" onchange="toggleSelectAllActive(event)" style="width: 18px; height: 18px; cursor: pointer; accent-color: #dc3545;">
+                    Select All
+                </label>
+                <button id="bulk-delete-active-btn" onclick="showDeleteConfirmActive()" class="btn-delete-active" disabled>
+                    Delete Selected
+                </button>
+                <span id="selected-count-active" style="margin-left: auto; font-size: 14px; color: #9ba7b6; font-weight: 500;">0 selected</span>
+            </div>
+        `;
+    }
+
+    let html = controlsHtml;
     list.forEach(qt => {
         const amount = Number(qt.DOCAMT || 0).toFixed(2);
         const docDate = qt.DOCDATE || '-';
@@ -236,24 +255,29 @@ function renderQuotationList(list, options = {}) {
         const customerCode = qt.CODE || 'N/A';
         const borderColor = isPending ? '#b0892f' : (isCancelled ? '#a65c5c' : '#4b6e9e');
         const badgeColor = isPending ? '#b0892f' : (isCancelled ? '#a65c5c' : '#4b6e9e');
+        
+        const checkboxHtml = isActive ? `<input type="checkbox" class="quotation-checkbox-active" data-dockey="${qt.DOCKEY}" onchange="handleActiveCheckboxChange(); event.stopPropagation();" style="width: 18px; height: 18px; cursor: pointer; accent-color: #dc3545; flex-shrink: 0;">` : '';
 
         html += `
-            <div class="quotation-card" data-dockey="${qt.DOCKEY}" style="background: #2d3440; padding: 12px; margin-bottom: 12px; border-radius: 8px; border-left: 3px solid ${borderColor}; cursor: pointer;">
-                <div class="quotation-card__row">
-                    <span class="expand-arrow" style="color: #9ba7b6; font-size: 11px; transition: transform 0.2s;">▼</span>
-                    <span style="font-weight: 600; color: #e4e9f1;">${qt.DOCNO || ('DOCKEY #' + qt.DOCKEY)}</span>
-                    <span style="color: #9ba7b6; font-size: 13px;">Customer: ${companyName} (${customerCode})</span>
-                    <span style="color: #9ba7b6; font-size: 13px; white-space: nowrap;">Date: ${docDate} | Valid Until: ${validity}</span>
-                    <span class="quotation-card__actions">
-                        <span style="background: ${badgeColor}; color: #fff; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; white-space: nowrap;">RM ${amount}</span>
-                        ${isPending ? `<button class="edit-button" onclick="editQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #5a8fc4; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Edit</button>` : ''}
-                        ${isPending ? `<button class="activate-btn" onclick="activateQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #4b9e6e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Activate</button>` : ''}
-                        ${!isPending && !isCancelled ? `<button class="toggle-cancelled-btn" onclick="console.log('[BUTTON CLICK] DOCKEY:', ${qt.DOCKEY}, 'isCancelled param:', ${isCancelled}); event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, ${isCancelled});" style="background: #a65c5c; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Cancel</button>` : ''}
-                        ${isCancelled ? `<button class="toggle-cancelled-btn" onclick="console.log('[BUTTON CLICK] DOCKEY:', ${qt.DOCKEY}, 'isCancelled param:', ${isCancelled}); event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, ${isCancelled});" style="background: #4b6e9e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Restore</button>` : ''}
-                    </span>
-                </div>
-                <div class="quotation-items" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid #3d4654;">
-                    <div style="text-align: center; color: #888; padding: 8px;">Loading items...</div>
+            <div class="quotation-card" data-dockey="${qt.DOCKEY}" style="background: #2d3440; padding: 12px; margin-bottom: 12px; border-radius: 8px; border-left: 3px solid ${borderColor}; cursor: pointer; display: flex; gap: 12px; align-items: flex-start;">
+                ${checkboxHtml}
+                <div style="flex: 1;">
+                    <div class="quotation-card__row">
+                        <span class="expand-arrow" style="color: #9ba7b6; font-size: 11px; transition: transform 0.2s;">▼</span>
+                        <span style="font-weight: 600; color: #e4e9f1;">${qt.DOCNO || ('DOCKEY #' + qt.DOCKEY)}</span>
+                        <span style="color: #9ba7b6; font-size: 13px;">Customer: ${companyName} (${customerCode})</span>
+                        <span style="color: #9ba7b6; font-size: 13px; white-space: nowrap;">Date: ${docDate} | Valid Until: ${validity}</span>
+                        <span class="quotation-card__actions">
+                            <span style="background: ${badgeColor}; color: #fff; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; white-space: nowrap;">RM ${amount}</span>
+                            ${isPending ? `<button class="edit-button" onclick="editQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #5a8fc4; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Edit</button>` : ''}
+                            ${isPending ? `<button class="activate-btn" onclick="activateQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #4b9e6e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Activate</button>` : ''}
+                            ${!isPending && !isCancelled ? `<button class="toggle-cancelled-btn" onclick="console.log('[BUTTON CLICK] DOCKEY:', ${qt.DOCKEY}, 'isCancelled param:', ${isCancelled}); event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, ${isCancelled});" style="background: #a65c5c; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Cancel</button>` : ''}
+                            ${isCancelled ? `<button class="toggle-cancelled-btn" onclick="console.log('[BUTTON CLICK] DOCKEY:', ${qt.DOCKEY}, 'isCancelled param:', ${isCancelled}); event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, ${isCancelled});" style="background: #4b6e9e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Restore</button>` : ''}
+                        </span>
+                    </div>
+                    <div class="quotation-items" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid #3d4654;">
+                        <div style="text-align: center; color: #888; padding: 8px;">Loading items...</div>
+                    </div>
                 </div>
             </div>
         `;
@@ -331,6 +355,132 @@ async function toggleQuotationItems(card) {
 function editQuotation(dockey) {
     // Redirect to update quotation page
     window.location.href = `/admin/update-quotation?dockey=${dockey}`;
+}
+
+// Active Tab Delete Functions
+function toggleSelectAllActive(event) {
+    const isChecked = event.target.checked;
+    const checkboxes = document.querySelectorAll('.quotation-checkbox-active');
+    selectedActiveQuotations.clear();
+    
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = isChecked;
+        if (isChecked) {
+            selectedActiveQuotations.add(parseInt(checkbox.dataset.dockey));
+        }
+    });
+    
+    updateActiveDeleteControls();
+}
+
+function handleActiveCheckboxChange() {
+    selectedActiveQuotations.clear();
+    const checkboxes = document.querySelectorAll('.quotation-checkbox-active');
+    
+    checkboxes.forEach(checkbox => {
+        if (checkbox.checked) {
+            selectedActiveQuotations.add(parseInt(checkbox.dataset.dockey));
+        }
+    });
+    
+    updateActiveDeleteControls();
+}
+
+function updateActiveDeleteControls() {
+    const count = selectedActiveQuotations.size;
+    const countSpan = document.getElementById('selected-count-active');
+    const deleteBtn = document.getElementById('bulk-delete-active-btn');
+    const selectAllCheckbox = document.getElementById('select-all-active');
+    
+    if (countSpan) countSpan.textContent = `${count} selected`;
+    if (deleteBtn) deleteBtn.disabled = count === 0;
+    
+    if (selectAllCheckbox) {
+        const allCheckboxes = document.querySelectorAll('.quotation-checkbox-active');
+        const allChecked = allCheckboxes.length > 0 && Array.from(allCheckboxes).every(cb => cb.checked);
+        const someChecked = Array.from(allCheckboxes).some(cb => cb.checked);
+        selectAllCheckbox.checked = allChecked;
+        selectAllCheckbox.indeterminate = someChecked && !allChecked;
+    }
+}
+
+function showDeleteConfirmActive() {
+    if (selectedActiveQuotations.size === 0) return;
+    
+    const modal = document.getElementById('delete-modal-active');
+    if (!modal) {
+        showErrorActive('Delete modal not found');
+        return;
+    }
+    
+    document.getElementById('delete-count-active').textContent = selectedActiveQuotations.size;
+    modal.style.display = 'flex';
+    
+    document.getElementById('cancel-delete-active-btn').onclick = closeDeleteModalActive;
+    document.getElementById('confirm-delete-active-btn').onclick = performBulkDeleteActive;
+}
+
+function closeDeleteModalActive() {
+    const modal = document.getElementById('delete-modal-active');
+    if (modal) modal.style.display = 'none';
+}
+
+async function performBulkDeleteActive() {
+    const dockeyArray = Array.from(selectedActiveQuotations);
+    closeDeleteModalActive();
+    
+    if (dockeyArray.length === 0) {
+        showErrorActive('No quotations selected');
+        return;
+    }
+    
+    try {
+        const payload = { dockeyList: dockeyArray };
+        
+        const response = await fetch('/api/admin/delete_quotations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showSuccessActive(`${result.deleted_count || dockeyArray.length} quotation(s) deleted successfully`);
+            selectedActiveQuotations.clear();
+            setTimeout(() => loadQuotations(), 1500);
+        } else {
+            showErrorActive(result.error || 'Failed to delete quotations');
+        }
+    } catch (error) {
+        showErrorActive('Error deleting quotations: ' + error.message);
+    }
+}
+
+function showSuccessActive(message) {
+    const messageEl = document.getElementById('success-message-active');
+    if (!messageEl) {
+        alert('✓ ' + message);
+        return;
+    }
+    messageEl.querySelector('span').textContent = '✓ ' + message;
+    messageEl.style.display = 'block';
+    setTimeout(() => {
+        messageEl.style.display = 'none';
+    }, 4000);
+}
+
+function showErrorActive(message) {
+    const messageEl = document.getElementById('error-message-active');
+    if (!messageEl) {
+        alert('Error: ' + message);
+        return;
+    }
+    messageEl.querySelector('span').textContent = message;
+    messageEl.style.display = 'block';
+    setTimeout(() => {
+        messageEl.style.display = 'none';
+    }, 4000);
 }
 
 document.addEventListener('DOMContentLoaded', async () => {

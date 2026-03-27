@@ -8,6 +8,34 @@
     <link rel="stylesheet" href="/static/css/hamburger_menu.css">
     <link rel="stylesheet" href="/static/css/orderQuotation.css">
     <link rel="stylesheet" href="/static/css/adminViewQuotations.css">
+    <style>
+        .active-tab-controls {
+            display: none;
+            gap: 15px;
+            align-items: center;
+            padding: 12px;
+            background: #1a1f2e;
+            border-radius: 6px;
+            margin-bottom: 12px;
+            border: 1px solid #343b46;
+        }
+        .active-tab-controls.show {
+            display: flex;
+        }
+        .btn-delete-active {
+            padding: 8px 16px;
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .btn-delete-active:disabled {
+            background-color: #4a4f5a;
+            opacity: 0.65;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -26,6 +54,31 @@
                 </div>
             </div>
         </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div id="delete-modal-active" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5); z-index: 1000; align-items: center; justify-content: center;">
+        <div style="background: white; border-radius: 8px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15); max-width: 400px; width: 90%; overflow: hidden;">
+            <div style="padding: 20px; background-color: #f8f9fa; border-bottom: 1px solid #e0e0e0;">
+                <h2 style="margin: 0; font-size: 18px; color: #333;">Confirm Delete</h2>
+            </div>
+            <div style="padding: 20px;">
+                <p style="margin: 10px 0; color: #555; font-size: 14px;">Are you sure you want to delete <span id="delete-count-active">0</span> quotation(s)?</p>
+                <p style="color: #d32f2f !important; font-weight: 500; margin-top: 15px;">⚠️ This action will mark the quotations as cancelled.</p>
+            </div>
+            <div style="padding: 15px 20px; background-color: #f8f9fa; border-top: 1px solid #e0e0e0; display: flex; justify-content: flex-end; gap: 10px;">
+                <button id="cancel-delete-active-btn" style="padding: 8px 16px; background-color: #e0e0e0; color: #333; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">Cancel</button>
+                <button id="confirm-delete-active-btn" style="padding: 8px 16px; background-color: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Success/Error Messages -->
+    <div id="success-message-active" style="display: none; position: fixed; top: 20px; right: 20px; background: #4caf50; color: white; padding: 16px 24px; border-radius: 4px; z-index: 1001; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);">
+        <span>✓ Quotations deleted successfully!</span>
+    </div>
+    <div id="error-message-active" style="display: none; position: fixed; top: 20px; right: 20px; background: #f44336; color: white; padding: 16px 24px; border-radius: 4px; z-index: 1001; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);">
+        <span></span>
     </div>
 
     <script src="/static/js/admin_hamburger_menu.js"></script>

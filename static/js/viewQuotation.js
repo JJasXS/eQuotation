@@ -5,6 +5,7 @@ let pendingQuotationsCache = [];
 let slQtDraftCache = [];
 let slQtDraftLoaded = false;
 
+
 function isPendingQuotation(qt) {
     // Priority rule: UPDATECOUNT determines Pending first.
     return qt.UPDATECOUNT === null || qt.UPDATECOUNT === undefined;
@@ -102,6 +103,13 @@ function setQuotationTab(tabName) {
     pendingBtn.style.color = '#9ba7b6';
     pendingBtn.style.border = '1px solid #3d4654';
 
+    // Clear selection when switching tabs
+    // selectedActiveQuotations.clear();
+    const controlsDiv = document.querySelector('.active-tab-controls');
+    if (controlsDiv) {
+        controlsDiv.classList.remove('show');
+    }
+
     if (tabName === 'cancelled') {
         tabContent.innerHTML = renderQuotationList(cancelledQuotationsCache, 'cancelled');
         cancelledBtn.style.background = '#a65c5c';
@@ -148,9 +156,9 @@ function renderQuotationList(list, listType) {
         const editButton = isDraft ? `<button onclick="event.stopPropagation(); editDraft(${qt.DOCKEY});" style="background: #5b82b6; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600; margin-left: 8px;">Edit Draft</button>` : '';
         
         html += `
-            <div class="quotation-card" data-dockey="${qt.DOCKEY}" style="background: #2d3440; padding: 12px; margin-bottom: 12px; border-radius: 8px; border-left: 3px solid ${borderColor}; cursor: pointer; width: auto;">
+            <div class="quotation-card" data-dockey="${qt.DOCKEY}" style="background: #2d3440; padding: 12px; margin-bottom: 12px; border-radius: 8px; border-left: 3px solid ${borderColor}; cursor: pointer;">
                 <div style="display: flex; align-items: center; gap: 16px; flex-wrap: nowrap; margin-bottom: 12px;">
-                    <span class="expand-arrow" style="color: #9ba7b6; font-size: 12px; transition: transform 0.2s; flex-shrink: 0;">▼</span>
+                    <span class="expand-arrow" style="color: #9ba7b6; font-size: 12px; transition: transform 0.2s; flex-shrink: 0; cursor: pointer;">▼</span>
                     <span style="font-weight: 600; color: #e4e9f1; flex-shrink: 0;">${qt.DOCNO || ('DOCKEY #' + qt.DOCKEY)}</span>
                     <span style="color: #9ba7b6; font-size: 13px; white-space: nowrap;">Date: ${docDate} | Valid Until: ${validity} | Terms: ${creditTerm}</span>
                     <span style="color: #e4e9f1; font-size: 14px; flex-shrink: 0;">${description}</span>
@@ -264,9 +272,27 @@ async function loadSlQtDraftTab(tabContent) {
 
 function attachQuotationCardListeners() {
     document.querySelectorAll('.quotation-card').forEach(card => {
-        card.addEventListener('click', function() {
-            toggleQuotationItems(this);
+        card.addEventListener('click', function(e) {
+            // Don't toggle if clicking on checkbox or expand arrow
+            if (e.target.closest('.quotation-checkbox-active') || e.target.closest('input[type="checkbox"]')) {
+                e.stopPropagation();
+                return;
+            }
+            const arrow = this.querySelector('.expand-arrow');
+            if (e.target === arrow || arrow?.contains(e.target)) {
+                toggleQuotationItems(this);
+            } else if (!e.target.closest('button')) {
+                toggleQuotationItems(this);
+            }
         });
+        
+        const expandArrow = card.querySelector('.expand-arrow');
+        if (expandArrow) {
+            expandArrow.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggleQuotationItems(card);
+            });
+        }
     });
 }
 
@@ -338,3 +364,5 @@ function showDraftNotification(docno) {
         notification.classList.add('hidden');
     }, 5000);
 }
+
+
