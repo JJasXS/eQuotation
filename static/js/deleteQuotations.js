@@ -80,16 +80,16 @@ function renderQuotationsList() {
                     <div class="quotation-date">
                         ${formatDate(quotation.DOCDATE)}
                     </div>
+                    <span class="status-badge" data-status="${quotation.CANCELLED ? 'cancelled' : 'active'}">
+                        ${quotation.CANCELLED ? 'Cancelled' : 'Active'}
+                    </span>
                     <div class="quotation-amount ${quotation.CANCELLED ? 'cancelled-amount' : ''}">
-                    ${formatCurrency(quotation.DOCAMT)}
+                        ${formatCurrency(quotation.DOCAMT)}
                     </div>
                 </div>
                 <div class="quotation-details">
                     <span class="customer-info">
                         <strong>Customer:</strong> ${escapeHtml(quotation.COMPANYNAME || 'N/A')}
-                    </span>
-                    <span class="status-badge" data-status="${quotation.CANCELLED ? 'cancelled' : 'active'}">
-                        ${quotation.CANCELLED ? 'Cancelled' : 'Active'}
                     </span>
                     <span class="validity-info">
                         <strong>Valid Until:</strong> ${quotation.VALIDITY || 'N/A'}
