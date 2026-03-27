@@ -185,7 +185,7 @@ async function performBulkDelete() {
         
         console.log('[DELETE] Sending payload:', JSON.stringify(payload));
         
-        const response = await fetch('/api/admin/bulk_cancel_quotations', {
+        const response = await fetch('/api/admin/delete_quotations', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'

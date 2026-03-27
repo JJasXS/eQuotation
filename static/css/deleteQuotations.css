@@ -1,22 +1,53 @@
 /* Delete Quotations Page Styling */
 
+html, body {
+    margin: 0;
+    padding: 0;
+    min-height: 100%;
+    background-color: #0d1118;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    color: #e4e9f1;
+}
+
+body {
+    line-height: 1.4;
+    background-color: #0d1118;
+    color: #e4e9f1;
+}
+
+.admin-container {
+    max-width: 1150px;
+    margin: 24px auto;
+    padding: 8px;
+    box-sizing: border-box;
+    background-color: #0d1118;
+}
+
+.admin-content {
+    background-color: #1a1f2e;
+    border: 1px solid #343b46;
+    border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(31, 42, 55, 0.5);
+    padding: 22px;
+}
+
 /* Admin Header */
 .admin-header {
     margin-bottom: 30px;
     padding-bottom: 20px;
-    border-bottom: 2px solid #e0e0e0;
+    border-bottom: 1px solid #343b46;
 }
 
 .admin-header h1 {
     font-size: 28px;
     font-weight: 700;
-    color: #333;
+    color: #e4e9f1;
     margin: 0 0 10px 0;
 }
 
 .admin-header p {
     font-size: 14px;
-    color: #666;
+    color: #9ba7b6;
     margin: 0;
 }
 
@@ -26,10 +57,11 @@
     align-items: center;
     gap: 20px;
     padding: 20px;
-    background-color: #f8f9fa;
+    background-color: #1a1f2e;
     border-radius: 8px;
     margin-bottom: 20px;
     flex-wrap: wrap;
+    border: 1px solid #343b46;
 }
 
 .select-all-label {
@@ -39,6 +71,7 @@
     cursor: pointer;
     font-weight: 500;
     user-select: none;
+    color: #e4e9f1;
 }
 
 .select-all-label input[type="checkbox"] {
@@ -57,7 +90,7 @@
 .btn-delete-bulk {
     padding: 10px 20px;
     background-color: #dc3545;
-    color: white;
+    color: #ffffff;
     border: none;
     border-radius: 6px;
     cursor: pointer;
@@ -71,9 +104,9 @@
 }
 
 .btn-delete-bulk:disabled {
-    background-color: #ccc;
+    background-color: #4a4f5a;
     cursor: not-allowed;
-    opacity: 0.6;
+    opacity: 0.65;
 }
 
 /* Quotation Items */
@@ -90,17 +123,17 @@
     align-items: flex-start;
     gap: 15px;
     padding: 16px;
-    background: white;
-    border: 1px solid #e0e0e0;
+    background: #2d3440;
+    border: 1px solid #343b46;
     border-radius: 8px;
     transition: all 0.2s ease;
     cursor: pointer;
 }
 
 .quotation-item:hover {
-    border-color: #4a90e2;
-    box-shadow: 0 2px 8px rgba(74, 144, 226, 0.1);
-    background-color: #f9fbff;
+    border-color: #4b6e9e;
+    box-shadow: 0 2px 8px rgba(74, 144, 226, 0.2);
+    background-color: #343b46;
 }
 
 .checkbox-container {
@@ -131,20 +164,26 @@
 .quotation-number {
     font-size: 16px;
     font-weight: 600;
-    color: #333;
+    color: #e4e9f1;
 }
 
 .quotation-date {
     font-size: 13px;
-    color: #666;
+    color: #9ba7b6;
     white-space: nowrap;
 }
 
 .quotation-amount {
     font-size: 14px;
     font-weight: 600;
-    color: #27ae60;
+    color: #38bdf8;
     margin-left: auto;
+}
+
+.quotation-amount.cancelled,
+.quotation-amount.cancelled-amount,
+.quotation-amount.cancelled-amount {
+    color: #f97316;
 }
 
 .quotation-details {
@@ -168,13 +207,13 @@
 }
 
 .status-badge[data-status="active"] {
-    background-color: #d4edda;
-    color: #155724;
+    background-color: #14b8a6;
+    color: #ffffff;
 }
 
 .status-badge[data-status="cancelled"] {
-    background-color: #f8d7da;
-    color: #721c24;
+    background-color: #dc3545;
+    color: #ffffff;
 }
 
 .validity-info {
