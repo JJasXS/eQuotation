@@ -23,6 +23,19 @@ if (is_bool($cancelledRaw)) {
     $cancelled = filter_var($cancelledRaw, FILTER_VALIDATE_BOOLEAN);
 }
 
+function normalizeCancelledValue($value) {
+    if ($value === null) {
+        return null;
+    }
+    if (is_bool($value)) {
+        return $value;
+    }
+    if (is_int($value) || is_float($value)) {
+        return ((int)$value) !== 0;
+    }
+    return in_array(strtolower(trim((string)$value)), ['1', 'true', 't', 'yes', 'y', 'on'], true);
+}
+
 error_log("[UPDATE QUOTATION] Received request: dockey=$dockey, cancelled=" . ($cancelled ? 'true' : 'false'));
 
 if (!$dockey || $cancelledRaw === null) {
@@ -77,12 +90,13 @@ try {
     if ($verifiedRecord) {
         $verifiedValue = $verifiedRecord['CANCELLED'];
         error_log("[UPDATE QUOTATION] VERIFICATION: DOCKEY=$dockey now has CANCELLED='$verifiedValue'");
-        
-        if ($verifiedValue === $cancelledValue) {
+
+        $verifiedCancelled = normalizeCancelledValue($verifiedValue);
+        if ($verifiedCancelled === $cancelled) {
             error_log("[UPDATE QUOTATION] ✓ SUCCESS: Update verified in database!");
             echo json_encode(['success' => true, 'message' => "Quotation $dockey updated to CANCELLED=$cancelledValue"]);
         } else {
-            error_log("[UPDATE QUOTATION] ✗ VERIFICATION FAILED: Expected '$cancelledValue' but got '$verifiedValue'");
+            error_log("[UPDATE QUOTATION] ✗ VERIFICATION FAILED: Expected '" . ($cancelled ? 'true' : 'false') . "' but got '" . var_export($verifiedValue, true) . "'");
             echo json_encode(['success' => false, 'error' => "Update verification failed"]);
         }
     } else {

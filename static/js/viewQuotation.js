@@ -15,6 +15,23 @@ function isPendingQuotation(qt) {
     return cancelledUnset || updateCountUnset;
 }
 
+async function fetchSavedDraftQuotations(forceReload = false) {
+    if (slQtDraftLoaded && !forceReload) {
+        return slQtDraftCache;
+    }
+
+    const res = await fetch('/api/get_my_draft_quotations');
+    const data = await res.json();
+    if (!data.success) {
+        throw new Error(data.error || 'Failed to load drafts');
+    }
+
+    slQtDraftCache = data.data || [];
+    slQtDraftLoaded = true;
+    draftQuotationsCache = slQtDraftCache;
+    return slQtDraftCache;
+}
+
 async function loadQuotations() {
     const content = document.getElementById('quotation-content');
     if (!content) return;
@@ -34,7 +51,8 @@ async function loadQuotations() {
         }
 
         const quotations = data.data || [];
-        if (quotations.length === 0) {
+        await fetchSavedDraftQuotations(true);
+        if (quotations.length === 0 && draftQuotationsCache.length === 0) {
             content.innerHTML = '<div style="padding: 20px; text-align: center; color: #888;">No quotations found.</div>';
             return;
         }
@@ -49,9 +67,8 @@ async function loadQuotations() {
         pendingQuotationsCache = quotations.filter(qt => isPendingQuotation(qt));
         cancelledQuotationsCache = quotations.filter(qt => !isPendingQuotation(qt) && qt.CANCELLED === true);
         activeQuotationsCache = quotations.filter(qt => !isPendingQuotation(qt) && qt.CANCELLED === false);
-        draftQuotationsCache = quotations.filter(qt => qt.STATUS === 'DRAFT');
 
-        console.log(`[DEBUG] Filtered counts - Drafts: ${draftQuotationsCache.length}, Pending: ${pendingQuotationsCache.length}, Active: ${activeQuotationsCache.length}, Cancelled: ${cancelledQuotationsCache.length}`);
+        console.log(`[DEBUG] Filtered counts - Drafts(SL_QTDRAFT): ${draftQuotationsCache.length}, Pending: ${pendingQuotationsCache.length}, Active: ${activeQuotationsCache.length}, Cancelled: ${cancelledQuotationsCache.length}`);
 
         let html = `
             <div style="padding: 16px;">
@@ -277,21 +294,9 @@ async function toggleQuotationItems(card) {
 }
 
 async function loadSlQtDraftTab(tabContent) {
-    if (slQtDraftLoaded) {
-        tabContent.innerHTML = renderDraftList(slQtDraftCache);
-        attachQuotationCardListeners();
-        return;
-    }
     tabContent.innerHTML = '<div style="padding: 12px; text-align: center; color: #888;">Loading drafts...</div>';
     try {
-        const res = await fetch('/api/get_my_draft_quotations');
-        const data = await res.json();
-        if (!data.success) {
-            tabContent.innerHTML = `<div style="padding: 12px; text-align: center; color: #ff6b6b;">${data.error || 'Failed to load drafts'}</div>`;
-            return;
-        }
-        slQtDraftCache = data.data || [];
-        slQtDraftLoaded = true;
+        await fetchSavedDraftQuotations();
         tabContent.innerHTML = renderDraftList(slQtDraftCache);
         attachQuotationCardListeners();
     } catch (e) {
