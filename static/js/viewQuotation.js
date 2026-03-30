@@ -5,94 +5,6 @@ let pendingQuotationsCache = [];
 let slQtDraftCache = [];
 let slQtDraftLoaded = false;
 
-let currentQuotationTab = 'active';
-
-/** Date filter (YYYY-MM-DD from input type=date) */
-let userDateFrom = '';
-let userDateTo = '';
-/** First page shows 5 rows; each "more" adds 10 */
-let listVisibleLimit = { drafts: 5, active: 5, pending: 5, cancelled: 5 };
-
-const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-function parseQuotationDate(raw) {
-    if (raw == null || raw === '') return null;
-    const s = String(raw).trim();
-    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (m) return new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
-    const t = Date.parse(s);
-    if (!isNaN(t)) return new Date(t);
-    return null;
-}
-
-function toYmd(d) {
-    if (!d || isNaN(d.getTime())) return '';
-    const y = d.getFullYear();
-    const mo = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${mo}-${day}`;
-}
-
-/** Display as DD-MON-YYYY (e.g. 05-Mar-2026) */
-function formatDateForDisplay(raw) {
-    if (raw == null || raw === '' || raw === '-') return '-';
-    const d = parseQuotationDate(raw);
-    if (!d || isNaN(d.getTime())) return String(raw);
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${day}-${MONTH_SHORT[d.getMonth()]}-${d.getFullYear()}`;
-}
-
-function filterQuotationsByDate(list, fromStr, toStr) {
-    const from = fromStr || '';
-    const to = toStr || '';
-    if (!from && !to) return list;
-    return list.filter(qt => {
-        const d = parseQuotationDate(qt.DOCDATE);
-        if (!d) return false;
-        const ymd = toYmd(d);
-        if (from && ymd < from) return false;
-        if (to && ymd > to) return false;
-        return true;
-    });
-}
-
-function getFilteredUserLists() {
-    const df = userDateFrom;
-    const dt = userDateTo;
-    return {
-        drafts: filterQuotationsByDate(draftQuotationsCache, df, dt),
-        pending: filterQuotationsByDate(pendingQuotationsCache, df, dt),
-        active: filterQuotationsByDate(activeQuotationsCache, df, dt),
-        cancelled: filterQuotationsByDate(cancelledQuotationsCache, df, dt)
-    };
-}
-
-function setupUserDateFilter() {
-    const fromEl = document.getElementById('quotation-date-from');
-    const toEl = document.getElementById('quotation-date-to');
-    const applyBtn = document.getElementById('quotation-date-apply');
-    const clearBtn = document.getElementById('quotation-date-clear');
-    if (!fromEl || !toEl || !applyBtn || !clearBtn) return;
-
-    applyBtn.onclick = function() {
-        userDateFrom = fromEl.value || '';
-        userDateTo = toEl.value || '';
-        listVisibleLimit = { drafts: 5, active: 5, pending: 5, cancelled: 5 };
-        setQuotationTab(currentQuotationTab);
-    };
-    clearBtn.onclick = function() {
-        fromEl.value = '';
-        toEl.value = '';
-        userDateFrom = '';
-        userDateTo = '';
-        listVisibleLimit = { drafts: 5, active: 5, pending: 5, cancelled: 5 };
-        setQuotationTab(currentQuotationTab);
-    };
-
-    fromEl.value = userDateFrom || '';
-    toEl.value = userDateTo || '';
-}
-
 function isPendingQuotation(qt) {
     // Same as admin: CANCELLED not set yet, or SL_QT.UPDATECOUNT is null.
     // Active: not pending && CANCELLED === false (implies UPDATECOUNT !== null).
@@ -155,36 +67,22 @@ async function loadQuotations() {
         cancelledQuotationsCache = quotations.filter(qt => !isPendingQuotation(qt) && qt.CANCELLED === true);
         activeQuotationsCache = quotations.filter(qt => !isPendingQuotation(qt) && qt.CANCELLED === false);
 
-        listVisibleLimit = { drafts: 5, active: 5, pending: 5, cancelled: 5 };
-
-        const f = getFilteredUserLists();
-
         console.log(`[DEBUG] Filtered counts - Drafts(SL_QTDRAFT): ${draftQuotationsCache.length}, Pending: ${pendingQuotationsCache.length}, Active: ${activeQuotationsCache.length}, Cancelled: ${cancelledQuotationsCache.length}`);
 
         let html = `
             <div style="padding: 16px;">
-                <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px;">
-                    <label style="display: flex; align-items: center; gap: 6px; color: #9ba7b6; font-size: 13px;">From
-                        <input type="date" id="quotation-date-from" style="padding: 6px 10px; border-radius: 6px; border: 1px solid #3d4654; background: #232a36; color: #e4e9f1; font-size: 13px;">
-                    </label>
-                    <label style="display: flex; align-items: center; gap: 6px; color: #9ba7b6; font-size: 13px;">To
-                        <input type="date" id="quotation-date-to" style="padding: 6px 10px; border-radius: 6px; border: 1px solid #3d4654; background: #232a36; color: #e4e9f1; font-size: 13px;">
-                    </label>
-                    <button type="button" id="quotation-date-apply" style="padding: 8px 12px; border-radius: 6px; background: #4b6e9e; color: #fff; border: none; cursor: pointer; font-size: 13px;">Apply</button>
-                    <button type="button" id="quotation-date-clear" style="padding: 8px 12px; border-radius: 6px; background: #2d3440; color: #9ba7b6; border: 1px solid #3d4654; cursor: pointer; font-size: 13px;">Clear dates</button>
-                </div>
-                <div style="display: flex; gap: 8px; margin-bottom: 12px; border-bottom: 1px solid #3d4654; padding-bottom: 10px; flex-wrap: wrap;">
+                <div style="display: flex; gap: 8px; margin-bottom: 12px; border-bottom: 1px solid #3d4654; padding-bottom: 10px;">
                     <button id="tab-drafts" onclick="setQuotationTab('drafts')" style="background: #5b82b6; color: #fff; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;">
-                        📋 Drafts (${f.drafts.length})
+                        📋 Drafts (${draftQuotationsCache.length})
                     </button>
                     <button id="tab-pending" onclick="setQuotationTab('pending')" style="background: #2d3440; color: #9ba7b6; border: 1px solid #3d4654; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;">
-                        ⏳ Pending (${f.pending.length})
+                        ⏳ Pending (${pendingQuotationsCache.length})
                     </button>
                     <button id="tab-active" onclick="setQuotationTab('active')" style="background: #2d3440; color: #9ba7b6; border: 1px solid #3d4654; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;">
-                        Active (${f.active.length})
+                        Active (${activeQuotationsCache.length})
                     </button>
                     <button id="tab-cancelled" onclick="setQuotationTab('cancelled')" style="background: #2d3440; color: #9ba7b6; border: 1px solid #3d4654; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;">
-                        Cancelled (${f.cancelled.length})
+                        Cancelled (${cancelledQuotationsCache.length})
                     </button>
                 </div>
                 <div id="quotation-tab-content" style="background: #232a36; border: 1px solid #3d4654; border-radius: 8px; padding: 12px;"></div>
@@ -192,8 +90,7 @@ async function loadQuotations() {
         `;
 
         content.innerHTML = html;
-        setupUserDateFilter();
-        await setQuotationTab(currentQuotationTab || 'active');
+        setQuotationTab('active');
         
         updateDraftCountDisplay();
     } catch (error) {
@@ -205,21 +102,13 @@ async function loadQuotations() {
     }
 }
 
-async function setQuotationTab(tabName) {
-    currentQuotationTab = tabName;
-
+function setQuotationTab(tabName) {
     const tabContent = document.getElementById('quotation-tab-content');
     const activeBtn = document.getElementById('tab-active');
     const cancelledBtn = document.getElementById('tab-cancelled');
     const draftsBtn = document.getElementById('tab-drafts');
     const pendingBtn = document.getElementById('tab-pending');
     if (!tabContent || !activeBtn || !cancelledBtn || !draftsBtn || !pendingBtn) return;
-
-    const filtered = getFilteredUserLists();
-    draftsBtn.textContent = `📋 Drafts (${filtered.drafts.length})`;
-    pendingBtn.textContent = `⏳ Pending (${filtered.pending.length})`;
-    activeBtn.textContent = `Active (${filtered.active.length})`;
-    cancelledBtn.textContent = `Cancelled (${filtered.cancelled.length})`;
 
     activeBtn.style.background = '#2d3440';
     activeBtn.style.color = '#9ba7b6';
@@ -239,40 +128,26 @@ async function setQuotationTab(tabName) {
         controlsDiv.classList.remove('show');
     }
 
-    let limitKey = 'active';
-
     if (tabName === 'cancelled') {
-        tabContent.innerHTML = renderQuotationList(filtered.cancelled, 'cancelled');
+        tabContent.innerHTML = renderQuotationList(cancelledQuotationsCache, 'cancelled');
         cancelledBtn.style.background = '#a65c5c';
         cancelledBtn.style.color = '#fff';
         cancelledBtn.style.border = 'none';
-        limitKey = 'cancelled';
     } else if (tabName === 'drafts') {
         draftsBtn.style.background = '#5b82b6';
         draftsBtn.style.color = '#fff';
         draftsBtn.style.border = 'none';
-        await loadSlQtDraftTab(tabContent, filtered.drafts);
-        limitKey = 'drafts';
+        loadSlQtDraftTab(tabContent);
     } else if (tabName === 'pending') {
-        tabContent.innerHTML = renderQuotationList(filtered.pending, 'pending');
+        tabContent.innerHTML = renderQuotationList(pendingQuotationsCache, 'pending');
         pendingBtn.style.background = '#b0892f';
         pendingBtn.style.color = '#fff';
         pendingBtn.style.border = 'none';
-        limitKey = 'pending';
     } else {
-        tabContent.innerHTML = renderQuotationList(filtered.active, 'active');
+        tabContent.innerHTML = renderQuotationList(activeQuotationsCache, 'active');
         activeBtn.style.background = '#4b6e9e';
         activeBtn.style.color = '#fff';
         activeBtn.style.border = 'none';
-        limitKey = 'active';
-    }
-
-    const moreBtn = tabContent.querySelector('.quotation-load-more-btn');
-    if (moreBtn) {
-        moreBtn.addEventListener('click', function() {
-            listVisibleLimit[limitKey] = (listVisibleLimit[limitKey] || 5) + 10;
-            setQuotationTab(tabName);
-        });
     }
 
     attachQuotationCardListeners();
@@ -283,16 +158,11 @@ function renderQuotationList(list, listType) {
         return '<div style="padding: 12px; text-align: center; color: #888;">No quotations</div>';
     }
 
-    const limitKey = listType === 'cancelled' ? 'cancelled' : (listType === 'pending' ? 'pending' : 'active');
-    const limit = listVisibleLimit[limitKey] != null ? listVisibleLimit[limitKey] : 5;
-    const pageList = list.slice(0, limit);
-    const hasMore = list.length > pageList.length;
-
     let html = '';
-    pageList.forEach(qt => {
+    list.forEach(qt => {
         const amount = Number(qt.DOCAMT || 0).toFixed(2);
-        const docDate = formatDateForDisplay(qt.DOCDATE);
-        const validity = formatDateForDisplay(qt.VALIDITY);
+        const docDate = qt.DOCDATE || '-';
+        const validity = qt.VALIDITY || '-';
         const creditTerm = qt.CREDITTERM || 'N/A';
         const description = qt.DESCRIPTION || 'Quotation';
         const companyName = qt.COMPANYNAME || 'N/A';
@@ -345,14 +215,6 @@ function renderQuotationList(list, listType) {
             </div>
         `;
     });
-
-    if (hasMore) {
-        html += `
-            <div style="text-align: center; padding: 12px;">
-                <button type="button" class="quotation-load-more-btn" style="background: #3d4654; color: #e4e9f1; border: 1px solid #5a6575; padding: 8px 20px; border-radius: 6px; cursor: pointer; font-size: 13px;">more</button>
-            </div>
-        `;
-    }
 
     return html;
 }
@@ -428,12 +290,11 @@ async function toggleQuotationItems(card) {
     }
 }
 
-async function loadSlQtDraftTab(tabContent, draftList) {
+async function loadSlQtDraftTab(tabContent) {
     tabContent.innerHTML = '<div style="padding: 12px; text-align: center; color: #888;">Loading drafts...</div>';
     try {
         await fetchSavedDraftQuotations();
-        const list = draftList != null ? draftList : getFilteredUserLists().drafts;
-        tabContent.innerHTML = renderDraftList(list);
+        tabContent.innerHTML = renderDraftList(slQtDraftCache);
         attachQuotationCardListeners();
     } catch (e) {
         tabContent.innerHTML = '<div style="padding: 12px; text-align: center; color: #ff6b6b;">Error loading drafts</div>';
@@ -472,15 +333,11 @@ function renderDraftList(list) {
         return '<div style="padding: 12px; text-align: center; color: #888;">No saved drafts</div>';
     }
 
-    const limit = listVisibleLimit.drafts != null ? listVisibleLimit.drafts : 5;
-    const pageList = list.slice(0, limit);
-    const hasMore = list.length > pageList.length;
-
     let html = '';
-    pageList.forEach(qt => {
+    list.forEach(qt => {
         const amount = Number(qt.DOCAMT || 0).toFixed(2);
-        const docDate = formatDateForDisplay(qt.DOCDATE);
-        const validity = formatDateForDisplay(qt.VALIDITY);
+        const docDate = qt.DOCDATE || '-';
+        const validity = qt.VALIDITY || '-';
         const creditTerm = qt.CREDITTERM || 'N/A';
         const description = qt.DESCRIPTION || 'Draft Quotation';
         const companyName = qt.COMPANYNAME || 'N/A';
@@ -525,14 +382,6 @@ function renderDraftList(list) {
             </div>
         `;
     });
-
-    if (hasMore) {
-        html += `
-            <div style="text-align: center; padding: 12px;">
-                <button type="button" class="quotation-load-more-btn" style="background: #3d4654; color: #e4e9f1; border: 1px solid #5a6575; padding: 8px 20px; border-radius: 6px; cursor: pointer; font-size: 13px;">more</button>
-            </div>
-        `;
-    }
 
     return html;
 }

@@ -215,6 +215,38 @@ def _ensure_ar_customer_udf_email_column(conn):
         cur.close()
 
 
+def _ensure_st_item_udf_uom_column(conn):
+    """Ensure ST_ITEM table has UDF_UOM column for quotation item UOM lookups."""
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            '''
+            SELECT f.RDB$FIELD_NAME
+            FROM RDB$RELATION_FIELDS f
+            WHERE f.RDB$RELATION_NAME = 'ST_ITEM' AND f.RDB$FIELD_NAME = 'UDF_UOM'
+            '''
+        )
+        result = cur.fetchone()
+        if result:
+            print("[DB INIT] UDF_UOM column already exists in ST_ITEM")
+            return True
+
+        conn.commit()
+        cur.execute('ALTER TABLE ST_ITEM ADD UDF_UOM VARCHAR(40)')
+        conn.commit()
+        print("[DB INIT] UDF_UOM column added to ST_ITEM")
+        return True
+    except Exception as e:
+        error_msg = str(e).lower()
+        if 'already exists' in error_msg or 'duplicate' in error_msg:
+            print("[DB INIT] UDF_UOM column already exists in ST_ITEM")
+            return True
+        print(f"[DB INIT WARNING] Could not add UDF_UOM to ST_ITEM: {e}")
+        return False
+    finally:
+        cur.close()
+
+
 def _backfill_udf_email_from_branch_email(conn):
     """
     One-time backfill from AR_CUSTOMERBRANCH.EMAIL to AR_CUSTOMER.UDF_EMAIL.
@@ -1125,6 +1157,9 @@ def initialize_database(db_path, db_user, db_password):
 
         # Ensure AR_CUSTOMER has UDF_EMAIL for guest sign-in payload
         _ensure_ar_customer_udf_email_column(conn)
+
+        # Ensure ST_ITEM has UDF_UOM for quotation item lookup queries
+        _ensure_st_item_udf_uom_column(conn)
         
         # One-time backfill from AR_CUSTOMERBRANCH.EMAIL to AR_CUSTOMER.UDF_EMAIL
         _backfill_udf_email_from_branch_email(conn)
