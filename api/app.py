@@ -1,11 +1,14 @@
 """FastAPI application entry point."""
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+# Load project-root .env (same pattern as main.py), regardless of current working directory
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(dotenv_path=_env_path)
 
 # Import routes
 from api.routes import health, customers, debug
@@ -13,7 +16,7 @@ from api.routes import health, customers, debug
 # Create FastAPI app
 app = FastAPI(
     title="eQuotation API",
-    description="Middleware API for SQL Account COM integration",
+    description="Middleware API for SQL Accounting (SigV4 customer create) + optional COM reads",
     version="1.0.0",
     docs_url="/docs",
     openapi_url="/openapi.json"

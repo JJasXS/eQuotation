@@ -7,8 +7,12 @@ let slQtDraftLoaded = false;
 
 
 function isPendingQuotation(qt) {
-    // Priority rule: UPDATECOUNT determines Pending first.
-    return qt.UPDATECOUNT === null || qt.UPDATECOUNT === undefined;
+    // Same as admin: CANCELLED not set yet, or SL_QT.UPDATECOUNT is null.
+    // Active: not pending && CANCELLED === false (implies UPDATECOUNT !== null).
+    // Cancelled: not pending && CANCELLED === true (implies UPDATECOUNT !== null).
+    const cancelledUnset = qt.CANCELLED === null || qt.CANCELLED === undefined;
+    const updateCountUnset = qt.UPDATECOUNT === null || qt.UPDATECOUNT === undefined;
+    return cancelledUnset || updateCountUnset;
 }
 
 async function loadQuotations() {
@@ -147,23 +151,49 @@ function renderQuotationList(list, listType) {
         const validity = qt.VALIDITY || '-';
         const creditTerm = qt.CREDITTERM || 'N/A';
         const description = qt.DESCRIPTION || 'Quotation';
+        const companyName = qt.COMPANYNAME || 'N/A';
         const isDraft = listType === 'draft';
         const isCancelled = listType === 'cancelled';
         const isPending = listType === 'pending';
         const borderColor = isCancelled ? '#a65c5c' : (isPending ? '#b0892f' : (isDraft ? '#5b82b6' : '#4b6e9e'));
         const badgeColor = isCancelled ? '#a65c5c' : (isPending ? '#b0892f' : (isDraft ? '#5b82b6' : '#4b6e9e'));
 
-        const editButton = isDraft ? `<button onclick="event.stopPropagation(); editDraft(${qt.DOCKEY});" style="background: #5b82b6; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600; margin-left: 8px;">Edit Draft</button>` : '';
+        const editButton = isDraft ? `<button onclick="event.stopPropagation(); editDraft(${qt.DOCKEY});" style="background: #5b82b6; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600;">Edit Draft</button>` : '';
         
         html += `
             <div class="quotation-card" data-dockey="${qt.DOCKEY}" style="background: #2d3440; padding: 12px; margin-bottom: 12px; border-radius: 8px; border-left: 3px solid ${borderColor}; cursor: pointer;">
-                <div style="display: flex; align-items: center; gap: 16px; flex-wrap: nowrap; margin-bottom: 12px;">
-                    <span class="expand-arrow" style="color: #9ba7b6; font-size: 12px; transition: transform 0.2s; flex-shrink: 0; cursor: pointer;">▼</span>
-                    <span style="font-weight: 600; color: #e4e9f1; flex-shrink: 0;">${qt.DOCNO || ('DOCKEY #' + qt.DOCKEY)}</span>
-                    <span style="color: #9ba7b6; font-size: 13px; white-space: nowrap;">Date: ${docDate} | Valid Until: ${validity} | Terms: ${creditTerm}</span>
-                    <span style="color: #e4e9f1; font-size: 14px; flex-shrink: 0;">${description}</span>
-                    <span style="background: ${badgeColor}; color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 12px; flex-shrink: 0; margin-left: auto;">RM ${amount}</span>
-                    ${editButton}
+                <div class="quotation-card__header-layout">
+                    <div class="quotation-card__info">
+                        <div class="quotation-card__info-grid">
+                            <div class="quotation-card__field">
+                                <span class="quotation-card__field-label">QT Code</span>
+                                <div class="quotation-card__field-value">
+                                    <span class="expand-arrow" style="color: #9ba7b6; font-size: 12px; transition: transform 0.2s; flex-shrink: 0; cursor: pointer;">▼</span>
+                                    <span>${qt.DOCNO || ('DOCKEY #' + qt.DOCKEY)}</span>
+                                </div>
+                            </div>
+                            <div class="quotation-card__field">
+                                <span class="quotation-card__field-label">Customer Name</span>
+                                <div class="quotation-card__field-value quotation-card__field-value--wrap">${companyName}</div>
+                            </div>
+                            <div class="quotation-card__field">
+                                <span class="quotation-card__field-label">Date</span>
+                                <div class="quotation-card__field-value">${docDate}</div>
+                            </div>
+                            <div class="quotation-card__field">
+                                <span class="quotation-card__field-label">Valid Until</span>
+                                <div class="quotation-card__field-value">${validity}</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="quotation-card__amount-col">
+                        <span class="quotation-card__amount" style="background: ${badgeColor};">RM ${amount}</span>
+                    </div>
+                    <div class="quotation-card__button-col">
+                        <div class="quotation-card__side-actions">
+                            ${editButton}
+                        </div>
+                    </div>
                 </div>
                 <div class="quotation-items" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid #3d4654;">
                     <div style="text-align: center; color: #888; padding: 8px;">Loading items...</div>
@@ -307,15 +337,41 @@ function renderDraftList(list) {
         const validity = qt.VALIDITY || '-';
         const creditTerm = qt.CREDITTERM || 'N/A';
         const description = qt.DESCRIPTION || 'Draft Quotation';
+        const companyName = qt.COMPANYNAME || 'N/A';
         html += `
             <div class="quotation-card" data-dockey="${qt.DOCKEY}" data-source="slqtdraft" style="background: #2d3440; padding: 12px; margin-bottom: 12px; border-radius: 8px; border-left: 3px solid #5b82b6; cursor: pointer;">
-                <div style="display: flex; align-items: center; gap: 16px; flex-wrap: nowrap; margin-bottom: 12px;">
-                    <span class="expand-arrow" style="color: #9ba7b6; font-size: 12px; transition: transform 0.2s; flex-shrink: 0;">▼</span>
-                    <span style="font-weight: 600; color: #e4e9f1; flex-shrink: 0;">${qt.DOCNO || ('DOCKEY #' + qt.DOCKEY)}</span>
-                    <span style="color: #9ba7b6; font-size: 13px; white-space: nowrap;">Date: ${docDate} | Valid Until: ${validity} | Terms: ${creditTerm}</span>
-                    <span style="color: #e4e9f1; font-size: 14px; flex-shrink: 0;">${description}</span>
-                    <span style="background: #5b82b6; color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 12px; flex-shrink: 0; margin-left: auto;">RM ${amount}</span>
-                    <button onclick="event.stopPropagation(); editSlQtDraft(${qt.DOCKEY});" style="background: #5b82b6; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600; margin-left: 8px;">Edit Draft</button>
+                <div class="quotation-card__header-layout">
+                    <div class="quotation-card__info">
+                        <div class="quotation-card__info-grid">
+                            <div class="quotation-card__field">
+                                <span class="quotation-card__field-label">QT Code</span>
+                                <div class="quotation-card__field-value">
+                                    <span class="expand-arrow" style="color: #9ba7b6; font-size: 12px; transition: transform 0.2s; flex-shrink: 0;">▼</span>
+                                    <span>${qt.DOCNO || ('DOCKEY #' + qt.DOCKEY)}</span>
+                                </div>
+                            </div>
+                            <div class="quotation-card__field">
+                                <span class="quotation-card__field-label">Customer Name</span>
+                                <div class="quotation-card__field-value quotation-card__field-value--wrap">${companyName}</div>
+                            </div>
+                            <div class="quotation-card__field">
+                                <span class="quotation-card__field-label">Date</span>
+                                <div class="quotation-card__field-value">${docDate}</div>
+                            </div>
+                            <div class="quotation-card__field">
+                                <span class="quotation-card__field-label">Valid Until</span>
+                                <div class="quotation-card__field-value">${validity}</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="quotation-card__amount-col">
+                        <span class="quotation-card__amount" style="background: #5b82b6;">RM ${amount}</span>
+                    </div>
+                    <div class="quotation-card__button-col">
+                        <div class="quotation-card__side-actions">
+                            <button onclick="event.stopPropagation(); editSlQtDraft(${qt.DOCKEY});" style="background: #5b82b6; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600;">Edit Draft</button>
+                        </div>
+                    </div>
                 </div>
                 <div class="quotation-items" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid #3d4654;">
                     <div style="text-align: center; color: #888; padding: 8px;">Loading items...</div>

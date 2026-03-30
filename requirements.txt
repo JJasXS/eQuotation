@@ -9,6 +9,7 @@ fastapi==0.104.1
 uvicorn[standard]==0.24.0
 pydantic==2.4.2
 pywin32>=306
+botocore>=1.34.0
 
 # Local AI Model Dependencies
 torch>=2.0.0

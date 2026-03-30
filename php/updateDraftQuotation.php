@@ -105,7 +105,8 @@ try {
             CITY = ?,
             STATE = ?,
             COUNTRY = ?,
-            PHONE1 = ?
+            PHONE1 = ?,
+            UPDATECOUNT = COALESCE(UPDATECOUNT, 0) + 1
         WHERE DOCKEY = ?
     ');
     

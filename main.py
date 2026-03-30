@@ -2787,7 +2787,7 @@ def api_get_my_quotations():
         cur = con.cursor()
         cur.execute(
             '''
-            SELECT q.DOCKEY, q.DOCNO, q.DOCDATE, q.DESCRIPTION, q.DOCAMT, q.VALIDITY, q.STATUS, q.TERMS, q.CANCELLED, q.UPDATECOUNT
+            SELECT q.DOCKEY, q.DOCNO, q.DOCDATE, q.DESCRIPTION, q.DOCAMT, q.VALIDITY, q.STATUS, q.TERMS, q.CANCELLED, q.UPDATECOUNT, q.COMPANYNAME
             FROM SL_QT q
             WHERE q.CODE = ?
             ORDER BY q.DOCDATE DESC, q.DOCKEY DESC
@@ -2804,7 +2804,16 @@ def api_get_my_quotations():
             status_int = row[6] if row[6] is not None else 0
             status_str = 'COMPLETED' if status_int == 1 else 'DRAFT'
             cancelled_raw = row[8]
-            cancelled_value = str(cancelled_raw).strip().lower() in ('1', 'true', 't', 'yes', 'y')
+            if cancelled_raw is None:
+                cancelled_value = None
+            elif isinstance(cancelled_raw, bool):
+                cancelled_value = cancelled_raw
+            elif isinstance(cancelled_raw, (int, float)):
+                cancelled_value = int(cancelled_raw) != 0
+            else:
+                cancelled_value = str(cancelled_raw).strip().lower() in (
+                    '1', 'true', 't', 'yes', 'y'
+                )
             updatecount_raw = row[9]
             updatecount_value = int(updatecount_raw) if updatecount_raw is not None else None
             
@@ -2818,7 +2827,8 @@ def api_get_my_quotations():
                 'STATUS': status_str,
                 'CREDITTERM': str(row[7]) if row[7] is not None else 'N/A',
                 'CANCELLED': cancelled_value,
-                'UPDATECOUNT': updatecount_value
+                'UPDATECOUNT': updatecount_value,
+                'COMPANYNAME': row[10] or 'N/A'
             })
 
         return jsonify({'success': True, 'data': quotations})

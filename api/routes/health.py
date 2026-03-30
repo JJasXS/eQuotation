@@ -1,5 +1,6 @@
 """Health check endpoints."""
 from fastapi import APIRouter
+
 from api.models import APIResponse
 from api.services import CustomerService
 
@@ -10,30 +11,20 @@ customer_service = CustomerService()
 @router.get("/health", response_model=APIResponse)
 async def health_check():
     """
-    Health check endpoint.
-    
-    Returns:
-        Health status and API version
+    Health check: process is up; ``data.customer_create`` shows SigV4 API readiness.
+
+    COM availability is listed under ``com_state_reader`` for optional post-create reads.
     """
     result = customer_service.health_check()
-    is_healthy = result.get("status") == "healthy"
-    return APIResponse(
-        success=is_healthy,
-        message="API and COM are healthy" if is_healthy else "API running but COM unavailable",
-        data=result,
-        errors=None if is_healthy else [result.get("error", "Unknown COM error")]
-    )
-
-
-@router.get("/", response_model=APIResponse)
-async def root():
-    """Root endpoint - API info."""
+    cc = result.get("customer_create", {})
+    warnings: list[str] = []
+    if not cc.get("dry_run") and not cc.get("api_configured"):
+        warnings.append(
+            "SQL Accounting API not configured for live create (set keys, path, or SQL_API_DRY_RUN=true)"
+        )
     return APIResponse(
         success=True,
-        message="eQuotation API",
-        data={
-            "name": "eQuotation REST API",
-            "version": "1.0.0",
-            "description": "REST API layer for SQL Account integration"
-        }
+        message="eQuotation API is running",
+        data=result,
+        errors=warnings or None,
     )

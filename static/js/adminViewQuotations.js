@@ -6,8 +6,11 @@ let currentTab = 'active';
 let selectedActiveQuotations = new Set();
 
 function isPendingQuotation(qt) {
-    // Priority rule: UPDATECOUNT determines Pending first.
-    return qt.UPDATECOUNT === null || qt.UPDATECOUNT === undefined;
+    // Pending: CANCELLED not set yet, or SL_QT.UPDATECOUNT is null.
+    // Active/Cancelled only when both CANCELLED and UPDATECOUNT are set (not pending).
+    const cancelledUnset = qt.CANCELLED === null || qt.CANCELLED === undefined;
+    const updateCountUnset = qt.UPDATECOUNT === null || qt.UPDATECOUNT === undefined;
+    return cancelledUnset || updateCountUnset;
 }
 
 window.toggleCancelledStatus = async function(dockey, isCancelled) {
@@ -125,7 +128,7 @@ async function loadQuotations() {
     content.innerHTML = '<div style="padding: 20px; text-align: center; color: #888;">Loading...</div>';
 
     try {
-        // Fetch all quotations once, then split into Active/Cancelled/Pending using CANCELLED tri-state.
+        // Fetch all quotations once; tabs use CANCELLED + UPDATECOUNT (see isPendingQuotation).
         const response = await fetch('/api/admin/get_all_quotations');
         const data = await response.json();
 
@@ -261,19 +264,42 @@ function renderQuotationList(list, options = {}) {
         html += `
             <div class="quotation-card" data-dockey="${qt.DOCKEY}" style="background: #2d3440; padding: 12px; margin-bottom: 12px; border-radius: 8px; border-left: 3px solid ${borderColor}; cursor: pointer; display: flex; gap: 12px; align-items: flex-start;">
                 ${checkboxHtml}
-                <div style="flex: 1;">
-                    <div class="quotation-card__row">
-                        <span class="expand-arrow" style="color: #9ba7b6; font-size: 11px; transition: transform 0.2s;">▼</span>
-                        <span style="font-weight: 600; color: #e4e9f1;">${qt.DOCNO || ('DOCKEY #' + qt.DOCKEY)}</span>
-                        <span style="color: #9ba7b6; font-size: 13px;">Customer: ${companyName} (${customerCode})</span>
-                        <span style="color: #9ba7b6; font-size: 13px; white-space: nowrap;">Date: ${docDate} | Valid Until: ${validity}</span>
-                        <span class="quotation-card__actions">
-                            <span style="background: ${badgeColor}; color: #fff; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; white-space: nowrap;">RM ${amount}</span>
-                            ${isPending ? `<button class="edit-button" onclick="editQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #5a8fc4; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Edit</button>` : ''}
-                            ${isPending ? `<button class="activate-btn" onclick="activateQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #4b9e6e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Activate</button>` : ''}
-                            ${!isPending && !isCancelled ? `<button class="toggle-cancelled-btn" onclick="console.log('[BUTTON CLICK] DOCKEY:', ${qt.DOCKEY}, 'isCancelled param:', ${isCancelled}); event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, ${isCancelled});" style="background: #a65c5c; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Cancel</button>` : ''}
-                            ${isCancelled ? `<button class="toggle-cancelled-btn" onclick="console.log('[BUTTON CLICK] DOCKEY:', ${qt.DOCKEY}, 'isCancelled param:', ${isCancelled}); event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, ${isCancelled});" style="background: #4b6e9e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Restore</button>` : ''}
-                        </span>
+                <div style="flex: 1; min-width: 0;">
+                    <div class="quotation-card__header-layout">
+                        <div class="quotation-card__info">
+                            <div class="quotation-card__info-grid">
+                                <div class="quotation-card__field">
+                                    <span class="quotation-card__field-label">QT Code</span>
+                                    <div class="quotation-card__field-value">
+                                        <span class="expand-arrow" style="color: #9ba7b6; font-size: 11px; transition: transform 0.2s;">▼</span>
+                                        <span>${qt.DOCNO || ('DOCKEY #' + qt.DOCKEY)}</span>
+                                    </div>
+                                </div>
+                                <div class="quotation-card__field">
+                                    <span class="quotation-card__field-label">Customer Name</span>
+                                    <div class="quotation-card__field-value quotation-card__field-value--wrap">${companyName} (${customerCode})</div>
+                                </div>
+                                <div class="quotation-card__field">
+                                    <span class="quotation-card__field-label">Date</span>
+                                    <div class="quotation-card__field-value">${docDate}</div>
+                                </div>
+                                <div class="quotation-card__field">
+                                    <span class="quotation-card__field-label">Valid Until</span>
+                                    <div class="quotation-card__field-value">${validity}</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="quotation-card__amount-col">
+                            <span class="quotation-card__amount" style="background: ${badgeColor};">RM ${amount}</span>
+                        </div>
+                        <div class="quotation-card__button-col">
+                            <div class="quotation-card__side-actions">
+                                ${isPending ? `<button class="edit-button" onclick="editQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #5a8fc4; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Edit</button>` : ''}
+                                ${isPending ? `<button class="activate-btn" onclick="activateQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #4b9e6e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Activate</button>` : ''}
+                                ${!isPending && !isCancelled ? `<button class="toggle-cancelled-btn" onclick="console.log('[BUTTON CLICK] DOCKEY:', ${qt.DOCKEY}, 'isCancelled param:', ${isCancelled}); event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, ${isCancelled});" style="background: #a65c5c; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Cancel</button>` : ''}
+                                ${isCancelled ? `<button class="toggle-cancelled-btn" onclick="console.log('[BUTTON CLICK] DOCKEY:', ${qt.DOCKEY}, 'isCancelled param:', ${isCancelled}); event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, ${isCancelled});" style="background: #4b6e9e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Restore</button>` : ''}
+                            </div>
+                        </div>
                     </div>
                     <div class="quotation-items" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid #3d4654;">
                         <div style="text-align: center; color: #888; padding: 8px;">Loading items...</div>

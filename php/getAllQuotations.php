@@ -53,8 +53,10 @@ try {
         // Log original value before conversion
         $originalCancelled = $qt['CANCELLED'];
         
-        // Handle CANCELLED as strict boolean only.
-        if (is_bool($qt['CANCELLED'])) {
+        // Preserve NULL so the UI can distinguish Pending from Active.
+        if ($qt['CANCELLED'] === null) {
+            $qt['CANCELLED'] = null;
+        } elseif (is_bool($qt['CANCELLED'])) {
             // Firebird sometimes returns as direct boolean
             $qt['CANCELLED'] = (bool)$qt['CANCELLED'];
         } elseif (is_numeric($qt['CANCELLED'])) {

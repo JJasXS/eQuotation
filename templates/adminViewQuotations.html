@@ -35,6 +35,95 @@
             background-color: #4a4f5a;
             opacity: 0.65;
         }
+        .quotation-card__header-layout {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 110px 180px;
+            gap: 16px;
+            align-items: start;
+            margin-bottom: 12px;
+        }
+        .quotation-card__info {
+            min-width: 0;
+        }
+        .quotation-card__info-grid {
+            display: grid;
+            grid-template-columns: 150px minmax(0, 1fr) 130px 130px;
+            gap: 12px;
+            align-items: start;
+        }
+        .quotation-card__field {
+            min-width: 0;
+        }
+        .quotation-card__field-label {
+            display: block;
+            margin-bottom: 4px;
+            color: #9ba7b6;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+        }
+        .quotation-card__field-value {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+            color: #e4e9f1;
+            font-size: 13px;
+        }
+        .quotation-card__field-value--wrap {
+            display: block;
+            word-break: break-word;
+        }
+        .quotation-card__amount-col,
+        .quotation-card__button-col {
+            display: grid;
+            justify-items: end;
+            align-content: start;
+            gap: 10px;
+            min-width: 0;
+        }
+        .quotation-card__button-col {
+            justify-items: stretch;
+        }
+        .quotation-card__amount {
+            background: #4b6e9e;
+            color: #fff;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            white-space: nowrap;
+            text-align: right;
+        }
+        .quotation-card__side-actions {
+            display: flex;
+            flex-direction: column;
+            flex-wrap: wrap;
+            align-items: stretch;
+            gap: 8px;
+            width: 100%;
+        }
+        @media (max-width: 900px) {
+            .quotation-card__header-layout {
+                grid-template-columns: 1fr;
+            }
+            .quotation-card__info-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+            .quotation-card__amount-col,
+            .quotation-card__button-col {
+                justify-items: start;
+            }
+            .quotation-card__side-actions {
+                align-items: flex-start;
+            }
+        }
+        @media (max-width: 640px) {
+            .quotation-card__info-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>

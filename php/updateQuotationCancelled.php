@@ -10,12 +10,23 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $data = json_decode(file_get_contents('php://input'), true);
 $dockey = $data['dockey'] ?? null;
-$cancelled = $data['cancelled'] ?? null;
+$cancelledRaw = $data['cancelled'] ?? null;
+
+// Normalize to boolean (JSON booleans, 0/1, or string "true"/"false" from some clients)
+if (is_bool($cancelledRaw)) {
+    $cancelled = $cancelledRaw;
+} elseif (is_int($cancelledRaw) || is_float($cancelledRaw)) {
+    $cancelled = ((int)$cancelledRaw) !== 0;
+} elseif (is_string($cancelledRaw)) {
+    $cancelled = in_array(strtolower(trim($cancelledRaw)), ['1', 'true', 'yes', 'on'], true);
+} else {
+    $cancelled = filter_var($cancelledRaw, FILTER_VALIDATE_BOOLEAN);
+}
 
 error_log("[UPDATE QUOTATION] Received request: dockey=$dockey, cancelled=" . ($cancelled ? 'true' : 'false'));
 
-if (!$dockey || !isset($cancelled)) {
-    error_log("[UPDATE QUOTATION] Missing parameters! dockey=$dockey, cancelled=" . var_export($cancelled, true));
+if (!$dockey || $cancelledRaw === null) {
+    error_log("[UPDATE QUOTATION] Missing parameters! dockey=$dockey, cancelled=" . var_export($cancelledRaw, true));
     echo json_encode(['success' => false, 'error' => 'dockey and cancelled required']);
     exit;
 }
@@ -42,9 +53,14 @@ try {
     
     error_log("[UPDATE QUOTATION] Found record: DOCNO=" . $record['DOCNO'] . ", current CANCELLED=" . $record['CANCELLED']);
     
-    // Update the quotation
-    $stmt = $dbh->prepare('UPDATE SL_QT SET CANCELLED = ? WHERE DOCKEY = ?');
-    $result = $stmt->execute([$cancelledValue, $dockey]);
+    // Always bump UPDATECOUNT on any CANCELLED toggle (activate or cancel). Firebird-safe integer math.
+    $stmt = $dbh->prepare('
+        UPDATE SL_QT SET
+            CANCELLED = ?,
+            UPDATECOUNT = COALESCE(CAST(UPDATECOUNT AS INTEGER), 0) + 1
+        WHERE DOCKEY = ?
+    ');
+    $result = $stmt->execute([$cancelledValue, (int)$dockey]);
     
     error_log("[UPDATE QUOTATION] Update executed. Result=" . ($result ? 'true' : 'false'));
     error_log("[UPDATE QUOTATION] Rows affected: " . $stmt->rowCount());

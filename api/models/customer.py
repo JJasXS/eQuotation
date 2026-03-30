@@ -1,5 +1,5 @@
-"""Customer data models for SQL Account COM API."""
-from typing import Optional
+"""Customer data models for SQL Account integration."""
+from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -76,3 +76,12 @@ class CustomerResponse(BaseModel):
     phone: Optional[str] = None
     address1: Optional[str] = None
     saved: bool = True
+    dry_run: bool = False
+    request_preview: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="When dry_run is True, the method/url/body that would have been sent.",
+    )
+    raw_response_snippet: Optional[str] = Field(
+        default=None,
+        description="Truncated raw HTTP body from the SQL Accounting API (debug).",
+    )

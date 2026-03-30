@@ -1,15 +1,13 @@
 param(
-    [string]$ProjectRoot = "C:\Users\sd01\Chatbot",
-    [string]$XamppRoot = "C:\xampp\htdocs",
+    [string]$ProjectRoot = "C:\Users\sd01\eQuotation",
+    [string]$XamppPhpRoot = "C:\xampp\htdocs\php",
     [bool]$RestartApache = $false
 )
 
 $ErrorActionPreference = 'Stop'
 
 $srcPhp = Join-Path $ProjectRoot 'php'
-$dstPhp = Join-Path $XamppRoot 'php'
-$srcEnv = Join-Path $ProjectRoot '.env'
-$dstEnv = Join-Path $XamppRoot '.env'
+$dstPhp = $XamppPhpRoot
 
 if (!(Test-Path $srcPhp)) {
     throw "Source PHP folder not found: $srcPhp"
@@ -17,20 +15,28 @@ if (!(Test-Path $srcPhp)) {
 if (!(Test-Path $dstPhp)) {
     throw "Destination PHP folder not found: $dstPhp"
 }
-if (!(Test-Path $srcEnv)) {
-    throw "Source .env file not found: $srcEnv"
+
+Write-Host "Syncing PHP files from $srcPhp to $dstPhp ..." -ForegroundColor Cyan
+
+$srcFiles = Get-ChildItem $srcPhp -Filter *.php -File
+$srcNames = $srcFiles.Name
+
+foreach ($file in $srcFiles) {
+    Copy-Item -Path $file.FullName -Destination (Join-Path $dstPhp $file.Name) -Force
 }
 
-Write-Host "Syncing PHP files..." -ForegroundColor Cyan
-Copy-Item -Path (Join-Path $srcPhp '*.php') -Destination $dstPhp -Force
-
-Write-Host "Syncing .env..." -ForegroundColor Cyan
-Copy-Item -Path $srcEnv -Destination $dstEnv -Force
+# Remove stale PHP files from htdocs/php so both folders stay aligned.
+$dstFiles = Get-ChildItem $dstPhp -Filter *.php -File
+foreach ($file in $dstFiles) {
+    if ($file.Name -notin $srcNames) {
+        Remove-Item -Path $file.FullName -Force
+        Write-Host "Removed stale file: $($file.Name)" -ForegroundColor DarkYellow
+    }
+}
 
 Write-Host "Verifying file hashes..." -ForegroundColor Cyan
 $mismatches = @()
-$files = Get-ChildItem $srcPhp -Filter *.php -File
-foreach ($f in $files) {
+foreach ($f in $srcFiles) {
     $srcHash = (Get-FileHash -Algorithm SHA256 $f.FullName).Hash
     $dstPath = Join-Path $dstPhp $f.Name
 
@@ -43,12 +49,6 @@ foreach ($f in $files) {
     if ($srcHash -ne $dstHash) {
         $mismatches += "Hash mismatch: $($f.Name)"
     }
-}
-
-$envSrcHash = (Get-FileHash -Algorithm SHA256 $srcEnv).Hash
-$envDstHash = (Get-FileHash -Algorithm SHA256 $dstEnv).Hash
-if ($envSrcHash -ne $envDstHash) {
-    $mismatches += 'Hash mismatch: .env'
 }
 
 if ($mismatches.Count -gt 0) {
