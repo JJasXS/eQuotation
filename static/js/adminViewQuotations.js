@@ -5,6 +5,64 @@ let companyFilter = '';
 let currentTab = 'active';
 let selectedActiveQuotations = new Set();
 
+/** Date filter (YYYY-MM-DD from input type=date) */
+let adminDateFrom = '';
+let adminDateTo = '';
+/** First page shows 5 rows; each "more" adds 10 */
+let listVisibleLimit = { active: 5, pending: 5, cancelled: 5 };
+
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function parseQuotationDate(raw) {
+    if (raw == null || raw === '') return null;
+    const s = String(raw).trim();
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+    const t = Date.parse(s);
+    if (!isNaN(t)) return new Date(t);
+    return null;
+}
+
+function toYmd(d) {
+    if (!d || isNaN(d.getTime())) return '';
+    const y = d.getFullYear();
+    const mo = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${mo}-${day}`;
+}
+
+/** Display as DD-MON-YYYY (e.g. 05-Mar-2026) */
+function formatDateForDisplay(raw) {
+    if (raw == null || raw === '' || raw === '-') return '-';
+    const d = parseQuotationDate(raw);
+    if (!d || isNaN(d.getTime())) return String(raw);
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${day}-${MONTH_SHORT[d.getMonth()]}-${d.getFullYear()}`;
+}
+
+function filterQuotationsByDate(list, fromStr, toStr) {
+    const from = fromStr || '';
+    const to = toStr || '';
+    if (!from && !to) return list;
+    return list.filter(qt => {
+        const d = parseQuotationDate(qt.DOCDATE);
+        if (!d) return false;
+        const ymd = toYmd(d);
+        if (from && ymd < from) return false;
+        if (to && ymd > to) return false;
+        return true;
+    });
+}
+
+function getFilteredAdminLists() {
+    const df = adminDateFrom;
+    const dt = adminDateTo;
+    const a = filterQuotationsByCompany(filterQuotationsByDate(activeQuotationsCache, df, dt));
+    const p = filterQuotationsByCompany(filterQuotationsByDate(pendingQuotationsCache, df, dt));
+    const c = filterQuotationsByCompany(filterQuotationsByDate(cancelledQuotationsCache, df, dt));
+    return { active: a, pending: p, cancelled: c };
+}
+
 function isPendingQuotation(qt) {
     // Pending: CANCELLED not set yet, or SL_QT.UPDATECOUNT is null.
     // Active/Cancelled only when both CANCELLED and UPDATECOUNT are set (not pending).
@@ -111,14 +169,42 @@ async function setupCompanyFilter() {
 
     dropdown.onchange = function() {
         companyFilter = dropdown.value;
+        listVisibleLimit = { active: 5, pending: 5, cancelled: 5 };
         setQuotationTab(currentTab);
     };
 
     clearBtn.onclick = function() {
         companyFilter = '';
         dropdown.value = '';
+        listVisibleLimit = { active: 5, pending: 5, cancelled: 5 };
         setQuotationTab(currentTab);
     };
+}
+
+function setupDateFilter() {
+    const fromEl = document.getElementById('quotation-date-from');
+    const toEl = document.getElementById('quotation-date-to');
+    const applyBtn = document.getElementById('quotation-date-apply');
+    const clearBtn = document.getElementById('quotation-date-clear');
+    if (!fromEl || !toEl || !applyBtn || !clearBtn) return;
+
+    applyBtn.onclick = function() {
+        adminDateFrom = fromEl.value || '';
+        adminDateTo = toEl.value || '';
+        listVisibleLimit = { active: 5, pending: 5, cancelled: 5 };
+        setQuotationTab(currentTab);
+    };
+    clearBtn.onclick = function() {
+        fromEl.value = '';
+        toEl.value = '';
+        adminDateFrom = '';
+        adminDateTo = '';
+        listVisibleLimit = { active: 5, pending: 5, cancelled: 5 };
+        setQuotationTab(currentTab);
+    };
+
+    fromEl.value = adminDateFrom || '';
+    toEl.value = adminDateTo || '';
 }
 
 async function loadQuotations() {
@@ -146,11 +232,23 @@ async function loadQuotations() {
         pendingQuotationsCache = allQuotations.filter(qt => isPendingQuotation(qt));
         cancelledQuotationsCache = allQuotations.filter(qt => !isPendingQuotation(qt) && qt.CANCELLED === true);
         activeQuotationsCache = allQuotations.filter(qt => !isPendingQuotation(qt) && qt.CANCELLED === false);
+
+        listVisibleLimit = { active: 5, pending: 5, cancelled: 5 };
         
         console.log('[DEBUG] Filtered caches - Active:', activeQuotationsCache.length, 'Cancelled:', cancelledQuotationsCache.length, 'Pending:', pendingQuotationsCache.length);
 
         const html = `
             <div class="admin-quotations-view" style="padding: 16px;">
+                <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px;">
+                    <label style="display: flex; align-items: center; gap: 6px; color: #9ba7b6; font-size: 13px;">From
+                        <input type="date" id="quotation-date-from" style="padding: 6px 10px; border-radius: 6px; border: 1px solid #3d4654; background: #232a36; color: #e4e9f1; font-size: 13px;">
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; color: #9ba7b6; font-size: 13px;">To
+                        <input type="date" id="quotation-date-to" style="padding: 6px 10px; border-radius: 6px; border: 1px solid #3d4654; background: #232a36; color: #e4e9f1; font-size: 13px;">
+                    </label>
+                    <button type="button" id="quotation-date-apply" style="padding: 8px 12px; border-radius: 6px; background: #4b6e9e; color: #fff; border: none; cursor: pointer; font-size: 13px;">Apply</button>
+                    <button type="button" id="quotation-date-clear" style="padding: 8px 12px; border-radius: 6px; background: #2d3440; color: #9ba7b6; border: 1px solid #3d4654; cursor: pointer; font-size: 13px;">Clear dates</button>
+                </div>
                 <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px;">
                     <select id="company-filter-dropdown" style="padding: 8px 12px; border-radius: 6px; border: 1px solid #3d4654; background: #232a36; color: #e4e9f1; font-size: 13px; width: 240px;">
                         <option value="">All Companies</option>
@@ -175,6 +273,7 @@ async function loadQuotations() {
         `;
 
         content.innerHTML = html;
+        setupDateFilter();
         setQuotationTab(currentTab);
     } catch (error) {
         content.innerHTML = '<div style="padding: 20px; text-align: center; color: #ff6b6b;">Failed to load quotations.</div>';
@@ -191,23 +290,40 @@ function setQuotationTab(tabName) {
     const pendingBtn = document.getElementById('tab-pending');
     if (!tabContent || !activeBtn || !cancelledBtn || !pendingBtn) return;
 
-    const activeList = filterQuotationsByCompany(activeQuotationsCache);
-    const cancelledList = filterQuotationsByCompany(cancelledQuotationsCache);
-    const pendingList = filterQuotationsByCompany(pendingQuotationsCache);
+    const { active: activeList, pending: pendingList, cancelled: cancelledList } = getFilteredAdminLists();
+
+    activeBtn.textContent = `Active (${activeList.length})`;
+    pendingBtn.textContent = `Pending (${pendingList.length})`;
+    cancelledBtn.textContent = `Cancelled (${cancelledList.length})`;
 
     activeBtn.classList.remove('active');
     pendingBtn.classList.remove('active');
     cancelledBtn.classList.remove('active');
 
+    let tabKey = 'active';
+    let html = '';
     if (tabName === 'cancelled') {
-        tabContent.innerHTML = renderQuotationList(cancelledList, { isCancelled: true, isPending: false });
+        html = renderQuotationList(cancelledList, { isCancelled: true, isPending: false }, 'cancelled');
         cancelledBtn.classList.add('active');
+        tabKey = 'cancelled';
     } else if (tabName === 'pending') {
-        tabContent.innerHTML = renderQuotationList(pendingList, { isCancelled: false, isPending: true });
+        html = renderQuotationList(pendingList, { isCancelled: false, isPending: true }, 'pending');
         pendingBtn.classList.add('active');
+        tabKey = 'pending';
     } else {
-        tabContent.innerHTML = renderQuotationList(activeList, { isCancelled: false, isPending: false });
+        html = renderQuotationList(activeList, { isCancelled: false, isPending: false }, 'active');
         activeBtn.classList.add('active');
+        tabKey = 'active';
+    }
+
+    tabContent.innerHTML = html;
+
+    const moreBtn = tabContent.querySelector('.quotation-load-more-btn');
+    if (moreBtn) {
+        moreBtn.addEventListener('click', function handler() {
+            listVisibleLimit[tabKey] = (listVisibleLimit[tabKey] || 5) + 10;
+            setQuotationTab(tabKey);
+        });
     }
 
     document.querySelectorAll('.quotation-card').forEach(card => {
@@ -224,7 +340,7 @@ function setQuotationTab(tabName) {
     });
 }
 
-function renderQuotationList(list, options = {}) {
+function renderQuotationList(list, options = {}, tabKey = 'active') {
     const isCancelled = !!options.isCancelled;
     const isPending = !!options.isPending;
     const isActive = !isCancelled && !isPending;
@@ -232,6 +348,10 @@ function renderQuotationList(list, options = {}) {
     if (!list || list.length === 0) {
         return '<div style="padding: 12px; text-align: center; color: #888;">No quotations</div>';
     }
+
+    const limit = listVisibleLimit[tabKey] != null ? listVisibleLimit[tabKey] : 5;
+    const pageList = list.slice(0, limit);
+    const hasMore = list.length > pageList.length;
 
     let controlsHtml = '';
     if (isActive) {
@@ -250,10 +370,10 @@ function renderQuotationList(list, options = {}) {
     }
 
     let html = controlsHtml;
-    list.forEach(qt => {
+    pageList.forEach(qt => {
         const amount = Number(qt.DOCAMT || 0).toFixed(2);
-        const docDate = qt.DOCDATE || '-';
-        const validity = qt.VALIDITY || '-';
+        const docDate = formatDateForDisplay(qt.DOCDATE);
+        const validity = formatDateForDisplay(qt.VALIDITY);
         const companyName = qt.COMPANYNAME || 'N/A';
         const customerCode = qt.CODE || 'N/A';
         const borderColor = isPending ? '#b0892f' : (isCancelled ? '#a65c5c' : '#4b6e9e');
@@ -308,6 +428,14 @@ function renderQuotationList(list, options = {}) {
             </div>
         `;
     });
+
+    if (hasMore) {
+        html += `
+            <div style="text-align: center; padding: 12px;">
+                <button type="button" class="quotation-load-more-btn" style="background: #3d4654; color: #e4e9f1; border: 1px solid #5a6575; padding: 8px 20px; border-radius: 6px; cursor: pointer; font-size: 13px;">more</button>
+            </div>
+        `;
+    }
 
     return html;
 }
