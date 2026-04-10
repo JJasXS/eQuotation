@@ -17,8 +17,11 @@ if (!$orderdtlid) {
     exit;
 }
 
+$dbh = null;
+
 try {
     $dbh = getFirebirdConnection();
+    $dbh->beginTransaction();
     
     // Get description before deleting (for response message)
     $stmt = $dbh->prepare('SELECT DESCRIPTION FROM ORDER_TPLDTL WHERE ORDERDTLID = ?');
@@ -29,12 +32,19 @@ try {
     // Delete order detail
     $stmt = $dbh->prepare('DELETE FROM ORDER_TPLDTL WHERE ORDERDTLID = ?');
     $stmt->execute([$orderdtlid]);
+
+    $dbh->commit();
     
     echo json_encode([
         'success' => true,
         'message' => "Removed $description from order"
     ]);
 } catch (Exception $e) {
+    if ($dbh instanceof PDO && $dbh->inTransaction()) {
+        $dbh->rollBack();
+    }
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+} finally {
+    $dbh = null;
 }
 ?>

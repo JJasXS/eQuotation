@@ -17,8 +17,11 @@ if (!$orderid) {
     exit;
 }
 
+$dbh = null;
+
 try {
     $dbh = getFirebirdConnection();
+    $dbh->beginTransaction();
     
     // Check if order has items
     $stmt = $dbh->prepare('SELECT COUNT(*) as item_count FROM ORDER_TPLDTL WHERE ORDERID = ?');
@@ -28,8 +31,7 @@ try {
     // Handle Firebird uppercase column names
     $itemCount = $result['item_count'] ?? $result['ITEM_COUNT'] ?? 0;
     if ($itemCount == 0) {
-        echo json_encode(['success' => false, 'error' => 'Cannot complete order with no items']);
-        exit;
+        throw new Exception('Cannot complete order with no items');
     }
     
     // Update order status from DRAFT to PENDING (submit for approval)
@@ -44,6 +46,8 @@ try {
     ');
     $stmt->execute([$orderid]);
     $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    $dbh->commit();
     
     echo json_encode([
         'success' => true,
@@ -53,6 +57,11 @@ try {
         'message' => "Order #$orderid submitted for approval"
     ]);
 } catch (Exception $e) {
+    if ($dbh instanceof PDO && $dbh->inTransaction()) {
+        $dbh->rollBack();
+    }
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+} finally {
+    $dbh = null;
 }
 ?>

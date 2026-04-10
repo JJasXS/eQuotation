@@ -11,6 +11,8 @@ if (!$orderid) {
     exit;
 }
 
+$dbh = null;
+
 try {
     $dbh = getFirebirdConnection();
     
@@ -24,8 +26,7 @@ try {
     $order = $stmt->fetch(PDO::FETCH_ASSOC);
     
     if (!$order) {
-        echo json_encode(['success' => false, 'error' => 'Order not found']);
-        exit;
+        throw new Exception('Order not found');
     }
     
     // Get order details (items)
@@ -68,6 +69,8 @@ try {
     ]);
 } catch (Exception $e) {
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+} finally {
+    $dbh = null;
 }
 ?>
 

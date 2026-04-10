@@ -4,6 +4,8 @@ require_once 'db_helper.php';
 
 header('Content-Type: application/json');
 
+$dbh = null;
+
 try {
     $dbh = getFirebirdConnection();
     
@@ -36,5 +38,7 @@ try {
 } catch (Exception $e) {
     error_log("getCompanyNames.php error: " . $e->getMessage());
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+} finally {
+    $dbh = null;
 }
 ?>

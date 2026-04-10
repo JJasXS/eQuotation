@@ -3,11 +3,12 @@ header('Content-Type: application/json');
 
 require_once 'db_helper.php';
 
+$dbh = null;
+
 try {
     $chatid = $_GET['chatid'] ?? null;
     if (!$chatid) {
-        echo json_encode(['success' => false, 'error' => 'chatid required']);
-        exit;
+        throw new Exception('chatid required');
     }
     
     $dbh = getFirebirdConnection();
@@ -25,5 +26,7 @@ try {
     echo json_encode(['success' => true, 'data' => $rows]);
 } catch (PDOException $e) {
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+} finally {
+    $dbh = null;
 }
 ?>

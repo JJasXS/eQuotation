@@ -21,8 +21,11 @@ if (!$orderdtlid || $qty === null) {
     exit;
 }
 
+$dbh = null;
+
 try {
     $dbh = getFirebirdConnection();
+    $dbh->beginTransaction();
     
     // Get current details if unitprice not provided
     if ($unitprice === null) {
@@ -42,6 +45,8 @@ try {
         WHERE ORDERDTLID = ?
     ');
     $stmt->execute([$description, $qty, $unitprice, $total, $discount, $orderdtlid]);
+
+    $dbh->commit();
     
     echo json_encode([
         'success' => true,
@@ -49,6 +54,11 @@ try {
         'message' => "Updated quantity to $qty"
     ]);
 } catch (Exception $e) {
+    if ($dbh instanceof PDO && $dbh->inTransaction()) {
+        $dbh->rollBack();
+    }
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+} finally {
+    $dbh = null;
 }
 ?>

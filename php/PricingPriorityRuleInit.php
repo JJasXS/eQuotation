@@ -32,6 +32,8 @@ function splitSqlStatements($sql)
     return $statements;
 }
 
+$dbh = null;
+
 try {
     $sqlPath = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'sql' . DIRECTORY_SEPARATOR . 'pricing_priority_rule_firebird.sql';
     if (!file_exists($sqlPath)) {
@@ -116,5 +118,7 @@ try {
         'message' => 'Pricing priority initialization failed',
         'error' => $e->getMessage(),
     ]);
+} finally {
+    $dbh = null;
 }
 ?>

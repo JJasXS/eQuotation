@@ -12,6 +12,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     exit;
 }
 
+$dbh = null;
+
 try {
     $dbh = getFirebirdConnection();
     $stmt = $dbh->prepare(
@@ -46,5 +48,7 @@ try {
         'message' => 'Failed to load pricing priority rules',
         'error' => $e->getMessage(),
     ]);
+} finally {
+    $dbh = null;
 }
 ?>

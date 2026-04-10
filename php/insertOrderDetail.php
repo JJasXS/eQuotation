@@ -21,8 +21,11 @@ if (!$orderid || !$description || !$qty || !$unitprice) {
     exit;
 }
 
+$dbh = null;
+
 try {
     $dbh = getFirebirdConnection();
+    $dbh->beginTransaction();
     
     // Calculate total
     $total = ($qty * $unitprice) - $discount;
@@ -34,8 +37,7 @@ try {
     $orderdtlid = $result['nextid'] ?? $result['NEXTID'] ?? null;
 
     if ($orderdtlid === null) {
-        echo json_encode(['success' => false, 'error' => 'Failed to generate next ORDERDTLID']);
-        exit;
+        throw new Exception('Failed to generate next ORDERDTLID');
     }
     
     // Insert order detail
@@ -44,6 +46,7 @@ try {
         VALUES (?, ?, ?, ?, ?, ?, ?)
     ');
     $stmt->execute([(int)$orderdtlid, $orderid, $description, $qty, $unitprice, $total, $discount]);
+    $dbh->commit();
     
     echo json_encode([
         'success' => true,
@@ -52,6 +55,11 @@ try {
         'message' => "Added $qty x $description"
     ]);
 } catch (Exception $e) {
+    if ($dbh instanceof PDO && $dbh->inTransaction()) {
+        $dbh->rollBack();
+    }
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+} finally {
+    $dbh = null;
 }
 ?>

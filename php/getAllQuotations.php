@@ -9,6 +9,8 @@ $cancelled = isset($_GET['cancelled']) ? $_GET['cancelled'] : null; // Optional 
 
 error_log("[getAllQuotations] Starting. cancelled param = " . var_export($cancelled, true));
 
+$dbh = null;
+
 try {
     $dbh = getFirebirdConnection();
     error_log("[getAllQuotations] Database connection successful");
@@ -90,5 +92,7 @@ try {
         'error' => $e->getMessage(),
         'trace' => $e->getTraceAsString()
     ]);
+} finally {
+    $dbh = null;
 }
 ?>

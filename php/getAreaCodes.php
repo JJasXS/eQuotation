@@ -8,6 +8,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     exit;
 }
 
+$dbh = null;
+
 try {
     $dbh = getFirebirdConnection();
 
@@ -32,5 +34,7 @@ try {
         'success' => false,
         'error' => $e->getMessage()
     ]);
+} finally {
+    $dbh = null;
 }
 ?>

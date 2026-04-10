@@ -17,8 +17,11 @@ if (!$chatid) {
     exit;
 }
 
+$dbh = null;
+
 try {
     $dbh = getFirebirdConnection();
+    $dbh->beginTransaction();
 
     // Resolve chat owner email and customer code
     $ownerStmt = $dbh->prepare('SELECT OWNEREMAIL, CUSTOMERCODE FROM CHAT_TPL WHERE CHATID = ?');
@@ -26,8 +29,7 @@ try {
     $ownerRow = $ownerStmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$ownerRow) {
-        echo json_encode(['success' => false, 'error' => 'Chat not found']);
-        exit;
+        throw new Exception('Chat not found');
     }
 
     $ownerEmail = $ownerRow['OWNEREMAIL'] ?? null;
@@ -39,13 +41,14 @@ try {
     $existing = $stmt->fetch(PDO::FETCH_ASSOC);
     
     if ($existing) {
+        $dbh->commit();
         // Return existing DRAFT order instead of creating duplicate
         echo json_encode([
             'success' => true,
             'orderid' => $existing['ORDERID'],
             'message' => 'Using existing draft order'
         ]);
-        exit;
+        return;
     }
     
     // Get next ORDERID - Firebird column names might be case-sensitive
@@ -72,6 +75,7 @@ try {
         VALUES (?, ?, ?, ?, ?, ?)
     ');
     $stmt->execute([$orderid, $chatid, $ownerEmail, $customerCode, $created_at, 'DRAFT']);
+    $dbh->commit();
     
     echo json_encode([
         'success' => true,
@@ -79,8 +83,13 @@ try {
         'message' => 'Order created successfully'
     ]);
 } catch (Exception $e) {
+    if ($dbh instanceof PDO && $dbh->inTransaction()) {
+        $dbh->rollBack();
+    }
     $error_details = $e->getMessage();
     error_log("insertOrder.php error: " . $error_details);
     echo json_encode(['success' => false, 'error' => $error_details]);
+} finally {
+    $dbh = null;
 }
 ?>

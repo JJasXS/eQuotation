@@ -36,6 +36,8 @@ if (!is_array($rules) || count($rules) === 0) {
     exit;
 }
 
+$dbh = null;
+
 try {
     $dbh = getFirebirdConnection();
     $dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
@@ -97,5 +99,7 @@ try {
         'message' => 'Failed to save pricing priority rules',
         'error' => $e->getMessage(),
     ]);
+} finally {
+    $dbh = null;
 }
 ?>

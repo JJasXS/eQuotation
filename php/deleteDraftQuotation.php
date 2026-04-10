@@ -18,8 +18,10 @@ if (!$dockey || !is_numeric($dockey)) {
 
 $dockey = (int)$dockey;
 
+$dbh = null;
+
 try {
-    $dbh = getDbConnection();
+    $dbh = getFirebirdConnection();
     $dbh->beginTransaction();
 
     // Delete detail lines first (FK constraint)
@@ -38,4 +40,7 @@ try {
         $dbh->rollBack();
     }
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+} finally {
+    $dbh = null;
 }
+

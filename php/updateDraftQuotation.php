@@ -44,8 +44,11 @@ function applyDiscountAmount(float $qty, float $unitprice, float $discAmount): f
     return max(0, $lineSubtotal - $discAmount);
 }
 
+$dbh = null;
+
 try {
     $dbh = getFirebirdConnection();
+    $dbh->beginTransaction();
     
     // Verify quotation exists (allow editing of both Pending and Active, but not Cancelled)
     $stmt = $dbh->prepare('SELECT DOCKEY, DOCNO, CODE FROM SL_QT WHERE DOCKEY = ? AND (CANCELLED IS NULL OR CANCELLED = ?)');
@@ -53,8 +56,7 @@ try {
     $quotation = $stmt->fetch(PDO::FETCH_ASSOC);
     
     if (!$quotation) {
-        echo json_encode(['success' => false, 'error' => 'Quotation not found or is cancelled']);
-        exit;
+        throw new Exception('Quotation not found or is cancelled');
     }
     
     $docno = $quotation['DOCNO'];
@@ -147,8 +149,7 @@ try {
         $deliveryDate = !empty($item['deliveryDate']) ? $item['deliveryDate'] : date('Y-m-d');
         
         if (!$product || $qty <= 0) {
-            echo json_encode(['success' => false, 'error' => "Invalid item at index $idx"]);
-            exit;
+            throw new Exception("Invalid item at index $idx");
         }
         
         // Get next DTLKEY (cast to integer to avoid varchar-to-number conversion issues)
@@ -187,11 +188,7 @@ try {
             }
 
             if (!$itemCode) {
-                echo json_encode([
-                    'success' => false,
-                    'error' => "Item code not found in ST_ITEM for product: {$product}"
-                ]);
-                exit;
+                throw new Exception("Item code not found in ST_ITEM for product: {$product}");
             }
         }
 
@@ -251,6 +248,8 @@ try {
         
         $seq++;
     }
+
+    $dbh->commit();
     
     echo json_encode([
         'success' => true,
@@ -261,7 +260,12 @@ try {
     ]);
     
 } catch (Exception $e) {
+    if ($dbh instanceof PDO && $dbh->inTransaction()) {
+        $dbh->rollBack();
+    }
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+} finally {
+    $dbh = null;
 }
 ?>
 

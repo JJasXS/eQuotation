@@ -4,15 +4,13 @@ header('Access-Control-Allow-Origin: *');
 
 require_once 'db_helper.php';
 
+$conn = null;
+
 try {
     $conn = getFirebirdConnection();
     
     if (!isset($_GET['orderid'])) {
-        echo json_encode([
-            'success' => false,
-            'error' => 'Missing required parameter: orderid'
-        ]);
-        exit;
+        throw new Exception('Missing required parameter: orderid');
     }
     
     $orderid = (int)$_GET['orderid'];
@@ -56,5 +54,7 @@ try {
         'success' => false,
         'error' => $e->getMessage()
     ]);
+} finally {
+    $conn = null;
 }
 ?>

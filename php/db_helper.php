@@ -106,4 +106,9 @@ function getFirebirdConnection() {
         throw $e;
     }
 }
+
+// Backward-compatible alias used by older endpoints.
+function getDbConnection() {
+    return getFirebirdConnection();
+}
 ?>

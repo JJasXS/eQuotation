@@ -11,31 +11,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once 'db_helper.php';
 
+// Get JSON input before opening DB connection.
+$input = json_decode(file_get_contents('php://input'), true);
+
+if (!isset($input['orderid']) || !isset($input['remark']) || !isset($input['requestedby'])) {
+    echo json_encode([
+        'success' => false,
+        'error' => 'Missing required parameters: orderid, remark, and requestedby'
+    ]);
+    exit;
+}
+
+$orderid = (int)$input['orderid'];
+$remark = trim($input['remark']);
+$requestedby = trim($input['requestedby']);
+
+if (empty($remark)) {
+    echo json_encode([
+        'success' => false,
+        'error' => 'Remark cannot be empty'
+    ]);
+    exit;
+}
+
+$conn = null;
+
 try {
     $conn = getFirebirdConnection();
-    
-    // Get JSON input
-    $input = json_decode(file_get_contents('php://input'), true);
-    
-    if (!isset($input['orderid']) || !isset($input['remark']) || !isset($input['requestedby'])) {
-        echo json_encode([
-            'success' => false,
-            'error' => 'Missing required parameters: orderid, remark, and requestedby'
-        ]);
-        exit;
-    }
-    
-    $orderid = (int)$input['orderid'];
-    $remark = trim($input['remark']);
-    $requestedby = trim($input['requestedby']);
-    
-    if (empty($remark)) {
-        echo json_encode([
-            'success' => false,
-            'error' => 'Remark cannot be empty'
-        ]);
-        exit;
-    }
     
     // Begin transaction
     $conn->beginTransaction();
@@ -76,9 +78,14 @@ try {
     ]);
     
 } catch (Exception $e) {
+    if ($conn instanceof PDO && $conn->inTransaction()) {
+        $conn->rollBack();
+    }
     echo json_encode([
         'success' => false,
         'error' => $e->getMessage()
     ]);
+} finally {
+    $conn = null;
 }
 ?>

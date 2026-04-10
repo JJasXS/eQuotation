@@ -5,6 +5,8 @@ require_once 'db_helper.php';
 
 $desc = isset($_GET['desc']) ? $_GET['desc'] : '';
 
+$dbh = null;
+
 try {
     $dbh = getFirebirdConnection();
     $stmt = $dbh->prepare('SELECT DESCRIPTION FROM ST_ITEM WHERE DESCRIPTION LIKE ?');
@@ -14,5 +16,7 @@ try {
     echo json_encode(['success' => true, 'data' => $rows]);
 } catch (PDOException $e) {
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+} finally {
+    $dbh = null;
 }
 ?>

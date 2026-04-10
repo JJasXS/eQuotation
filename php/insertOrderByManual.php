@@ -29,8 +29,11 @@ if (empty($items)) {
     exit;
 }
 
+$dbh = null;
+
 try {
     $dbh = getFirebirdConnection();
+    $dbh->beginTransaction();
     
     // Create or get special MANUAL chat (CHATID = 0 or a dedicated manual chat)
     // Check if manual orders chat exists (CHATID = -1 for manual orders)
@@ -70,8 +73,7 @@ try {
         $price = (float)($item['price'] ?? 0);
         
         if (!$product || $qty <= 0) {
-            echo json_encode(['success' => false, 'error' => "Invalid item at index $idx"]);
-            exit;
+            throw new Exception("Invalid item at index $idx");
         }
         
         $detailStmt = $dbh->prepare('SELECT COALESCE(MAX(ORDERDTLID), 0) + 1 FROM ORDER_TPLDTL');
@@ -84,6 +86,8 @@ try {
         ');
         $detailInsert->execute([$orderdtlid, $orderid, $product, $qty, $price, 0]);
     }
+
+    $dbh->commit();
     
     echo json_encode([
         'success' => true,
@@ -92,7 +96,12 @@ try {
     ]);
 
 } catch (Exception $e) {
+    if ($dbh instanceof PDO && $dbh->inTransaction()) {
+        $dbh->rollBack();
+    }
     error_log("insertOrderByManual.php error: " . $e->getMessage());
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+} finally {
+    $dbh = null;
 }
 ?>

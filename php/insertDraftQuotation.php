@@ -28,8 +28,11 @@ if (!$customerCode) {
     exit;
 }
 
+$dbh = null;
+
 try {
     $dbh = getFirebirdConnection();
+    $dbh->beginTransaction();
     
     // Check if there's already a draft quotation (CANCELLED = NULL) for this customer/chat
     if ($chatId) {
@@ -38,13 +41,14 @@ try {
         $existing = $checkStmt->fetch(PDO::FETCH_ASSOC);
         
         if ($existing) {
+            $dbh->commit();
             // Return existing draft quotation
             echo json_encode([
                 'success' => true,
                 'dockey' => $existing['DOCKEY'],
                 'message' => 'Using existing draft quotation'
             ]);
-            exit;
+            return;
         }
     }
     
@@ -127,6 +131,8 @@ try {
         null,               // CANCELLED = NULL (acts as DRAFT indicator)
         '----'              // Default PROJECT
     ]);
+
+    $dbh->commit();
     
     echo json_encode([
         'success' => true,
@@ -136,7 +142,12 @@ try {
     ]);
 
 } catch (Exception $e) {
+    if ($dbh instanceof PDO && $dbh->inTransaction()) {
+        $dbh->rollBack();
+    }
     error_log("insertDraftQuotation.php error: " . $e->getMessage());
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+} finally {
+    $dbh = null;
 }
 ?>

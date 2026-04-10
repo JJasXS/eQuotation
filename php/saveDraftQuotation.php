@@ -35,6 +35,8 @@ function applyDiscountAmount(float $qty, float $unitprice, float $discAmount): f
     return max(0, $lineSubtotal - $discAmount);
 }
 
+$dbh = null;
+
 try {
     $dbh = getFirebirdConnection();
     $dbh->beginTransaction();
@@ -219,5 +221,7 @@ try {
     }
     error_log('saveDraftQuotation.php error: ' . $e->getMessage());
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+} finally {
+    $dbh = null;
 }
 ?>

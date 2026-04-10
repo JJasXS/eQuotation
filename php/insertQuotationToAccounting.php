@@ -48,8 +48,11 @@ function applyDiscountAmount(float $qty, float $unitprice, float $discAmount): f
     return max(0, $lineSubtotal - $discAmount);
 }
 
+$dbh = null;
+
 try {
     $dbh = getFirebirdConnection();
+    $dbh->beginTransaction();
     
     // Fetch CREDITTERM, CURRENCYCODE, AGENT, AREA, SUBMISSIONTYPE, SALESTAXNO, SERVICETAXNO, TIN from AR_CUSTOMER.
     $customerStmt = $dbh->prepare('SELECT CREDITTERM, CURRENCYCODE, AGENT, AREA, SUBMISSIONTYPE, SALESTAXNO, SERVICETAXNO, TIN, TAXEXEMPTNO FROM AR_CUSTOMER WHERE CODE = ?');
@@ -146,63 +149,57 @@ try {
     // DEBUG: Log values before insert
     error_log("DEBUG: About to insert - companyName: $companyName, address1: $address1, address2: $address2, phone1: $phone1");
     
-    try {
-        $qtStmt->execute([
-            $dockey,
-            $docno,
-            $docDate,
-            $customerCode,
-            $description,
-            $totalAmount,
-            $customerCurrencyCode,
-            $customerCurrencyRate,
-            $udfValidity, // VALIDITY: user-supplied or today+30
-            '----',  // Default shipper
-            $quotationStatus,
-            1, // IDTYPE default
-            $terms,
-            $customerAgent,
-            $customerArea,
-            $companyName,
-            $branchName,
-            $address1,
-            $address2,
-            $address3,
-            $address4,
-            $postcode,
-            $city,
-            $state,
-            $country,
-            $phone1,
-            $branchAttention,     // ATTENTION from AR_CUSTOMERBRANCH
-            $address1,    // DADDRESS1 - same as billing
-            $address2,    // DADDRESS2 - same as billing
-            $address3,    // DADDRESS3 - same as billing
-            $address4,    // DADDRESS4 - same as billing
-            $postcode,    // DPOSTCODE - same as billing
-            $city,        // DCITY - same as billing
-            $state,       // DSTATE - same as billing
-            $country,     // DCOUNTRY - same as billing
-            $phone1,      // DPHONE1 - same as billing
-            null,         // DMOBILE - not provided, set to null
-            null,         // DFAX1 - not provided, set to null
-            $branchAttention,  // DATTENTION from AR_CUSTOMERBRANCH
-            $customerSalesTaxNo,   // SALESTAXNO from AR_CUSTOMER
-            $customerServiceTaxNo,  // SERVICETAXNO from AR_CUSTOMER
-            $customerTin,   // TIN from AR_CUSTOMER
-            $customerTaxExemptNo,  // TAXEXEMPTNO from AR_CUSTOMER
-            true,         // SL_QTTRANSFERABLE
-            0,            // PRINTCOUNT
-            $customerSubmissionType,
-            false,        // CANCELLED defaults to FALSE on create
-            '----'       // Default PROJECT
-        ]);
-        error_log("DEBUG: Insert successful for dockey: $dockey");
-    } catch (PDOException $e) {
-        error_log("DEBUG: Insert failed - " . $e->getMessage());
-        echo json_encode(['success' => false, 'error' => 'Database insert error: ' . $e->getMessage()]);
-        exit;
-    }
+    $qtStmt->execute([
+        $dockey,
+        $docno,
+        $docDate,
+        $customerCode,
+        $description,
+        $totalAmount,
+        $customerCurrencyCode,
+        $customerCurrencyRate,
+        $udfValidity, // VALIDITY: user-supplied or today+30
+        '----',  // Default shipper
+        $quotationStatus,
+        1, // IDTYPE default
+        $terms,
+        $customerAgent,
+        $customerArea,
+        $companyName,
+        $branchName,
+        $address1,
+        $address2,
+        $address3,
+        $address4,
+        $postcode,
+        $city,
+        $state,
+        $country,
+        $phone1,
+        $branchAttention,     // ATTENTION from AR_CUSTOMERBRANCH
+        $address1,    // DADDRESS1 - same as billing
+        $address2,    // DADDRESS2 - same as billing
+        $address3,    // DADDRESS3 - same as billing
+        $address4,    // DADDRESS4 - same as billing
+        $postcode,    // DPOSTCODE - same as billing
+        $city,        // DCITY - same as billing
+        $state,       // DSTATE - same as billing
+        $country,     // DCOUNTRY - same as billing
+        $phone1,      // DPHONE1 - same as billing
+        null,         // DMOBILE - not provided, set to null
+        null,         // DFAX1 - not provided, set to null
+        $branchAttention,  // DATTENTION from AR_CUSTOMERBRANCH
+        $customerSalesTaxNo,   // SALESTAXNO from AR_CUSTOMER
+        $customerServiceTaxNo,  // SERVICETAXNO from AR_CUSTOMER
+        $customerTin,   // TIN from AR_CUSTOMER
+        $customerTaxExemptNo,  // TAXEXEMPTNO from AR_CUSTOMER
+        true,         // SL_QTTRANSFERABLE
+        0,            // PRINTCOUNT
+        $customerSubmissionType,
+        false,        // CANCELLED defaults to FALSE on create
+        '----'       // Default PROJECT
+    ]);
+    error_log("DEBUG: Insert successful for dockey: $dockey");
     
     // Insert quotation detail lines into SL_QTDTL
     $seq = 1;
@@ -216,8 +213,7 @@ try {
         $deliveryDate = !empty($item['deliveryDate']) ? $item['deliveryDate'] : date('Y-m-d');
         
         if (!$product || $qty <= 0) {
-            echo json_encode(['success' => false, 'error' => "Invalid item at index $idx"]);
-            exit;
+            throw new Exception("Invalid item at index $idx");
         }
         
         // Get next DTLKEY (cast to integer to avoid varchar-to-number conversion issues)
@@ -258,11 +254,7 @@ try {
             }
 
             if (!$itemCode) {
-                echo json_encode([
-                    'success' => false,
-                    'error' => "Item code not found in ST_ITEM for product: {$product}"
-                ]);
-                exit;
+                throw new Exception("Item code not found in ST_ITEM for product: {$product}");
             }
         }
 
@@ -342,6 +334,8 @@ try {
 
         error_log("DEBUG: Draft deleted after submission - draftDockey: $draftKey");
     }
+
+    $dbh->commit();
     
     echo json_encode([
         'success' => true,
@@ -352,7 +346,12 @@ try {
     ]);
     
 } catch (Exception $e) {
+    if ($dbh instanceof PDO && $dbh->inTransaction()) {
+        $dbh->rollBack();
+    }
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+} finally {
+    $dbh = null;
 }
 ?>
 

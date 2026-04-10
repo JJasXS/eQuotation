@@ -3,6 +3,8 @@ header('Content-Type: application/json');
 
 require_once 'db_helper.php';
 
+$dbh = null;
+
 try {
     $data = json_decode(file_get_contents('php://input'), true);
     $chatid = $data['chatid'] ?? null;
@@ -15,6 +17,7 @@ try {
     }
     
     $dbh = getFirebirdConnection();
+    $dbh->beginTransaction();
     
     // Get next MESSAGEID
     $stmt = $dbh->query('SELECT COALESCE(MAX(MESSAGEID), 0) + 1 FROM CHAT_TPLDTL');
@@ -32,6 +35,11 @@ try {
     
     echo json_encode(['success' => true, 'messageid' => $messageid]);
 } catch (PDOException $e) {
+    if ($dbh instanceof PDO && $dbh->inTransaction()) {
+        $dbh->rollBack();
+    }
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+} finally {
+    $dbh = null;
 }
 ?>

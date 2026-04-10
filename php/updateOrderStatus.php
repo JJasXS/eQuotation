@@ -29,17 +29,20 @@ if (!in_array($status, $validStatuses)) {
     exit;
 }
 
+$dbh = null;
+
 try {
     $dbh = getFirebirdConnection();
+    $dbh->beginTransaction();
 
     $stmt = $dbh->prepare('UPDATE ORDER_TPL SET STATUS = ? WHERE ORDERID = ?');
     $stmt->execute([$status, $orderid]);
 
     if ($stmt->rowCount() === 0) {
-        http_response_code(404);
-        echo json_encode(['success' => false, 'error' => 'Order not found']);
-        exit;
+        throw new RuntimeException('Order not found', 404);
     }
+
+    $dbh->commit();
 
     echo json_encode([
         'success' => true,
@@ -47,7 +50,12 @@ try {
         'status' => $status
     ]);
 } catch (Exception $e) {
-    http_response_code(500);
+    if ($dbh instanceof PDO && $dbh->inTransaction()) {
+        $dbh->rollBack();
+    }
+    http_response_code($e->getCode() === 404 ? 404 : 500);
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+} finally {
+    $dbh = null;
 }
 ?>

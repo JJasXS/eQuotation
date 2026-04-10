@@ -154,6 +154,8 @@ try {
     error_log('createSignInUser.php lookup/generation error: ' . $e->getMessage());
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
     exit;
+} finally {
+    $dbh = null;
 }
 
 $apiBaseUrl = rtrim(envOrDefault('FASTAPI_BASE_URL', 'http://127.0.0.1:8000'), '/');

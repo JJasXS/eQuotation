@@ -10,6 +10,8 @@ if (!$customerCode) {
     exit;
 }
 
+$dbh = null;
+
 try {
     $dbh = getFirebirdConnection();
     
@@ -37,5 +39,7 @@ try {
     echo json_encode(['success' => true, 'chats' => $rows]);
 } catch (PDOException $e) {
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+} finally {
+    $dbh = null;
 }
 ?>

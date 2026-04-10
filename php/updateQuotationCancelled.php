@@ -47,6 +47,7 @@ if (!$dockey || $cancelledRaw === null) {
 $dbh = null;
 try {
     $dbh = getFirebirdConnection();
+    $dbh->beginTransaction();
     error_log("[UPDATE QUOTATION] Database connection established");
     
     // Firebird BOOLEAN stored as 'True'/'False' strings
@@ -59,9 +60,7 @@ try {
     $record = $checkStmt->fetch(PDO::FETCH_ASSOC);
     
     if (!$record) {
-        error_log("[UPDATE QUOTATION] ERROR: DOCKEY $dockey not found in database!");
-        echo json_encode(['success' => false, 'error' => "Quotation DOCKEY $dockey not found"]);
-        exit;
+        throw new Exception("Quotation DOCKEY $dockey not found");
     }
     
     error_log("[UPDATE QUOTATION] Found record: DOCNO=" . $record['DOCNO'] . ", current CANCELLED=" . $record['CANCELLED']);

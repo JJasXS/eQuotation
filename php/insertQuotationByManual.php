@@ -39,8 +39,11 @@ if (empty($items)) {
     exit;
 }
 
+$dbh = null;
+
 try {
     $dbh = getFirebirdConnection();
+    $dbh->beginTransaction();
     
     // Create or get special MANUAL chat (CHATID = 0 for manual orders/quotations)
     $chatCheckStmt = $dbh->prepare('SELECT CHATID FROM CHAT_TPL WHERE CHATID = ?');
@@ -79,8 +82,7 @@ try {
         $price = (float)($item['price'] ?? 0);
         
         if (!$product || $qty <= 0) {
-            echo json_encode(['success' => false, 'error' => "Invalid item at index $idx"]);
-            exit;
+            throw new Exception("Invalid item at index $idx");
         }
         
         $detailStmt = $dbh->prepare('SELECT COALESCE(MAX(ORDERDTLID), 0) + 1 FROM ORDER_TPLDTL');
@@ -93,6 +95,8 @@ try {
         ');
         $detailInsert->execute([$quotationdtlid, $quotationid, $product, $qty, $price, 0]);
     }
+
+    $dbh->commit();
     
     echo json_encode([
         'success' => true,
@@ -101,7 +105,12 @@ try {
     ]);
 
 } catch (Exception $e) {
+    if ($dbh instanceof PDO && $dbh->inTransaction()) {
+        $dbh->rollBack();
+    }
     error_log("insertQuotationByManual.php error: " . $e->getMessage());
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+} finally {
+    $dbh = null;
 }
 ?>

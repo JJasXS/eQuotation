@@ -11,6 +11,8 @@ if (!$dockey) {
     exit;
 }
 
+$dbh = null;
+
 try {
     $dbh = getFirebirdConnection();
     
@@ -31,8 +33,7 @@ try {
     $quotation = $stmt->fetch(PDO::FETCH_ASSOC);
     
     if (!$quotation) {
-        echo json_encode(['success' => false, 'error' => 'Quotation not found']);
-        exit;
+        throw new Exception('Quotation not found');
     }
     
     // Get quotation details (items)
@@ -99,5 +100,7 @@ try {
     ]);
 } catch (Exception $e) {
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+} finally {
+    $dbh = null;
 }
 ?>
