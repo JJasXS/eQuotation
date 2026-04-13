@@ -44,6 +44,7 @@ class SqlAccountingApiSettings:
     region: str
     service: str
     customer_create_path: str
+    quotation_create_path: str
     use_tls: bool
     timeout_seconds: float
     max_retries: int
@@ -60,6 +61,15 @@ class SqlAccountingApiSettings:
         # Path is used as-is; query strings are not expected for this endpoint.
         return f"{scheme}://{host}{quote(path, safe='/:?&=%')}"
 
+    def resolved_quotation_create_url(self) -> str:
+        """Full URL for sales quotation create POST."""
+        scheme = "https" if self.use_tls else "http"
+        host = self.host.strip().rstrip("/")
+        path = self.quotation_create_path.strip() or "/salesquotation"
+        if not path.startswith("/"):
+            path = "/" + path
+        return f"{scheme}://{host}{quote(path, safe='/:?&=%')}"
+
 
 def load_sql_accounting_api_settings() -> SqlAccountingApiSettings:
     """
@@ -74,6 +84,7 @@ def load_sql_accounting_api_settings() -> SqlAccountingApiSettings:
     region = (os.getenv("SQL_API_REGION") or "ap-southeast-1").strip()
     service = (os.getenv("SQL_API_SERVICE") or "execute-api").strip()
     path = (os.getenv("SQL_API_CUSTOMER_CREATE_PATH") or "").strip()
+    quotation_path = (os.getenv("SQL_API_SALES_QUOTATION_PATH") or "/salesquotation").strip()
     use_tls = _truthy("SQL_API_USE_TLS", True)
     timeout_seconds = _float("SQL_API_TIMEOUT_SECONDS", 30.0)
     max_retries = max(0, _int("SQL_API_MAX_RETRIES", 3))
@@ -87,6 +98,7 @@ def load_sql_accounting_api_settings() -> SqlAccountingApiSettings:
         region=region,
         service=service,
         customer_create_path=path,
+        quotation_create_path=quotation_path,
         use_tls=use_tls,
         timeout_seconds=timeout_seconds,
         max_retries=max_retries,
@@ -102,6 +114,7 @@ def redact_settings_for_log(settings: SqlAccountingApiSettings) -> dict[str, Any
         "region": settings.region,
         "service": settings.service,
         "customer_create_path": settings.customer_create_path or "(empty)",
+        "quotation_create_path": settings.quotation_create_path or "(empty)",
         "use_tls": settings.use_tls,
         "timeout_seconds": settings.timeout_seconds,
         "max_retries": settings.max_retries,

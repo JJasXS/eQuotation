@@ -181,6 +181,8 @@
                 d.setDate(d.getDate() + 30);
                 validityInput.value = d.toISOString().split('T')[0];
             }
+            // Load customer information from database
+            loadUserInfo();
         });
     </script>
 </body>

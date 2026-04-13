@@ -101,8 +101,6 @@ function getFirebirdConnection() {
         $dbh = new PDO("firebird:dbname=$db;host=$host", $user, $pass);
         $dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $dbh->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-        // Firebird PDO does not expose MYSQL-style charset DSN options; this keeps UTF-8 handling explicit.
-        $dbh->exec("SET NAMES UTF8");
         error_log("[DB CONNECTION] Firebird connection established");
         return $dbh;
     } catch (PDOException $e) {

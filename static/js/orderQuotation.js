@@ -668,8 +668,22 @@ if (quotationForm) {
 // Load user info (customer info including company, address, phone, and credit term) for quotation form
 async function loadUserInfo() {
     try {
-        const response = await fetch('/api/get_user_info');
+        // Get the customer email from the form
+        const customerEmailInput = document.getElementById('quotation-customer');
+        const customerEmail = customerEmailInput ? customerEmailInput.value.trim() : '';
+        
+        if (!customerEmail) {
+            console.warn('No customer email found');
+            setDefaultCustomerInfo();
+            return;
+        }
+        
+        // Call PHP endpoint on port 8080 directly (bypassing Flask routing)
+        const phpUrl = `http://localhost:8080/php/getCustomerByEmail.php?email=${encodeURIComponent(customerEmail)}`;
+        const response = await fetch(phpUrl);
         const data = await response.json();
+        
+        console.log('Customer data response:', data);
         
         if (data.success && data.data) {
             // Populate company name
@@ -715,6 +729,7 @@ async function loadUserInfo() {
             }
         } else {
             // Set default N/A values if data not found
+            console.warn('Customer data not found:', data.error);
             setDefaultCustomerInfo();
         }
     } catch (error) {
