@@ -11,7 +11,7 @@ _env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(dotenv_path=_env_path, override=True)
 
 # Import routes
-from api.routes import health, customers, debug, local_customers
+from api.routes import health, customers, debug, local_customers, auth
 
 # Create FastAPI app
 app = FastAPI(
@@ -37,6 +37,7 @@ app.include_router(customers.router)
 app.include_router(customers.compat_router)
 app.include_router(debug.router)
 app.include_router(local_customers.router)
+app.include_router(auth.router)
 
 # Health check at root
 @app.get("/")

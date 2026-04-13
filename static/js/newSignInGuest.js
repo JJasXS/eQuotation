@@ -47,6 +47,10 @@ function handleNewGuestSignIn(event) {
             if (status >= 200 && status < 300 && data.success) {
                 messageBox.textContent = `Guest user created successfully. Customer Code: ${data.customerCode}`;
                 messageBox.className = 'guest-message show success';
+                const redirectUrl = data.redirect || '/login';
+                setTimeout(() => {
+                    window.location.href = redirectUrl;
+                }, 600);
             } else {
                 messageBox.textContent = data.error || 'Failed to create customer.';
                 messageBox.className = 'guest-message show error';

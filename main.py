@@ -1627,42 +1627,24 @@ def api_send_otp():
     #     return jsonify({'success': False, 'error': 'Invalid email format'}), 400
     
     try:
-        # Allow login only if email exists in admin or user master tables
+        # Use FastAPI identity lookup so auth flow stays on API port (default: 8000).
         is_admin = False
         is_user = False
-
-        try:
-            admin_check = requests.get(
-                f"{BASE_API_URL}{ENDPOINT_PATHS['getadminbyemail']}?email={email}",
-                timeout=5
-            )
-            admin_data = admin_check.json()
-            is_admin = bool(admin_data.get('success') and admin_data.get('data'))
-        except Exception as e:
-            print(f"[AUTH] Admin lookup during send_otp failed: {e}")
-
-        try:
-            user_check = requests.get(
-                f"{BASE_API_URL}{ENDPOINT_PATHS['getuserbyemail']}?email={email}",
-                timeout=5
-            )
-            user_data = user_check.json()
-            is_user = bool(user_data.get('success') and user_data.get('data'))
-        except Exception as e:
-            print(f"[AUTH] User lookup during send_otp failed: {e}")
-
-        # Check AR_CUSTOMER.EMAIL as additional fallback
         is_customer = False
         try:
-            customer_check = requests.get(
-                f"{BASE_API_URL}{ENDPOINT_PATHS['getcustomerbyemailfromcustomer']}?email={email}",
-                timeout=5
+            identity_resp = requests.get(
+                f"{FASTAPI_BASE_URL}/auth/email-lookup",
+                params={"email": email},
+                timeout=5,
             )
-            customer_check.raise_for_status()
-            customer_data = customer_check.json()
-            is_customer = bool(customer_data.get('success') and customer_data.get('customerCode'))
+            identity_resp.raise_for_status()
+            identity = identity_resp.json()
+            is_admin = bool(identity.get('is_admin'))
+            is_user = bool(identity.get('is_user'))
+            is_customer = bool(identity.get('is_customer'))
         except Exception as e:
-            print(f"[AUTH] AR_CUSTOMER lookup during send_otp failed: {e}")
+            print(f"[AUTH] FastAPI email lookup during send_otp failed: {e}")
+            return jsonify({'success': False, 'error': 'Authentication lookup service unavailable'}), 500
 
         if not (is_admin or is_user or is_customer):
             print(f"[DEBUG OTP] rejected (email not found): {email}", flush=True)
@@ -1755,53 +1737,37 @@ def api_verify_otp():
         # One-time use: consume OTP immediately after successful verification
         del OTP_STORAGE[email]
 
-        # Check if email is admin or regular user
-        user_type = 'user'  # default
-        redirect_url = '/create-quotation'
-        
-        # Check if email exists in SY_USER (Admin)
+        # Check identity via FastAPI so login checks stay on port 8000.
         try:
-            admin_response = requests.get(
-                f"{BASE_API_URL}{ENDPOINT_PATHS['getadminbyemail']}?email={email}",
-                timeout=5
+            identity_response = requests.get(
+                f"{FASTAPI_BASE_URL}/auth/email-lookup",
+                params={"email": email},
+                timeout=5,
             )
-            admin_data = admin_response.json()
-            if admin_data.get('success') and admin_data.get('data'):
-                user_type = 'admin'
-                redirect_url = '/admin'
-                print(f"[AUTH] Admin user detected: {email}")
+            identity_response.raise_for_status()
+            identity = identity_response.json()
         except Exception as e:
-            print(f"[AUTH] Admin lookup failed (non-critical): {e}")
-        
-        # If not admin, check regular user via unified endpoint
-        # (AR_CUSTOMERBRANCH.EMAIL first, fallback AR_CUSTOMER.UDF_EMAIL)
-        if user_type == 'user':
-            try:
-                user_response = requests.get(
-                    f"{BASE_API_URL}{ENDPOINT_PATHS['getuserbyemail']}?email={email}",
-                    timeout=5
-                )
-                user_data = user_response.json()
+            print(f"[AUTH] FastAPI identity lookup failed: {e}")
+            return jsonify({
+                'success': False,
+                'error': 'Failed to verify customer credentials'
+            }), 500
 
-                if user_data.get('success') and user_data.get('data'):
-                    customer_code = user_data['data'].get('CODE')
-                    user_type = 'user'
-                    redirect_url = '/create-quotation'
-                    print(f"[AUTH] Regular user detected: {email} → Customer: {customer_code}")
-                else:
-                    # Email not found in either branch EMAIL or customer UDF_EMAIL
-                    return jsonify({
-                        'success': False, 
-                        'error': 'Email not found in customer records, please contact administrator'
-                    }), 401
-            except Exception as e:
-                print(f"[AUTH] Customer lookup failed: {e}")
-                return jsonify({
-                    'success': False,
-                    'error': 'Failed to verify customer credentials'
-                }), 500
+        if identity.get('is_admin'):
+            user_type = 'admin'
+            redirect_url = '/admin'
+            customer_code = None
+            print(f"[AUTH] Admin user detected: {email}")
+        elif identity.get('is_user') or identity.get('is_customer'):
+            user_type = 'user'
+            redirect_url = '/create-quotation'
+            customer_code = identity.get('customer_code')
+            print(f"[AUTH] Regular user detected: {email} -> Customer: {customer_code}")
         else:
-            customer_code = None  # Admins don't need customer code
+            return jsonify({
+                'success': False,
+                'error': 'Email not found in customer records, please contact administrator'
+            }), 401
         
         # OTP is valid - create session
         session['user_email'] = email
