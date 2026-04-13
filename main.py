@@ -1064,6 +1064,7 @@ def create_signin_user():
         'state': data.get('STATE') or None,
         'country': data.get('COUNTRY') or None,
         'attachments': ', '.join(attachment_names) if attachment_names else None,
+        'idtype': 1,
     }
 
     api_headers = {'Content-Type': 'application/json'}
@@ -1217,11 +1218,14 @@ def create_signin_user_minimal():
         customer_payload['taxexemptno'] = taxexemptno
     if taxexpdate:
         customer_payload['taxexpdate'] = taxexpdate
+    # Always set idtype=1 for guest sign-in if not provided
     if idtype_raw not in (None, ''):
         try:
             customer_payload['idtype'] = int(idtype_raw)
         except (TypeError, ValueError):
             return jsonify({'success': False, 'error': 'idtype must be an integer'}), 400
+    else:
+        customer_payload['idtype'] = 1
     if attention:
         customer_payload['attention'] = attention
     if address1:
