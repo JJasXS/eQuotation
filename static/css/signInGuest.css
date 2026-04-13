@@ -1,3 +1,20 @@
+input[type="date"] {
+    width: 100%;
+    padding: 11px 14px;
+    border: 1px solid #3a424e;
+    border-radius: 8px;
+    background: #2d3440;
+    color: #e4e9f1;
+    font-size: 15px;
+    outline: none;
+    transition: all 0.2s ease;
+}
+
+input[type="date"]:focus {
+    border-color: #4b6e9e;
+    background: #313844;
+    box-shadow: 0 0 0 3px rgba(75, 110, 158, 0.1);
+}
 * {
     margin: 0;
     padding: 0;

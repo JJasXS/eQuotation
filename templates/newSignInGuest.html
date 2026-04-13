@@ -12,12 +12,22 @@
             <center><h1>New Guest Sign In</h1></center>
             <p class="subtitle" style="text-align:center;margin-bottom:18px;">Create customer with company + optional SQL fields</p>
 
-            <form id="new-guest-signin-form" onsubmit="handleNewGuestSignIn(event)">
+            <form id="new-guest-signin-form" onsubmit="handleNewGuestSignIn(event)" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start;">
+                <!-- Column 1: Required Fields -->
                 <div class="form-section">
                     <div class="section-title">Required Fields</div>
-                    <div class="form-grid">
-                        <div class="form-group">
+                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 14px;">
+                        <div class="form-group" style="grid-column: 1 / -1;">
                             <input type="text" id="companyname" name="companyname" placeholder="companyname" required>
+                        </div>
+                        <div class="form-group" style="grid-column: 1 / -1;">
+                            <input type="text" id="attention" name="attention" placeholder="attention" required>
+                        </div>
+                        <div class="form-group" style="grid-column: 1 / -1;">
+                            <input type="email" id="email" name="email" placeholder="email" required>
+                        </div>
+                        <div class="form-group" style="grid-column: 1 / -1;">
+                            <input type="text" id="phone1" name="phone1" placeholder="phone number" required>
                         </div>
                         <div class="form-group">
                             <div style="font-size:13px;color:#6c7a89;margin-bottom:2px;">Select Area</div>
@@ -34,10 +44,11 @@
                     </div>
                 </div>
 
+                <!-- Column 2: Optional Registration Details -->
                 <div class="form-section">
                     <div class="section-title">Optional Registration Details</div>
-                    <div class="form-grid">
-                        <div class="form-group">
+                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 14px;">
+                        <div class="form-group" style="grid-column: 1 / -1;">
                             <input type="text" id="tin" name="tin" placeholder="tin">
                         </div>
                         <div class="form-group">
@@ -52,28 +63,20 @@
                         <div class="form-group">
                             <input type="text" id="servicetaxno" name="servicetaxno" placeholder="servicetaxno">
                         </div>
-                        <div class="form-group">
+                        <div class="form-group" style="grid-column: 1 / -1;">
                             <input type="text" id="taxexemptno" name="taxexemptno" placeholder="taxexemptno">
                         </div>
-                        <div class="form-group">
+                        <div class="form-group" style="grid-column: 1 / -1;">
                             <label for="taxexpdate" style="margin-bottom:6px;">taxexpdate</label>
                             <input type="date" id="taxexpdate" name="taxexpdate">
                         </div>
                     </div>
                 </div>
 
+                <!-- Column 3: Optional Address Details -->
                 <div class="form-section">
                     <div class="section-title">Optional Address Details</div>
-                    <div class="form-grid">
-                        <div class="form-group">
-                            <input type="text" id="attention" name="attention" placeholder="attention">
-                        </div>
-                        <div class="form-group">
-                            <input type="text" id="phone1" name="phone1" placeholder="phone number">
-                        </div>
-                        <div class="form-group">
-                            <input type="email" id="email" name="email" placeholder="email">
-                        </div>
+                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 14px;">
                         <div class="form-group">
                             <input type="text" id="address1" name="address1" placeholder="address 1">
                         </div>
@@ -86,7 +89,7 @@
                         <div class="form-group">
                             <input type="text" id="address4" name="address4" placeholder="address 4">
                         </div>
-                        <div class="form-group">
+                        <div class="form-group" style="grid-column: 1 / -1;">
                             <input type="text" id="postcode" name="postcode" placeholder="postcode">
                         </div>
                         <div class="form-group">
@@ -95,7 +98,7 @@
                         <div class="form-group">
                             <input type="text" id="state" name="state" placeholder="state" readonly>
                         </div>
-                        <div class="form-group">
+                        <div class="form-group" style="grid-column: 1 / -1;">
                             <div style="font-size:13px;color:#6c7a89;margin-bottom:2px;">Select Country</div>
                             <select id="country" name="country">
                                 <option value="">Select country...</option>
@@ -107,7 +110,8 @@
                     </div>
                 </div>
 
-                <div class="form-actions">
+                <!-- Form Actions: Span all columns -->
+                <div class="form-actions" style="grid-column: 1 / -1;">
                     <a href="/login" class="btn-back">Back to Login</a>
                     <button type="submit" class="btn-submit">Create Customer</button>
                 </div>
