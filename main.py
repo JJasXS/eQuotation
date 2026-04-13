@@ -1197,6 +1197,8 @@ def create_signin_user_minimal():
     }
     if provided_code:
         customer_payload['code'] = provided_code
+    else:
+        customer_payload['code'] = _generate_next_guest_customer_code(company_name)
     if area:
         customer_payload['area'] = area
     if currencycode:
@@ -1250,22 +1252,36 @@ def create_signin_user_minimal():
         api_headers['X-Secret-Key'] = FASTAPI_SECRET_KEY
 
     api_url = f"{FASTAPI_BASE_URL}/customers"
-    try:
-        response = requests.post(api_url, json=customer_payload, headers=api_headers, timeout=20)
-    except Exception as e:
-        return jsonify({'success': False, 'error': f'Cannot connect to customer API: {str(e)}'}), 502
+    response = None
+    result = None
+    max_attempts = 1 if provided_code else 5
 
-    try:
-        result = response.json()
-    except Exception:
-        return jsonify({'success': False, 'error': 'Customer API returned an invalid response'}), 502
+    for attempt_idx in range(max_attempts):
+        try:
+            response = requests.post(api_url, json=customer_payload, headers=api_headers, timeout=20)
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Cannot connect to customer API: {str(e)}'}), 502
 
-    if response.status_code >= 400:
+        try:
+            result = response.json()
+        except Exception:
+            return jsonify({'success': False, 'error': 'Customer API returned an invalid response'}), 502
+
+        if response.status_code < 400:
+            break
+
         detail = result.get('detail') if isinstance(result, dict) else None
         if isinstance(detail, list):
             detail = '; '.join(str(item.get('msg', item)) for item in detail)
-        reason = detail or result.get('error') or 'Customer API request failed'
-        return jsonify({'success': False, 'error': str(reason), 'upstream': result}), response.status_code
+        reason = str(detail or (result.get('error') if isinstance(result, dict) else None) or 'Customer API request failed')
+
+        # Auto-retry duplicate code collisions only for auto-generated codes.
+        if not provided_code and _is_duplicate_customer_code_error(reason) and attempt_idx < (max_attempts - 1):
+            current_code = str(customer_payload.get('code') or '')
+            customer_payload['code'] = _increment_guest_customer_code(current_code)
+            continue
+
+        return jsonify({'success': False, 'error': reason, 'upstream': result}), response.status_code
 
     customer_data = ((result.get('data') or {}).get('customer') or {}) if isinstance(result, dict) else {}
     customer_code = customer_data.get('code')
@@ -1313,6 +1329,55 @@ def create_signin_user_minimal():
         'redirect': '/login',
         'data': response_data,
     }), response.status_code
+
+
+def _is_duplicate_customer_code_error(reason: str) -> bool:
+    text = (reason or '').upper()
+    return 'GL_ACC_CODE' in text and 'PROBLEMATIC KEY VALUE' in text and '"CODE"' in text
+
+
+def _increment_guest_customer_code(code: str) -> str:
+    match = re.match(r'^300-([A-Z])(\d{4})$', (code or '').strip().upper())
+    if not match:
+        return code
+
+    prefix = match.group(1)
+    number = int(match.group(2))
+    if number >= 9999:
+        return f"300-{prefix}9999"
+    return f"300-{prefix}{number + 1:04d}"
+
+
+def _generate_next_guest_customer_code(company_name: str) -> str:
+    normalized = re.sub(r'[^A-Z0-9]', '', (company_name or '').upper())
+    prefix = normalized[0] if normalized else 'X'
+    pattern = re.compile(rf'^300-{re.escape(prefix)}(\d{{4}})$')
+
+    con = None
+    cur = None
+    max_number = 0
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        cur.execute('SELECT CODE FROM AR_CUSTOMER WHERE CODE STARTING WITH ?', [f'300-{prefix}'])
+        rows = cur.fetchall() or []
+        for row in rows:
+            code = str((row[0] if row else '') or '').strip().upper()
+            m = pattern.match(code)
+            if m:
+                max_number = max(max_number, int(m.group(1)))
+    except Exception as e:
+        print(f"[WARN] Failed to query AR_CUSTOMER for next guest code: {e}")
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
+
+    next_number = max_number + 1
+    if next_number > 9999:
+        next_number = 9999
+    return f"300-{prefix}{next_number:04d}"
 
 
 def _fetch_code_list_from_firebird(table_name):
