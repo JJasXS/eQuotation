@@ -35,6 +35,11 @@ class CustomerRequest(BaseModel):
         description="TIN",
         validation_alias=AliasChoices("tin", "TIN"),
     )
+    brn: Optional[str] = Field(
+        default=None,
+        description="BRN",
+        validation_alias=AliasChoices("brn", "BRN"),
+    )
     brn2: Optional[str] = Field(
         default=None,
         description="BRN2",
@@ -110,6 +115,21 @@ class CustomerRequest(BaseModel):
         description="Country",
         validation_alias=AliasChoices("country", "COUNTRY"),
     )
+    phone: Optional[str] = Field(
+        default=None,
+        description="Phone number",
+        validation_alias=AliasChoices("phone", "phone1", "PHONE1"),
+    )
+    email: Optional[str] = Field(
+        default=None,
+        description="Email",
+        validation_alias=AliasChoices("email", "EMAIL"),
+    )
+    udf_email: Optional[str] = Field(
+        default=None,
+        description="User-defined email",
+        validation_alias=AliasChoices("udf_email", "UDF_EMAIL"),
+    )
 
     model_config = ConfigDict(
         extra="ignore",
@@ -120,6 +140,7 @@ class CustomerRequest(BaseModel):
                 "area": "PPS",
                 "currencycode": "MYR",
                 "tin": "2",
+                "brn": "12",
                 "brn2": "3",
                 "salestaxno": "5",
                 "servicetaxno": "6",
@@ -134,7 +155,10 @@ class CustomerRequest(BaseModel):
                 "postcode": "50000",
                 "city": "Kuala Lumpur",
                 "state": "W.P. Kuala Lumpur",
-                "country": "MY"
+                "country": "MY",
+                "phone": "0123456789",
+                "email": "abc@example.com",
+                "udf_email": "abc@example.com"
             }
         }
     )

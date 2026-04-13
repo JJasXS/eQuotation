@@ -10,12 +10,15 @@ function handleNewGuestSignIn(event) {
     const area = (document.getElementById('area').value || '').trim();
     const currencycode = (document.getElementById('currencycode').value || '').trim();
     const tin = (document.getElementById('tin').value || '').trim();
+    const brn = (document.getElementById('brn').value || '').trim();
     const brn2 = (document.getElementById('brn2').value || '').trim();
     const salestaxno = (document.getElementById('salestaxno').value || '').trim();
     const servicetaxno = (document.getElementById('servicetaxno').value || '').trim();
     const taxexemptno = (document.getElementById('taxexemptno').value || '').trim();
     const taxexpdate = (document.getElementById('taxexpdate').value || '').trim();
     const attention = (document.getElementById('attention').value || '').trim();
+    const phone1 = (document.getElementById('phone1').value || '').trim();
+    const email = (document.getElementById('email').value || '').trim();
     const address1 = (document.getElementById('address1').value || '').trim();
     const address2 = (document.getElementById('address2').value || '').trim();
     const address3 = (document.getElementById('address3').value || '').trim();
@@ -25,7 +28,7 @@ function handleNewGuestSignIn(event) {
     const state = (document.getElementById('state').value || '').trim();
     const country = (document.getElementById('country').value || '').trim();
 
-    const payload = { companyname, area, currencycode, tin, brn2, salestaxno, servicetaxno, taxexemptno, taxexpdate, attention, address1, address2, address3, address4, postcode, city, state, country };
+    const payload = { companyname, area, currencycode, tin, brn, brn2, salestaxno, servicetaxno, taxexemptno, taxexpdate, attention, phone1, email, address1, address2, address3, address4, postcode, city, state, country };
     payloadPreview.textContent = `Request:\n${JSON.stringify(payload, null, 2)}`;
     payloadPreview.classList.add('show');
 

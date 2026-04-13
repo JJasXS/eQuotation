@@ -18,6 +18,7 @@ class LocalCustomerSyncRequest(BaseModel):
     area: str | None = None
     currency_code: str | None = None
     tin: str | None = None
+    brn: str | None = None
     brn2: str | None = None
     sales_tax_no: str | None = None
     service_tax_no: str | None = None
@@ -33,6 +34,8 @@ class LocalCustomerSyncRequest(BaseModel):
     city: str | None = None
     state: str | None = None
     country: str | None = None
+    phone1: str | None = None
+    email: str | None = None
 
 
 def sync_local_customer_fields(customer: LocalCustomerSyncRequest) -> dict:
@@ -49,6 +52,7 @@ def sync_local_customer_fields(customer: LocalCustomerSyncRequest) -> dict:
             ("AREA", customer.area),
             ("CURRENCYCODE", customer.currency_code),
             ("TIN", customer.tin),
+            ("BRN", customer.brn),
             ("BRN2", customer.brn2),
             ("SALESTAXNO", customer.sales_tax_no),
             ("SERVICETAXNO", customer.service_tax_no),
@@ -79,6 +83,8 @@ def sync_local_customer_fields(customer: LocalCustomerSyncRequest) -> dict:
             ("CITY", customer.city),
             ("STATE", customer.state),
             ("COUNTRY", customer.country),
+            ("PHONE1", customer.phone1),
+            ("EMAIL", customer.email),
         ]
         for column, value in branch_mapping:
             if value not in (None, ""):
@@ -109,7 +115,7 @@ def read_local_customer_fields(code: str) -> dict:
         cur = con.cursor()
         cur.execute(
             """
-            SELECT CODE, AREA, CURRENCYCODE, TIN, BRN2, SALESTAXNO, SERVICETAXNO, TAXEXPDATE, TAXEXEMPTNO, IDTYPE
+            SELECT CODE, AREA, CURRENCYCODE, TIN, BRN, BRN2, SALESTAXNO, SERVICETAXNO, TAXEXPDATE, TAXEXEMPTNO, IDTYPE
             FROM AR_CUSTOMER
             WHERE CODE = ?
             """,
@@ -119,7 +125,7 @@ def read_local_customer_fields(code: str) -> dict:
 
         cur.execute(
             """
-            SELECT ATTENTION, ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, POSTCODE, CITY, STATE, COUNTRY
+            SELECT ATTENTION, ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, POSTCODE, CITY, STATE, COUNTRY, PHONE1, EMAIL
             FROM AR_CUSTOMERBRANCH
             WHERE CODE = ?
             ORDER BY DTLKEY
@@ -133,6 +139,7 @@ def read_local_customer_fields(code: str) -> dict:
             "area": None,
             "currencycode": None,
             "tin": None,
+            "brn": None,
             "brn2": None,
             "salestaxno": None,
             "servicetaxno": None,
@@ -148,6 +155,8 @@ def read_local_customer_fields(code: str) -> dict:
             "city": None,
             "state": None,
             "country": None,
+            "phone1": None,
+            "email": None,
         }
 
         if customer_row:
@@ -156,12 +165,13 @@ def read_local_customer_fields(code: str) -> dict:
                 "area": customer_row[1],
                 "currencycode": customer_row[2],
                 "tin": customer_row[3],
-                "brn2": customer_row[4],
-                "salestaxno": customer_row[5],
-                "servicetaxno": customer_row[6],
-                "taxexpdate": str(customer_row[7]) if customer_row[7] is not None else None,
-                "taxexemptno": customer_row[8],
-                "idtype": customer_row[9],
+                "brn": customer_row[4],
+                "brn2": customer_row[5],
+                "salestaxno": customer_row[6],
+                "servicetaxno": customer_row[7],
+                "taxexpdate": str(customer_row[8]) if customer_row[8] is not None else None,
+                "taxexemptno": customer_row[9],
+                "idtype": customer_row[10],
             })
 
         if branch_row:
@@ -175,6 +185,8 @@ def read_local_customer_fields(code: str) -> dict:
                 "city": branch_row[6],
                 "state": branch_row[7],
                 "country": branch_row[8],
+                "phone1": branch_row[9],
+                "email": branch_row[10],
             })
 
         return result

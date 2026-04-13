@@ -107,6 +107,7 @@ class CustomerService:
             area=customer_request.area,
             currency_code=customer_request.currency_code,
             tin=customer_request.tin,
+            brn=customer_request.brn,
             brn2=customer_request.brn2,
             sales_tax_no=customer_request.sales_tax_no,
             service_tax_no=customer_request.service_tax_no,
@@ -122,6 +123,8 @@ class CustomerService:
             city=customer_request.city,
             state=customer_request.state,
             country=customer_request.country,
+            phone1=customer_request.phone,
+            email=customer_request.email or customer_request.udf_email,
         )
 
         if any(value not in (None, "") for key, value in sync_request.model_dump().items() if key != "code"):

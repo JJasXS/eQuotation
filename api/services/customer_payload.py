@@ -28,6 +28,7 @@ def build_customer_create_payload(customer: CustomerRequest) -> dict[str, Any]:
         "area": customer.area,
         "currencycode": customer.currency_code,
         "tin": customer.tin,
+        "brn": customer.brn,
         "brn2": customer.brn2,
         "salestaxno": customer.sales_tax_no,
         "servicetaxno": customer.service_tax_no,
@@ -43,6 +44,8 @@ def build_customer_create_payload(customer: CustomerRequest) -> dict[str, Any]:
         "city": customer.city,
         "state": customer.state,
         "country": customer.country,
+        "phone": customer.phone,
+        "email": customer.email or customer.udf_email,
     }
     if customer.code:
         payload["code"] = customer.code

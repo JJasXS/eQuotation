@@ -1170,6 +1170,7 @@ def create_signin_user_minimal():
     area = str(data.get('area') or data.get('AREA') or '').strip()
     currencycode = str(data.get('currencycode') or data.get('CURRENCYCODE') or '').strip()
     tin = str(data.get('tin') or data.get('TIN') or '').strip()
+    brn = str(data.get('brn') or data.get('BRN') or '').strip()
     brn2 = str(data.get('brn2') or data.get('BRN2') or '').strip()
     salestaxno = str(data.get('salestaxno') or data.get('SALESTAXNO') or '').strip()
     servicetaxno = str(data.get('servicetaxno') or data.get('SERVICETAXNO') or '').strip()
@@ -1185,6 +1186,8 @@ def create_signin_user_minimal():
     city = str(data.get('city') or data.get('CITY') or '').strip()
     state = str(data.get('state') or data.get('STATE') or '').strip()
     country = str(data.get('country') or data.get('COUNTRY') or '').strip()
+    phone1 = str(data.get('phone1') or data.get('phone') or data.get('PHONE1') or '').strip()
+    email = str(data.get('email') or data.get('EMAIL') or data.get('udf_email') or data.get('UDF_EMAIL') or '').strip()
 
     if not company_name:
         return jsonify({'success': False, 'error': 'companyname is required'}), 400
@@ -1200,6 +1203,8 @@ def create_signin_user_minimal():
         customer_payload['currencycode'] = currencycode
     if tin:
         customer_payload['tin'] = tin
+    if brn:
+        customer_payload['brn'] = brn
     if brn2:
         customer_payload['brn2'] = brn2
     if salestaxno:
@@ -1233,6 +1238,11 @@ def create_signin_user_minimal():
         customer_payload['state'] = state
     if country:
         customer_payload['country'] = country
+    if phone1:
+        customer_payload['phone'] = phone1
+    if email:
+        customer_payload['email'] = email
+        customer_payload['udf_email'] = email
 
     api_headers = {'Content-Type': 'application/json'}
     if FASTAPI_ACCESS_KEY and FASTAPI_SECRET_KEY:
@@ -1269,6 +1279,7 @@ def create_signin_user_minimal():
                     area=area or None,
                     currency_code=currencycode or None,
                     tin=tin or None,
+                    brn=brn or None,
                     brn2=brn2 or None,
                     sales_tax_no=salestaxno or None,
                     service_tax_no=servicetaxno or None,
@@ -1284,6 +1295,8 @@ def create_signin_user_minimal():
                     city=city or None,
                     state=state or None,
                     country=country or None,
+                    phone1=phone1 or None,
+                    email=email or None,
                 )
             )
         except Exception as sync_exc:
