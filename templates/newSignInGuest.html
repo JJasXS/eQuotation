@@ -56,9 +56,6 @@
                             <label for="taxexpdate" style="margin-bottom:6px;">taxexpdate</label>
                             <input type="date" id="taxexpdate" name="taxexpdate">
                         </div>
-                        <div class="form-group">
-                            <input type="number" id="idtype" name="idtype" placeholder="idtype" min="0" step="1">
-                        </div>
                     </div>
                 </div>
 
@@ -90,7 +87,13 @@
                             <input type="text" id="state" name="state" placeholder="state" readonly>
                         </div>
                         <div class="form-group">
-                            <input type="text" id="country" name="country" placeholder="country (e.g. MY)">
+                            <div style="font-size:13px;color:#6c7a89;margin-bottom:2px;">Select Country</div>
+                            <select id="country" name="country">
+                                <option value="">Select country...</option>
+                                {% for country in countries %}
+                                <option value="{{ country.alpha2 }}" {% if country.alpha2 == 'MY' %}selected{% endif %}>{{ country.name }}</option>
+                                {% endfor %}
+                            </select>
                         </div>
                     </div>
                 </div>

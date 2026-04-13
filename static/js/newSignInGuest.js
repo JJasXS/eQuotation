@@ -15,7 +15,6 @@ function handleNewGuestSignIn(event) {
     const servicetaxno = (document.getElementById('servicetaxno').value || '').trim();
     const taxexemptno = (document.getElementById('taxexemptno').value || '').trim();
     const taxexpdate = (document.getElementById('taxexpdate').value || '').trim();
-    const idtypeRaw = (document.getElementById('idtype').value || '').trim();
     const attention = (document.getElementById('attention').value || '').trim();
     const address1 = (document.getElementById('address1').value || '').trim();
     const address2 = (document.getElementById('address2').value || '').trim();
@@ -27,9 +26,6 @@ function handleNewGuestSignIn(event) {
     const country = (document.getElementById('country').value || '').trim();
 
     const payload = { companyname, area, currencycode, tin, brn2, salestaxno, servicetaxno, taxexemptno, taxexpdate, attention, address1, address2, address3, address4, postcode, city, state, country };
-    if (idtypeRaw !== '') {
-        payload.idtype = Number(idtypeRaw);
-    }
     payloadPreview.textContent = `Request:\n${JSON.stringify(payload, null, 2)}`;
     payloadPreview.classList.add('show');
 
@@ -78,7 +74,7 @@ async function loadCurrencySymbols() {
             throw new Error(data.error || 'Failed to load currencies');
         }
 
-        currencySelect.innerHTML = '<option value="">Select currency...</option>';
+        currencySelect.innerHTML = '';
         data.data.forEach((symbol) => {
             const option = document.createElement('option');
             option.value = symbol;
@@ -86,8 +82,8 @@ async function loadCurrencySymbols() {
             currencySelect.appendChild(option);
         });
 
-        if (currencySelect.querySelector('option[value="MYR"]')) {
-            currencySelect.value = 'MYR';
+        if (currencySelect.options.length > 0) {
+            currencySelect.selectedIndex = 0;
         }
     } catch (error) {
         console.error('Error loading currency symbols:', error);
@@ -109,13 +105,17 @@ async function loadAreaCodes() {
             throw new Error(data.error || 'Failed to load areas');
         }
 
-        areaSelect.innerHTML = '<option value="">Select area...</option>';
+        areaSelect.innerHTML = '';
         data.data.forEach((code) => {
             const option = document.createElement('option');
             option.value = code;
             option.textContent = code;
             areaSelect.appendChild(option);
         });
+
+        if (areaSelect.options.length > 0) {
+            areaSelect.selectedIndex = 0;
+        }
     } catch (error) {
         console.error('Error loading area codes:', error);
         areaSelect.innerHTML = '<option value="">No area available</option>';
