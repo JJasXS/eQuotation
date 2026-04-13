@@ -25,6 +25,24 @@ def build_customer_create_payload(customer: CustomerRequest) -> dict[str, Any]:
     # Keep payload minimal and let SQL API apply default values server-side.
     payload: dict[str, Any] = {
         "companyname": customer.company_name,
+        "area": customer.area,
+        "currencycode": customer.currency_code,
+        "tin": customer.tin,
+        "brn2": customer.brn2,
+        "salestaxno": customer.sales_tax_no,
+        "servicetaxno": customer.service_tax_no,
+        "taxexpdate": customer.tax_exp_date,
+        "taxexemptno": customer.tax_exempt_no,
+        "idtype": customer.idtype,
+        "attention": customer.attention,
+        "address1": customer.address1,
+        "address2": customer.address2,
+        "address3": customer.address3,
+        "address4": customer.address4,
+        "postcode": customer.postcode,
+        "city": customer.city,
+        "state": customer.state,
+        "country": customer.country,
     }
     if customer.code:
         payload["code"] = customer.code

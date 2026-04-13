@@ -10,6 +10,7 @@ from api.config import load_sql_accounting_api_settings
 from api.config.sql_accounting_api import redact_settings_for_log
 from api.models import CustomerRequest, CustomerResponse
 from api.services.customer_payload import build_customer_create_payload
+from api.services.local_customer_sync import LocalCustomerSyncRequest, read_local_customer_fields, sync_local_customer_fields
 
 logger = logging.getLogger(__name__)
 
@@ -99,8 +100,41 @@ class CustomerService:
                 status_code=502,
                 response_body=raw,
             )
+        response = self._customer_response_from_api(parsed, customer_request, raw)
 
-        return self._customer_response_from_api(parsed, customer_request, raw)
+        sync_request = LocalCustomerSyncRequest(
+            code=response.code,
+            area=customer_request.area,
+            currency_code=customer_request.currency_code,
+            tin=customer_request.tin,
+            brn2=customer_request.brn2,
+            sales_tax_no=customer_request.sales_tax_no,
+            service_tax_no=customer_request.service_tax_no,
+            tax_exp_date=customer_request.tax_exp_date,
+            tax_exempt_no=customer_request.tax_exempt_no,
+            idtype=customer_request.idtype,
+            attention=customer_request.attention,
+            address1=customer_request.address1,
+            address2=customer_request.address2,
+            address3=customer_request.address3,
+            address4=customer_request.address4,
+            postcode=customer_request.postcode,
+            city=customer_request.city,
+            state=customer_request.state,
+            country=customer_request.country,
+        )
+
+        if any(value not in (None, "") for key, value in sync_request.model_dump().items() if key != "code"):
+            try:
+                response.local_db_snapshot = sync_local_customer_fields(sync_request)
+            except Exception:
+                logger.exception("Post-create local customer sync failed for code=%s", response.code)
+                try:
+                    response.local_db_snapshot = read_local_customer_fields(response.code)
+                except Exception:
+                    logger.exception("Post-create local readback failed for code=%s", response.code)
+
+        return response
 
     @staticmethod
     def _customer_response_from_api(

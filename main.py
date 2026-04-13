@@ -19,6 +19,7 @@ import requests
 from flask import Flask, render_template, request, jsonify, session, redirect
 from dotenv import load_dotenv
 from db_initializer import initialize_database
+from api.services.local_customer_sync import LocalCustomerSyncRequest, sync_local_customer_fields
 
 # Import utility modules
 from utils import (
@@ -1166,6 +1167,24 @@ def create_signin_user_minimal():
     company_name = str(
         data.get('companyname') or data.get('company_name') or data.get('companyName') or data.get('COMPANYNAME') or ''
     ).strip()
+    area = str(data.get('area') or data.get('AREA') or '').strip()
+    currencycode = str(data.get('currencycode') or data.get('CURRENCYCODE') or '').strip()
+    tin = str(data.get('tin') or data.get('TIN') or '').strip()
+    brn2 = str(data.get('brn2') or data.get('BRN2') or '').strip()
+    salestaxno = str(data.get('salestaxno') or data.get('SALESTAXNO') or '').strip()
+    servicetaxno = str(data.get('servicetaxno') or data.get('SERVICETAXNO') or '').strip()
+    taxexemptno = str(data.get('taxexemptno') or data.get('TAXEXEMPTNO') or '').strip()
+    taxexpdate = str(data.get('taxexpdate') or data.get('TAXEXPDATE') or '').strip()
+    idtype_raw = data.get('idtype') if data.get('idtype') is not None else data.get('IDTYPE')
+    attention = str(data.get('attention') or data.get('ATTENTION') or '').strip()
+    address1 = str(data.get('address1') or data.get('ADDRESS1') or '').strip()
+    address2 = str(data.get('address2') or data.get('ADDRESS2') or '').strip()
+    address3 = str(data.get('address3') or data.get('ADDRESS3') or '').strip()
+    address4 = str(data.get('address4') or data.get('ADDRESS4') or '').strip()
+    postcode = str(data.get('postcode') or data.get('POSTCODE') or '').strip()
+    city = str(data.get('city') or data.get('CITY') or '').strip()
+    state = str(data.get('state') or data.get('STATE') or '').strip()
+    country = str(data.get('country') or data.get('COUNTRY') or '').strip()
 
     if not company_name:
         return jsonify({'success': False, 'error': 'companyname is required'}), 400
@@ -1175,6 +1194,45 @@ def create_signin_user_minimal():
     }
     if provided_code:
         customer_payload['code'] = provided_code
+    if area:
+        customer_payload['area'] = area
+    if currencycode:
+        customer_payload['currencycode'] = currencycode
+    if tin:
+        customer_payload['tin'] = tin
+    if brn2:
+        customer_payload['brn2'] = brn2
+    if salestaxno:
+        customer_payload['salestaxno'] = salestaxno
+    if servicetaxno:
+        customer_payload['servicetaxno'] = servicetaxno
+    if taxexemptno:
+        customer_payload['taxexemptno'] = taxexemptno
+    if taxexpdate:
+        customer_payload['taxexpdate'] = taxexpdate
+    if idtype_raw not in (None, ''):
+        try:
+            customer_payload['idtype'] = int(idtype_raw)
+        except (TypeError, ValueError):
+            return jsonify({'success': False, 'error': 'idtype must be an integer'}), 400
+    if attention:
+        customer_payload['attention'] = attention
+    if address1:
+        customer_payload['address1'] = address1
+    if address2:
+        customer_payload['address2'] = address2
+    if address3:
+        customer_payload['address3'] = address3
+    if address4:
+        customer_payload['address4'] = address4
+    if postcode:
+        customer_payload['postcode'] = postcode
+    if city:
+        customer_payload['city'] = city
+    if state:
+        customer_payload['state'] = state
+    if country:
+        customer_payload['country'] = country
 
     api_headers = {'Content-Type': 'application/json'}
     if FASTAPI_ACCESS_KEY and FASTAPI_SECRET_KEY:
@@ -1201,12 +1259,46 @@ def create_signin_user_minimal():
 
     customer_data = ((result.get('data') or {}).get('customer') or {}) if isinstance(result, dict) else {}
     customer_code = customer_data.get('code')
+
+    local_db_snapshot = None
+    if customer_code:
+        try:
+            local_db_snapshot = sync_local_customer_fields(
+                LocalCustomerSyncRequest(
+                    code=customer_code,
+                    area=area or None,
+                    currency_code=currencycode or None,
+                    tin=tin or None,
+                    brn2=brn2 or None,
+                    sales_tax_no=salestaxno or None,
+                    service_tax_no=servicetaxno or None,
+                    tax_exp_date=taxexpdate or None,
+                    tax_exempt_no=taxexemptno or None,
+                    idtype=int(idtype_raw) if idtype_raw not in (None, '') else None,
+                    attention=attention or None,
+                    address1=address1 or None,
+                    address2=address2 or None,
+                    address3=address3 or None,
+                    address4=address4 or None,
+                    postcode=postcode or None,
+                    city=city or None,
+                    state=state or None,
+                    country=country or None,
+                )
+            )
+        except Exception as sync_exc:
+            print(f"[WARN] Post-create local sync failed for {customer_code}: {sync_exc}")
+
+    response_data = {'source': 'remote-api', **(result.get('data') or {})}
+    if isinstance(response_data.get('customer'), dict) and local_db_snapshot:
+        response_data['customer']['local_db_snapshot'] = local_db_snapshot
+
     return jsonify({
         'success': True,
         'message': result.get('message', 'Guest user created successfully'),
         'customerCode': customer_code,
         'redirect': '/login',
-        'data': {'source': 'remote-api', **(result.get('data') or {})},
+        'data': response_data,
     }), response.status_code
 
 
@@ -1244,14 +1336,12 @@ def get_currency_symbols():
     try:
         php_url = f"{BASE_API_URL}/php/getCurrencySymbols.php"
         response = requests.get(php_url, timeout=10)
-        response.raise_for_status()
-        result = response.json()
-        return jsonify(result), response.status_code
-    except requests.exceptions.HTTPError:
-        try:
-            return jsonify(response.json()), response.status_code
-        except Exception:
-            return jsonify({'success': False, 'error': 'PHP endpoint returned an invalid response'}), response.status_code
+        if response.status_code < 400:
+            result = response.json()
+            if isinstance(result, dict) and result.get('success') and isinstance(result.get('data'), list):
+                return jsonify(result), response.status_code
+            raise ValueError('PHP endpoint returned unexpected payload shape')
+        raise requests.exceptions.HTTPError(f"HTTP {response.status_code}")
     except Exception as e:
         print(f"Error calling getCurrencySymbols.php: {e}")
         try:
@@ -1267,14 +1357,12 @@ def get_area_codes():
     try:
         php_url = f"{BASE_API_URL}/php/getAreaCodes.php"
         response = requests.get(php_url, timeout=10)
-        response.raise_for_status()
-        result = response.json()
-        return jsonify(result), response.status_code
-    except requests.exceptions.HTTPError:
-        try:
-            return jsonify(response.json()), response.status_code
-        except Exception:
-            return jsonify({'success': False, 'error': 'PHP endpoint returned an invalid response'}), response.status_code
+        if response.status_code < 400:
+            result = response.json()
+            if isinstance(result, dict) and result.get('success') and isinstance(result.get('data'), list):
+                return jsonify(result), response.status_code
+            raise ValueError('PHP endpoint returned unexpected payload shape')
+        raise requests.exceptions.HTTPError(f"HTTP {response.status_code}")
     except Exception as e:
         print(f"Error calling getAreaCodes.php: {e}")
         try:

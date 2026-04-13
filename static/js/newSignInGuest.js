@@ -7,8 +7,29 @@ function handleNewGuestSignIn(event) {
     const submitBtn = form.querySelector('.btn-submit');
 
     const companyname = (document.getElementById('companyname').value || '').trim();
+    const area = (document.getElementById('area').value || '').trim();
+    const currencycode = (document.getElementById('currencycode').value || '').trim();
+    const tin = (document.getElementById('tin').value || '').trim();
+    const brn2 = (document.getElementById('brn2').value || '').trim();
+    const salestaxno = (document.getElementById('salestaxno').value || '').trim();
+    const servicetaxno = (document.getElementById('servicetaxno').value || '').trim();
+    const taxexemptno = (document.getElementById('taxexemptno').value || '').trim();
+    const taxexpdate = (document.getElementById('taxexpdate').value || '').trim();
+    const idtypeRaw = (document.getElementById('idtype').value || '').trim();
+    const attention = (document.getElementById('attention').value || '').trim();
+    const address1 = (document.getElementById('address1').value || '').trim();
+    const address2 = (document.getElementById('address2').value || '').trim();
+    const address3 = (document.getElementById('address3').value || '').trim();
+    const address4 = (document.getElementById('address4').value || '').trim();
+    const postcode = (document.getElementById('postcode').value || '').trim();
+    const city = (document.getElementById('city').value || '').trim();
+    const state = (document.getElementById('state').value || '').trim();
+    const country = (document.getElementById('country').value || '').trim();
 
-    const payload = { companyname };
+    const payload = { companyname, area, currencycode, tin, brn2, salestaxno, servicetaxno, taxexemptno, taxexpdate, attention, address1, address2, address3, address4, postcode, city, state, country };
+    if (idtypeRaw !== '') {
+        payload.idtype = Number(idtypeRaw);
+    }
     payloadPreview.textContent = `Request:\n${JSON.stringify(payload, null, 2)}`;
     payloadPreview.classList.add('show');
 
@@ -41,4 +62,123 @@ function handleNewGuestSignIn(event) {
             submitBtn.disabled = false;
             submitBtn.textContent = 'Create Customer';
         });
+}
+
+async function loadCurrencySymbols() {
+    const currencySelect = document.getElementById('currencycode');
+    if (!currencySelect) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/get_currency_symbols');
+        const data = await response.json();
+
+        if (!data.success || !Array.isArray(data.data)) {
+            throw new Error(data.error || 'Failed to load currencies');
+        }
+
+        currencySelect.innerHTML = '<option value="">Select currency...</option>';
+        data.data.forEach((symbol) => {
+            const option = document.createElement('option');
+            option.value = symbol;
+            option.textContent = symbol;
+            currencySelect.appendChild(option);
+        });
+
+        if (currencySelect.querySelector('option[value="MYR"]')) {
+            currencySelect.value = 'MYR';
+        }
+    } catch (error) {
+        console.error('Error loading currency symbols:', error);
+        currencySelect.innerHTML = '<option value="">No currency available</option>';
+    }
+}
+
+async function loadAreaCodes() {
+    const areaSelect = document.getElementById('area');
+    if (!areaSelect) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/get_area_codes');
+        const data = await response.json();
+
+        if (!data.success || !Array.isArray(data.data)) {
+            throw new Error(data.error || 'Failed to load areas');
+        }
+
+        areaSelect.innerHTML = '<option value="">Select area...</option>';
+        data.data.forEach((code) => {
+            const option = document.createElement('option');
+            option.value = code;
+            option.textContent = code;
+            areaSelect.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Error loading area codes:', error);
+        areaSelect.innerHTML = '<option value="">No area available</option>';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadCurrencySymbols();
+    loadAreaCodes();
+    initPostcodeAutofill();
+});
+
+function normalizePostcode(value) {
+    return String(value || '').trim();
+}
+
+function initPostcodeAutofill() {
+    const postcodeEl = document.getElementById('postcode');
+    const cityEl = document.getElementById('city');
+    const stateEl = document.getElementById('state');
+
+    if (!postcodeEl || !cityEl || !stateEl) {
+        return;
+    }
+
+    let timer = null;
+
+    async function runLookup() {
+        const postcode = normalizePostcode(postcodeEl.value);
+
+        if (!postcode || postcode.length < 5) {
+            cityEl.value = '';
+            stateEl.value = '';
+            return;
+        }
+
+        try {
+            const res = await fetch(`/api/lookup_postcode?postcode=${encodeURIComponent(postcode)}`);
+            const data = await res.json();
+
+            if (!data || !data.success || !data.found || !data.data) {
+                cityEl.value = '';
+                stateEl.value = '';
+                return;
+            }
+
+            cityEl.value = data.data.city || '';
+            stateEl.value = data.data.state || '';
+        } catch (error) {
+            console.error('postcode lookup failed:', error);
+            cityEl.value = '';
+            stateEl.value = '';
+        }
+    }
+
+    function scheduleLookup() {
+        if (timer) {
+            clearTimeout(timer);
+        }
+        timer = setTimeout(runLookup, 250);
+    }
+
+    postcodeEl.addEventListener('input', scheduleLookup);
+    postcodeEl.addEventListener('change', runLookup);
+    postcodeEl.addEventListener('blur', runLookup);
 }
