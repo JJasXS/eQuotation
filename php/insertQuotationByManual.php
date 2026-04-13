@@ -4,7 +4,7 @@ header('Content-Type: application/json');
 require_once 'db_helper.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    echo json_encode(['success' => false, 'error' => 'POST method required']);
+    badRequest('POST method required');
     exit;
 }
 
@@ -25,17 +25,17 @@ $phone1 = $data['phone1'] ?? null;
 error_log("DEBUG: insertQuotationByManual received - companyName: $companyName, address1: $address1, address2: $address2, address3: $address3, address4: $address4, phone1: $phone1");
 
 if (!$ownerEmail) {
-    echo json_encode(['success' => false, 'error' => 'ownerEmail required']);
+    badRequest('ownerEmail required');
     exit;
 }
 
 if (!$customerCode) {
-    echo json_encode(['success' => false, 'error' => 'customerCode required']);
+    badRequest('customerCode required');
     exit;
 }
 
 if (empty($items)) {
-    echo json_encode(['success' => false, 'error' => 'At least one item is required']);
+    badRequest('At least one item is required');
     exit;
 }
 
@@ -61,10 +61,8 @@ try {
         $manualChatId = 0;
     }
     
-    // Get next ORDERID (quotations use same table with QUOTATION status)
-    $orderStmt = $dbh->prepare('SELECT COALESCE(MAX(ORDERID), 0) + 1 FROM ORDER_TPL');
-    $orderStmt->execute();
-    $quotationid = $orderStmt->fetchColumn();
+    // MAX+1 is unsafe under concurrency; use a sequence so concurrent sessions cannot collide.
+    $quotationid = nextAppId($dbh, 'ORDER_ID');
     
     $created_at = date('Y-m-d H:i:s');
     
@@ -85,31 +83,37 @@ try {
             throw new Exception("Invalid item at index $idx");
         }
         
-        $detailStmt = $dbh->prepare('SELECT COALESCE(MAX(ORDERDTLID), 0) + 1 FROM ORDER_TPLDTL');
-        $detailStmt->execute();
-        $quotationdtlid = $detailStmt->fetchColumn();
+        $quotationdtlid = nextAppId($dbh, 'ORDER_DETAIL_ID');
         
         $detailInsert = $dbh->prepare('
             INSERT INTO ORDER_TPLDTL (ORDERDTLID, ORDERID, DESCRIPTION, QTY, UNITPRICE, DISCOUNT) 
             VALUES (?, ?, ?, ?, ?, ?)
         ');
         $detailInsert->execute([$quotationdtlid, $quotationid, $product, $qty, $price, 0]);
+        if ($detailInsert->rowCount() === 0) {
+            throw new RuntimeException('No detail row inserted', 409);
+        }
     }
 
     $dbh->commit();
     
-    echo json_encode([
-        'success' => true,
-        'quotationid' => $quotationid,
-        'message' => 'Quotation created successfully'
-    ]);
+    jsonResponse(201, true, 'Quotation created successfully', ['quotationid' => (int)$quotationid], null);
 
+} catch (RuntimeException $e) {
+    if ($dbh instanceof PDO && $dbh->inTransaction()) {
+        $dbh->rollBack();
+    }
+    if ($e->getCode() === 409) {
+        conflictResponse($e->getMessage());
+    } else {
+        badRequest($e->getMessage());
+    }
 } catch (Exception $e) {
     if ($dbh instanceof PDO && $dbh->inTransaction()) {
         $dbh->rollBack();
     }
     error_log("insertQuotationByManual.php error: " . $e->getMessage());
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    serverError('Failed to create quotation');
 } finally {
     $dbh = null;
 }

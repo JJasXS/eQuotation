@@ -99,12 +99,101 @@ function getFirebirdConnection() {
 
     try {
         $dbh = new PDO("firebird:dbname=$db;host=$host", $user, $pass);
+        $dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $dbh->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+        // Firebird PDO does not expose MYSQL-style charset DSN options; this keeps UTF-8 handling explicit.
+        $dbh->exec("SET NAMES UTF8");
         error_log("[DB CONNECTION] Firebird connection established");
         return $dbh;
     } catch (PDOException $e) {
         error_log("[DB CONNECTION ERROR] Failed to connect: " . $e->getMessage());
         throw $e;
     }
+}
+
+function jsonResponse(int $statusCode, bool $success, string $message, $data = null, ?string $error = null): void {
+    http_response_code($statusCode);
+    echo json_encode([
+        'success' => $success,
+        'message' => $message,
+        'data' => $data,
+        'error' => $error,
+    ]);
+}
+
+function badRequest(string $message, $data = null): void {
+    jsonResponse(400, false, $message, $data, $message);
+}
+
+function notFound(string $message, $data = null): void {
+    jsonResponse(404, false, $message, $data, $message);
+}
+
+function conflictResponse(string $message, $data = null): void {
+    jsonResponse(409, false, $message, $data, $message);
+}
+
+function serverError(string $message, $data = null): void {
+    jsonResponse(500, false, $message, $data, $message);
+}
+
+function nextSequenceValue(PDO $dbh, string $sequenceName): int {
+    // Never use MAX(id)+1 for concurrent inserts; two sessions can pick the same key before commit.
+    if (!preg_match('/^[A-Z0-9_]+$/', $sequenceName)) {
+        throw new RuntimeException('Invalid sequence name: ' . $sequenceName);
+    }
+
+    try {
+        $stmt = $dbh->query('SELECT NEXT VALUE FOR ' . $sequenceName . ' AS ID FROM RDB$DATABASE');
+        $value = $stmt->fetchColumn();
+        if ($value !== false && $value !== null) {
+            return (int)$value;
+        }
+    } catch (Throwable $ignored) {
+        // Fall through to GEN_ID syntax for older server compatibility.
+    }
+
+    try {
+        $stmt = $dbh->query('SELECT GEN_ID(' . $sequenceName . ', 1) AS ID FROM RDB$DATABASE');
+        $value = $stmt->fetchColumn();
+        if ($value !== false && $value !== null) {
+            return (int)$value;
+        }
+    } catch (Throwable $ignored) {
+        // Re-thrown below with actionable context.
+    }
+
+    throw new RuntimeException(
+        'Required Firebird sequence is missing or inaccessible: ' . $sequenceName .
+        '. Create the sequence and grant usage before enabling this endpoint.'
+    , 409);
+}
+
+function appSequenceName(string $logicalKey): string {
+    $map = [
+        'CHAT_MESSAGE_ID' => 'SEQ_CHAT_TPLDTL_MESSAGEID',
+        'ORDER_ID' => 'SEQ_ORDER_TPL_ORDERID',
+        'ORDER_DETAIL_ID' => 'SEQ_ORDER_TPLDTL_ORDERDTLID',
+    ];
+
+    if (!isset($map[$logicalKey])) {
+        throw new RuntimeException('Unknown logical sequence key: ' . $logicalKey);
+    }
+
+    return $map[$logicalKey];
+}
+
+function nextAppId(PDO $dbh, string $logicalKey): int {
+    return nextSequenceValue($dbh, appSequenceName($logicalKey));
+}
+
+function rejectUnsafeSharedInsert(string $context, array $tables): void {
+    $tableList = implode(', ', $tables);
+    throw new RuntimeException(
+        $context . ' is disabled for direct DB insert because key generation for shared SQL Account tables (' .
+        $tableList . ') cannot safely use MAX+1 under concurrency. Use vendor-supported SDK/COM/API flow.',
+        409
+    );
 }
 
 // Backward-compatible alias used by older endpoints.

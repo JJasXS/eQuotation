@@ -12,16 +12,22 @@ try {
     $messagetext = $data['messagetext'] ?? null;
     
     if (!$chatid || !$sender || !$messagetext) {
-        echo json_encode(['success' => false, 'error' => 'chatid, sender, and messagetext required']);
-        exit;
+        badRequest('chatid, sender, and messagetext are required');
+        return;
     }
     
     $dbh = getFirebirdConnection();
     $dbh->beginTransaction();
     
-    // Get next MESSAGEID
-    $stmt = $dbh->query('SELECT COALESCE(MAX(MESSAGEID), 0) + 1 FROM CHAT_TPLDTL');
-    $messageid = $stmt->fetchColumn();
+    // MAX+1 is unsafe under concurrency; use a sequence so concurrent sessions cannot collide.
+    $messageid = nextAppId($dbh, 'CHAT_MESSAGE_ID');
+
+    // Ensure parent chat exists before writing child row.
+    $chatStmt = $dbh->prepare('SELECT CHATID FROM CHAT_TPL WHERE CHATID = ?');
+    $chatStmt->execute([$chatid]);
+    if (!$chatStmt->fetchColumn()) {
+        throw new RuntimeException('Chat not found', 404);
+    }
     
     // Insert message
     $stmt = $dbh->prepare('INSERT INTO CHAT_TPLDTL (MESSAGEID, CHATID, SENDER, MESSAGETEXT, SENTAT) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)');
@@ -30,15 +36,29 @@ try {
     // Update LASTMESSAGE in CHAT_TPL
     $stmt = $dbh->prepare('UPDATE CHAT_TPL SET LASTMESSAGE = ? WHERE CHATID = ?');
     $stmt->execute([$messagetext, $chatid]);
+    if ($stmt->rowCount() === 0) {
+        throw new RuntimeException('Chat not found', 404);
+    }
     
     $dbh->commit();
     
-    echo json_encode(['success' => true, 'messageid' => $messageid]);
+    jsonResponse(201, true, 'Message created', ['messageid' => (int)$messageid], null);
 } catch (PDOException $e) {
     if ($dbh instanceof PDO && $dbh->inTransaction()) {
         $dbh->rollBack();
     }
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    serverError('Database error while creating message');
+} catch (RuntimeException $e) {
+    if ($dbh instanceof PDO && $dbh->inTransaction()) {
+        $dbh->rollBack();
+    }
+    if ($e->getCode() === 404) {
+        notFound($e->getMessage());
+    } elseif ($e->getCode() === 409) {
+        conflictResponse($e->getMessage());
+    } else {
+        badRequest($e->getMessage());
+    }
 } finally {
     $dbh = null;
 }

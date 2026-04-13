@@ -17,15 +17,13 @@ $orderid = $input['orderid'] ?? null;
 $status = strtoupper(trim($input['status'] ?? ''));
 
 if (!$orderid || !$status) {
-    http_response_code(400);
-    echo json_encode(['success' => false, 'error' => 'orderid and status are required']);
+    badRequest('orderid and status are required');
     exit;
 }
 
 $validStatuses = ['PENDING', 'COMPLETED', 'CANCELLED'];
 if (!in_array($status, $validStatuses)) {
-    http_response_code(400);
-    echo json_encode(['success' => false, 'error' => 'Invalid status']);
+    badRequest('Invalid status');
     exit;
 }
 
@@ -34,6 +32,25 @@ $dbh = null;
 try {
     $dbh = getFirebirdConnection();
     $dbh->beginTransaction();
+
+    $findStmt = $dbh->prepare('SELECT STATUS FROM ORDER_TPL WHERE ORDERID = ?');
+    $findStmt->execute([$orderid]);
+    $currentStatus = $findStmt->fetchColumn();
+    if ($currentStatus === false) {
+        throw new RuntimeException('Order not found', 404);
+    }
+
+    // Defensive transition rules to reduce accidental state corruption.
+    $allowedTransitions = [
+        'DRAFT' => ['PENDING', 'CANCELLED'],
+        'PENDING' => ['COMPLETED', 'CANCELLED'],
+        'COMPLETED' => [],
+        'CANCELLED' => [],
+    ];
+    $currentStatusNorm = strtoupper(trim((string)$currentStatus));
+    if (!isset($allowedTransitions[$currentStatusNorm]) || !in_array($status, $allowedTransitions[$currentStatusNorm], true)) {
+        throw new RuntimeException('Invalid status transition from ' . $currentStatusNorm . ' to ' . $status, 409);
+    }
 
     $stmt = $dbh->prepare('UPDATE ORDER_TPL SET STATUS = ? WHERE ORDERID = ?');
     $stmt->execute([$status, $orderid]);
@@ -44,17 +61,18 @@ try {
 
     $dbh->commit();
 
-    echo json_encode([
-        'success' => true,
-        'orderid' => (int)$orderid,
-        'status' => $status
-    ]);
+    jsonResponse(200, true, 'Order status updated', ['orderid' => (int)$orderid, 'status' => $status], null);
 } catch (Exception $e) {
     if ($dbh instanceof PDO && $dbh->inTransaction()) {
         $dbh->rollBack();
     }
-    http_response_code($e->getCode() === 404 ? 404 : 500);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    if ($e->getCode() === 404) {
+        notFound($e->getMessage());
+    } elseif ($e->getCode() === 409) {
+        conflictResponse($e->getMessage());
+    } else {
+        serverError('Failed to update status');
+    }
 } finally {
     $dbh = null;
 }

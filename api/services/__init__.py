@@ -48,11 +48,9 @@ class CustomerService:
                 redact_settings_for_log(settings),
             )
             return CustomerResponse(
-                code=customer_request.code,
+                code=customer_request.code or "",
                 company_name=customer_request.company_name,
                 credit_term=customer_request.credit_term,
-                phone=customer_request.phone,
-                address1=customer_request.address1,
                 saved=True,
                 dry_run=True,
                 request_preview={
@@ -60,6 +58,7 @@ class CustomerService:
                     "url": url,
                     "body": payload,
                 },
+                upstream_response=None,
             )
 
         if not settings.access_key or not settings.secret_key:
@@ -92,6 +91,15 @@ class CustomerService:
                 response_body=raw,
             )
 
+        if parsed is None:
+            raw_preview = (raw or "").strip().replace("\n", " ")[:240]
+            raise SqlAccountingApiError(
+                "SQL Accounting API returned non-JSON success response; insert cannot be confirmed. "
+                f"Preview: {raw_preview or '(empty body)'}",
+                status_code=502,
+                response_body=raw,
+            )
+
         return self._customer_response_from_api(parsed, customer_request, raw)
 
     @staticmethod
@@ -117,19 +125,20 @@ class CustomerService:
             company_name = (
                 parsed.get("company_name")
                 or parsed.get("companyName")
+                or parsed.get("companyname")
                 or (parsed.get("customer") or {}).get("company_name")
+                or (parsed.get("customer") or {}).get("companyname")
                 or company_name
             )
         return CustomerResponse(
             code=str(code),
             company_name=str(company_name),
             credit_term=request.credit_term,
-            phone=request.phone,
-            address1=request.address1,
             saved=True,
             dry_run=False,
             request_preview=None,
             raw_response_snippet=raw[:2000] if raw else None,
+            upstream_response=parsed,
         )
 
     def get_customer_state(self, customer_code: str) -> dict[str, Any]:

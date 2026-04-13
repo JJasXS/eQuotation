@@ -17,8 +17,8 @@ load_dotenv()
 
 # Configuration
 BASE_URL = os.getenv('API_BASE_URL', 'http://localhost:8000')
-ACCESS_KEY = os.getenv('API_ACCESS_KEY', 'your-secure-access-key')
-SECRET_KEY = os.getenv('API_SECRET_KEY', 'your-secure-secret-key')
+ACCESS_KEY = os.getenv('API_ACCESS_KEY', 'equotation-access-key')
+SECRET_KEY = os.getenv('API_SECRET_KEY', 'equotation-secret-key')
 
 # Headers with authentication
 HEADERS = {
@@ -43,8 +43,8 @@ def print_response(response, title="Response"):
 def test_health():
     """Test health check endpoint."""
     print("\n📋 Testing Health Check Endpoint...")
-    response = requests.get(f"{BASE_URL}/api/health")
-    print_response(response, "GET /api/health")
+    response = requests.get(f"{BASE_URL}/health")
+    print_response(response, "GET /health")
     assert response.status_code == 200
     print("✅ Health check passed!")
 
@@ -54,7 +54,9 @@ def test_create_customer():
     print("\n📋 Testing Create Customer Endpoint...")
     
     customer_data = {
-        "companyName": "Test Company ABC",
+        "code": "TEST123",
+        "company_name": "Test Company ABC",
+        "credit_term": "30",
         "phone1": "0123456789",
         "email": "test@example.com",
         "address1": "123 Main Street",
@@ -66,11 +68,11 @@ def test_create_customer():
     }
     
     response = requests.post(
-        f"{BASE_URL}/api/customers",
+        f"{BASE_URL}/customers",
         json=customer_data,
         headers=HEADERS
     )
-    print_response(response, "POST /api/customers")
+    print_response(response, "POST /customers")
     
     if response.status_code == 201:
         print("✅ Customer created successfully!")
@@ -88,10 +90,10 @@ def test_get_customer(customer_code):
     
     print(f"\n📋 Testing Get Customer Endpoint...")
     response = requests.get(
-        f"{BASE_URL}/api/customers/{customer_code}",
+        f"{BASE_URL}/customers/{customer_code}",
         headers=HEADERS
     )
-    print_response(response, f"GET /api/customers/{customer_code}")
+    print_response(response, f"GET /customers/{customer_code}")
     
     if response.status_code == 200:
         print("✅ Customer retrieved successfully!")
@@ -115,11 +117,11 @@ def test_update_customer(customer_code):
     }
     
     response = requests.put(
-        f"{BASE_URL}/api/customers/{customer_code}",
+        f"{BASE_URL}/customers/{customer_code}",
         json=updated_data,
         headers=HEADERS
     )
-    print_response(response, f"PUT /api/customers/{customer_code}")
+    print_response(response, f"PUT /customers/{customer_code}")
     
     if response.status_code == 200:
         print("✅ Customer updated successfully!")
@@ -135,10 +137,10 @@ def test_delete_customer(customer_code):
     
     print(f"\n📋 Testing Delete Customer Endpoint...")
     response = requests.delete(
-        f"{BASE_URL}/api/customers/{customer_code}",
+        f"{BASE_URL}/customers/{customer_code}",
         headers=HEADERS
     )
-    print_response(response, f"DELETE /api/customers/{customer_code}")
+    print_response(response, f"DELETE /customers/{customer_code}")
     
     if response.status_code == 200:
         print("✅ Customer deleted successfully!")
@@ -147,8 +149,8 @@ def test_delete_customer(customer_code):
 
 
 def test_invalid_auth():
-    """Test with invalid authentication."""
-    print("\n📋 Testing Invalid Authentication...")
+    """Test that /customers rejects invalid API keys with 401."""
+    print("\n📋 Testing Invalid Authentication on /customers...")
     
     bad_headers = {
         'Content-Type': 'application/json',
@@ -156,16 +158,47 @@ def test_invalid_auth():
         'X-Secret-Key': 'wrong-secret'
     }
     
-    response = requests.get(
-        f"{BASE_URL}/api/health",
+    customer_data = {
+        "code": "AUTHTEST",
+        "company_name": "Auth Test",
+        "credit_term": "30"
+    }
+    
+    response = requests.post(
+        f"{BASE_URL}/customers",
+        json=customer_data,
         headers=bad_headers
     )
-    print_response(response, "GET /api/health (with invalid credentials)")
+    print_response(response, "POST /customers (with invalid credentials)")
     
     if response.status_code == 401:
         print("✅ Authentication validation working correctly!")
     else:
         print("❌ Authentication validation failed")
+
+
+def test_insert_customer_via_api():
+    """Test inserting a customer via the /customers endpoint (remote API)."""
+    print("\n📋 Testing Insert Customer via /customers API...")
+    customer_data = {
+        "code": "TEST789",
+        "company_name": "Remote API Insert Test",
+        "credit_term": "30",
+        "phone1": "0191234567",
+        "email": "remoteapitest@example.com",
+        "address1": "789 Main Street",
+        "address2": "Suite 300",
+        "postcode": "70000",
+        "city": "Shah Alam",
+        "state": "Selangor",
+        "country": "Malaysia"
+    }
+    response = requests.post(f"{BASE_URL}/customers", json=customer_data, headers=HEADERS)
+    print_response(response, "POST /customers (remote API)")
+    if response.status_code == 201:
+        print("✅ Customer inserted via remote API!")
+    else:
+        print("❌ Failed to insert customer via remote API")
 
 
 def main():
@@ -187,6 +220,7 @@ def main():
         test_get_customer(customer_code)
         test_update_customer(customer_code)
         test_delete_customer(customer_code)
+        test_insert_customer_via_api()
         
         print("\n" + "="*60)
         print("  ✅ All tests completed!")

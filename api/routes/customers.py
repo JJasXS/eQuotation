@@ -1,7 +1,8 @@
 """Customer management endpoints via SQL Accounting API (SigV4)."""
 import logging
+import os
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header, Query
 
 from api.adapters import COMConnectionError
 from api.clients import SqlAccountingApiError
@@ -9,13 +10,41 @@ from api.models import APIResponse, CustomerRequest
 from api.services import COMOperationError, CustomerConfigurationError, CustomerService
 
 router = APIRouter(prefix="/customers", tags=["Customers"])
+compat_router = APIRouter(tags=["Customers"])
 logger = logging.getLogger(__name__)
 
 customer_service = CustomerService()
 
+def verify_api_keys(
+    x_access_key: str = Header(..., alias="X-Access-Key"),
+    x_secret_key: str = Header(..., alias="X-Secret-Key"),
+):
+    """Dependency: reject requests with missing or invalid API keys."""
+    # Accept either dedicated API keys or SQL API keys for local development convenience.
+    api_access_key = (os.getenv("API_ACCESS_KEY") or "").strip()
+    api_secret_key = (os.getenv("API_SECRET_KEY") or "").strip()
+    sql_access_key = (os.getenv("SQL_API_ACCESS_KEY") or "").strip()
+    sql_secret_key = (os.getenv("SQL_API_SECRET_KEY") or "").strip()
+    provided_access_key = (x_access_key or "").strip()
+    provided_secret_key = (x_secret_key or "").strip()
 
-@router.post("", response_model=APIResponse, status_code=201)
-async def create_customer(customer_data: CustomerRequest):
+    valid_pairs = {
+        (api_access_key, api_secret_key),
+        (sql_access_key, sql_secret_key),
+    }
+    valid_pairs = {pair for pair in valid_pairs if pair[0] and pair[1]}
+
+    if not valid_pairs:
+        raise HTTPException(status_code=500, detail="API keys not configured on server.")
+    if (provided_access_key, provided_secret_key) not in valid_pairs:
+        raise HTTPException(status_code=401, detail="Invalid API credentials.")
+
+
+def _create_customer_impl(
+    customer_data: CustomerRequest,
+    _: None = Depends(verify_api_keys),
+    include_state: bool = Query(False, description="Run COM post-create state lookup before responding."),
+):
     """Create customer via SQL Accounting REST API (AWS SigV4), not COM or direct SQL."""
     try:
         customer = customer_service.create_customer(customer_data)
@@ -23,6 +52,11 @@ async def create_customer(customer_data: CustomerRequest):
             state = {
                 "skipped": True,
                 "reason": "SQL_API_DRY_RUN: no remote create; post_create_state not read from COM.",
+            }
+        elif not include_state:
+            state = {
+                "skipped": True,
+                "reason": "Post-create COM state lookup disabled. Pass include_state=true to enable it.",
             }
         else:
             try:
@@ -50,14 +84,35 @@ async def create_customer(customer_data: CustomerRequest):
             raise HTTPException(status_code=503, detail=str(exc))
         if 400 <= sc < 500:
             raise HTTPException(status_code=422, detail=str(exc))
-        raise HTTPException(status_code=503, detail=str(exc))
+        raise HTTPException(status_code=502, detail=str(exc))
     except Exception as exc:
         logger.exception("Unhandled error while creating customer")
         raise HTTPException(status_code=500, detail=f"Failed to create customer: {str(exc)}")
 
 
+@router.post("", response_model=APIResponse, status_code=201)
+def create_customer(
+    customer_data: CustomerRequest,
+    _: None = Depends(verify_api_keys),
+    include_state: bool = Query(False, description="Run COM post-create state lookup before responding."),
+):
+    return _create_customer_impl(customer_data, _, include_state)
+
+
+@compat_router.post("/customer", status_code=201)
+def create_customer_compat(
+    customer_data: CustomerRequest,
+    _: None = Depends(verify_api_keys),
+    include_state: bool = Query(False, description="Run COM post-create state lookup before responding."),
+):
+    """Compatibility route for Postman collections that use singular /customer."""
+    response = _create_customer_impl(customer_data, _, include_state)
+    upstream = (((response.data or {}).get("customer") or {}).get("upstream_response") or {})
+    return upstream or response
+
+
 @router.get("/{customer_code}/state", response_model=APIResponse)
-async def get_customer_state(customer_code: str):
+def get_customer_state(customer_code: str):
     """Read STATUS and SUBMISSIONTYPE for a customer code (COM read helper)."""
     try:
         state = customer_service.get_customer_state(customer_code)

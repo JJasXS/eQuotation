@@ -8,10 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # Load project-root .env (same pattern as main.py), regardless of current working directory
 _env_path = Path(__file__).resolve().parent.parent / ".env"
-load_dotenv(dotenv_path=_env_path)
+load_dotenv(dotenv_path=_env_path, override=True)
 
 # Import routes
-from api.routes import health, customers, debug
+from api.routes import health, customers, debug, local_customers
 
 # Create FastAPI app
 app = FastAPI(
@@ -34,7 +34,9 @@ app.add_middleware(
 # Include routes
 app.include_router(health.router)
 app.include_router(customers.router)
+app.include_router(customers.compat_router)
 app.include_router(debug.router)
+app.include_router(local_customers.router)
 
 # Health check at root
 @app.get("/")

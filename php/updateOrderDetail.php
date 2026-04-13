@@ -5,7 +5,7 @@ require_once 'db_helper.php';
 header('Content-Type: application/json');
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    echo json_encode(['success' => false, 'error' => 'POST method required']);
+    badRequest('POST method required');
     exit;
 }
 
@@ -17,7 +17,7 @@ $unitprice = $data['unitprice'] ?? null;
 $discount = $data['discount'] ?? 0;
 
 if (!$orderdtlid || $qty === null) {
-    echo json_encode(['success' => false, 'error' => 'orderdtlid and qty required']);
+    badRequest('orderdtlid and qty required');
     exit;
 }
 
@@ -32,6 +32,9 @@ try {
         $stmt = $dbh->prepare('SELECT UNITPRICE FROM ORDER_TPLDTL WHERE ORDERDTLID = ?');
         $stmt->execute([$orderdtlid]);
         $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$result) {
+            throw new RuntimeException('Order detail not found', 404);
+        }
         $unitprice = $result['UNITPRICE'] ?? 0;
     }
     
@@ -45,19 +48,27 @@ try {
         WHERE ORDERDTLID = ?
     ');
     $stmt->execute([$description, $qty, $unitprice, $total, $discount, $orderdtlid]);
+    if ($stmt->rowCount() === 0) {
+        throw new RuntimeException('Order detail not found or no changes applied', 404);
+    }
 
     $dbh->commit();
     
-    echo json_encode([
-        'success' => true,
-        'total' => $total,
-        'message' => "Updated quantity to $qty"
-    ]);
+    jsonResponse(200, true, "Updated quantity to $qty", ['total' => (float)$total], null);
+} catch (RuntimeException $e) {
+    if ($dbh instanceof PDO && $dbh->inTransaction()) {
+        $dbh->rollBack();
+    }
+    if ($e->getCode() === 404) {
+        notFound($e->getMessage());
+    } else {
+        badRequest($e->getMessage());
+    }
 } catch (Exception $e) {
     if ($dbh instanceof PDO && $dbh->inTransaction()) {
         $dbh->rollBack();
     }
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    serverError('Failed to update order detail');
 } finally {
     $dbh = null;
 }

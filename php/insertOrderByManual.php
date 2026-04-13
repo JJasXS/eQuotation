@@ -4,7 +4,7 @@ header('Content-Type: application/json');
 require_once 'db_helper.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    echo json_encode(['success' => false, 'error' => 'POST method required']);
+    badRequest('POST method required');
     exit;
 }
 
@@ -15,17 +15,17 @@ $orderName = $data['orderName'] ?? 'Manual Order';
 $items = $data['items'] ?? [];
 
 if (!$ownerEmail) {
-    echo json_encode(['success' => false, 'error' => 'ownerEmail required']);
+    badRequest('ownerEmail required');
     exit;
 }
 
 if (!$customerCode) {
-    echo json_encode(['success' => false, 'error' => 'customerCode required']);
+    badRequest('customerCode required');
     exit;
 }
 
 if (empty($items)) {
-    echo json_encode(['success' => false, 'error' => 'At least one item is required']);
+    badRequest('At least one item is required');
     exit;
 }
 
@@ -52,10 +52,8 @@ try {
         $manualChatId = 0;
     }
     
-    // Get next ORDERID
-    $orderStmt = $dbh->prepare('SELECT COALESCE(MAX(ORDERID), 0) + 1 FROM ORDER_TPL');
-    $orderStmt->execute();
-    $orderid = $orderStmt->fetchColumn();
+    // MAX+1 is unsafe under concurrency; use a sequence so concurrent sessions cannot collide.
+    $orderid = nextAppId($dbh, 'ORDER_ID');
     
     $created_at = date('Y-m-d H:i:s');
     
@@ -76,31 +74,37 @@ try {
             throw new Exception("Invalid item at index $idx");
         }
         
-        $detailStmt = $dbh->prepare('SELECT COALESCE(MAX(ORDERDTLID), 0) + 1 FROM ORDER_TPLDTL');
-        $detailStmt->execute();
-        $orderdtlid = $detailStmt->fetchColumn();
+        $orderdtlid = nextAppId($dbh, 'ORDER_DETAIL_ID');
         
         $detailInsert = $dbh->prepare('
             INSERT INTO ORDER_TPLDTL (ORDERDTLID, ORDERID, DESCRIPTION, QTY, UNITPRICE, DISCOUNT) 
             VALUES (?, ?, ?, ?, ?, ?)
         ');
         $detailInsert->execute([$orderdtlid, $orderid, $product, $qty, $price, 0]);
+        if ($detailInsert->rowCount() === 0) {
+            throw new RuntimeException('No detail row inserted', 409);
+        }
     }
 
     $dbh->commit();
     
-    echo json_encode([
-        'success' => true,
-        'orderid' => $orderid,
-        'message' => 'Order created successfully'
-    ]);
+    jsonResponse(201, true, 'Order created successfully', ['orderid' => (int)$orderid], null);
 
+} catch (RuntimeException $e) {
+    if ($dbh instanceof PDO && $dbh->inTransaction()) {
+        $dbh->rollBack();
+    }
+    if ($e->getCode() === 409) {
+        conflictResponse($e->getMessage());
+    } else {
+        badRequest($e->getMessage());
+    }
 } catch (Exception $e) {
     if ($dbh instanceof PDO && $dbh->inTransaction()) {
         $dbh->rollBack();
     }
     error_log("insertOrderByManual.php error: " . $e->getMessage());
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    serverError('Failed to create order');
 } finally {
     $dbh = null;
 }

@@ -73,6 +73,10 @@ from config.otp_config import generate_otp, OTP_LENGTH, OTP_EXPIRY_SECONDS
 # CONFIGURATION - Load from environment variables
 # ============================================
 BASE_API_URL = os.getenv('BASE_API_URL', 'http://localhost')
+FASTAPI_BASE_URL = os.getenv('API_BASE_URL', 'http://localhost:8000').rstrip('/')
+FASTAPI_ACCESS_KEY = (os.getenv('API_ACCESS_KEY') or '').strip()
+FASTAPI_SECRET_KEY = (os.getenv('API_SECRET_KEY') or '').strip()
+GUEST_SIGNIN_ALLOW_LOCAL_FALLBACK = (os.getenv('GUEST_SIGNIN_ALLOW_LOCAL_FALLBACK', 'true').strip().lower() in ('1', 'true', 'yes', 'on'))
 DB_PATH = os.getenv('DB_PATH')
 DB_HOST = os.getenv('DB_HOST')
 DB_USER = os.getenv('DB_USER', 'sysdba')
@@ -997,86 +1001,241 @@ def bulk_cancel_quotations():
 
 @app.route('/api/create_signin_user', methods=['POST'])
 def create_signin_user():
-    """Forward guest sign-in payload to PHP endpoint for AR_CUSTOMER inserts."""
-    if request.content_type and 'multipart/form-data' in request.content_type:
-        # Handle multipart/form-data
-        data = request.form.to_dict()
-        files = request.files
-        # Apply same processing as JSON
-        data.pop('CUSTOMERCODE', None)
-        if 'COUNTRY' in data:
-            data['COUNTRY'] = _normalize_country_alpha2(data.get('COUNTRY'))
-        try:
-            postcode = (data.get('POSTCODE') or '').strip()
-            city = (data.get('CITY') or '').strip()
-            state = (data.get('STATE') or '').strip()
-            if postcode and (not city or not state):
-                hit = _lookup_postcode(postcode)
-                if hit:
-                    data['CITY'] = hit.get('city') or data.get('CITY') or ''
-                    data['STATE'] = hit.get('state') or data.get('STATE') or ''
-        except Exception as e:
-            print(f"[WARN] Failed to auto-fill CITY/STATE from postcode during sign-in: {e}")
-        validation_error = validate_registration_fields(data)
-        if validation_error:
-            return jsonify({'success': False, 'error': validation_error}), 400
-        php_url = f"{BASE_API_URL}/php/createSignInUser.php"
-        # Send as multipart
-        files_dict = {}
-        for key, file in files.items():
-            if file:
-                files_dict[key] = (file.filename, file.stream, file.mimetype)
-        response = requests.post(php_url, data=data, files=files_dict, timeout=10)
-    else:
-        # Handle JSON
-        data = request.get_json() or {}
+    """Create guest customer via FastAPI /customers endpoint (API path, no direct DB write in Flask)."""
+    data = request.form.to_dict() if (request.content_type and 'multipart/form-data' in request.content_type) else (request.get_json() or {})
+    files = request.files if (request.content_type and 'multipart/form-data' in request.content_type) else {}
 
-        # Customer code is always server-generated for guest sign-in.
-        data.pop('CUSTOMERCODE', None)
+    # Customer code is generated for guest sign-in when not supplied.
+    generated_code = f"G{datetime.now().strftime('%d%H%M%S')}{random.randint(10, 99)}"  # 10 chars total
+    customer_code = ((data.get('CUSTOMERCODE') or '').strip() or generated_code)[:10]
+    data['CUSTOMERCODE'] = customer_code
 
-        # Normalize country to alpha-2 when possible (prevents Firebird truncation on CHAR(2)).
-        if 'COUNTRY' in data:
-            data['COUNTRY'] = _normalize_country_alpha2(data.get('COUNTRY'))
+    # Normalize country to alpha-2 when possible.
+    if 'COUNTRY' in data:
+        data['COUNTRY'] = _normalize_country_alpha2(data.get('COUNTRY'))
 
-        # Ensure CITY/STATE are populated from postcode when possible.
-        # (Frontend auto-fill can be blocked by caching/JS issues; backend must be authoritative.)
-        try:
-            postcode = (data.get('POSTCODE') or '').strip()
-            city = (data.get('CITY') or '').strip()
-            state = (data.get('STATE') or '').strip()
-            if postcode and (not city or not state):
-                hit = _lookup_postcode(postcode)
-                if hit:
-                    data['CITY'] = hit.get('city') or data.get('CITY') or ''
-                    data['STATE'] = hit.get('state') or data.get('STATE') or ''
-        except Exception as e:
-            print(f"[WARN] Failed to auto-fill CITY/STATE from postcode during sign-in: {e}")
+    # Ensure CITY/STATE are populated from postcode when possible.
+    try:
+        postcode = (data.get('POSTCODE') or '').strip()
+        city = (data.get('CITY') or '').strip()
+        state = (data.get('STATE') or '').strip()
+        if postcode and (not city or not state):
+            hit = _lookup_postcode(postcode)
+            if hit:
+                data['CITY'] = hit.get('city') or data.get('CITY') or ''
+                data['STATE'] = hit.get('state') or data.get('STATE') or ''
+    except Exception as e:
+        print(f"[WARN] Failed to auto-fill CITY/STATE from postcode during sign-in: {e}")
 
-        # Server-side validation (secure)
-        validation_error = validate_registration_fields(data)
-        if validation_error:
-            return jsonify({'success': False, 'error': validation_error}), 400
+    validation_error = validate_registration_fields(data)
+    if validation_error:
+        return jsonify({'success': False, 'error': validation_error}), 400
 
-        php_url = f"{BASE_API_URL}/php/createSignInUser.php"
-        response = requests.post(php_url, json=data, timeout=10)
+    attachment_names = []
+    for _key, file in files.items():
+        if file and file.filename:
+            attachment_names.append(file.filename)
+
+    # Map legacy guest form fields (UPPERCASE) to FastAPI customer request schema.
+    customer_payload = {
+        'code': customer_code,
+        'company_name': data.get('COMPANYNAME'),
+        'credit_term': str(data.get('CREDITTERM') or '30'),
+        'area': data.get('AREA') or None,
+        'currency_code': data.get('CURRENCYCODE') or None,
+        'brn': data.get('BRN') or None,
+        'brn2': data.get('BRN2') or None,
+        'tin': data.get('TIN') or None,
+        'sales_tax_no': data.get('SALESTAXNO') or None,
+        'service_tax_no': data.get('SERVICETAXNO') or None,
+        'tax_exempt_no': data.get('TAXEXEMPTNO') or None,
+        'tax_exp_date': data.get('TAXEXPDATE') or None,
+        'udf_email': data.get('UDF_EMAIL') or None,
+        'email': data.get('UDF_EMAIL') or None,
+        'phone': data.get('PHONE1') or None,
+        'attention': data.get('ATTENTION') or None,
+        'address1': data.get('ADDRESS1') or None,
+        'address2': data.get('ADDRESS2') or None,
+        'address3': data.get('ADDRESS3') or None,
+        'address4': data.get('ADDRESS4') or None,
+        'postcode': data.get('POSTCODE') or None,
+        'city': data.get('CITY') or None,
+        'state': data.get('STATE') or None,
+        'country': data.get('COUNTRY') or None,
+        'attachments': ', '.join(attachment_names) if attachment_names else None,
+    }
+
+    api_headers = {'Content-Type': 'application/json'}
+    if FASTAPI_ACCESS_KEY and FASTAPI_SECRET_KEY:
+        api_headers['X-Access-Key'] = FASTAPI_ACCESS_KEY
+        api_headers['X-Secret-Key'] = FASTAPI_SECRET_KEY
+
+    api_url = f"{FASTAPI_BASE_URL}/customers"
+    local_api_url = f"{FASTAPI_BASE_URL}/local/customers"
+
+    # Fallback payload for local API path (direct local Firebird insert behind FastAPI).
+    local_customer_payload = {
+        'code': customer_code,
+        'company_name': data.get('COMPANYNAME'),
+        'credit_term': str(data.get('CREDITTERM') or '30'),
+        'phone1': data.get('PHONE1') or None,
+        'email': data.get('UDF_EMAIL') or None,
+        'address1': data.get('ADDRESS1') or None,
+        'address2': data.get('ADDRESS2') or None,
+        'postcode': data.get('POSTCODE') or None,
+        'city': data.get('CITY') or None,
+        'state': data.get('STATE') or None,
+        'country': data.get('COUNTRY') or None,
+    }
 
     try:
-        response.raise_for_status()
-        result = response.json()
-
-        # After guest registration, send user to login page.
-        if result.get('success'):
-            result['redirect'] = '/login'
-
-        return jsonify(result), response.status_code
-    except requests.exceptions.HTTPError:
-        try:
-            return jsonify(response.json()), response.status_code
-        except Exception:
-            return jsonify({'success': False, 'error': 'PHP endpoint returned an invalid response'}), response.status_code
+        response = requests.post(api_url, json=customer_payload, headers=api_headers, timeout=20)
     except Exception as e:
-        print(f"Error calling createSignInUser.php: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        print(f"Error calling FastAPI /customers: {e}")
+        if not GUEST_SIGNIN_ALLOW_LOCAL_FALLBACK:
+            return jsonify({'success': False, 'error': f'Remote customer API required and unreachable: {str(e)}'}), 502
+        try:
+            local_response = requests.post(local_api_url, json=local_customer_payload, headers=api_headers, timeout=20)
+            local_result = local_response.json()
+            if local_response.status_code < 400 and isinstance(local_result, dict) and local_result.get('success'):
+                local_data = local_result.get('data') or {}
+                return jsonify({
+                    'success': True,
+                    'message': 'Guest user created successfully (local fallback)',
+                    'customerCode': local_data.get('code', customer_code),
+                    'redirect': '/login',
+                    'data': {'customer': local_data, 'source': 'local-fallback'},
+                }), 201
+
+            local_error = (local_result.get('detail') or local_result.get('error')) if isinstance(local_result, dict) else 'local fallback failed'
+            return jsonify({'success': False, 'error': f'Cannot connect to customer API: {str(e)} | local fallback failed: {local_error}'}), 500
+        except Exception as local_exc:
+            return jsonify({'success': False, 'error': f'Cannot connect to customer API: {str(e)} | local fallback failed: {str(local_exc)}'}), 500
+
+    try:
+        result = response.json()
+    except Exception:
+        result = {'error': 'Customer API returned an invalid response'}
+
+    if response.status_code >= 400:
+        detail = result.get('detail') if isinstance(result, dict) else None
+        if isinstance(detail, list):
+            detail = '; '.join(str(item.get('msg', item)) for item in detail)
+        primary_error = detail or (result.get('error') if isinstance(result, dict) else None) or 'Customer API request failed'
+
+        if not GUEST_SIGNIN_ALLOW_LOCAL_FALLBACK:
+            return jsonify({'success': False, 'error': f'Remote customer API required and failed: {primary_error}'}), response.status_code
+
+        # Fallback: if upstream-backed /customers fails, try local FastAPI path.
+        try:
+            local_response = requests.post(local_api_url, json=local_customer_payload, headers=api_headers, timeout=20)
+            local_result = local_response.json()
+        except Exception as local_exc:
+            return jsonify({'success': False, 'error': f'{primary_error} | local fallback failed: {str(local_exc)}'}), response.status_code
+
+        if local_response.status_code >= 400 or not isinstance(local_result, dict) or not local_result.get('success'):
+            local_error = (local_result.get('detail') or local_result.get('error')) if isinstance(local_result, dict) else 'local fallback failed'
+            return jsonify({'success': False, 'error': f'{primary_error} | local fallback failed: {local_error}'}), response.status_code
+
+        local_data = local_result.get('data') or {}
+        return jsonify({
+            'success': True,
+            'message': 'Guest user created successfully (local fallback)',
+            'customerCode': local_data.get('code', customer_code),
+            'redirect': '/login',
+            'data': {'customer': local_data, 'source': 'local-fallback'},
+        }), 201
+
+    # Keep frontend contract backward-compatible.
+    customer_data = ((result.get('data') or {}).get('customer') or {}) if isinstance(result, dict) else {}
+    return jsonify({
+        'success': True,
+        'message': result.get('message', 'Guest user created successfully'),
+        'customerCode': customer_data.get('code', customer_code),
+        'redirect': '/login',
+        'data': {'source': 'remote-api', **(result.get('data') or {})},
+    }), response.status_code
+
+
+@app.route('/api/create_signin_user_minimal', methods=['POST'])
+def create_signin_user_minimal():
+    """Create guest customer with minimal fields only: companyname (code auto-generated)."""
+    data = request.get_json() or {}
+
+    provided_code = str(data.get('code') or data.get('CODE') or '').strip()[:10]
+    company_name = str(
+        data.get('companyname') or data.get('company_name') or data.get('companyName') or data.get('COMPANYNAME') or ''
+    ).strip()
+
+    if not company_name:
+        return jsonify({'success': False, 'error': 'companyname is required'}), 400
+
+    customer_payload = {
+        'company_name': company_name,
+    }
+    if provided_code:
+        customer_payload['code'] = provided_code
+
+    api_headers = {'Content-Type': 'application/json'}
+    if FASTAPI_ACCESS_KEY and FASTAPI_SECRET_KEY:
+        api_headers['X-Access-Key'] = FASTAPI_ACCESS_KEY
+        api_headers['X-Secret-Key'] = FASTAPI_SECRET_KEY
+
+    api_url = f"{FASTAPI_BASE_URL}/customers"
+    try:
+        response = requests.post(api_url, json=customer_payload, headers=api_headers, timeout=20)
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Cannot connect to customer API: {str(e)}'}), 502
+
+    try:
+        result = response.json()
+    except Exception:
+        return jsonify({'success': False, 'error': 'Customer API returned an invalid response'}), 502
+
+    if response.status_code >= 400:
+        detail = result.get('detail') if isinstance(result, dict) else None
+        if isinstance(detail, list):
+            detail = '; '.join(str(item.get('msg', item)) for item in detail)
+        reason = detail or result.get('error') or 'Customer API request failed'
+        return jsonify({'success': False, 'error': str(reason), 'upstream': result}), response.status_code
+
+    customer_data = ((result.get('data') or {}).get('customer') or {}) if isinstance(result, dict) else {}
+    customer_code = customer_data.get('code')
+    return jsonify({
+        'success': True,
+        'message': result.get('message', 'Guest user created successfully'),
+        'customerCode': customer_code,
+        'redirect': '/login',
+        'data': {'source': 'remote-api', **(result.get('data') or {})},
+    }), response.status_code
+
+
+def _fetch_code_list_from_firebird(table_name):
+    """Read CODE values from Firebird master tables used by guest sign-in dropdowns."""
+    allowed_tables = {'AREA', 'CURRENCY'}
+    normalized = (table_name or '').strip().upper()
+    if normalized not in allowed_tables:
+        raise ValueError(f'Unsupported lookup table: {table_name}')
+
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        cur.execute(f'SELECT CODE FROM {normalized} ORDER BY CODE')
+        rows = cur.fetchall() or []
+
+        values = []
+        for row in rows:
+            code = str((row[0] if row else '') or '').strip()
+            if code:
+                values.append(code)
+        return values
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
 
 
 @app.route('/api/get_currency_symbols', methods=['GET'])
@@ -1095,7 +1254,11 @@ def get_currency_symbols():
             return jsonify({'success': False, 'error': 'PHP endpoint returned an invalid response'}), response.status_code
     except Exception as e:
         print(f"Error calling getCurrencySymbols.php: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        try:
+            values = _fetch_code_list_from_firebird('CURRENCY')
+            return jsonify({'success': True, 'data': values, 'source': 'firebird-fallback'}), 200
+        except Exception as fb_error:
+            return jsonify({'success': False, 'error': f'{str(e)} | fallback failed: {str(fb_error)}'}), 500
 
 
 @app.route('/api/get_area_codes', methods=['GET'])
@@ -1114,7 +1277,11 @@ def get_area_codes():
             return jsonify({'success': False, 'error': 'PHP endpoint returned an invalid response'}), response.status_code
     except Exception as e:
         print(f"Error calling getAreaCodes.php: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        try:
+            values = _fetch_code_list_from_firebird('AREA')
+            return jsonify({'success': True, 'data': values, 'source': 'firebird-fallback'}), 200
+        except Exception as fb_error:
+            return jsonify({'success': False, 'error': f'{str(e)} | fallback failed: {str(fb_error)}'}), 500
 
 # ============================================
 # AUTHENTICATION FUNCTIONS
@@ -1132,7 +1299,7 @@ def login():
 
 @app.route('/signInGuest')
 def sign_in_guest():
-    """Show guest sign-in page (front-end only for now)."""
+    """Show minimal guest sign-in page (code + companyname)."""
     countries = []
     try:
         csv_path = os.path.join(os.path.dirname(__file__), 'csv', 'CountryCodeWNames.csv')
@@ -1149,7 +1316,7 @@ def sign_in_guest():
     except Exception as e:
         print(f"[WARN] Failed to load countries CSV for signInGuest: {e}")
 
-    return render_template('signInGuest.html', countries=countries)
+    return render_template('newSignInGuest.html', countries=countries)
 
 
 _POSTCODE_LOOKUP_CACHE = None

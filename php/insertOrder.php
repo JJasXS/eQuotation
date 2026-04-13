@@ -5,7 +5,7 @@ require_once 'db_helper.php';
 header('Content-Type: application/json');
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    echo json_encode(['success' => false, 'error' => 'POST method required']);
+    badRequest('POST method required');
     exit;
 }
 
@@ -13,7 +13,7 @@ $data = json_decode(file_get_contents('php://input'), true);
 $chatid = $data['chatid'] ?? null;
 
 if (!$chatid) {
-    echo json_encode(['success' => false, 'error' => 'chatid required']);
+    badRequest('chatid required');
     exit;
 }
 
@@ -29,7 +29,7 @@ try {
     $ownerRow = $ownerStmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$ownerRow) {
-        throw new Exception('Chat not found');
+        throw new RuntimeException('Chat not found', 404);
     }
 
     $ownerEmail = $ownerRow['OWNEREMAIL'] ?? null;
@@ -42,31 +42,12 @@ try {
     
     if ($existing) {
         $dbh->commit();
-        // Return existing DRAFT order instead of creating duplicate
-        echo json_encode([
-            'success' => true,
-            'orderid' => $existing['ORDERID'],
-            'message' => 'Using existing draft order'
-        ]);
+        jsonResponse(200, true, 'Using existing draft order', ['orderid' => (int)$existing['ORDERID']], null);
         return;
     }
-    
-    // Get next ORDERID - Firebird column names might be case-sensitive
-    $query = 'SELECT MAX(ORDERID) FROM ORDER_TPL';
-    $stmt = $dbh->query($query);
-    $max_id = $stmt->fetchColumn();
-    
-    // Debug: log what we got
-    error_log("Max ORDERID found: " . var_export($max_id, true));
-    
-    // Handle NULL (no rows) or actual max value
-    if ($max_id === null || $max_id === false) {
-        $orderid = 1;
-    } else {
-        $orderid = (int)$max_id + 1;
-    }
-    
-    error_log("Next ORDERID to use: " . $orderid);
+
+    // MAX+1 is unsafe under concurrency; use a sequence so concurrent sessions cannot collide.
+    $orderid = nextAppId($dbh, 'ORDER_ID');
     
     // Insert new order with current timestamp and customer code
     $created_at = date('Y-m-d H:i:s');
@@ -77,18 +58,24 @@ try {
     $stmt->execute([$orderid, $chatid, $ownerEmail, $customerCode, $created_at, 'DRAFT']);
     $dbh->commit();
     
-    echo json_encode([
-        'success' => true,
-        'orderid' => $orderid,
-        'message' => 'Order created successfully'
-    ]);
+    jsonResponse(201, true, 'Order created successfully', ['orderid' => (int)$orderid], null);
+} catch (RuntimeException $e) {
+    if ($dbh instanceof PDO && $dbh->inTransaction()) {
+        $dbh->rollBack();
+    }
+    if ($e->getCode() === 404) {
+        notFound($e->getMessage());
+    } elseif ($e->getCode() === 409) {
+        conflictResponse($e->getMessage());
+    } else {
+        badRequest($e->getMessage());
+    }
 } catch (Exception $e) {
     if ($dbh instanceof PDO && $dbh->inTransaction()) {
         $dbh->rollBack();
     }
-    $error_details = $e->getMessage();
-    error_log("insertOrder.php error: " . $error_details);
-    echo json_encode(['success' => false, 'error' => $error_details]);
+    error_log("insertOrder.php error: " . $e->getMessage());
+    serverError('Failed to create order');
 } finally {
     $dbh = null;
 }

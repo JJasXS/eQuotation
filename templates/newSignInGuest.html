@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>New Guest Sign In</title>
+    <link rel="stylesheet" href="/static/css/signInGuest.css">
+</head>
+<body>
+    <div class="guest-container">
+        <div class="guest-card">
+            <center><h1>New Guest Sign In</h1></center>
+            <p class="subtitle" style="text-align:center;margin-bottom:18px;">Minimal form: companyname only</p>
+
+            <form id="new-guest-signin-form" onsubmit="handleNewGuestSignIn(event)">
+                <div class="form-section">
+                    <div class="section-title">Required Fields</div>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <input type="text" id="companyname" name="companyname" placeholder="companyname" required>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <a href="/login" class="btn-back">Back to Login</a>
+                    <button type="submit" class="btn-submit">Create Customer</button>
+                </div>
+            </form>
+
+            <div id="guest-message" class="guest-message"></div>
+            <pre id="payload-preview" class="payload-preview"></pre>
+        </div>
+    </div>
+
+    <script src="/static/js/newSignInGuest.js"></script>
+</body>
+</html>

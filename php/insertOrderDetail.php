@@ -5,7 +5,7 @@ require_once 'db_helper.php';
 header('Content-Type: application/json');
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    echo json_encode(['success' => false, 'error' => 'POST method required']);
+    badRequest('POST method required');
     exit;
 }
 
@@ -17,7 +17,7 @@ $unitprice = $data['unitprice'] ?? null;
 $discount = $data['discount'] ?? 0;
 
 if (!$orderid || !$description || !$qty || !$unitprice) {
-    echo json_encode(['success' => false, 'error' => 'orderid, description, qty, unitprice required']);
+    badRequest('orderid, description, qty, unitprice required');
     exit;
 }
 
@@ -27,18 +27,18 @@ try {
     $dbh = getFirebirdConnection();
     $dbh->beginTransaction();
     
+    // Verify parent header exists before inserting a child row.
+    $orderStmt = $dbh->prepare('SELECT ORDERID FROM ORDER_TPL WHERE ORDERID = ?');
+    $orderStmt->execute([$orderid]);
+    if (!$orderStmt->fetchColumn()) {
+        throw new RuntimeException('Order not found', 404);
+    }
+
     // Calculate total
     $total = ($qty * $unitprice) - $discount;
-    
-    // Get next ORDERDTLID
-    $stmt = $dbh->prepare('SELECT COALESCE(MAX(ORDERDTLID), 0) + 1 AS nextid FROM ORDER_TPLDTL');
-    $stmt->execute();
-    $result = $stmt->fetch(PDO::FETCH_ASSOC);
-    $orderdtlid = $result['nextid'] ?? $result['NEXTID'] ?? null;
 
-    if ($orderdtlid === null) {
-        throw new Exception('Failed to generate next ORDERDTLID');
-    }
+    // MAX+1 is unsafe under concurrency; use a sequence so concurrent sessions cannot collide.
+    $orderdtlid = nextAppId($dbh, 'ORDER_DETAIL_ID');
     
     // Insert order detail
     $stmt = $dbh->prepare('
@@ -46,19 +46,31 @@ try {
         VALUES (?, ?, ?, ?, ?, ?, ?)
     ');
     $stmt->execute([(int)$orderdtlid, $orderid, $description, $qty, $unitprice, $total, $discount]);
+    if ($stmt->rowCount() === 0) {
+        throw new RuntimeException('No detail row inserted', 409);
+    }
     $dbh->commit();
     
-    echo json_encode([
-        'success' => true,
-        'orderdtlid' => $orderdtlid,
-        'total' => $total,
-        'message' => "Added $qty x $description"
-    ]);
+    jsonResponse(201, true, 'Order detail created', [
+        'orderdtlid' => (int)$orderdtlid,
+        'total' => (float)$total,
+    ], null);
+} catch (RuntimeException $e) {
+    if ($dbh instanceof PDO && $dbh->inTransaction()) {
+        $dbh->rollBack();
+    }
+    if ($e->getCode() === 404) {
+        notFound($e->getMessage());
+    } elseif ($e->getCode() === 409) {
+        conflictResponse($e->getMessage());
+    } else {
+        badRequest($e->getMessage());
+    }
 } catch (Exception $e) {
     if ($dbh instanceof PDO && $dbh->inTransaction()) {
         $dbh->rollBack();
     }
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    serverError('Failed to create order detail');
 } finally {
     $dbh = null;
 }

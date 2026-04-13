@@ -5,7 +5,7 @@ require_once 'db_helper.php';
 header('Content-Type: application/json');
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    echo json_encode(['success' => false, 'error' => 'POST method required']);
+    badRequest('POST method required');
     exit;
 }
 
@@ -13,7 +13,7 @@ $data = json_decode(file_get_contents('php://input'), true);
 $orderid = $data['orderid'] ?? null;
 
 if (!$orderid) {
-    echo json_encode(['success' => false, 'error' => 'orderid required']);
+    badRequest('orderid required');
     exit;
 }
 
@@ -35,8 +35,11 @@ try {
     }
     
     // Update order status from DRAFT to PENDING (submit for approval)
-    $stmt = $dbh->prepare('UPDATE ORDER_TPL SET STATUS = ? WHERE ORDERID = ?');
-    $stmt->execute(['PENDING', $orderid]);
+    $stmt = $dbh->prepare('UPDATE ORDER_TPL SET STATUS = ? WHERE ORDERID = ? AND STATUS = ?');
+    $stmt->execute(['PENDING', $orderid, 'DRAFT']);
+    if ($stmt->rowCount() === 0) {
+        throw new RuntimeException('Order not found or not in DRAFT status', 409);
+    }
     
     // Get order totals
     $stmt = $dbh->prepare('
@@ -49,18 +52,25 @@ try {
 
     $dbh->commit();
     
-    echo json_encode([
-        'success' => true,
-        'orderid' => $orderid,
+    jsonResponse(200, true, "Order #$orderid submitted for approval", [
+        'orderid' => (int)$orderid,
         'status' => 'PENDING',
-        'grandTotal' => $result['total'] - $result['discount'],
-        'message' => "Order #$orderid submitted for approval"
-    ]);
+        'grandTotal' => (float)(($result['total'] ?? 0) - ($result['discount'] ?? 0)),
+    ], null);
+} catch (RuntimeException $e) {
+    if ($dbh instanceof PDO && $dbh->inTransaction()) {
+        $dbh->rollBack();
+    }
+    if ($e->getCode() === 409) {
+        conflictResponse($e->getMessage());
+    } else {
+        badRequest($e->getMessage());
+    }
 } catch (Exception $e) {
     if ($dbh instanceof PDO && $dbh->inTransaction()) {
         $dbh->rollBack();
     }
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    serverError('Failed to complete order');
 } finally {
     $dbh = null;
 }
