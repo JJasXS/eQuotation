@@ -76,6 +76,45 @@
         // Pass user type from backend to JavaScript
         window.currentUserType = "admin";
     </script>
+    <!-- Chart.js library for graphs and charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Example chart canvas (Pie/Doughnut) -->
+    <div style="max-width: 400px; margin: 30px auto;">
+        <canvas id="dashboardChart"></canvas>
+    </div>
+
+    <script>
+    // Example data for pie/doughnut chart
+    const ctx = document.getElementById('dashboardChart').getContext('2d');
+    const dashboardChart = new Chart(ctx, {
+        type: 'doughnut', // Change to 'pie' for pie chart
+        data: {
+            labels: ['Approved', 'Pending', 'Rejected'],
+            datasets: [{
+                data: [12, 7, 3],
+                backgroundColor: [
+                    'rgba(75, 192, 192, 0.7)',
+                    'rgba(255, 205, 86, 0.7)',
+                    'rgba(255, 99, 132, 0.7)'
+                ],
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                },
+                title: {
+                    display: true,
+                    text: 'Order Approval Status'
+                }
+            }
+        }
+    });
+    </script>
     <script src="/static/js/admin_menu.js"></script>
 </body>
 </html>
