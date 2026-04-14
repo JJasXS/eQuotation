@@ -852,11 +852,26 @@ async function loadDraftQuotation(dockey) {
                 container.innerHTML = ''; // Clear default item
                 
                 quotation.items.forEach(item => {
+                    const explicitSource = (item.SOURCE || '').toString().toLowerCase();
+                    const description = (item.DESCRIPTION || '').toString();
+                    const hasCatalogMatch = !description || !availableProducts.length || availableProducts.some(product => {
+                        const candidate = (product.DESCRIPTION || product.CODE || '').toString();
+                        return candidate === description;
+                    });
+                    const source = explicitSource || (hasCatalogMatch ? 'catalog' : 'custom');
+                    const isCustom = source !== 'catalog';
                     const newItem = document.createElement('div');
                     newItem.className = 'order-item';
                     newItem.innerHTML = `
                         <div class="item-row">
-                            <input type="text" class="item-product" placeholder="Product name..." list="product-list" value="${item.DESCRIPTION || ''}" onchange="fetchProductPrice(this)">
+                            <select class="item-source" onchange="onProductSourceChange(this)">
+                                <option value="catalog" ${isCustom ? '' : 'selected'}>From catalog</option>
+                                <option value="custom" ${isCustom ? 'selected' : ''}>Custom order</option>
+                            </select>
+                            <select class="item-product" onchange="fetchProductPrice(this)" style="display:${isCustom ? 'none' : 'inline-block'};">
+                                <option value="">Select product...</option>
+                            </select>
+                            <input type="text" class="item-product-custom" placeholder="Custom product" style="display:${isCustom ? 'inline-block' : 'none'};" value="${isCustom ? (item.DESCRIPTION || '') : ''}" onchange="fetchProductPrice(this)">
                             <input type="number" class="item-qty" placeholder="Qty" min="1" value="${item.QTY || 1}" onchange="calculateQuotationTotal()">
                             <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="${item.DISC || 0}" onchange="calculateQuotationTotal()">
                             <input type="number" class="item-suggested-price" placeholder="Suggested Price" step="0.01" min="0" value="${item.UDF_STDPRICE || 0}" readonly>
@@ -866,6 +881,16 @@ async function loadDraftQuotation(dockey) {
                         </div>
                     `;
                     container.appendChild(newItem);
+
+                    const productSelect = newItem.querySelector('.item-product');
+                    populateProductSelect(productSelect);
+                    if (!isCustom && item.DESCRIPTION) {
+                        const option = document.createElement('option');
+                        option.value = item.DESCRIPTION;
+                        option.textContent = item.DESCRIPTION;
+                        option.selected = true;
+                        productSelect.appendChild(option);
+                    }
                 });
                 
                 calculateQuotationTotal();
@@ -917,11 +942,26 @@ async function loadSlQtDraftForEdit(draftDockey) {
             const container = document.getElementById('quotation-items-list');
             container.innerHTML = '';
             draft.items.forEach(item => {
+                const explicitSource = (item.SOURCE || '').toString().toLowerCase();
+                const description = (item.DESCRIPTION || '').toString();
+                const hasCatalogMatch = !description || !availableProducts.length || availableProducts.some(product => {
+                    const candidate = (product.DESCRIPTION || product.CODE || '').toString();
+                    return candidate === description;
+                });
+                const source = explicitSource || (hasCatalogMatch ? 'catalog' : 'custom');
+                const isCustom = source !== 'catalog';
                 const newItem = document.createElement('div');
                 newItem.className = 'order-item';
                 newItem.innerHTML = `
                     <div class="item-row">
-                        <input type="text" class="item-product" placeholder="Product name..." list="product-list" value="${item.DESCRIPTION || ''}" onchange="fetchProductPrice(this)">
+                        <select class="item-source" onchange="onProductSourceChange(this)">
+                            <option value="catalog" ${isCustom ? '' : 'selected'}>From catalog</option>
+                            <option value="custom" ${isCustom ? 'selected' : ''}>Custom order</option>
+                        </select>
+                        <select class="item-product" onchange="fetchProductPrice(this)" style="display:${isCustom ? 'none' : 'inline-block'};">
+                            <option value="">Select product...</option>
+                        </select>
+                        <input type="text" class="item-product-custom" placeholder="Custom product" style="display:${isCustom ? 'inline-block' : 'none'};" value="${isCustom ? (item.DESCRIPTION || '') : ''}" onchange="fetchProductPrice(this)">
                         <input type="number" class="item-qty" placeholder="Qty" min="1" value="${item.QTY || 1}" onchange="calculateQuotationTotal()">
                         <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="${item.DISC || 0}" onchange="calculateQuotationTotal()">
                         <input type="number" class="item-suggested-price" placeholder="Suggested Price" step="0.01" min="0" value="${item.UDF_STDPRICE || 0}" readonly>
@@ -931,6 +971,16 @@ async function loadSlQtDraftForEdit(draftDockey) {
                     </div>
                 `;
                 container.appendChild(newItem);
+
+                const productSelect = newItem.querySelector('.item-product');
+                populateProductSelect(productSelect);
+                if (!isCustom && item.DESCRIPTION) {
+                    const option = document.createElement('option');
+                    option.value = item.DESCRIPTION;
+                    option.textContent = item.DESCRIPTION;
+                    option.selected = true;
+                    productSelect.appendChild(option);
+                }
             });
             calculateQuotationTotal();
         }

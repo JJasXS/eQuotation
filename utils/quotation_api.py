@@ -236,7 +236,7 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
                 "localamount": _fmt_money(line_amount * currency_rate),
                 "amountwithtax": _fmt_money(line_amount),
                 "printable": True,
-                "transferable": True,
+                "transferable": False,
                 "remark1": "",
                 "remark2": "",
                 "companyitemcode": "",
@@ -313,7 +313,7 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
         "note": "",
         "approvestate": "",
         "updatecount": 0,
-        "transferable": True,
+        "transferable": False,
         "printcount": 0,
         "lastmodified": 0,
         "sdsdocdetail": detail_rows,
@@ -398,27 +398,74 @@ def create_or_update_quotation(base_api_url, customer_code, data):
 
 
 def save_draft_quotation(base_api_url, customer_code, data):
-    """Save a quotation draft via PHP endpoint.
+    """Save a quotation draft directly to Firebird DB (no PHP)."""
+    from utils import get_db_connection
+    import traceback
+    dockey = data.get('dockey')
+    description = (data.get('description', '') or '').strip() or 'Draft Quotation'
+    valid_until = data.get('validUntil', '')
+    currency_code = data.get('currencyCode', 'MYR')
+    docno_input = str(data.get('docno') or data.get('docNo') or '').strip()
+    shipper = str(data.get('shipper') or '----').strip() or '----'
+    company_name = data.get('companyName', '')
+    address1 = data.get('address1', '')
+    address2 = data.get('address2', '')
+    phone1 = data.get('phone1', '')
+    items = data.get('items', [])
+    docdate = datetime.now().date()
+    terms = str(data.get('terms') or data.get('creditTerm') or '30 Days').strip() or '30 Days'
+    total_doc_amt = sum(float(item.get('qty', 0)) * float(item.get('price', 0)) for item in items)
 
-    Returns a dict from the PHP JSON body, or ``{'success': False, 'error': ...}``
-    if the response is empty or not valid JSON.
-    """
-    payload = {
-        "dockey": data.get('dockey'),
-        "customerCode": customer_code,
-        "description": (data.get('description', '') or '').strip() or 'Draft Quotation',
-        "validUntil": data.get('validUntil', ''),
-        "currencyCode": data.get('currencyCode', 'MYR'),
-        "companyName": data.get('companyName', ''),
-        "address1": data.get('address1', ''),
-        "address2": data.get('address2', ''),
-        "phone1": data.get('phone1', ''),
-        "items": data.get('items', []),
-    }
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        # Insert or update draft header
+        if dockey:
+            # Update existing draft
+            cur.execute("""
+                UPDATE SL_QTDRAFT SET DESCRIPTION=?, VALIDITY=?, TERMS=?, DOCAMT=?, COMPANYNAME=?, ADDRESS1=?, ADDRESS2=?, PHONE1=?, CURRENCYCODE=?, DOCDATE=?
+                WHERE DOCKEY=? AND CODE=?
+            """, (description, valid_until, terms, total_doc_amt, company_name, address1, address2, phone1, currency_code, docdate, dockey, customer_code))
+        else:
+            # Get next DOCKEY from generator/sequence (fallback to MAX+1 if generator is unavailable)
+            try:
+                cur.execute("SELECT GEN_ID(GEN_SL_QTDRAFT_ID, 1) FROM RDB$DATABASE")
+                dockey = cur.fetchone()[0]
+            except Exception:
+                cur.execute("SELECT COALESCE(MAX(DOCKEY), 0) + 1 FROM SL_QTDRAFT")
+                dockey = cur.fetchone()[0]
 
-    response = requests.post(
-        f"{base_api_url}/php/saveDraftQuotation.php",
-        json=payload,
-        timeout=10,
-    )
-    return _decode_php_json_response(response, "saveDraftQuotation.php")
+            docno = docno_input or f"DRAFT-{int(dockey):05d}"
+            cur.execute("""
+                INSERT INTO SL_QTDRAFT (DOCKEY, DOCNO, CODE, DESCRIPTION, VALIDITY, TERMS, DOCAMT, SHIPPER, COMPANYNAME, ADDRESS1, ADDRESS2, PHONE1, CURRENCYCODE, DOCDATE)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (dockey, docno, customer_code, description, valid_until, terms, total_doc_amt, shipper, company_name, address1, address2, phone1, currency_code, docdate))
+
+        # Remove old draft items
+        cur.execute("DELETE FROM SL_QTDTLDRAFT WHERE DOCKEY=?", (dockey,))
+        # Insert draft items
+        for idx, item in enumerate(items, start=1):
+            qty = float(item.get('qty', 0))
+            price = float(item.get('price', 0))
+            discount = float(item.get('discount', 0))
+            product_desc = str(item.get('product', '')).strip()
+            if not product_desc:
+                continue
+            try:
+                cur.execute("SELECT GEN_ID(GEN_SL_QTDTLDRAFT_ID, 1) FROM RDB$DATABASE")
+                dtlkey = cur.fetchone()[0]
+            except Exception:
+                cur.execute("SELECT COALESCE(MAX(DTLKEY), 0) + 1 FROM SL_QTDTLDRAFT")
+                dtlkey = cur.fetchone()[0]
+            cur.execute("""
+                INSERT INTO SL_QTDTLDRAFT (DTLKEY, DOCKEY, SEQ, DESCRIPTION, QTY, UNITPRICE, DISC)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (dtlkey, dockey, idx, product_desc, qty, price, str(discount)))
+
+        con.commit()
+        cur.close()
+        con.close()
+        return {"success": True, "dockey": dockey, "docno": None, "message": "Draft saved"}
+    except Exception as e:
+        traceback.print_exc()
+        return {"success": False, "error": str(e)}

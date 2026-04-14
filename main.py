@@ -3052,6 +3052,7 @@ def api_create_quotation():
     customer_code = session.get('customer_code')
     data = request.get_json() or {}
     dockey = data.get('dockey', None)  # If present, update existing quotation
+    draft_dockey = data.get('draftDockey', None)
     items = data.get('items', [])
     company_name = data.get('companyName', '')
     
@@ -3072,6 +3073,19 @@ def api_create_quotation():
         
         if not quotation_data.get('success'):
             return jsonify({'success': False, 'error': quotation_data.get('error', 'Failed to create quotation')}), 500
+
+        if draft_dockey:
+            try:
+                con = get_db_connection()
+                cur = con.cursor()
+                cur.execute('DELETE FROM SL_QTDTLDRAFT WHERE DOCKEY = ?', (draft_dockey,))
+                cur.execute('DELETE FROM SL_QTDRAFT WHERE DOCKEY = ? AND CODE = ?', (draft_dockey, customer_code))
+                con.commit()
+                cur.close()
+                con.close()
+                print(f"DEBUG [Flask api_create_quotation]: Deleted draft DOCKEY={draft_dockey} after successful submission", flush=True)
+            except Exception as cleanup_error:
+                print(f"WARNING [Flask api_create_quotation]: Failed to delete draft DOCKEY={draft_dockey}: {cleanup_error}", flush=True)
         
         return jsonify({
             'success': True, 

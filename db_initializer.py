@@ -898,6 +898,20 @@ def _seed_pricing_priority_rules(conn):
 
 def _ensure_sl_qt_draft_tables(conn):
     """Ensure draft quotation header/detail tables exist for pre-submission storage."""
+    # Ensure generators for draft header/detail keys exist.
+    _execute_ddl(
+        conn,
+        'CREATE GENERATOR GEN_SL_QTDRAFT_ID',
+        success_message='[DB INIT] GEN_SL_QTDRAFT_ID generator created.',
+        ignore_if_contains=['already exists', 'name in use']
+    )
+
+    _execute_ddl(
+        conn,
+        'CREATE GENERATOR GEN_SL_QTDTLDRAFT_ID',
+        success_message='[DB INIT] GEN_SL_QTDTLDRAFT_ID generator created.',
+        ignore_if_contains=['already exists', 'name in use']
+    )
     _execute_ddl(
         conn,
         """
