@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="/static/css/hamburger_menu.css">
     <link rel="stylesheet" href="/static/css/orderQuotation.css">
 </head>
-<body>
+<body data-php-base-url="{{ php_base_url }}">
     <div class="container">
         <div class="main-content">
             <div class="header">
@@ -183,6 +183,25 @@
             }
             // Load customer information from database
             loadUserInfo();
+
+            // Show chat popup with welcome message for 1 second after login
+            if (window.location.pathname.includes('create-quotation')) {
+                setTimeout(function() {
+                    var chatPopup = document.getElementById('chat-popup');
+                    if (chatPopup) {
+                        chatPopup.classList.remove('hidden');
+                        // Optionally scroll to bottom if needed
+                        var messages = document.getElementById('chat-popup-messages');
+                        if (messages) messages.scrollTop = messages.scrollHeight;
+                    }
+                }, 200); // slight delay to ensure DOM is ready
+                setTimeout(function() {
+                    var chatPopup = document.getElementById('chat-popup');
+                    if (chatPopup) {
+                        chatPopup.classList.add('hidden');
+                    }
+                }, 1200); // show for 1 second
+            }
         });
     </script>
 </body>

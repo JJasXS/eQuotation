@@ -12,6 +12,7 @@ import random
 import string
 from difflib import SequenceMatcher
 import traceback
+from urllib.parse import quote
 
 import fdb
 import openai
@@ -73,7 +74,7 @@ from config.otp_config import generate_otp, OTP_LENGTH, OTP_EXPIRY_SECONDS
 # ============================================
 # CONFIGURATION - Load from environment variables
 # ============================================
-BASE_API_URL = os.getenv('BASE_API_URL', 'http://localhost')
+BASE_API_URL = os.getenv('BASE_API_URL', 'http://localhost:8080').rstrip('/')
 FASTAPI_BASE_URL = os.getenv('API_BASE_URL', 'http://localhost:8000').rstrip('/')
 FASTAPI_ACCESS_KEY = (os.getenv('API_ACCESS_KEY') or '').strip()
 FASTAPI_SECRET_KEY = (os.getenv('API_SECRET_KEY') or '').strip()
@@ -1965,6 +1966,7 @@ def create_quotation_page():
         admin_redirect='/admin',
         dockey=dockey,
         draft_dockey=draft_dockey,
+        php_base_url=BASE_API_URL,
     )
 
 
@@ -2747,11 +2749,63 @@ def check_user_has_draft():
 @api_login_required(unauth_message='Unauthorized')
 def api_get_stock_items():
     """Get stock items for autocomplete in order/quotation forms"""
+    con = None
+    cur = None
     try:
-        stockitems = fetch_data_from_api("stockitem")
-        return jsonify({'success': True, 'items': stockitems})
+        con = get_db_connection()
+        cur = con.cursor()
+
+        wanted_columns = [
+            'CODE',
+            'DESCRIPTION',
+            'STOCKGROUP',
+            'REMARK1',
+            'REMARK2',
+            'UDF_STDPRICE',
+            'UDF_MOQ',
+            'UDF_DLEADTIME',
+            'UDF_BUNDLE',
+        ]
+
+        cur.execute(
+            """
+            SELECT TRIM(RF.RDB$FIELD_NAME)
+            FROM RDB$RELATION_FIELDS RF
+            WHERE RF.RDB$RELATION_NAME = 'ST_ITEM'
+            """
+        )
+        existing_columns = {str(row[0]).strip() for row in cur.fetchall() if row and row[0]}
+        selected_columns = [col for col in wanted_columns if col in existing_columns]
+
+        if not selected_columns:
+            return jsonify({'success': False, 'error': 'No expected columns found in ST_ITEM', 'items': []}), 500
+
+        sql = f"SELECT {', '.join(selected_columns)} FROM ST_ITEM"
+        cur.execute(sql)
+        rows = cur.fetchall() or []
+
+        items = []
+        for row in rows:
+            item = {}
+            for idx, col in enumerate(selected_columns):
+                val = row[idx]
+                item[col] = str(val).strip() if isinstance(val, str) else val
+            items.append(item)
+
+        return jsonify({'success': True, 'items': items})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if con:
+                con.close()
+        except Exception:
+            pass
 
 @app.route('/api/get_product_price')
 @api_login_required(unauth_message='Unauthorized')
@@ -2787,11 +2841,17 @@ def api_get_product_price():
     def build_price_response(price_item, match_type):
         fallback_price = float(price_item.get('STOCKVALUE', 0) or 0)
         item_code = (price_item.get('CODE') or '').strip()
+        local_st_item_price = price_item.get('UDF_STDPRICE', None)
         no_match_message = None
 
-        # Fetch ST_ITEM.UDF_STDPRICE for Suggested Price field
+        # Fetch ST_ITEM.UDF_STDPRICE for Suggested Price field when not provided.
         st_item_udf_stdprice = None
-        if item_code:
+        if local_st_item_price is not None:
+            try:
+                st_item_udf_stdprice = float(local_st_item_price)
+            except Exception:
+                st_item_udf_stdprice = None
+        elif item_code:
             con = None
             cur = None
             try:
@@ -2832,6 +2892,9 @@ def api_get_product_price():
                 print(f"[PRICING WARNING] Falling back to stock price for {item_code}: {pricing_error}", flush=True)
                 no_match_message = f'Pricing rule evaluation failed: {pricing_error}'
 
+        if st_item_udf_stdprice is not None and st_item_udf_stdprice > 0:
+            fallback_price = st_item_udf_stdprice
+
         return jsonify({
             'success': True,
             'price': fallback_price,
@@ -2848,6 +2911,76 @@ def api_get_product_price():
         })
 
     try:
+        # First preference: resolve directly from ST_ITEM (dropdown source) and use UDF_STDPRICE.
+        con = None
+        cur = None
+        try:
+            con = get_db_connection()
+            cur = con.cursor()
+
+            cur.execute(
+                '''
+                SELECT FIRST 1 CODE, DESCRIPTION, UDF_STDPRICE
+                FROM ST_ITEM
+                WHERE UPPER(TRIM(DESCRIPTION)) = UPPER(?)
+                ''',
+                (description,)
+            )
+            row = cur.fetchone()
+
+            if not row and len(description) <= 30:
+                cur.execute(
+                    '''
+                    SELECT FIRST 1 CODE, DESCRIPTION, UDF_STDPRICE
+                    FROM ST_ITEM
+                    WHERE UPPER(TRIM(CODE)) = UPPER(?)
+                    ''',
+                    (description,)
+                )
+                row = cur.fetchone()
+
+            if row:
+                local_item = {
+                    'CODE': (row[0] or '').strip() if row[0] else '',
+                    'DESCRIPTION': (row[1] or '').strip() if row[1] else '',
+                    'UDF_STDPRICE': row[2],
+                    'STOCKVALUE': row[2] if row[2] is not None else 0,
+                }
+                return build_price_response(local_item, 'st_item_exact')
+
+            # Fuzzy fallback against ST_ITEM descriptions.
+            cur.execute('SELECT CODE, DESCRIPTION, UDF_STDPRICE FROM ST_ITEM')
+            st_rows = cur.fetchall() or []
+            from difflib import SequenceMatcher
+            best_row = None
+            best_ratio = 0.0
+            lowered_description = description.lower()
+            for st_row in st_rows:
+                st_desc = (st_row[1] or '').strip() if st_row and len(st_row) > 1 and st_row[1] else ''
+                if not st_desc:
+                    continue
+                ratio = SequenceMatcher(None, lowered_description, st_desc.lower()).ratio()
+                if ratio > best_ratio:
+                    best_ratio = ratio
+                    best_row = st_row
+
+            if best_row and best_ratio >= 0.85:
+                local_item = {
+                    'CODE': (best_row[0] or '').strip() if best_row[0] else '',
+                    'DESCRIPTION': (best_row[1] or '').strip() if best_row[1] else '',
+                    'UDF_STDPRICE': best_row[2],
+                    'STOCKVALUE': best_row[2] if best_row[2] is not None else 0,
+                }
+                return build_price_response(local_item, 'st_item_fuzzy')
+        except Exception as st_item_lookup_error:
+            print(f"[PRICING WARNING] ST_ITEM lookup failed for '{description}': {st_item_lookup_error}", flush=True)
+        finally:
+            if cur:
+                cur.close()
+            if con:
+                con.close()
+
+        # Legacy fallback path: stockitemprice API.
         stock_prices = fetch_data_from_api("stockitemprice")
 
         for price_item in stock_prices:
@@ -3147,42 +3280,220 @@ def api_get_quotation_details():
         return jsonify({'success': False, 'error': 'dockey parameter required'}), 400
 
     try:
-        response = requests.get(
-            f"{BASE_API_URL}/php/getQuotationDetails.php",
-            params={'dockey': dockey},
-            timeout=10
-        )
-        return jsonify(response.json())
+        dockey_int = int(dockey)
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'error': 'Invalid dockey parameter'}), 400
+
+    requested_customer_code = (request.args.get('customer_code') or '').strip()
+    session_customer_code = (session.get('customer_code') or '').strip()
+    user_type = (session.get('user_type') or '').strip().lower()
+    customer_code = requested_customer_code or session_customer_code
+
+    def _safe_float(value, default=0.0):
+        if value is None:
+            return default
+        if isinstance(value, (int, float)):
+            return float(value)
+        text = str(value).strip().replace(',', '')
+        if not text:
+            return default
+        try:
+            return float(text)
+        except Exception:
+            return default
+
+    try:
+        con = None
+        cur = None
+        try:
+            con = get_db_connection()
+            cur = con.cursor()
+
+            if not customer_code and user_type == 'admin':
+                cur.execute(
+                    '''
+                    SELECT CODE
+                    FROM SL_QT
+                    WHERE DOCKEY = ?
+                    ''',
+                    (dockey_int,)
+                )
+                admin_row = cur.fetchone()
+                if not admin_row or not admin_row[0]:
+                    return jsonify({'success': False, 'error': 'Quotation not found'}), 404
+                customer_code = str(admin_row[0]).strip()
+
+            if not customer_code:
+                return jsonify({'success': False, 'error': 'Customer code not found in session'}), 400
+
+            cur.execute(
+                '''
+                SELECT DOCKEY, DOCNO, DOCDATE, CODE, DESCRIPTION, DOCAMT,
+                       CURRENCYCODE, VALIDITY, STATUS, TERMS,
+                       COMPANYNAME, ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, PHONE1
+                FROM SL_QT
+                WHERE DOCKEY = ? AND CODE = ?
+                ''',
+                (dockey_int, customer_code)
+            )
+            header = cur.fetchone()
+
+            if not header:
+                return jsonify({'success': False, 'error': 'Quotation not found'}), 404
+
+            cur.execute(
+                '''
+                SELECT TRIM(RF.RDB$FIELD_NAME)
+                FROM RDB$RELATION_FIELDS RF
+                WHERE RF.RDB$RELATION_NAME = 'SL_QTDTL'
+                '''
+            )
+            dtl_columns = {str(r[0]).strip() for r in (cur.fetchall() or []) if r and r[0]}
+
+            item_fields = ['DTLKEY', 'DOCKEY', 'SEQ', 'ITEMCODE', 'DESCRIPTION', 'QTY', 'UNITPRICE', 'DISC', 'AMOUNT']
+            if 'UDF_STDPRICE' in dtl_columns:
+                item_fields.append('UDF_STDPRICE')
+            if 'DELIVERYDATE' in dtl_columns:
+                item_fields.append('DELIVERYDATE')
+
+            cur.execute(
+                f"SELECT {', '.join(item_fields)} FROM SL_QTDTL WHERE DOCKEY = ? ORDER BY SEQ ASC",
+                (dockey_int,)
+            )
+            item_rows = cur.fetchall() or []
+
+            items = []
+            for row in item_rows:
+                row_map = {item_fields[idx]: row[idx] for idx in range(len(item_fields))}
+                items.append({
+                    'DTLKEY': int(row_map.get('DTLKEY')) if row_map.get('DTLKEY') is not None else None,
+                    'SEQ': int(row_map.get('SEQ')) if row_map.get('SEQ') is not None else 0,
+                    'ITEMCODE': row_map.get('ITEMCODE'),
+                    'DESCRIPTION': row_map.get('DESCRIPTION'),
+                    'QTY': _safe_float(row_map.get('QTY')),
+                    'UNITPRICE': _safe_float(row_map.get('UNITPRICE')),
+                    'DISC': _safe_float(row_map.get('DISC')),
+                    'AMOUNT': _safe_float(row_map.get('AMOUNT')),
+                    'UDF_STDPRICE': _safe_float(row_map.get('UDF_STDPRICE')),
+                    'DELIVERYDATE': str(row_map.get('DELIVERYDATE')) if row_map.get('DELIVERYDATE') is not None else None,
+                })
+
+            data = {
+                'DOCKEY': int(header[0]) if header[0] is not None else None,
+                'DOCNO': header[1],
+                'DOCDATE': str(header[2]) if header[2] is not None else None,
+                'CODE': header[3],
+                'DESCRIPTION': header[4],
+                'DOCAMT': _safe_float(header[5]),
+                'CURRENCYCODE': header[6],
+                'VALIDITY': str(header[7]) if header[7] is not None else None,
+                'STATUS': str(header[8]) if header[8] is not None else '',
+                'TERMS': header[9],
+                'CREDITTERM': str(header[9]) if header[9] is not None else 'N/A',
+                'COMPANYNAME': header[10] or 'N/A',
+                'ADDRESS1': header[11] or 'N/A',
+                'ADDRESS2': header[12] or 'N/A',
+                'ADDRESS3': header[13] or '',
+                'ADDRESS4': header[14] or '',
+                'PHONE1': header[15] or 'N/A',
+                'items': items,
+            }
+
+            return jsonify({'success': True, 'data': data})
+        finally:
+            if cur:
+                cur.close()
+            if con:
+                con.close()
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        import logging
+        logging.exception("Error in get_quotation_details")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'dockey': dockey,
+            'customer_code': customer_code,
+            'session': dict(session)
+        }), 500
 
 @app.route('/api/admin/get_all_quotations')
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_get_all_quotations():
-    """Get all quotations for admin view with optional status filter."""
-    cancelled = request.args.get('cancelled')  # 'true' or 'false'
-    print(f"[GET ALL QUOTATIONS] cancelled param = {cancelled}", flush=True)
+    """Get all quotations for admin view with optional cancelled filter."""
+    cancelled = request.args.get('cancelled')
+
+    def _safe_float(value, default=0.0):
+        if value is None:
+            return default
+        if isinstance(value, (int, float)):
+            return float(value)
+        text = str(value).strip().replace(',', '')
+        if not text:
+            return default
+        try:
+            return float(text)
+        except Exception:
+            return default
+
+    def _to_bool_or_none(value):
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return int(value) != 0
+        return str(value).strip().lower() in ('1', 'true', 't', 'yes', 'y')
 
     try:
-        php_url = f"{BASE_API_URL}{ENDPOINT_PATHS['getallquotations']}"
-        params = {}
+        con = None
+        cur = None
+        try:
+            con = get_db_connection()
+            cur = con.cursor()
+            cur.execute(
+                '''
+                SELECT DOCKEY, DOCNO, DOCDATE, CODE, DESCRIPTION, DOCAMT,
+                       VALIDITY, STATUS, TERMS, CANCELLED, UPDATECOUNT, COMPANYNAME
+                FROM SL_QT
+                ORDER BY DOCDATE DESC, DOCKEY DESC
+                '''
+            )
+            rows = cur.fetchall() or []
+        finally:
+            if cur:
+                cur.close()
+            if con:
+                con.close()
+
+        quotations = []
+        for row in rows:
+            status_int = row[7] if row[7] is not None else 0
+            status_str = 'COMPLETED' if status_int == 1 else 'DRAFT'
+            cancelled_value = _to_bool_or_none(row[9])
+            updatecount_value = int(row[10]) if row[10] is not None else None
+
+            quotations.append({
+                'DOCKEY': int(row[0]) if row[0] is not None else None,
+                'DOCNO': row[1],
+                'DOCDATE': str(row[2]) if row[2] is not None else None,
+                'CODE': row[3] or '',
+                'DESCRIPTION': row[4],
+                'DOCAMT': _safe_float(row[5]),
+                'VALIDITY': str(row[6]) if row[6] is not None else None,
+                'STATUS': status_str,
+                'CREDITTERM': str(row[8]) if row[8] is not None else 'N/A',
+                'CANCELLED': cancelled_value,
+                'UPDATECOUNT': updatecount_value,
+                'COMPANYNAME': row[11] or 'N/A',
+            })
+
         if cancelled is not None:
-            params['cancelled'] = cancelled
-            print(f"[GET ALL QUOTATIONS] Calling PHP with filter: cancelled={cancelled}", flush=True)
-        else:
-            print(f"[GET ALL QUOTATIONS] Calling PHP with no filter", flush=True)
-        
-        print(f"[GET ALL QUOTATIONS] URL: {php_url}", flush=True)
-        response = requests.get(php_url, params=params, timeout=10)
-        
-        print(f"[GET ALL QUOTATIONS] Response status: {response.status_code}", flush=True)
-        print(f"[GET ALL QUOTATIONS] Response text: {response.text[:200]}", flush=True)
-        
-        result = response.json()
-        print(f"[GET ALL QUOTATIONS] PHP returned {result.get('count', 0)} quotations", flush=True)
-        return jsonify(result)
+            cancelled_norm = str(cancelled).strip().lower() in ('1', 'true', 't', 'yes', 'y')
+            quotations = [q for q in quotations if q.get('CANCELLED') is cancelled_norm]
+
+        return jsonify({'success': True, 'count': len(quotations), 'data': quotations})
     except Exception as e:
-        print(f"[GET ALL QUOTATIONS] Error: {e}", flush=True)
+        print(f"[GET ALL QUOTATIONS] DB error: {e}", flush=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -3194,24 +3505,105 @@ def api_admin_get_quotation_detail():
     if not dockey:
         return jsonify({'success': False, 'error': 'dockey parameter required'}), 400
 
+    def _safe_float(value, default=0.0):
+        if value is None:
+            return default
+        if isinstance(value, (int, float)):
+            return float(value)
+        text = str(value).strip().replace(',', '')
+        if not text:
+            return default
+        try:
+            return float(text)
+        except Exception:
+            return default
+
     try:
-        response = requests.get(
-            f"{BASE_API_URL}/php/getQuotationDetails.php",
-            params={'dockey': dockey},
-            timeout=10
-        )
-        result = response.json()
-        
-        # PHP returns: { success: true, data: { DOCKEY, DOCNO, items: [...] } }
-        if result.get('success'):
-            data = result.get('data', {})
-            return jsonify({
-                'success': True,
-                'quotation': data,  # Contains DOCKEY, DOCNO, DOCDATE, CODE, COMPANYNAME, ADDRESS1, ADDRESS2, PHONE1, VALIDITY, TERMS, CREDITTERM
-                'items': data.get('items', [])  # Array of items with DESCRIPTION, QTY, UNITPRICE
-            })
-        else:
-            return jsonify({'success': False, 'error': result.get('error', 'Unknown error')}), 400
+        con = None
+        cur = None
+        try:
+            con = get_db_connection()
+            cur = con.cursor()
+
+            cur.execute(
+                '''
+                SELECT DOCKEY, DOCNO, DOCDATE, CODE, DESCRIPTION, DOCAMT,
+                       CURRENCYCODE, VALIDITY, STATUS, TERMS,
+                       COMPANYNAME, ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, PHONE1
+                FROM SL_QT
+                WHERE DOCKEY = ?
+                ''',
+                (int(dockey),)
+            )
+            header = cur.fetchone()
+
+            if not header:
+                return jsonify({'success': False, 'error': 'Quotation not found'}), 404
+
+            cur.execute(
+                '''
+                SELECT TRIM(RF.RDB$FIELD_NAME)
+                FROM RDB$RELATION_FIELDS RF
+                WHERE RF.RDB$RELATION_NAME = 'SL_QTDTL'
+                '''
+            )
+            dtl_columns = {str(r[0]).strip() for r in (cur.fetchall() or []) if r and r[0]}
+
+            item_fields = ['DTLKEY', 'DOCKEY', 'SEQ', 'ITEMCODE', 'DESCRIPTION', 'QTY', 'UNITPRICE', 'DISC', 'AMOUNT']
+            if 'UDF_STDPRICE' in dtl_columns:
+                item_fields.append('UDF_STDPRICE')
+            if 'DELIVERYDATE' in dtl_columns:
+                item_fields.append('DELIVERYDATE')
+
+            cur.execute(
+                f"SELECT {', '.join(item_fields)} FROM SL_QTDTL WHERE DOCKEY = ? ORDER BY SEQ ASC",
+                (int(dockey),)
+            )
+            item_rows = cur.fetchall() or []
+
+            items = []
+            for row in item_rows:
+                row_map = {item_fields[idx]: row[idx] for idx in range(len(item_fields))}
+                items.append({
+                    'DTLKEY': int(row_map.get('DTLKEY')) if row_map.get('DTLKEY') is not None else None,
+                    'SEQ': int(row_map.get('SEQ')) if row_map.get('SEQ') is not None else 0,
+                    'ITEMCODE': row_map.get('ITEMCODE'),
+                    'DESCRIPTION': row_map.get('DESCRIPTION'),
+                    'QTY': _safe_float(row_map.get('QTY')),
+                    'UNITPRICE': _safe_float(row_map.get('UNITPRICE')),
+                    'DISC': _safe_float(row_map.get('DISC')),
+                    'AMOUNT': _safe_float(row_map.get('AMOUNT')),
+                    'UDF_STDPRICE': _safe_float(row_map.get('UDF_STDPRICE')),
+                    'DELIVERYDATE': str(row_map.get('DELIVERYDATE')) if row_map.get('DELIVERYDATE') is not None else None,
+                })
+
+            quotation = {
+                'DOCKEY': int(header[0]) if header[0] is not None else None,
+                'DOCNO': header[1],
+                'DOCDATE': str(header[2]) if header[2] is not None else None,
+                'CODE': header[3],
+                'DESCRIPTION': header[4],
+                'DOCAMT': _safe_float(header[5]),
+                'CURRENCYCODE': header[6],
+                'VALIDITY': str(header[7]) if header[7] is not None else None,
+                'STATUS': str(header[8]) if header[8] is not None else '',
+                'TERMS': header[9],
+                'CREDITTERM': str(header[9]) if header[9] is not None else 'N/A',
+                'COMPANYNAME': header[10] or 'N/A',
+                'ADDRESS1': header[11] or 'N/A',
+                'ADDRESS2': header[12] or 'N/A',
+                'ADDRESS3': header[13] or '',
+                'ADDRESS4': header[14] or '',
+                'PHONE1': header[15] or 'N/A',
+                'items': items,
+            }
+
+            return jsonify({'success': True, 'quotation': quotation, 'items': items})
+        finally:
+            if cur:
+                cur.close()
+            if con:
+                con.close()
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -3437,13 +3829,319 @@ def api_get_user_info():
         print("[DEBUG] get_user_info: customer_code not in session", flush=True)
         return jsonify({'success': False, 'error': 'Customer code not found'}), 400
 
+    def _normalize_customer_info(payload):
+        if isinstance(payload, list) and payload:
+            first = payload[0]
+            if isinstance(first, dict):
+                payload = first
+        if not isinstance(payload, dict):
+            return None
+
+        source = payload
+        if isinstance(payload.get('data'), dict):
+            source = payload.get('data')
+        elif isinstance(payload.get('data'), list) and payload.get('data'):
+            first = payload.get('data')[0]
+            if isinstance(first, dict):
+                source = first
+        elif isinstance(payload.get('result'), dict):
+            source = payload.get('result')
+        elif isinstance(payload.get('customer'), dict):
+            source = payload.get('customer')
+
+        if not isinstance(source, dict):
+            return None
+
+        address_obj = source.get('address') if isinstance(source.get('address'), dict) else None
+        first_address = None
+        if isinstance(source.get('addresses'), list) and source.get('addresses'):
+            candidate = source.get('addresses')[0]
+            if isinstance(candidate, dict):
+                first_address = candidate
+
+        def normalize_key(key):
+            return ''.join(ch.lower() for ch in str(key) if ch.isalnum())
+
+        def build_normalized_map(obj):
+            if not isinstance(obj, dict):
+                return {}
+            normalized = {}
+            for k, v in obj.items():
+                normalized[normalize_key(k)] = v
+            return normalized
+
+        source_map = build_normalized_map(source)
+        address_map = build_normalized_map(address_obj)
+        first_address_map = build_normalized_map(first_address)
+
+        def pick_from(obj, obj_map, *keys, default=''):
+            if not isinstance(obj, dict):
+                return default
+            for key in keys:
+                value = obj.get(key)
+                if value is None:
+                    value = obj_map.get(normalize_key(key))
+                if value is None:
+                    continue
+                value_str = str(value).strip()
+                if value_str:
+                    return value_str
+            return default
+
+        def pick(*keys, default=''):
+            value = pick_from(source, source_map, *keys, default='')
+            if value:
+                return value
+            value = pick_from(address_obj, address_map, *keys, default='')
+            if value:
+                return value
+            return pick_from(first_address, first_address_map, *keys, default=default)
+
+        return {
+            'CODE': pick('CODE', 'code', default=customer_code),
+            'COMPANYNAME': pick('COMPANYNAME', 'companyName', 'companyname', default='N/A'),
+            'CREDITTERM': pick('CREDITTERM', 'creditTerm', 'creditterm', default='N/A'),
+            'ADDRESS1': pick('ADDRESS1', 'address1', 'addr1', 'line1', 'street1', default='N/A'),
+            'ADDRESS2': pick('ADDRESS2', 'address2', 'addr2', 'line2', 'street2', default='N/A'),
+            'ADDRESS3': pick('ADDRESS3', 'address3', 'addr3', 'line3', 'city', default=''),
+            'ADDRESS4': pick('ADDRESS4', 'address4', 'addr4', 'line4', 'state', 'country', default=''),
+            'PHONE1': pick('PHONE1', 'phone', 'phone1', 'tel', 'telephone', default='N/A'),
+        }
+
+    def _has_meaningful_customer_data(info):
+        if not isinstance(info, dict):
+            return False
+        company = str(info.get('COMPANYNAME', '')).strip().upper()
+        addr1 = str(info.get('ADDRESS1', '')).strip().upper()
+        phone1 = str(info.get('PHONE1', '')).strip().upper()
+        return any([
+            company not in ('', 'N/A'),
+            addr1 not in ('', 'N/A'),
+            phone1 not in ('', 'N/A'),
+        ])
+
+    def _has_meaningful_address_or_phone(info):
+        if not isinstance(info, dict):
+            return False
+        addr1 = str(info.get('ADDRESS1', '')).strip().upper()
+        addr2 = str(info.get('ADDRESS2', '')).strip().upper()
+        addr3 = str(info.get('ADDRESS3', '')).strip().upper()
+        addr4 = str(info.get('ADDRESS4', '')).strip().upper()
+        phone1 = str(info.get('PHONE1', '')).strip().upper()
+        return any([
+            addr1 not in ('', 'N/A'),
+            addr2 not in ('', 'N/A'),
+            addr3 not in ('', 'N/A'),
+            addr4 not in ('', 'N/A'),
+            phone1 not in ('', 'N/A'),
+        ])
+
+    def _merge_missing_customer_fields(primary, fallback):
+        if not isinstance(primary, dict):
+            return fallback if isinstance(fallback, dict) else primary
+        if not isinstance(fallback, dict):
+            return primary
+
+        merged = dict(primary)
+        for key in ('ADDRESS1', 'ADDRESS2', 'ADDRESS3', 'ADDRESS4', 'PHONE1', 'CREDITTERM', 'COMPANYNAME'):
+            current = str(merged.get(key, '')).strip()
+            fallback_value = str(fallback.get(key, '')).strip()
+            if (not current or current.upper() == 'N/A') and fallback_value:
+                merged[key] = fallback_value
+        return merged
+
+    def _load_customer_from_local_db():
+        con = None
+        cur = None
+        try:
+            con = get_db_connection()
+            cur = con.cursor()
+            cur.execute(
+                '''
+                SELECT
+                    c.CODE,
+                    c.COMPANYNAME,
+                    c.CREDITTERM,
+                    cb.ADDRESS1,
+                    cb.ADDRESS2,
+                    cb.ADDRESS3,
+                    cb.ADDRESS4,
+                    cb.PHONE1
+                FROM AR_CUSTOMER c
+                LEFT JOIN AR_CUSTOMERBRANCH cb
+                  ON cb.CODE = c.CODE
+                 AND cb.DTLKEY = (
+                     SELECT MIN(b.DTLKEY)
+                     FROM AR_CUSTOMERBRANCH b
+                     WHERE b.CODE = c.CODE
+                 )
+                WHERE c.CODE = ?
+                ''',
+                (customer_code,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+
+            return {
+                'CODE': (str(row[0]).strip() if row[0] is not None else customer_code),
+                'COMPANYNAME': (str(row[1]).strip() if row[1] else 'N/A'),
+                'CREDITTERM': (str(row[2]).strip() if row[2] else 'N/A'),
+                'ADDRESS1': (str(row[3]).strip() if row[3] else 'N/A'),
+                'ADDRESS2': (str(row[4]).strip() if row[4] else 'N/A'),
+                'ADDRESS3': (str(row[5]).strip() if row[5] else ''),
+                'ADDRESS4': (str(row[6]).strip() if row[6] else ''),
+                'PHONE1': (str(row[7]).strip() if row[7] else 'N/A'),
+            }
+        except Exception as db_err:
+            print(f"[DEBUG] get_user_info: Local DB fallback failed: {db_err}", flush=True)
+            return None
+        finally:
+            try:
+                if cur:
+                    cur.close()
+            except Exception:
+                pass
+            try:
+                if con:
+                    con.close()
+            except Exception:
+                pass
+
+    def _debug_log_user_info_payload(source, payload):
+        if not isinstance(payload, dict):
+            print(f"[DEBUG] get_user_info: Final payload source={source} is not a dict", flush=True)
+            return
+        summary = {
+            'CODE': payload.get('CODE'),
+            'COMPANYNAME': payload.get('COMPANYNAME'),
+            'ADDRESS1': payload.get('ADDRESS1'),
+            'ADDRESS2': payload.get('ADDRESS2'),
+            'ADDRESS3': payload.get('ADDRESS3'),
+            'ADDRESS4': payload.get('ADDRESS4'),
+            'PHONE1': payload.get('PHONE1'),
+            'CREDITTERM': payload.get('CREDITTERM'),
+        }
+        print(f"[DEBUG] get_user_info: Final payload source={source} summary={summary}", flush=True)
+
     try:
-        # Proxy to PHP endpoint using BASE_API_URL and ENDPOINT_PATHS
+        # 1) Preferred path: SQL API customer details endpoint (example: /customer/*?code=...)
+        sql_access_key = (os.getenv('SQL_API_ACCESS_KEY') or '').strip()
+        sql_secret_key = (os.getenv('SQL_API_SECRET_KEY') or '').strip()
+        sql_host = (os.getenv('SQL_API_HOST') or '').strip()
+        sql_region = (os.getenv('SQL_API_REGION') or 'ap-southeast-5').strip()
+        sql_service = (os.getenv('SQL_API_SERVICE') or 'sqlaccount').strip()
+        sql_detail_path = (os.getenv('SQL_API_CUSTOMER_DETAIL_PATH') or '/customer/*').strip()
+        sql_use_tls = (os.getenv('SQL_API_USE_TLS', 'true').strip().lower() in ('1', 'true', 'yes', 'on'))
+
+        if sql_access_key and sql_secret_key and sql_host:
+            # '/customer/*' in docs is a route template; call concrete path without literal '*'.
+            sql_detail_path = sql_detail_path.replace('*', '').strip()
+            if not sql_detail_path:
+                sql_detail_path = '/customer'
+            if not sql_detail_path.startswith('/'):
+                sql_detail_path = '/' + sql_detail_path
+            sql_detail_path = sql_detail_path.rstrip('/') or '/customer'
+
+            scheme = 'https' if sql_use_tls else 'http'
+            sql_url = f"{scheme}://{sql_host.rstrip('/')}{quote(sql_detail_path, safe='/:?&=%')}?code={quote(str(customer_code), safe='')}"
+            print(f"[DEBUG] get_user_info: Calling SQL API at {sql_url}", flush=True)
+
+            sql_headers = {'Accept': 'application/json'}
+            try:
+                # Prefer SigV4 signing if botocore is available in this Flask runtime.
+                from botocore.auth import SigV4Auth
+                from botocore.awsrequest import AWSRequest
+                from botocore.credentials import Credentials
+
+                creds = Credentials(sql_access_key, sql_secret_key)
+                aws_request = AWSRequest(method='GET', url=sql_url, headers=sql_headers)
+                SigV4Auth(creds, sql_service, sql_region).add_auth(aws_request)
+                prepared = aws_request.prepare()
+
+                sql_response = requests.get(
+                    prepared.url,
+                    headers=dict(prepared.headers),
+                    timeout=10,
+                )
+            except Exception as sigv4_error:
+                # Fallback for environments where upstream accepts key headers.
+                print(f"[DEBUG] get_user_info: SigV4 unavailable/failed ({sigv4_error}); trying header auth", flush=True)
+                sql_response = requests.get(
+                    sql_url,
+                    headers={
+                        **sql_headers,
+                        'X-Access-Key': sql_access_key,
+                        'X-Secret-Key': sql_secret_key,
+                        'X-Region': sql_region,
+                        'X-Service': sql_service,
+                    },
+                    timeout=10,
+                )
+
+            print(f"[DEBUG] get_user_info: SQL API response status {sql_response.status_code}", flush=True)
+            if not sql_response.ok:
+                print(f"[DEBUG] get_user_info: SQL API response preview: {(sql_response.text or '')[:260]}", flush=True)
+
+            if sql_response.ok:
+                try:
+                    sql_json = sql_response.json()
+                    if isinstance(sql_json, dict):
+                        print(f"[DEBUG] get_user_info: SQL JSON top-level keys: {list(sql_json.keys())}", flush=True)
+                        sql_data = sql_json.get('data')
+                        if isinstance(sql_data, list):
+                            print(f"[DEBUG] get_user_info: SQL JSON data list length: {len(sql_data)}", flush=True)
+                            if sql_data and isinstance(sql_data[0], dict):
+                                print(f"[DEBUG] get_user_info: SQL first data keys: {list(sql_data[0].keys())}", flush=True)
+                        elif isinstance(sql_data, dict):
+                            print(f"[DEBUG] get_user_info: SQL data keys: {list(sql_data.keys())}", flush=True)
+                    elif isinstance(sql_json, list):
+                        print(f"[DEBUG] get_user_info: SQL JSON list length: {len(sql_json)}", flush=True)
+                    normalized = _normalize_customer_info(sql_json)
+                    if normalized and _has_meaningful_customer_data(normalized):
+                        if _has_meaningful_address_or_phone(normalized):
+                            _debug_log_user_info_payload('sql_api', normalized)
+                            return jsonify({'success': True, 'data': normalized, 'source': 'sql_api'})
+
+                        print('[DEBUG] get_user_info: SQL response missing address/phone, enriching from local DB', flush=True)
+                        local_data = _load_customer_from_local_db()
+                        if local_data:
+                            merged = _merge_missing_customer_fields(normalized, local_data)
+                            _debug_log_user_info_payload('sql_api+local_db', merged)
+                            return jsonify({'success': True, 'data': merged, 'source': 'sql_api+local_db'})
+
+                        _debug_log_user_info_payload('sql_api', normalized)
+                        return jsonify({'success': True, 'data': normalized, 'source': 'sql_api'})
+
+                    print('[DEBUG] get_user_info: SQL response had no meaningful customer data, trying local DB fallback', flush=True)
+                except Exception as parse_err:
+                    print(f"[DEBUG] get_user_info: SQL API JSON parse failed: {parse_err}", flush=True)
+
+        # 2) Local DB fallback by customer code
+        local_data = _load_customer_from_local_db()
+        if local_data and _has_meaningful_customer_data(local_data):
+            _debug_log_user_info_payload('local_db', local_data)
+            return jsonify({'success': True, 'data': local_data, 'source': 'local_db'})
+
+        # 3) Final fallback path: PHP endpoint using BASE_API_URL and ENDPOINT_PATHS
         php_url = f"{BASE_API_URL}{ENDPOINT_PATHS['getuserinfo']}"
-        print(f"[DEBUG] get_user_info: Calling PHP at {php_url}?customerCode={customer_code}", flush=True)
+        print(f"[DEBUG] get_user_info: Falling back to PHP {php_url}?customerCode={customer_code}", flush=True)
         response = requests.get(php_url, params={'customerCode': customer_code}, timeout=10)
         print(f"[DEBUG] get_user_info: PHP response status {response.status_code}", flush=True)
-        return jsonify(response.json())
+        if not response.ok:
+            return jsonify({
+                'success': False,
+                'error': f'PHP fallback returned HTTP {response.status_code}',
+                'preview': (response.text or '')[:260],
+            }), 502
+        try:
+            return jsonify(response.json())
+        except Exception as json_err:
+            return jsonify({
+                'success': False,
+                'error': f'PHP fallback returned non-JSON response: {json_err}',
+                'preview': (response.text or '')[:260],
+            }), 502
     except Exception as e:
         print(f"[DEBUG] get_user_info: Exception occurred: {str(e)}", flush=True)
         import traceback

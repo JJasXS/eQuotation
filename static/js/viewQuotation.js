@@ -234,8 +234,13 @@ async function toggleQuotationItems(card) {
                 const response = await fetch(endpoint);
                 const data = await response.json();
 
-                if (data.success && data.data.items) {
-                    const items = data.data.items;
+                const payload = (data && typeof data === 'object' ? data : {});
+                const dataBlock = payload.data && typeof payload.data === 'object' ? payload.data : {};
+                const items = Array.isArray(dataBlock.items)
+                    ? dataBlock.items
+                    : (Array.isArray(payload.items) ? payload.items : null);
+
+                if (payload.success && Array.isArray(items)) {
                     let itemsHtml = '';
 
                     if (items.length === 0) {
@@ -274,7 +279,8 @@ async function toggleQuotationItems(card) {
                     itemsDiv.innerHTML = itemsHtml;
                     itemsDiv.dataset.loaded = 'true';
                 } else {
-                    itemsDiv.innerHTML = '<div style="color: #ff6b6b; padding: 8px; text-align: center;">Failed to load items</div>';
+                    const errorText = payload.error ? String(payload.error) : 'Failed to load items';
+                    itemsDiv.innerHTML = `<div style="color: #ff6b6b; padding: 8px; text-align: center;">${errorText}</div>`;
                 }
             } catch (error) {
                 itemsDiv.innerHTML = '<div style="color: #ff6b6b; padding: 8px; text-align: center;">Error loading items</div>';

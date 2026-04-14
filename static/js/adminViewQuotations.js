@@ -219,7 +219,8 @@ async function loadQuotations() {
         const data = await response.json();
 
         if (!data.success) {
-            content.innerHTML = '<div style="padding: 20px; text-align: center; color: #ff6b6b;">Failed to load quotations</div>';
+            const message = data.error ? String(data.error) : 'Failed to load quotations';
+            content.innerHTML = `<div style="padding: 20px; text-align: center; color: #ff6b6b;">${message}</div>`;
             return;
         }
 

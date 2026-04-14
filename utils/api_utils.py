@@ -21,8 +21,17 @@ def fetch_data_from_api(endpoint_key):
         return []
     url = f"{BASE_API_URL}{path}"
     try:
-        response = requests.get(url)
-        data = response.json()
+        response = requests.get(url, timeout=10)
+        if response.status_code >= 400:
+            preview = (response.text or '').strip().replace('\n', ' ')[:240]
+            print(f"API HTTP error for {endpoint_key}: {response.status_code} | {preview}")
+            return []
+        try:
+            data = response.json()
+        except ValueError:
+            preview = (response.text or '').strip().replace('\n', ' ')[:240]
+            print(f"API non-JSON response for {endpoint_key}: {preview}")
+            return []
         if data.get('success'):
             return data.get('data', [])
         else:

@@ -15,11 +15,13 @@ if (!$email) {
     exit;
 }
 
+$email = trim($email);
+
 try {
     $con = getFirebirdConnection();
     
-    // First check AR_CUSTOMERBRANCH for email
-    $query = 'SELECT CODE FROM AR_CUSTOMERBRANCH WHERE EMAIL = ?';
+    // First check AR_CUSTOMERBRANCH for email using case/space-insensitive match
+    $query = 'SELECT CODE FROM AR_CUSTOMERBRANCH WHERE UPPER(TRIM(EMAIL)) = UPPER(TRIM(?))';
     $stmt = $con->prepare($query);
     $stmt->execute([$email]);
     $result = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -30,7 +32,7 @@ try {
     } else {
         // If not found in AR_CUSTOMERBRANCH, check AR_CUSTOMER.UDF_EMAIL
         try {
-            $query2 = 'SELECT CODE FROM AR_CUSTOMER WHERE UDF_EMAIL = ?';
+            $query2 = 'SELECT CODE FROM AR_CUSTOMER WHERE UPPER(TRIM(UDF_EMAIL)) = UPPER(TRIM(?))';
             $stmt2 = $con->prepare($query2);
             $stmt2->execute([$email]);
             $result2 = $stmt2->fetch(PDO::FETCH_ASSOC);
@@ -39,6 +41,21 @@ try {
             }
         } catch (PDOException $ignored) {
             // Keep null result
+        }
+
+        // Final fallback for schemas that store email in AR_CUSTOMER.EMAIL
+        if (!$customerCode) {
+            try {
+                $query3 = 'SELECT CODE FROM AR_CUSTOMER WHERE UPPER(TRIM(EMAIL)) = UPPER(TRIM(?))';
+                $stmt3 = $con->prepare($query3);
+                $stmt3->execute([$email]);
+                $result3 = $stmt3->fetch(PDO::FETCH_ASSOC);
+                if ($result3) {
+                    $customerCode = $result3['CODE'];
+                }
+            } catch (PDOException $ignored) {
+                // EMAIL column may not exist; ignore and keep null result.
+            }
         }
     }
     

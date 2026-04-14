@@ -668,64 +668,95 @@ if (quotationForm) {
 // Load user info (customer info including company, address, phone, and credit term) for quotation form
 async function loadUserInfo() {
     try {
-        // Get the customer email from the form
         const customerEmailInput = document.getElementById('quotation-customer');
         const customerEmail = customerEmailInput ? customerEmailInput.value.trim() : '';
-        
-        if (!customerEmail) {
-            console.warn('No customer email found');
+        let data = null;
+
+        const response = await fetch('/api/get_user_info');
+        if (response.ok) {
+            data = await response.json();
+            console.log('Customer data response from /api/get_user_info:', data);
+        } else {
+            console.warn('Primary customer info lookup failed with status:', response.status);
+        }
+
+        if ((!data || !data.success || !data.data) && customerEmail) {
+            const phpUrl = `${getPhpBaseUrl()}/php/getCustomerByEmail.php?email=${encodeURIComponent(customerEmail)}`;
+            console.warn('Falling back to email-based customer lookup:', phpUrl);
+            const fallbackResponse = await fetch(phpUrl);
+            data = await fallbackResponse.json();
+            console.log('Customer data response from fallback getCustomerByEmail.php:', data);
+        }
+
+        if (!data) {
+            console.warn('No customer data returned from either lookup path');
             setDefaultCustomerInfo();
             return;
         }
         
-        // Call PHP endpoint on port 8080 directly (bypassing Flask routing)
-        const phpUrl = `http://localhost:8080/php/getCustomerByEmail.php?email=${encodeURIComponent(customerEmail)}`;
-        const response = await fetch(phpUrl);
-        const data = await response.json();
-        
-        console.log('Customer data response:', data);
-        
         if (data.success && data.data) {
+            const source = data.data || {};
+            const addressObj = source.address && typeof source.address === 'object' ? source.address : null;
+            const addresses = Array.isArray(source.addresses) ? source.addresses : null;
+            const firstAddress = addresses && addresses.length > 0 && typeof addresses[0] === 'object' ? addresses[0] : null;
+
+            const pickFrom = (obj, keys) => {
+                if (!obj || typeof obj !== 'object') return '';
+                for (const key of keys) {
+                    const raw = obj[key];
+                    if (raw === undefined || raw === null) continue;
+                    const value = String(raw).trim();
+                    if (value) return value;
+                }
+                return '';
+            };
+
+            const pickValue = (...keys) => {
+                return (
+                    pickFrom(source, keys) ||
+                    pickFrom(addressObj, keys) ||
+                    pickFrom(firstAddress, keys) ||
+                    ''
+                );
+            };
+
             // Populate company name
             const companyInput = document.getElementById('quotation-company');
             if (companyInput) {
-                companyInput.value = data.data.COMPANYNAME || 'N/A';
+                companyInput.value = pickValue('COMPANYNAME', 'companyName', 'companyname') || 'N/A';
             }
-            
-            // Populate address 1
+
+            // Populate addresses
             const address1Input = document.getElementById('quotation-address1');
             if (address1Input) {
-                address1Input.value = data.data.ADDRESS1 || 'N/A';
+                address1Input.value = pickValue('ADDRESS1', 'address1', 'addr1', 'line1', 'street1') || 'N/A';
             }
-            
-            // Populate address 2
+
             const address2Input = document.getElementById('quotation-address2');
             if (address2Input) {
-                address2Input.value = data.data.ADDRESS2 || 'N/A';
+                address2Input.value = pickValue('ADDRESS2', 'address2', 'addr2', 'line2', 'street2') || 'N/A';
             }
-            
-            // Populate address 3
+
             const address3Input = document.getElementById('quotation-address3');
             if (address3Input) {
-                address3Input.value = data.data.ADDRESS3 || '';
+                address3Input.value = pickValue('ADDRESS3', 'address3', 'addr3', 'line3', 'city') || '';
             }
-            
-            // Populate address 4
+
             const address4Input = document.getElementById('quotation-address4');
             if (address4Input) {
-                address4Input.value = data.data.ADDRESS4 || '';
+                address4Input.value = pickValue('ADDRESS4', 'address4', 'addr4', 'line4', 'state', 'country') || '';
             }
-            
+
             // Populate phone 1
             const phoneInput = document.getElementById('quotation-phone');
             if (phoneInput) {
-                phoneInput.value = data.data.PHONE1 || 'N/A';
+                phoneInput.value = pickValue('PHONE1', 'phone1', 'PHONE', 'phone', 'tel', 'telephone') || 'N/A';
             }
-            
+
             // Populate credit terms
             const termsInput = document.getElementById('quotation-terms');
             if (termsInput) {
-                termsInput.value = data.data.CREDITTERM || 'N/A';
+                termsInput.value = pickValue('CREDITTERM', 'creditTerm', 'creditterm') || 'N/A';
             }
         } else {
             // Set default N/A values if data not found
@@ -747,6 +778,11 @@ function setDefaultCustomerInfo() {
             field.value = 'N/A';
         }
     });
+}
+
+function getPhpBaseUrl() {
+    const configuredBaseUrl = document.body?.dataset?.phpBaseUrl || 'http://localhost:8080';
+    return configuredBaseUrl.replace(/\/$/, '');
 }
 
 // Load draft quotation data if dockey is present

@@ -1,7 +1,7 @@
 # endpoints_config.py
 # Central config for API base URL and endpoint paths
 
-BASE_API_URL = "http://localhost"
+BASE_API_URL = "http://localhost:8080"
 
 ENDPOINT_PATHS = {
     "stockitem": "/php/getStockItem.php",
