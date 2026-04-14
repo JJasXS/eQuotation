@@ -1068,7 +1068,7 @@ function sendQuickChatMessage(message, sourceButton = null) {
     .catch(error => {
         console.error('Error requesting catalog page:', error);
         if (targetBotMessage) {
-            const existingContent = targetBotMessage.querySelector('.message-content');
+            const existingContent = targetBotMessage.querySelector('.chat-popup-message-content');
             if (existingContent) {
                 existingContent.insertAdjacentHTML('beforeend', '<div class="chat-reply-line">Unable to load that page right now. Please try again.</div>');
             }
@@ -1144,7 +1144,7 @@ function buildChatReplyHtml(reply) {
         renderedLines.push('<div class="chat-reply-line"></div>');
     }
 
-    return `<div class="message-content rich-message-content">${renderedLines.join('')}</div>`;
+    return `<div class="chat-popup-message-content rich-message-content">${renderedLines.join('')}</div>`;
 }
 
 
@@ -1272,7 +1272,7 @@ function sendChatMessage(messageOverride = null) {
     // Add user message to chat
     const userMsgDiv = document.createElement('div');
     userMsgDiv.className = 'chat-message user-message';
-    userMsgDiv.innerHTML = `<div class="message-content">${message}</div>`;
+    userMsgDiv.innerHTML = `<div class="chat-popup-message-content">${message}</div>`;
     messagesContainer.appendChild(userMsgDiv);
     
     // Clear input
@@ -1310,7 +1310,7 @@ function sendChatMessage(messageOverride = null) {
         console.error('Error sending message:', error);
         const errorMsgDiv = document.createElement('div');
         errorMsgDiv.className = 'chat-message bot-message';
-        errorMsgDiv.innerHTML = `<div class="message-content">Sorry, I encountered an error. Please try again.</div>`;
+        errorMsgDiv.innerHTML = `<div class="chat-popup-message-content">Sorry, I encountered an error. Please try again.</div>`;
         messagesContainer.appendChild(errorMsgDiv);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     });

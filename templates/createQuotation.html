@@ -133,30 +133,32 @@
         </div>
     </div>
     
-    <!-- Chat Bubble -->
-    <button id="chat-bubble" class="chat-bubble" onclick="toggleChatPopup()" title="Chat with us">
+    <!-- Quotation Chat Bubble -->
+    <button id="quotation-chat-preview" class="quotation-chat-preview quotation-chat-preview-hidden" type="button" onclick="openQuotationChatFromPreview()">
+        <span class="quotation-chat-preview-label">New message</span>
+        <span class="quotation-chat-preview-text">Hi! Need help with your quotation?</span>
+    </button>
+    <button id="quotation-chat-bubble" class="quotation-chat-bubble" onclick="toggleQuotationChatPopup()" title="Chat with us">
         <span>💬</span>
     </button>
-    
-    <!-- Chat Popup Modal -->
-    <div id="chat-popup" class="chat-popup hidden" data-size="normal">
-        <div class="chat-popup-header">
-            <h4>Chat Assistant</h4>
-            <button type="button" class="close-btn" onclick="closeChatPopup()">✕</button>
+    <!-- Quotation Chat Popup Modal -->
+    <div id="quotation-chat-popup" class="quotation-chat-popup quotation-chat-popup-hidden" data-size="normal">
+        <div class="quotation-chat-popup-header">
+            <h4>Quotation Chat Assistant</h4>
+            <button type="button" class="quotation-close-btn" onclick="closeQuotationChatPopup()">✕</button>
         </div>
-        <div id="chat-popup-messages" class="chat-popup-messages">
-            <div class="chat-message bot-message">
-                <div class="message-content">Hi! 👋 How can I help you with your quotation?</div>
+        <div id="quotation-chat-popup-messages" class="quotation-chat-popup-messages">
+            <div class="quotation-chat-message bot-message">
+                <div class="quotation-chat-popup-message-content">Hi! 👋 How can I help you with your quotation?</div>
             </div>
         </div>
-        <div class="chat-popup-input">
-            <textarea id="chat-popup-textarea" placeholder="Type your message..." rows="1"></textarea>
-            <button type="button" class="send-btn" onclick="sendChatMessage()">Send</button>
+        <div class="quotation-chat-popup-input">
+            <textarea id="quotation-chat-popup-textarea" placeholder="Type your message..." rows="1"></textarea>
+            <button type="button" class="quotation-send-btn" onclick="sendQuotationChatMessage()">Send</button>
         </div>
-        <!-- Resize handles for all edges -->
-        <div class="resize-handle right" data-edge="right"></div>
-        <div class="resize-handle bottom" data-edge="bottom"></div>
     </div>
+    <link rel="stylesheet" href="/static/css/quotationChatPopup.css">
+    <script src="/static/js/quotationChatPopup.js"></script>
                             <!-- Hide Quotation Name field -->
                             <input type="hidden" id="quotation-name" name="quotationName" value="Quotation">
     
