@@ -772,7 +772,7 @@ def add_no_cache_headers(response):
 @app.route('/api/admin/customer_status_summary', methods=['GET'])
 @api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
 def customer_status_summary():
-    """Return AR_CUSTOMER status distribution for the admin dashboard."""
+    """Return AR_CUSTOMER status distribution (from FastAPI with fallback to direct DB)."""
     status_order = ['A', 'I', 'S', 'P', 'N']
     status_labels = {
         'A': 'Active',
@@ -783,17 +783,42 @@ def customer_status_summary():
     }
     counts = {code: 0 for code in status_order}
 
-    con = None
-    cur = None
     try:
-        con = get_db_connection()
-        cur = con.cursor()
-        cur.execute('SELECT STATUS, COUNT(*) FROM AR_CUSTOMER GROUP BY STATUS')
-
-        for raw_status, raw_count in cur.fetchall():
-            normalized_status = (str(raw_status).strip().upper() if raw_status is not None else '')[:1]
-            if normalized_status in counts:
-                counts[normalized_status] = int(raw_count or 0)
+        # Try FastAPI first
+        api_url = f"{FASTAPI_BASE_URL}/local/customers/all"
+        use_fastapi = False
+        try:
+            response = requests.get(api_url, timeout=5)
+            if response.ok:
+                data = response.json()
+                if data.get('success') and data.get('data'):
+                    customers = data.get('data', [])
+                    for customer in customers:
+                        status = (customer.get('status') or '')[:1].upper()
+                        if status in counts:
+                            counts[status] += 1
+                    use_fastapi = True
+                    print(f'DEBUG: Loaded customer status from FastAPI')
+        except requests.exceptions.RequestException as e:
+            print(f'DEBUG: FastAPI unavailable ({e}), falling back to direct DB query')
+        
+        # Fallback: if FastAPI didn't work, query database directly
+        if not use_fastapi:
+            con = None
+            cur = None
+            try:
+                con = get_db_connection()
+                cur = con.cursor()
+                cur.execute('SELECT STATUS, COUNT(*) FROM AR_CUSTOMER GROUP BY STATUS')
+                for raw_status, raw_count in cur.fetchall():
+                    normalized_status = (str(raw_status).strip().upper() if raw_status is not None else '')[:1]
+                    if normalized_status in counts:
+                        counts[normalized_status] = int(raw_count or 0)
+            finally:
+                if cur:
+                    cur.close()
+                if con:
+                    con.close()
 
         items = [
             {
@@ -814,61 +839,85 @@ def customer_status_summary():
     except Exception as exc:
         print(f'Error loading customer status summary: {exc}')
         return jsonify({'success': False, 'error': 'Failed to load customer status summary'}), 500
-    finally:
-        if cur:
-            cur.close()
-        if con:
-            con.close()
 
 
 @app.route('/api/admin/invoice_aging_summary', methods=['GET'])
 @api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
 def invoice_aging_summary():
-    """Return latest SL_IV.DOCDATE per SL_IV.CODE for invoice aging analytics."""
+    """Return invoice aging (from FastAPI with fallback to direct DB)."""
     con = None
     cur = None
     try:
         today = datetime.now().date()
         con = get_db_connection()
         cur = con.cursor()
+        
+        # Try to fetch customers from FastAPI first
+        customers = {}
+        api_url = f"{FASTAPI_BASE_URL}/local/customers/all"
+        try:
+            response = requests.get(api_url, timeout=5)
+            if response.ok:
+                api_data = response.json()
+                if api_data.get('success'):
+                    customers = {c['code']: c['company_name'] for c in api_data.get('data', [])}
+                    print(f'DEBUG: Loaded {len(customers)} customers from FastAPI')
+        except requests.exceptions.RequestException as e:
+            print(f'DEBUG: FastAPI unavailable ({e}), using direct DB query')
+        
+        # Fallback: if FastAPI didn't work, query database directly
+        if not customers:
+            cur.execute('SELECT CODE, COMPANYNAME FROM AR_CUSTOMER')
+            for code, company_name in cur.fetchall() or []:
+                code_str = (str(code).strip() if code else '')
+                company_str = (str(company_name).strip() if company_name else '')
+                if code_str:
+                    customers[code_str] = company_str
+        
+        # Fetch invoice dates from database
         cur.execute("""
-            SELECT latest.CODE,
-                   latest.LATEST_DOCDATE,
-                   ac.COMPANYNAME
-            FROM (
-                SELECT CODE, MAX(DOCDATE) AS LATEST_DOCDATE
-                FROM SL_IV
-                WHERE DOCDATE IS NOT NULL
-                  AND CODE IS NOT NULL
-                  AND TRIM(CODE) <> ''
-                GROUP BY CODE
-            ) latest
-            LEFT JOIN AR_CUSTOMER ac ON latest.CODE = ac.CODE
-            ORDER BY latest.LATEST_DOCDATE DESC, latest.CODE ASC
+            SELECT CODE, MAX(DOCDATE) AS LATEST_DOCDATE
+            FROM SL_IV
+            WHERE DOCDATE IS NOT NULL
+              AND CODE IS NOT NULL
+              AND TRIM(CODE) <> ''
+            GROUP BY CODE
         """)
-
-        rows = cur.fetchall() or []
+        
+        invoice_dates = {}
+        for code, docdate in cur.fetchall() or []:
+            if code:
+                invoice_dates[code] = docdate
+        
         latest_by_code = []
-
-        for raw_code, raw_docdate, raw_company_name in rows:
-            code = (str(raw_code).strip() if raw_code is not None else '')
-            if not code or raw_docdate is None:
+        
+        # Build list with all customers
+        for code, company_name in customers.items():
+            if not code:
                 continue
-
-            docdate = raw_docdate if not isinstance(raw_docdate, datetime) else raw_docdate.date()
-            days_ago = max(0, (today - docdate).days)
-            day_suffix = 'day' if days_ago == 1 else 'days'
-            company_name = (str(raw_company_name).strip() if raw_company_name is not None else '') or code
+            
+            raw_docdate = invoice_dates.get(code)
+            if raw_docdate is not None:
+                docdate = raw_docdate if not isinstance(raw_docdate, datetime) else raw_docdate.date()
+                days_ago = max(0, (today - docdate).days)
+                day_suffix = 'day' if days_ago == 1 else 'days'
+                docdate_str = docdate.isoformat()
+                days_ago_label = f'{days_ago} {day_suffix} ago'
+            else:
+                docdate_str = None
+                days_ago = None
+                days_ago_label = 'No invoice'
 
             latest_by_code.append({
                 'code': code,
                 'company_name': company_name,
-                'docdate': docdate.isoformat(),
+                'docdate': docdate_str,
                 'days_ago': days_ago,
-                'days_ago_label': f'{days_ago} {day_suffix} ago',
+                'days_ago_label': days_ago_label,
             })
 
-        latest_by_code.sort(key=lambda item: (item['days_ago'], item['company_name'].lower(), item['code']))
+        # Sort: invoices first by days_ago, then no-invoice at the end by company name
+        latest_by_code.sort(key=lambda item: (item['days_ago'] if item['days_ago'] is not None else 99999, item['company_name'].lower(), item['code']))
 
 
         latest_days_ago = latest_by_code[0]['days_ago_label'] if latest_by_code else None

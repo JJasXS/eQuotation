@@ -255,6 +255,34 @@ def read_local_customer_fields(code: str) -> dict:
         if con is not None:
             con.close()
 
+@router.get("/all")
+def get_all_customers():
+    """Fetch all customers with their status from AR_CUSTOMER."""
+    con = None
+    cur = None
+    try:
+        con = fdb.connect(dsn=f"{DB_HOST}:{DB_PATH}", user=DB_USER, password=DB_PASSWORD, charset='UTF8')
+        cur = con.cursor()
+        cur.execute('SELECT CODE, COMPANYNAME, STATUS FROM AR_CUSTOMER ORDER BY CODE ASC')
+        
+        customers = []
+        for row in cur.fetchall():
+            code, company_name, status = row
+            customers.append({
+                'code': (str(code).strip() if code else ''),
+                'company_name': (str(company_name).strip() if company_name else ''),
+                'status': (str(status).strip().upper() if status else '') if status else '',
+            })
+        
+        return {"success": True, "data": customers}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch customers: {str(e)}")
+    finally:
+        if cur is not None:
+            cur.close()
+        if con is not None:
+            con.close()
+
 @router.post("", status_code=201)
 def create_local_customer(customer: LocalCustomerRequest):
     try:
