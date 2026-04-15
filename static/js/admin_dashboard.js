@@ -34,8 +34,18 @@ function renderCustomerStatusChart(items) {
         return;
     }
 
+    // Ensure 'Active' and 'Active w/o invoice' have distinct colors
+    const colorMap = {
+        'Active': '#4b6e9e',
+        'Active w/o invoice': '#e68b5a',
+        'Inactive': '#c74d6f',
+        'Suspend': '#7cce82',
+        'Prospect': '#b49aff',
+        'Pending': '#f7c873',
+    };
     const labels = items.map(item => item.label);
     const counts = items.map(item => item.count);
+    const backgroundColors = items.map(item => colorMap[item.label] || '#cccccc');
     const totalCustomers = counts.reduce((sum, count) => sum + count, 0);
 
     if (customerStatusChart) {
@@ -48,7 +58,7 @@ function renderCustomerStatusChart(items) {
             labels,
             datasets: [{
                 data: counts,
-                backgroundColor: ['#4b6e9e', '#e68b5a', '#c74d6f', '#7cce82', '#b49aff'],
+                backgroundColor: backgroundColors,
                 borderColor: '#161c28',
                 borderWidth: 2,
                 hoverOffset: 8,
@@ -82,7 +92,8 @@ function renderCustomerStatusChart(items) {
     if (summary) {
         const totalCustomers = counts.reduce((sum, count) => sum + count, 0);
         const activeItem = items.find(item => item.code === 'A');
-        summary.innerHTML = `<strong>${totalCustomers}</strong> total customers. Active: <strong>${activeItem ? activeItem.count : 0}</strong>.`;
+        const awoItem = items.find(item => item.code === 'AWO');
+        summary.innerHTML = `<strong>${totalCustomers}</strong> total customers. Active: <strong>${activeItem ? activeItem.count : 0}</strong>. Active w/o invoice: <strong>${awoItem ? awoItem.count : 0}</strong>.`;
     }
 }
 

@@ -840,9 +840,10 @@ def _fetch_all_customers_from_sql_api():
 @api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
 def customer_status_summary():
     """Return customer status distribution from SQL API /customer endpoint."""
-    status_order = ['A', 'I', 'S', 'P', 'N']
+    status_order = ['A', 'AWO', 'I', 'S', 'P', 'N']
     status_labels = {
         'A': 'Active',
+        'AWO': 'Active w/o invoice',
         'I': 'Inactive',
         'S': 'Suspend',
         'P': 'Prospect',
@@ -852,9 +853,22 @@ def customer_status_summary():
 
     try:
         customers = _fetch_all_customers_from_sql_api()
+        # Get invoice aging info for all customers
+        invoice_aging = requests.get(request.host_url.rstrip('/') + '/api/admin/invoice_aging_summary', headers=request.headers, timeout=30)
+        invoice_aging_items = invoice_aging.json().get('data', {}).get('items', []) if invoice_aging.ok else []
+        invoice_map = {item['code']: item for item in invoice_aging_items}
+
         for customer in customers:
             status = customer.get('status', '')
-            if status in counts:
+            code = customer.get('code', '')
+            # Only split 'Active' into two groups
+            if status == 'A':
+                inv = invoice_map.get(code)
+                if inv and inv.get('days_ago_label') != 'No invoice':
+                    counts['A'] += 1
+                else:
+                    counts['AWO'] += 1
+            elif status in counts:
                 counts[status] += 1
 
         items = [
@@ -864,6 +878,7 @@ def customer_status_summary():
                 'count': counts[code],
             }
             for code in status_order
+            if counts[code] > 0
         ]
 
         return jsonify({

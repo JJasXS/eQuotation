@@ -264,7 +264,13 @@ document.addEventListener('DOMContentLoaded', () => {
 function applyAgingFilter() {
     let filtered = allInvoiceAgingItems;
     if (currentAgingFilter !== 'all') {
-        if (currentAgingFilter === '>90') {
+        if (currentAgingFilter === 'active') {
+            // Active with at least one invoice (not 'No invoice')
+            filtered = allInvoiceAgingItems.filter(item => item.status === 'Active' && item.days_ago_label !== 'No invoice');
+        } else if (currentAgingFilter === 'active_wo_invoice') {
+            // Active but no invoice
+            filtered = allInvoiceAgingItems.filter(item => item.status === 'Active' && item.days_ago_label === 'No invoice');
+        } else if (currentAgingFilter === '>90') {
             filtered = allInvoiceAgingItems.filter(item => item.days_ago > 90);
         } else {
             const maxDays = parseInt(currentAgingFilter, 10);
