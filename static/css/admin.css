@@ -1,3 +1,31 @@
+/* Invoice Aging Filter Styles */
+.invoice-aging-filter-wrap {
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.invoice-aging-filter-label {
+    font-weight: 600;
+    color: #b8c7e0;
+    margin-right: 6px;
+    font-size: 15px;
+}
+#invoice-aging-filter {
+    padding: 4px 14px 4px 8px;
+    border-radius: 7px;
+    border: 1px solid #374155;
+    background: #1a2233;
+    color: #e4e9f1;
+    font-size: 15px;
+    outline: none;
+    transition: border 0.2s, box-shadow 0.2s;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+#invoice-aging-filter:focus {
+    border-color: #6a8fc7;
+    box-shadow: 0 0 0 2px #6a8fc755;
+}
 /* Admin Page Styles */
 * {
     margin: 0;

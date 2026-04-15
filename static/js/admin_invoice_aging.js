@@ -1,4 +1,6 @@
 let invoiceAgingChart = null;
+let allInvoiceAgingItems = [];
+let currentAgingFilter = 'all';
 
 const invoiceAgingBarLabelPlugin = {
     id: 'invoiceAgingBarLabelPlugin',
@@ -220,6 +222,7 @@ async function loadInvoiceAging() {
         }
 
         const items = payload.data.items;
+        allInvoiceAgingItems = items;
         if (totalEl) {
             totalEl.textContent = String(payload.data.total_codes ?? 0);
         }
@@ -234,8 +237,7 @@ async function loadInvoiceAging() {
             latestCompanyEl.textContent = payload.data.latest_invoice_company || '-';
         }
 
-        renderInvoiceAgingChart(items);
-        renderInvoiceAgingList(payload.data.latest_by_code || []);
+        applyAgingFilter();
     } catch (error) {
         if (listEl) {
             listEl.innerHTML = `<div class="analytics-empty">${error.message || 'Failed to load invoice aging details.'}</div>`;
@@ -248,4 +250,25 @@ async function loadInvoiceAging() {
 
 document.addEventListener('DOMContentLoaded', () => {
     loadInvoiceAging();
+    const filterEl = document.getElementById('invoice-aging-filter');
+    if (filterEl) {
+        filterEl.addEventListener('change', (e) => {
+            currentAgingFilter = e.target.value;
+            applyAgingFilter();
+        });
+    }
 });
+
+function applyAgingFilter() {
+    let filtered = allInvoiceAgingItems;
+    if (currentAgingFilter !== 'all') {
+        if (currentAgingFilter === '>90') {
+            filtered = allInvoiceAgingItems.filter(item => item.days_ago > 90);
+        } else {
+            const maxDays = parseInt(currentAgingFilter, 10);
+            filtered = allInvoiceAgingItems.filter(item => item.days_ago <= maxDays);
+        }
+    }
+    renderInvoiceAgingChart(filtered);
+    renderInvoiceAgingList(filtered);
+}
