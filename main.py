@@ -769,10 +769,77 @@ def add_no_cache_headers(response):
     return response
 
 
+def _build_sql_api_auth_headers():
+    """Build optional SQL API auth headers when keys are configured."""
+    access_key = (os.getenv('SQL_API_ACCESS_KEY') or os.getenv('API_ACCESS_KEY') or '').strip()
+    secret_key = (os.getenv('SQL_API_SECRET_KEY') or os.getenv('API_SECRET_KEY') or '').strip()
+    if access_key and secret_key:
+        return {
+            'X-Access-Key': access_key,
+            'X-Secret-Key': secret_key,
+        }
+    return {}
+
+
+def _fetch_all_customers_from_sql_api():
+    """Fetch all customers from SQL API /customer with pagination."""
+    api_url = f"{FASTAPI_BASE_URL}/customer"
+    headers = _build_sql_api_auth_headers()
+    offset = 0
+    limit = 200
+    all_customers = []
+
+    while True:
+        response = requests.get(
+            api_url,
+            params={'offset': offset, 'limit': limit},
+            headers=headers if headers else None,
+            timeout=8,
+        )
+        if not response.ok:
+            raise RuntimeError(f'SQL API returned {response.status_code} for /customer')
+
+        payload = response.json()
+        rows = payload.get('data') if isinstance(payload, dict) else None
+        if not isinstance(rows, list):
+            raise RuntimeError('Unexpected SQL API format: missing data[]')
+
+        for customer in rows:
+            code = (str(customer.get('code')).strip() if customer.get('code') is not None else '')
+            if not code:
+                continue
+            company_name = (
+                customer.get('companyname')
+                or customer.get('company_name')
+                or code
+            )
+            raw_status = customer.get('status')
+            status = (str(raw_status).strip().upper() if raw_status is not None else '')[:1]
+            all_customers.append({
+                'code': code,
+                'company_name': str(company_name).strip() if company_name is not None else code,
+                'status': status,
+            })
+
+        if not rows:
+            break
+
+        pagination = payload.get('pagination') if isinstance(payload, dict) else None
+        page_count = pagination.get('count') if isinstance(pagination, dict) else len(rows)
+        if not isinstance(page_count, int) or page_count <= 0:
+            page_count = len(rows)
+
+        offset += page_count
+        if page_count < limit:
+            break
+
+    return all_customers
+
+
 @app.route('/api/admin/customer_status_summary', methods=['GET'])
 @api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
 def customer_status_summary():
-    """Return AR_CUSTOMER status distribution (from FastAPI with fallback to direct DB)."""
+    """Return customer status distribution from SQL API /customer endpoint."""
     status_order = ['A', 'I', 'S', 'P', 'N']
     status_labels = {
         'A': 'Active',
@@ -784,41 +851,11 @@ def customer_status_summary():
     counts = {code: 0 for code in status_order}
 
     try:
-        # Try FastAPI first
-        api_url = f"{FASTAPI_BASE_URL}/local/customers/all"
-        use_fastapi = False
-        try:
-            response = requests.get(api_url, timeout=5)
-            if response.ok:
-                data = response.json()
-                if data.get('success') and data.get('data'):
-                    customers = data.get('data', [])
-                    for customer in customers:
-                        status = (customer.get('status') or '')[:1].upper()
-                        if status in counts:
-                            counts[status] += 1
-                    use_fastapi = True
-                    print(f'DEBUG: Loaded customer status from FastAPI')
-        except requests.exceptions.RequestException as e:
-            print(f'DEBUG: FastAPI unavailable ({e}), falling back to direct DB query')
-        
-        # Fallback: if FastAPI didn't work, query database directly
-        if not use_fastapi:
-            con = None
-            cur = None
-            try:
-                con = get_db_connection()
-                cur = con.cursor()
-                cur.execute('SELECT STATUS, COUNT(*) FROM AR_CUSTOMER GROUP BY STATUS')
-                for raw_status, raw_count in cur.fetchall():
-                    normalized_status = (str(raw_status).strip().upper() if raw_status is not None else '')[:1]
-                    if normalized_status in counts:
-                        counts[normalized_status] = int(raw_count or 0)
-            finally:
-                if cur:
-                    cur.close()
-                if con:
-                    con.close()
+        customers = _fetch_all_customers_from_sql_api()
+        for customer in customers:
+            status = customer.get('status', '')
+            if status in counts:
+                counts[status] += 1
 
         items = [
             {
@@ -834,8 +871,14 @@ def customer_status_summary():
             'data': {
                 'items': items,
                 'total_customers': sum(counts.values()),
+                'processed_customers': len(customers),
+                'customers': customers,
             }
         }), 200
+    except requests.exceptions.RequestException as exc:
+        return jsonify({'success': False, 'error': f'Failed to reach SQL API /customer: {exc}'}), 502
+    except RuntimeError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 502
     except Exception as exc:
         print(f'Error loading customer status summary: {exc}')
         return jsonify({'success': False, 'error': 'Failed to load customer status summary'}), 500
@@ -844,35 +887,18 @@ def customer_status_summary():
 @app.route('/api/admin/invoice_aging_summary', methods=['GET'])
 @api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
 def invoice_aging_summary():
-    """Return invoice aging (from FastAPI with fallback to direct DB)."""
+    """Return invoice aging, using SQL API customer list + local invoice dates."""
     con = None
     cur = None
     try:
         today = datetime.now().date()
         con = get_db_connection()
         cur = con.cursor()
-        
-        # Try to fetch customers from FastAPI first
-        customers = {}
-        api_url = f"{FASTAPI_BASE_URL}/local/customers/all"
-        try:
-            response = requests.get(api_url, timeout=5)
-            if response.ok:
-                api_data = response.json()
-                if api_data.get('success'):
-                    customers = {c['code']: c['company_name'] for c in api_data.get('data', [])}
-                    print(f'DEBUG: Loaded {len(customers)} customers from FastAPI')
-        except requests.exceptions.RequestException as e:
-            print(f'DEBUG: FastAPI unavailable ({e}), using direct DB query')
-        
-        # Fallback: if FastAPI didn't work, query database directly
-        if not customers:
-            cur.execute('SELECT CODE, COMPANYNAME FROM AR_CUSTOMER')
-            for code, company_name in cur.fetchall() or []:
-                code_str = (str(code).strip() if code else '')
-                company_str = (str(company_name).strip() if company_name else '')
-                if code_str:
-                    customers[code_str] = company_str
+
+        customers = {
+            customer['code']: customer['company_name']
+            for customer in _fetch_all_customers_from_sql_api()
+        }
         
         # Fetch invoice dates from database
         cur.execute("""
@@ -934,6 +960,10 @@ def invoice_aging_summary():
                 'today': today.isoformat(),
             }
         }), 200
+    except requests.exceptions.RequestException as exc:
+        return jsonify({'success': False, 'error': f'Failed to reach SQL API /customer: {exc}'}), 502
+    except RuntimeError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 502
     except Exception as exc:
         print(f'Error loading invoice aging summary: {exc}')
         return jsonify({'success': False, 'error': 'Failed to load invoice aging summary'}), 500

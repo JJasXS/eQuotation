@@ -2,6 +2,8 @@
 import logging
 import os
 
+import fdb
+from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, Header, Query
 
 from api.adapters import COMConnectionError
@@ -14,6 +16,13 @@ compat_router = APIRouter(tags=["Customers"])
 logger = logging.getLogger(__name__)
 
 customer_service = CustomerService()
+
+# Load DB settings for compatibility GET /customer list route.
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '../../.env'))
+DB_PATH = os.getenv('DB_PATH')
+DB_HOST = os.getenv('DB_HOST')
+DB_USER = os.getenv('DB_USER')
+DB_PASSWORD = os.getenv('DB_PASSWORD')
 
 def verify_api_keys(
     x_access_key: str = Header(..., alias="X-Access-Key"),
@@ -109,6 +118,59 @@ def create_customer_compat(
     response = _create_customer_impl(customer_data, _, include_state)
     upstream = (((response.data or {}).get("customer") or {}).get("upstream_response") or {})
     return upstream or response
+
+
+@compat_router.get("/customer")
+def list_customers_compat(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+):
+    """Compatibility route matching /customer?offset=0 response shape for dashboard usage."""
+    con = None
+    cur = None
+    try:
+        con = fdb.connect(dsn=f"{DB_HOST}:{DB_PATH}", user=DB_USER, password=DB_PASSWORD, charset='UTF8')
+        cur = con.cursor()
+
+        cur.execute('SELECT COUNT(*) FROM AR_CUSTOMER')
+        total = int((cur.fetchone() or [0])[0] or 0)
+
+        cur.execute(
+            """
+            SELECT FIRST ? SKIP ? CODE, COMPANYNAME, STATUS
+            FROM AR_CUSTOMER
+            ORDER BY CODE ASC
+            """,
+            [limit, offset],
+        )
+
+        data = []
+        for code, company_name, status in cur.fetchall() or []:
+            code_str = str(code).strip() if code else ''
+            company_str = str(company_name).strip() if company_name else ''
+            status_str = (str(status).strip().upper() if status else '')[:1]
+            data.append({
+                'code': code_str,
+                'companyname': company_str,
+                'status': status_str,
+            })
+
+        return {
+            'pagination': {
+                'offset': offset,
+                'limit': limit,
+                'count': len(data),
+                'total': total,
+            },
+            'data': data,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to list customers: {str(exc)}")
+    finally:
+        if cur is not None:
+            cur.close()
+        if con is not None:
+            con.close()
 
 
 @router.get("/{customer_code}/state", response_model=APIResponse)

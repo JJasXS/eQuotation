@@ -107,6 +107,15 @@ function renderInvoiceAgingChart(items) {
         return;
     }
 
+    // Show all companies, but remove 'No invoice' from barLabels only
+    const labels = items.map(item => item.company_name || item.code);
+    const counts = items.map(item => item.days_ago);
+    const docdates = items.map(item => item.docdate);
+    // Remove 'No invoice' from barLabels so it doesn't overlap
+    const barLabels = items.map(item => item.days_ago_label === 'No invoice' ? '' : item.days_ago_label);
+    const maxDays = counts.length ? Math.max(...counts) : 0;
+    const xAxisMax = Math.max(90, maxDays + 5);
+
     const chartWrap = canvas.parentElement;
     if (chartWrap) {
         chartWrap.style.minHeight = `${Math.max(420, items.length * 42)}px`;
@@ -115,13 +124,6 @@ function renderInvoiceAgingChart(items) {
     if (invoiceAgingChart) {
         invoiceAgingChart.destroy();
     }
-
-    const labels = items.map(item => item.company_name || item.code);
-    const counts = items.map(item => item.days_ago);
-    const docdates = items.map(item => item.docdate);
-    const barLabels = items.map(item => item.days_ago_label);
-    const maxDays = counts.length ? Math.max(...counts) : 0;
-    const xAxisMax = Math.max(90, maxDays + 5);
 
     invoiceAgingChart = new Chart(canvas, {
         type: 'bar',

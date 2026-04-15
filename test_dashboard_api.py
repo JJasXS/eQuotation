@@ -9,19 +9,19 @@ FLASK_BASE_URL = "http://127.0.0.1:5000"
 FASTAPI_BASE_URL = "http://127.0.0.1:8000"
 
 def test_fastapi_customers_endpoint():
-    """Test FastAPI /local/customers/all endpoint."""
+    """Test FastAPI /customer endpoint."""
     print("\n" + "="*60)
-    print("TEST 1: FastAPI /local/customers/all")
+    print("TEST 1: FastAPI /customer?offset=0")
     print("="*60)
     
-    url = f"{FASTAPI_BASE_URL}/local/customers/all"
+    url = f"{FASTAPI_BASE_URL}/customer?offset=0"
     try:
         response = requests.get(url, timeout=5)
         print(f"Status: {response.status_code}")
         data = response.json()
         print(f"Response: {json.dumps(data, indent=2)}")
         
-        if response.status_code == 200 and data.get('success'):
+        if response.status_code == 200 and isinstance(data, dict) and isinstance(data.get('data'), list):
             print("✓ FastAPI endpoint is working correctly")
             customers = data.get('data', [])
             print(f"✓ Retrieved {len(customers)} customers")
@@ -110,7 +110,7 @@ def main():
     print("="*60)
     
     results = {
-        "FastAPI /local/customers/all": test_fastapi_customers_endpoint(),
+        "FastAPI /customer?offset=0": test_fastapi_customers_endpoint(),
         "Flask /api/admin/customer_status_summary": test_flask_customer_status_endpoint(),
         "Flask /api/admin/invoice_aging_summary": test_flask_invoice_aging_endpoint(),
     }
