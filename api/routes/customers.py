@@ -122,15 +122,146 @@ def create_customer_compat(
 
 @compat_router.get("/customer")
 def list_customers_compat(
+    code: str | None = Query(None),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=500),
 ):
-    """Compatibility route matching /customer?offset=0 response shape for dashboard usage."""
+    """Compatibility GET /customer endpoint for list mode and detail-by-code mode."""
     con = None
     cur = None
     try:
         con = fdb.connect(dsn=f"{DB_HOST}:{DB_PATH}", user=DB_USER, password=DB_PASSWORD, charset='UTF8')
         cur = con.cursor()
+
+        # Detail mode: /customer?code=300-R0005
+        if code:
+            customer_code = str(code).strip()
+            cur.execute(
+                """
+                SELECT
+                    CODE,
+                    COMPANYNAME,
+                    CREDITTERM,
+                    STATUS,
+                    UDF_EMAIL
+                FROM AR_CUSTOMER
+                WHERE CODE = ?
+                """,
+                [customer_code],
+            )
+            row = cur.fetchone()
+            if not row:
+                return {
+                    'pagination': {'offset': 0, 'limit': 1, 'count': 0},
+                    'data': [],
+                }
+
+            cur.execute(
+                """
+                SELECT
+                    DTLKEY,
+                    CODE,
+                    BRANCHTYPE,
+                    BRANCHNAME,
+                    ADDRESS1,
+                    ADDRESS2,
+                    ADDRESS3,
+                    ADDRESS4,
+                    POSTCODE,
+                    CITY,
+                    STATE,
+                    COUNTRY,
+                    ATTENTION,
+                    PHONE1,
+                    EMAIL
+                FROM AR_CUSTOMERBRANCH
+                WHERE CODE = ?
+                ORDER BY DTLKEY ASC
+                """,
+                [customer_code],
+            )
+
+            branches = []
+            for b in cur.fetchall() or []:
+                branches.append({
+                    'dtlkey': b[0],
+                    'code': str(b[1]).strip() if b[1] else '',
+                    'branchtype': str(b[2]).strip() if b[2] else None,
+                    'branchname': str(b[3]).strip() if b[3] else None,
+                    'address1': str(b[4]).strip() if b[4] else None,
+                    'address2': str(b[5]).strip() if b[5] else None,
+                    'address3': str(b[6]).strip() if b[6] else None,
+                    'address4': str(b[7]).strip() if b[7] else None,
+                    'postcode': str(b[8]).strip() if b[8] else None,
+                    'city': str(b[9]).strip() if b[9] else None,
+                    'state': str(b[10]).strip() if b[10] else None,
+                    'country': str(b[11]).strip() if b[11] else None,
+                    'geocoordinate': None,
+                    'attention': str(b[12]).strip() if b[12] else None,
+                    'phone1': str(b[13]).strip() if b[13] else None,
+                    'phone2': None,
+                    'mobile': None,
+                    'fax1': None,
+                    'fax2': None,
+                    'email': str(b[14]).strip() if b[14] else None,
+                })
+
+            customer = {
+                'code': str(row[0]).strip() if row[0] else '',
+                'controlaccount': None,
+                'companyname': str(row[1]).strip() if row[1] else None,
+                'companyname2': None,
+                'companycategory': None,
+                'area': None,
+                'agent': None,
+                'biznature': None,
+                'creditterm': str(row[2]).strip() if row[2] else None,
+                'creditlimit': None,
+                'overduelimit': None,
+                'statementtype': None,
+                'currencycode': None,
+                'outstanding': None,
+                'allowexceedcreditlimit': None,
+                'addpdctocrlimit': None,
+                'agingon': None,
+                'pricetag': None,
+                'creationdate': None,
+                'tax': None,
+                'taxexemptno': None,
+                'taxexpdate': None,
+                'brn': None,
+                'brn2': None,
+                'gstno': None,
+                'salestaxno': None,
+                'servicetaxno': None,
+                'tin': None,
+                'idtype': None,
+                'idno': None,
+                'tourismno': None,
+                'sic': None,
+                'submissiontype': None,
+                'irbm_classification': None,
+                'inforequest_uuid': None,
+                'peppolid': None,
+                'businessunit': None,
+                'taxarea': None,
+                'attachments': None,
+                'remark': None,
+                'note': None,
+                'status': str(row[3]).strip() if row[3] else None,
+                'lastmodified': None,
+                'dirty': False,
+                'sdsbranch': branches,
+                'sdscreditcontrol': [],
+                'sdsbankacc': [],
+                'sdstariff': [],
+                'udf_email': str(row[4]).strip() if row[4] else None,
+            }
+
+            return {
+                'pagination': {'offset': 0, 'limit': 1, 'count': 1, 'total': 1},
+                'data': [customer],
+            }
 
         cur.execute('SELECT COUNT(*) FROM AR_CUSTOMER')
         total = int((cur.fetchone() or [0])[0] or 0)

@@ -3317,7 +3317,7 @@ def api_create_quotation():
 @api_login_required(unauth_message='Session expired. Please log in again.')
 def api_save_draft_quotation():
     """Save quotation draft into SL_QTDRAFT/SL_QTDTLDRAFT."""
-    customer_code = get_current_customer_code(resolve_missing=True)
+    customer_code = get_current_customer_code(resolve_missing=False)
     data = request.get_json() or {}
 
     if not customer_code:
@@ -4052,7 +4052,7 @@ def api_admin_update_quotation():
 @app.route('/api/get_user_info')
 @api_login_required(unauth_message='Unauthorized')
 def api_get_user_info():
-    """Proxy to PHP getUserInfo.php for customer info."""
+    """Return customer info for create-quotation from SQL API only."""
     customer_code = get_current_customer_code(resolve_missing=True)
     if not customer_code:
         print("[DEBUG] get_user_info: customer_code not in session", flush=True)
@@ -4088,6 +4088,23 @@ def api_get_user_info():
             if isinstance(candidate, dict):
                 first_address = candidate
 
+        # SQL API sample uses sdsbranch[] with address/phone/email fields.
+        branch_obj = None
+        if isinstance(source.get('sdsbranch'), list) and source.get('sdsbranch'):
+            billing_branch = next(
+                (
+                    b for b in source.get('sdsbranch', [])
+                    if isinstance(b, dict) and str(b.get('branchtype', '')).strip().upper() == 'B'
+                ),
+                None,
+            )
+            if isinstance(billing_branch, dict):
+                branch_obj = billing_branch
+            else:
+                first_branch = source.get('sdsbranch')[0]
+                if isinstance(first_branch, dict):
+                    branch_obj = first_branch
+
         def normalize_key(key):
             return ''.join(ch.lower() for ch in str(key) if ch.isalnum())
 
@@ -4102,6 +4119,7 @@ def api_get_user_info():
         source_map = build_normalized_map(source)
         address_map = build_normalized_map(address_obj)
         first_address_map = build_normalized_map(first_address)
+        branch_map = build_normalized_map(branch_obj)
 
         def pick_from(obj, obj_map, *keys, default=''):
             if not isinstance(obj, dict):
@@ -4124,7 +4142,10 @@ def api_get_user_info():
             value = pick_from(address_obj, address_map, *keys, default='')
             if value:
                 return value
-            return pick_from(first_address, first_address_map, *keys, default=default)
+            value = pick_from(first_address, first_address_map, *keys, default='')
+            if value:
+                return value
+            return pick_from(branch_obj, branch_map, *keys, default=default)
 
         return {
             'CODE': pick('CODE', 'code', default=customer_code),
@@ -4135,6 +4156,7 @@ def api_get_user_info():
             'ADDRESS3': pick('ADDRESS3', 'address3', 'addr3', 'line3', 'city', default=''),
             'ADDRESS4': pick('ADDRESS4', 'address4', 'addr4', 'line4', 'state', 'country', default=''),
             'PHONE1': pick('PHONE1', 'phone', 'phone1', 'tel', 'telephone', default='N/A'),
+            'UDF_EMAIL': pick('UDF_EMAIL', 'udf_email', 'EMAIL', 'email', default=''),
         }
 
     def _has_meaningful_customer_data(info):
@@ -4149,94 +4171,6 @@ def api_get_user_info():
             phone1 not in ('', 'N/A'),
         ])
 
-    def _has_meaningful_address_or_phone(info):
-        if not isinstance(info, dict):
-            return False
-        addr1 = str(info.get('ADDRESS1', '')).strip().upper()
-        addr2 = str(info.get('ADDRESS2', '')).strip().upper()
-        addr3 = str(info.get('ADDRESS3', '')).strip().upper()
-        addr4 = str(info.get('ADDRESS4', '')).strip().upper()
-        phone1 = str(info.get('PHONE1', '')).strip().upper()
-        return any([
-            addr1 not in ('', 'N/A'),
-            addr2 not in ('', 'N/A'),
-            addr3 not in ('', 'N/A'),
-            addr4 not in ('', 'N/A'),
-            phone1 not in ('', 'N/A'),
-        ])
-
-    def _merge_missing_customer_fields(primary, fallback):
-        if not isinstance(primary, dict):
-            return fallback if isinstance(fallback, dict) else primary
-        if not isinstance(fallback, dict):
-            return primary
-
-        merged = dict(primary)
-        for key in ('ADDRESS1', 'ADDRESS2', 'ADDRESS3', 'ADDRESS4', 'PHONE1', 'CREDITTERM', 'COMPANYNAME'):
-            current = str(merged.get(key, '')).strip()
-            fallback_value = str(fallback.get(key, '')).strip()
-            if (not current or current.upper() == 'N/A') and fallback_value:
-                merged[key] = fallback_value
-        return merged
-
-    def _load_customer_from_local_db():
-        con = None
-        cur = None
-        try:
-            con = get_db_connection()
-            cur = con.cursor()
-            cur.execute(
-                '''
-                SELECT
-                    c.CODE,
-                    c.COMPANYNAME,
-                    c.CREDITTERM,
-                    cb.ADDRESS1,
-                    cb.ADDRESS2,
-                    cb.ADDRESS3,
-                    cb.ADDRESS4,
-                    cb.PHONE1
-                FROM AR_CUSTOMER c
-                LEFT JOIN AR_CUSTOMERBRANCH cb
-                  ON cb.CODE = c.CODE
-                 AND cb.DTLKEY = (
-                     SELECT MIN(b.DTLKEY)
-                     FROM AR_CUSTOMERBRANCH b
-                     WHERE b.CODE = c.CODE
-                 )
-                WHERE c.CODE = ?
-                ''',
-                (customer_code,),
-            )
-            row = cur.fetchone()
-            if not row:
-                return None
-
-            return {
-                'CODE': (str(row[0]).strip() if row[0] is not None else customer_code),
-                'COMPANYNAME': (str(row[1]).strip() if row[1] else 'N/A'),
-                'CREDITTERM': (str(row[2]).strip() if row[2] else 'N/A'),
-                'ADDRESS1': (str(row[3]).strip() if row[3] else 'N/A'),
-                'ADDRESS2': (str(row[4]).strip() if row[4] else 'N/A'),
-                'ADDRESS3': (str(row[5]).strip() if row[5] else ''),
-                'ADDRESS4': (str(row[6]).strip() if row[6] else ''),
-                'PHONE1': (str(row[7]).strip() if row[7] else 'N/A'),
-            }
-        except Exception as db_err:
-            print(f"[DEBUG] get_user_info: Local DB fallback failed: {db_err}", flush=True)
-            return None
-        finally:
-            try:
-                if cur:
-                    cur.close()
-            except Exception:
-                pass
-            try:
-                if con:
-                    con.close()
-            except Exception:
-                pass
-
     def _debug_log_user_info_payload(source, payload):
         if not isinstance(payload, dict):
             print(f"[DEBUG] get_user_info: Final payload source={source} is not a dict", flush=True)
@@ -4250,6 +4184,7 @@ def api_get_user_info():
             'ADDRESS4': payload.get('ADDRESS4'),
             'PHONE1': payload.get('PHONE1'),
             'CREDITTERM': payload.get('CREDITTERM'),
+            'UDF_EMAIL': payload.get('UDF_EMAIL'),
         }
         print(f"[DEBUG] get_user_info: Final payload source={source} summary={summary}", flush=True)
 
@@ -4264,113 +4199,108 @@ def api_get_user_info():
         sql_use_tls = (os.getenv('SQL_API_USE_TLS', 'true').strip().lower() in ('1', 'true', 'yes', 'on'))
 
         if sql_access_key and sql_secret_key and sql_host:
-            # '/customer/*' in docs is a route template; call concrete path without literal '*'.
-            sql_detail_path = sql_detail_path.replace('*', '').strip()
-            if not sql_detail_path:
-                sql_detail_path = '/customer'
-            if not sql_detail_path.startswith('/'):
-                sql_detail_path = '/' + sql_detail_path
-            sql_detail_path = sql_detail_path.rstrip('/') or '/customer'
-
+            raw_path = (sql_detail_path or '/customer/*').strip()
+            if not raw_path.startswith('/'):
+                raw_path = '/' + raw_path
+            trimmed_path = raw_path.replace('*', '').rstrip('/') or '/customer'
+            code_str = quote(str(customer_code), safe='')
             scheme = 'https' if sql_use_tls else 'http'
-            sql_url = f"{scheme}://{sql_host.rstrip('/')}{quote(sql_detail_path, safe='/:?&=%')}?code={quote(str(customer_code), safe='')}"
-            print(f"[DEBUG] get_user_info: Calling SQL API at {sql_url}", flush=True)
+
+            # Try multiple path shapes because some SQL API deployments only return branch
+            # fields for wildcard/path-parameter variants.
+            candidate_urls = [
+                f"{scheme}://{sql_host.rstrip('/')}{quote(trimmed_path, safe='/:?&=%')}?code={code_str}",
+                f"{scheme}://{sql_host.rstrip('/')}{quote(raw_path, safe='/:?&=%')}?code={code_str}",
+                f"{scheme}://{sql_host.rstrip('/')}{quote(trimmed_path.rstrip('/') + '/' + str(customer_code), safe='/:?&=%')}",
+            ]
+
+            # Preserve order but deduplicate identical URLs.
+            unique_urls = []
+            for url in candidate_urls:
+                if url not in unique_urls:
+                    unique_urls.append(url)
 
             sql_headers = {'Accept': 'application/json'}
-            try:
-                # Prefer SigV4 signing if botocore is available in this Flask runtime.
-                from botocore.auth import SigV4Auth
-                from botocore.awsrequest import AWSRequest
-                from botocore.credentials import Credentials
+            best_normalized = None
+            best_source = None
 
-                creds = Credentials(sql_access_key, sql_secret_key)
-                aws_request = AWSRequest(method='GET', url=sql_url, headers=sql_headers)
-                SigV4Auth(creds, sql_service, sql_region).add_auth(aws_request)
-                prepared = aws_request.prepare()
+            for idx, sql_url in enumerate(unique_urls, start=1):
+                print(f"[DEBUG] get_user_info: Calling SQL API variant {idx}/{len(unique_urls)} at {sql_url}", flush=True)
 
-                sql_response = requests.get(
-                    prepared.url,
-                    headers=dict(prepared.headers),
-                    timeout=10,
-                )
-            except Exception as sigv4_error:
-                # Fallback for environments where upstream accepts key headers.
-                print(f"[DEBUG] get_user_info: SigV4 unavailable/failed ({sigv4_error}); trying header auth", flush=True)
-                sql_response = requests.get(
-                    sql_url,
-                    headers={
-                        **sql_headers,
-                        'X-Access-Key': sql_access_key,
-                        'X-Secret-Key': sql_secret_key,
-                        'X-Region': sql_region,
-                        'X-Service': sql_service,
-                    },
-                    timeout=10,
-                )
+                try:
+                    # Prefer SigV4 signing if botocore is available in this Flask runtime.
+                    from botocore.auth import SigV4Auth
+                    from botocore.awsrequest import AWSRequest
+                    from botocore.credentials import Credentials
 
-            print(f"[DEBUG] get_user_info: SQL API response status {sql_response.status_code}", flush=True)
-            if not sql_response.ok:
-                print(f"[DEBUG] get_user_info: SQL API response preview: {(sql_response.text or '')[:260]}", flush=True)
+                    creds = Credentials(sql_access_key, sql_secret_key)
+                    aws_request = AWSRequest(method='GET', url=sql_url, headers=sql_headers)
+                    SigV4Auth(creds, sql_service, sql_region).add_auth(aws_request)
+                    prepared = aws_request.prepare()
 
-            if sql_response.ok:
+                    sql_response = requests.get(
+                        prepared.url,
+                        headers=dict(prepared.headers),
+                        timeout=10,
+                    )
+                except Exception as sigv4_error:
+                    # Fallback for environments where upstream accepts key headers.
+                    print(f"[DEBUG] get_user_info: SigV4 unavailable/failed ({sigv4_error}); trying header auth", flush=True)
+                    sql_response = requests.get(
+                        sql_url,
+                        headers={
+                            **sql_headers,
+                            'X-Access-Key': sql_access_key,
+                            'X-Secret-Key': sql_secret_key,
+                            'X-Region': sql_region,
+                            'X-Service': sql_service,
+                        },
+                        timeout=10,
+                    )
+
+                print(f"[DEBUG] get_user_info: SQL API response status {sql_response.status_code}", flush=True)
+                if not sql_response.ok:
+                    print(f"[DEBUG] get_user_info: SQL API response preview: {(sql_response.text or '')[:260]}", flush=True)
+                    continue
+
                 try:
                     sql_json = sql_response.json()
-                    if isinstance(sql_json, dict):
-                        print(f"[DEBUG] get_user_info: SQL JSON top-level keys: {list(sql_json.keys())}", flush=True)
-                        sql_data = sql_json.get('data')
-                        if isinstance(sql_data, list):
-                            print(f"[DEBUG] get_user_info: SQL JSON data list length: {len(sql_data)}", flush=True)
-                            if sql_data and isinstance(sql_data[0], dict):
-                                print(f"[DEBUG] get_user_info: SQL first data keys: {list(sql_data[0].keys())}", flush=True)
-                        elif isinstance(sql_data, dict):
-                            print(f"[DEBUG] get_user_info: SQL data keys: {list(sql_data.keys())}", flush=True)
-                    elif isinstance(sql_json, list):
-                        print(f"[DEBUG] get_user_info: SQL JSON list length: {len(sql_json)}", flush=True)
-                    normalized = _normalize_customer_info(sql_json)
-                    if normalized and _has_meaningful_customer_data(normalized):
-                        if _has_meaningful_address_or_phone(normalized):
-                            _debug_log_user_info_payload('sql_api', normalized)
-                            return jsonify({'success': True, 'data': normalized, 'source': 'sql_api'})
-
-                        print('[DEBUG] get_user_info: SQL response missing address/phone, enriching from local DB', flush=True)
-                        local_data = _load_customer_from_local_db()
-                        if local_data:
-                            merged = _merge_missing_customer_fields(normalized, local_data)
-                            _debug_log_user_info_payload('sql_api+local_db', merged)
-                            return jsonify({'success': True, 'data': merged, 'source': 'sql_api+local_db'})
-
-                        _debug_log_user_info_payload('sql_api', normalized)
-                        return jsonify({'success': True, 'data': normalized, 'source': 'sql_api'})
-
-                    print('[DEBUG] get_user_info: SQL response had no meaningful customer data, trying local DB fallback', flush=True)
                 except Exception as parse_err:
                     print(f"[DEBUG] get_user_info: SQL API JSON parse failed: {parse_err}", flush=True)
+                    continue
 
-        # 2) Local DB fallback by customer code
-        local_data = _load_customer_from_local_db()
-        if local_data and _has_meaningful_customer_data(local_data):
-            _debug_log_user_info_payload('local_db', local_data)
-            return jsonify({'success': True, 'data': local_data, 'source': 'local_db'})
+                if isinstance(sql_json, dict):
+                    print(f"[DEBUG] get_user_info: SQL JSON top-level keys: {list(sql_json.keys())}", flush=True)
+                    sql_data = sql_json.get('data')
+                    if isinstance(sql_data, list):
+                        print(f"[DEBUG] get_user_info: SQL JSON data list length: {len(sql_data)}", flush=True)
+                        if sql_data and isinstance(sql_data[0], dict):
+                            print(f"[DEBUG] get_user_info: SQL first data keys: {list(sql_data[0].keys())}", flush=True)
+                    elif isinstance(sql_data, dict):
+                        print(f"[DEBUG] get_user_info: SQL data keys: {list(sql_data.keys())}", flush=True)
+                elif isinstance(sql_json, list):
+                    print(f"[DEBUG] get_user_info: SQL JSON list length: {len(sql_json)}", flush=True)
 
-        # 3) Final fallback path: PHP endpoint using BASE_API_URL and ENDPOINT_PATHS
-        php_url = f"{BASE_API_URL}{ENDPOINT_PATHS['getuserinfo']}"
-        print(f"[DEBUG] get_user_info: Falling back to PHP {php_url}?customerCode={customer_code}", flush=True)
-        response = requests.get(php_url, params={'customerCode': customer_code}, timeout=10)
-        print(f"[DEBUG] get_user_info: PHP response status {response.status_code}", flush=True)
-        if not response.ok:
-            return jsonify({
-                'success': False,
-                'error': f'PHP fallback returned HTTP {response.status_code}',
-                'preview': (response.text or '')[:260],
-            }), 502
-        try:
-            return jsonify(response.json())
-        except Exception as json_err:
-            return jsonify({
-                'success': False,
-                'error': f'PHP fallback returned non-JSON response: {json_err}',
-                'preview': (response.text or '')[:260],
-            }), 502
+                normalized = _normalize_customer_info(sql_json)
+                if not normalized or not _has_meaningful_customer_data(normalized):
+                    continue
+
+                # Keep first valid result as baseline, but prefer one that has address/phone.
+                if best_normalized is None:
+                    best_normalized = normalized
+                    best_source = f'sql_api_variant_{idx}'
+
+                addr1 = str(normalized.get('ADDRESS1', '')).strip().upper()
+                phone1 = str(normalized.get('PHONE1', '')).strip().upper()
+                if addr1 not in ('', 'N/A') or phone1 not in ('', 'N/A'):
+                    _debug_log_user_info_payload(f'sql_api_variant_{idx}', normalized)
+                    return jsonify({'success': True, 'data': normalized, 'source': f'sql_api_variant_{idx}'})
+
+            if best_normalized is not None:
+                _debug_log_user_info_payload(best_source or 'sql_api', best_normalized)
+                return jsonify({'success': True, 'data': best_normalized, 'source': best_source or 'sql_api'})
+
+        return jsonify({'success': False, 'error': 'No SQL API customer data returned'}), 404
     except Exception as e:
         print(f"[DEBUG] get_user_info: Exception occurred: {str(e)}", flush=True)
         import traceback

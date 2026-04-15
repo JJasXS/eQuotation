@@ -668,31 +668,15 @@ if (quotationForm) {
 // Load user info (customer info including company, address, phone, and credit term) for quotation form
 async function loadUserInfo() {
     try {
-        const customerEmailInput = document.getElementById('quotation-customer');
-        const customerEmail = customerEmailInput ? customerEmailInput.value.trim() : '';
-        let data = null;
-
         const response = await fetch('/api/get_user_info');
-        if (response.ok) {
-            data = await response.json();
-            console.log('Customer data response from /api/get_user_info:', data);
-        } else {
-            console.warn('Primary customer info lookup failed with status:', response.status);
-        }
-
-        if ((!data || !data.success || !data.data) && customerEmail) {
-            const phpUrl = `${getPhpBaseUrl()}/php/getCustomerByEmail.php?email=${encodeURIComponent(customerEmail)}`;
-            console.warn('Falling back to email-based customer lookup:', phpUrl);
-            const fallbackResponse = await fetch(phpUrl);
-            data = await fallbackResponse.json();
-            console.log('Customer data response from fallback getCustomerByEmail.php:', data);
-        }
-
-        if (!data) {
-            console.warn('No customer data returned from either lookup path');
+        if (!response.ok) {
+            console.warn('Customer info lookup failed with status:', response.status);
             setDefaultCustomerInfo();
             return;
         }
+
+        const data = await response.json();
+        console.log('Customer data response from /api/get_user_info:', data);
         
         if (data.success && data.data) {
             const source = data.data || {};
@@ -758,6 +742,15 @@ async function loadUserInfo() {
             if (termsInput) {
                 termsInput.value = pickValue('CREDITTERM', 'creditTerm', 'creditterm') || 'N/A';
             }
+
+            // Prefer SQL API udf_email for display if available.
+            const customerEmailInput = document.getElementById('quotation-customer');
+            if (customerEmailInput) {
+                const apiEmail = pickValue('UDF_EMAIL', 'udf_email', 'EMAIL', 'email');
+                if (apiEmail) {
+                    customerEmailInput.value = apiEmail;
+                }
+            }
         } else {
             // Set default N/A values if data not found
             console.warn('Customer data not found:', data.error);
@@ -778,11 +771,6 @@ function setDefaultCustomerInfo() {
             field.value = 'N/A';
         }
     });
-}
-
-function getPhpBaseUrl() {
-    const configuredBaseUrl = document.body?.dataset?.phpBaseUrl || 'http://localhost:8080';
-    return configuredBaseUrl.replace(/\/$/, '');
 }
 
 // Load draft quotation data if dockey is present
