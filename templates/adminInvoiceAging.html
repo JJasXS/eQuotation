@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Invoice Aging</title>
+    <link rel="stylesheet" href="/static/css/admin.css">
+    <link rel="stylesheet" href="/static/css/hamburger_menu.css">
+</head>
+<body>
+    <div class="admin-container">
+        <div class="admin-header">
+            {% include 'components/admin_hamburger_menu.html' %}
+            <h2>Admin Dashboard</h2>
+        </div>
+
+        <div class="analytics-page">
+            <div class="analytics-shell">
+                <div class="analytics-toolbar">
+                    <div class="analytics-title">
+                        <h1>Invoice Aging</h1>
+                        <p>Latest SL_IV.DOCDATE per SL_IV.CODE, compared against today's date.</p>
+                    </div>
+                    <a class="analytics-back-link" href="/admin">← Back to Dashboard</a>
+                </div>
+
+                <div class="analytics-stats">
+                    <div class="analytics-stat">
+                        <div class="analytics-stat-label">Total Company Codes</div>
+                        <div class="analytics-stat-value" id="invoice-aging-total">-</div>
+                        <div class="analytics-stat-note">All company codes from SL_IV, using the latest invoice date per code</div>
+                    </div>
+                    <div class="analytics-stat">
+                        <div class="analytics-stat-label">Today</div>
+                        <div class="analytics-stat-value" id="invoice-aging-today">-</div>
+                        <div class="analytics-stat-note">Server sysdate reference</div>
+                    </div>
+                    <div class="analytics-stat">
+                        <div class="analytics-stat-label">Latest Invoice Age</div>
+                        <div class="analytics-stat-value" id="invoice-aging-latest">-</div>
+                        <div class="analytics-stat-note">Closest latest SL_IV.DOCDATE to today</div>
+                    </div>
+                    <div class="analytics-stat">
+                        <div class="analytics-stat-label">Latest Invoice Company</div>
+                        <div class="analytics-stat-value" id="invoice-aging-latest-company">-</div>
+                        <div class="analytics-stat-note">Company with the most recent invoice</div>
+                    </div>
+                </div>
+
+                <div class="analytics-card analytics-chart-panel">
+                    <div class="dashboard-widget-header">
+                        <div>
+                            <h3>Company Invoice Aging</h3>
+                            <p>Horizontal bar graph by company, based on the latest SL_IV.DOCDATE for each code.</p>
+                        </div>
+                        <span class="dashboard-widget-badge">Bar Graph</span>
+                    </div>
+                    <div class="analytics-chart-wrap">
+                        <canvas id="invoice-aging-chart" aria-label="Invoice aging bar chart"></canvas>
+                    </div>
+                </div>
+
+                <div class="analytics-card">
+                    <div class="dashboard-widget-header">
+                        <div>
+                            <h3>Recent Invoice Age Breakdown</h3>
+                            <p>All company codes listed with the latest invoice date and its age from today.</p>
+                        </div>
+                    </div>
+                    <div class="analytics-list" id="invoice-aging-list">
+                        <div class="analytics-empty">Loading invoice aging details...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/static/js/admin_menu.js"></script>
+    <script src="/static/js/admin_invoice_aging.js"></script>
+</body>
+</html>

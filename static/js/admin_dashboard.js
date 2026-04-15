@@ -1,5 +1,28 @@
 let customerStatusChart = null;
 
+function attachDashboardNavigation() {
+    const widget = document.getElementById('customer-status-widget');
+    if (!widget) {
+        return;
+    }
+
+    const href = widget.dataset.href;
+    if (!href) {
+        return;
+    }
+
+    widget.addEventListener('click', () => {
+        window.location.href = href;
+    });
+
+    widget.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            window.location.href = href;
+        }
+    });
+}
+
 function renderCustomerStatusChart(items) {
     const canvas = document.getElementById('customer-status-chart');
     const summary = document.getElementById('customer-status-summary');
@@ -56,7 +79,11 @@ function renderCustomerStatusChart(items) {
         },
     });
 
-    
+    if (summary) {
+        const totalCustomers = counts.reduce((sum, count) => sum + count, 0);
+        const activeItem = items.find(item => item.code === 'A');
+        summary.innerHTML = `<strong>${totalCustomers}</strong> total customers. Active: <strong>${activeItem ? activeItem.count : 0}</strong>.`;
+    }
 }
 
 async function loadCustomerStatusWidget() {
@@ -78,5 +105,6 @@ async function loadCustomerStatusWidget() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    attachDashboardNavigation();
     loadCustomerStatusWidget();
 });

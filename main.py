@@ -820,6 +820,80 @@ def customer_status_summary():
         if con:
             con.close()
 
+
+@app.route('/api/admin/invoice_aging_summary', methods=['GET'])
+@api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
+def invoice_aging_summary():
+    """Return latest SL_IV.DOCDATE per SL_IV.CODE for invoice aging analytics."""
+    con = None
+    cur = None
+    try:
+        today = datetime.now().date()
+        con = get_db_connection()
+        cur = con.cursor()
+        cur.execute("""
+            SELECT latest.CODE,
+                   latest.LATEST_DOCDATE,
+                   ac.COMPANYNAME
+            FROM (
+                SELECT CODE, MAX(DOCDATE) AS LATEST_DOCDATE
+                FROM SL_IV
+                WHERE DOCDATE IS NOT NULL
+                  AND CODE IS NOT NULL
+                  AND TRIM(CODE) <> ''
+                GROUP BY CODE
+            ) latest
+            LEFT JOIN AR_CUSTOMER ac ON latest.CODE = ac.CODE
+            ORDER BY latest.LATEST_DOCDATE DESC, latest.CODE ASC
+        """)
+
+        rows = cur.fetchall() or []
+        latest_by_code = []
+
+        for raw_code, raw_docdate, raw_company_name in rows:
+            code = (str(raw_code).strip() if raw_code is not None else '')
+            if not code or raw_docdate is None:
+                continue
+
+            docdate = raw_docdate if not isinstance(raw_docdate, datetime) else raw_docdate.date()
+            days_ago = max(0, (today - docdate).days)
+            day_suffix = 'day' if days_ago == 1 else 'days'
+            company_name = (str(raw_company_name).strip() if raw_company_name is not None else '') or code
+
+            latest_by_code.append({
+                'code': code,
+                'company_name': company_name,
+                'docdate': docdate.isoformat(),
+                'days_ago': days_ago,
+                'days_ago_label': f'{days_ago} {day_suffix} ago',
+            })
+
+        latest_by_code.sort(key=lambda item: (item['days_ago'], item['company_name'].lower(), item['code']))
+
+
+        latest_days_ago = latest_by_code[0]['days_ago_label'] if latest_by_code else None
+        latest_company_name = latest_by_code[0]['company_name'] if latest_by_code else None
+
+        return jsonify({
+            'success': True,
+            'data': {
+                'items': latest_by_code,
+                'latest_by_code': latest_by_code,
+                'total_codes': len(latest_by_code),
+                'latest_invoice_age': latest_days_ago,
+                'latest_invoice_company': latest_company_name,
+                'today': today.isoformat(),
+            }
+        }), 200
+    except Exception as exc:
+        print(f'Error loading invoice aging summary: {exc}')
+        return jsonify({'success': False, 'error': 'Failed to load invoice aging summary'}), 500
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
+
 # ============================================
 # ROUTE: Delete Order Detail
 # ============================================
@@ -2057,6 +2131,16 @@ def admin_pricing_priority_rules():
     """Display pricing priority rule settings page (admin only)."""
     return render_protected_template(
         'pricingPriorityRules.html',
+        require_admin=True,
+        user_type=session.get('user_type', 'admin')
+    )
+
+
+@app.route('/admin/invoice-aging')
+def admin_invoice_aging():
+    """Display invoice aging analytics page (admin only)."""
+    return render_protected_template(
+        'adminInvoiceAging.html',
         require_admin=True,
         user_type=session.get('user_type', 'admin')
     )
