@@ -768,6 +768,58 @@ def add_no_cache_headers(response):
     response.headers['Expires'] = '0'
     return response
 
+
+@app.route('/api/admin/customer_status_summary', methods=['GET'])
+@api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
+def customer_status_summary():
+    """Return AR_CUSTOMER status distribution for the admin dashboard."""
+    status_order = ['A', 'I', 'S', 'P', 'N']
+    status_labels = {
+        'A': 'Active',
+        'I': 'Inactive',
+        'S': 'Suspend',
+        'P': 'Prospect',
+        'N': 'Pending',
+    }
+    counts = {code: 0 for code in status_order}
+
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        cur.execute('SELECT STATUS, COUNT(*) FROM AR_CUSTOMER GROUP BY STATUS')
+
+        for raw_status, raw_count in cur.fetchall():
+            normalized_status = (str(raw_status).strip().upper() if raw_status is not None else '')[:1]
+            if normalized_status in counts:
+                counts[normalized_status] = int(raw_count or 0)
+
+        items = [
+            {
+                'code': code,
+                'label': status_labels[code],
+                'count': counts[code],
+            }
+            for code in status_order
+        ]
+
+        return jsonify({
+            'success': True,
+            'data': {
+                'items': items,
+                'total_customers': sum(counts.values()),
+            }
+        }), 200
+    except Exception as exc:
+        print(f'Error loading customer status summary: {exc}')
+        return jsonify({'success': False, 'error': 'Failed to load customer status summary'}), 500
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
+
 # ============================================
 # ROUTE: Delete Order Detail
 # ============================================
