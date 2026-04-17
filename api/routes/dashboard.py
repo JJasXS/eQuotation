@@ -207,8 +207,10 @@ def sales_cycle_details():
             m.QUOTATION_DOCDATE,
             m.INVOICE_DOCDATE,
             m.SALES_CYCLE_DAYS,
-            CAST(DATEDIFF(MINUTE FROM m.QUOTATION_DOCDATE TO m.INVOICE_DOCDATE) AS INTEGER) AS SALES_CYCLE_MINUTES
+            CAST(DATEDIFF(MINUTE FROM m.QUOTATION_DOCDATE TO m.INVOICE_DOCDATE) AS INTEGER) AS SALES_CYCLE_MINUTES,
+            iv.COMPANYNAME
         FROM metrics m
+        LEFT JOIN SL_IV iv ON iv.DOCKEY = m.INVOICE_DOCKEY
         ORDER BY m.SALES_CYCLE_DAYS DESC, m.INVOICE_DOCDATE ASC, m.INVOICE_DOCKEY ASC
     """
     )
@@ -226,7 +228,7 @@ def sales_cycle_details():
         shortest_minutes = None
         longest_minutes = None
 
-        for invoice_dockey, invoice_docno, quotation_docno, quotation_docdate, invoice_docdate, sales_cycle_days, sales_cycle_minutes in rows:
+        for invoice_dockey, invoice_docno, quotation_docno, quotation_docdate, invoice_docdate, sales_cycle_days, sales_cycle_minutes, company_name in rows:
             cycle_days = int(sales_cycle_days or 0)
             cycle_minutes = int(sales_cycle_minutes or 0)
             total_days += cycle_days
@@ -251,6 +253,7 @@ def sales_cycle_details():
                 "sales_cycle_days": cycle_days,
                 "sales_cycle_minutes": cycle_minutes,
                 "sales_cycle_display": display,
+                "company_name": (company_name or '').strip(),
             })
 
         total_invoices = len(items)

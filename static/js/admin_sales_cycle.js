@@ -175,9 +175,10 @@ function renderSalesCycleList(items) {
         const quotationLabel = item.quotation_docno || '-';
         const qtDate = formatDisplayDate(item.quotation_docdate);
         const ivDate = formatDisplayDate(item.invoice_docdate);
+        const company = item.company_name ? `<span class="company-pill">${item.company_name}</span>` : '';
         return `
             <div class="analytics-list-item">
-                <span>${invoiceLabel} · ${item.sales_cycle_display}</span>
+                <span>${invoiceLabel} · ${item.sales_cycle_display} ${company}</span>
                 <span>QT ${quotationLabel} (${qtDate}) → IV (${ivDate})</span>
             </div>
         `;

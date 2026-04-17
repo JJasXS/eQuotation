@@ -54,11 +54,12 @@
                             <p>Bar graph of cycle days for each invoice linked back to quotations.</p>
                         </div>
                         <div class="invoice-aging-filter-wrap">
-                            <label for="sales-cycle-sort" class="invoice-aging-filter-label">Sort:</label>
-                            <select id="sales-cycle-sort">
-                                <option value="desc">Longest to shortest</option>
-                                <option value="asc">Shortest to longest</option>
-                            </select>
+                            <label class="invoice-aging-filter-label" for="sales-cycle-sort-toggle">Sort:</label>
+                            <div class="toggle-switch" id="sales-cycle-sort-toggle" tabindex="0" role="button" aria-pressed="false">
+                                <span class="toggle-label toggle-label-left">Longest</span>
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-label toggle-label-right">Shortest</span>
+                            </div>
                         </div>
                     </div>
                     <div class="analytics-chart-wrap">
