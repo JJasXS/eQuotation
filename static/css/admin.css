@@ -1,3 +1,70 @@
+/* Toggle Switch Styles */
+.toggle-switch {
+    display: inline-flex;
+    align-items: center;
+    background: #1a2233;
+    border: 1px solid #374155;
+    border-radius: 999px;
+    padding: 3px 8px;
+    cursor: pointer;
+    min-width: 90px;
+    user-select: none;
+    position: relative;
+    transition: border 0.2s, box-shadow 0.2s;
+    margin-left: 8px;
+}
+.toggle-switch:focus {
+    border-color: #6a8fc7;
+    box-shadow: 0 0 0 2px #6a8fc755;
+    outline: none;
+}
+.toggle-label {
+    font-size: 14px;
+    color: #b8c7e0;
+    font-weight: 600;
+    padding: 0 6px;
+    transition: color 0.2s;
+}
+.toggle-label-left {
+    margin-right: 2px;
+}
+.toggle-label-right {
+    margin-left: 2px;
+}
+.toggle-slider {
+    width: 32px;
+    height: 22px;
+    background: #232c3d;
+    border-radius: 999px;
+    position: relative;
+    margin: 0 4px;
+    transition: background 0.2s;
+}
+.toggle-switch[aria-pressed="true"] .toggle-slider {
+    background: #6a8fc7;
+}
+.toggle-slider::before {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 4px;
+    width: 16px;
+    height: 16px;
+    background: #e4e9f1;
+    border-radius: 50%;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.10);
+    transition: left 0.22s cubic-bezier(.4,2,.6,1), background 0.2s;
+}
+.toggle-switch[aria-pressed="true"] .toggle-slider::before {
+    left: 12px;
+    background: #232c3d;
+}
+.toggle-switch[aria-pressed="true"] .toggle-label-left {
+    color: #e4e9f1;
+}
+.toggle-switch:not([aria-pressed="true"]) .toggle-label-right {
+    color: #e4e9f1;
+}
 .company-pill {
     display: inline-block;
     background: #2c3850;

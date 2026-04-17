@@ -224,14 +224,26 @@ async function loadSalesCycleDetailPage() {
     }
 }
 
+
 document.addEventListener('DOMContentLoaded', () => {
     loadSalesCycleDetailPage();
 
-    const sortEl = document.getElementById('sales-cycle-sort');
-    if (sortEl) {
-        sortEl.addEventListener('change', (event) => {
-            salesCycleSort = event.target.value;
+    const toggle = document.getElementById('sales-cycle-sort-toggle');
+    if (toggle) {
+        // Default: left (desc)
+        toggle.setAttribute('aria-pressed', salesCycleSort === 'asc' ? 'true' : 'false');
+        toggle.addEventListener('click', () => {
+            salesCycleSort = salesCycleSort === 'desc' ? 'asc' : 'desc';
+            toggle.setAttribute('aria-pressed', salesCycleSort === 'asc' ? 'true' : 'false');
             renderSalesCycleView();
+        });
+        toggle.addEventListener('keydown', (e) => {
+            if (e.key === ' ' || e.key === 'Enter') {
+                e.preventDefault();
+                salesCycleSort = salesCycleSort === 'desc' ? 'asc' : 'desc';
+                toggle.setAttribute('aria-pressed', salesCycleSort === 'asc' ? 'true' : 'false');
+                renderSalesCycleView();
+            }
         });
     }
 });
