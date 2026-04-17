@@ -1,6 +1,10 @@
+
 let invoiceAgingChart = null;
 let allInvoiceAgingItems = [];
 let currentAgingFilter = 'all';
+let invoiceAgingOffset = 0;
+let invoiceAgingLimit = 10;
+let invoiceAgingHasMore = false;
 
 const invoiceAgingBarLabelPlugin = {
     id: 'invoiceAgingBarLabelPlugin',
@@ -208,15 +212,24 @@ function renderInvoiceAgingList(items) {
     `).join('');
 }
 
-async function loadInvoiceAging() {
+
+async function loadInvoiceAging(reset = false) {
     const totalEl = document.getElementById('invoice-aging-total');
     const todayEl = document.getElementById('invoice-aging-today');
     const latestEl = document.getElementById('invoice-aging-latest');
     const listEl = document.getElementById('invoice-aging-list');
     const latestCompanyEl = document.getElementById('invoice-aging-latest-company');
+    const moreBtn = document.getElementById('invoice-aging-more-btn');
+
+    if (reset) {
+        invoiceAgingOffset = 0;
+        allInvoiceAgingItems = [];
+        if (listEl) listEl.innerHTML = '<div class="analytics-empty">Loading invoice aging details...</div>';
+        if (moreBtn) moreBtn.style.display = 'none';
+    }
 
     try {
-        const response = await fetch('/api/admin/invoice_aging_summary');
+        const response = await fetch(`/api/admin/invoice_aging_summary?offset=${invoiceAgingOffset}&limit=${invoiceAgingLimit}`);
         const payload = await response.json();
 
         if (!response.ok || !payload.success || !payload.data || !Array.isArray(payload.data.items)) {
@@ -224,14 +237,20 @@ async function loadInvoiceAging() {
         }
 
         const items = payload.data.items;
-        allInvoiceAgingItems = items;
+        if (reset) {
+            allInvoiceAgingItems = items;
+        } else {
+            allInvoiceAgingItems = allInvoiceAgingItems.concat(items);
+        }
+        invoiceAgingOffset += items.length;
+        invoiceAgingHasMore = !!payload.data.has_more;
+
         if (totalEl) {
             totalEl.textContent = String(payload.data.total_codes ?? 0);
         }
         if (todayEl) {
             todayEl.textContent = formatDisplayDate(payload.data.today);
         }
-
         if (latestEl) {
             latestEl.textContent = payload.data.latest_invoice_age || 'No invoices';
         }
@@ -239,7 +258,12 @@ async function loadInvoiceAging() {
             latestCompanyEl.textContent = payload.data.latest_invoice_company || '-';
         }
 
-        applyAgingFilter();
+        renderInvoiceAgingChart(allInvoiceAgingItems);
+        renderInvoiceAgingList(allInvoiceAgingItems);
+
+        if (moreBtn) {
+            moreBtn.style.display = invoiceAgingHasMore ? '' : 'none';
+        }
     } catch (error) {
         if (listEl) {
             listEl.innerHTML = `<div class="analytics-empty">${error.message || 'Failed to load invoice aging details.'}</div>`;
@@ -247,16 +271,30 @@ async function loadInvoiceAging() {
         if (latestEl) {
             latestEl.textContent = 'Error';
         }
+        if (moreBtn) {
+            moreBtn.style.display = 'none';
+        }
     }
 }
 
+
 document.addEventListener('DOMContentLoaded', () => {
-    loadInvoiceAging();
+    loadInvoiceAging(true);
     const filterEl = document.getElementById('invoice-aging-filter');
     if (filterEl) {
         filterEl.addEventListener('change', (e) => {
             currentAgingFilter = e.target.value;
-            applyAgingFilter();
+            // Optionally, reset pagination on filter change
+            // loadInvoiceAging(true);
+            // For now, just filter loaded items
+            renderInvoiceAgingChart(allInvoiceAgingItems);
+            renderInvoiceAgingList(allInvoiceAgingItems);
+        });
+    }
+    const moreBtn = document.getElementById('invoice-aging-more-btn');
+    if (moreBtn) {
+        moreBtn.addEventListener('click', () => {
+            loadInvoiceAging(false);
         });
     }
 });

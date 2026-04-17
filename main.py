@@ -899,10 +899,11 @@ def customer_status_summary():
         return jsonify({'success': False, 'error': 'Failed to load customer status summary'}), 500
 
 
+
 @app.route('/api/admin/invoice_aging_summary', methods=['GET'])
 @api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
 def invoice_aging_summary():
-    """Return invoice aging, using SQL API customer list + local invoice dates."""
+    """Return invoice aging, using SQL API customer list + local invoice dates, with pagination."""
     con = None
     cur = None
     try:
@@ -910,11 +911,23 @@ def invoice_aging_summary():
         con = get_db_connection()
         cur = con.cursor()
 
+        # Pagination params
+        try:
+            offset = int(request.args.get('offset', 0))
+            limit = int(request.args.get('limit', 10))
+            if limit > 100:
+                limit = 100
+            if offset < 0:
+                offset = 0
+        except Exception:
+            offset = 0
+            limit = 10
+
         customers = {
             customer['code']: customer['company_name']
             for customer in _fetch_all_customers_from_sql_api()
         }
-        
+
         # Fetch invoice dates from database
         cur.execute("""
             SELECT CODE, MAX(DOCDATE) AS LATEST_DOCDATE
@@ -924,19 +937,19 @@ def invoice_aging_summary():
               AND TRIM(CODE) <> ''
             GROUP BY CODE
         """)
-        
+
         invoice_dates = {}
         for code, docdate in cur.fetchall() or []:
             if code:
                 invoice_dates[code] = docdate
-        
+
         latest_by_code = []
-        
+
         # Build list with all customers
         for code, company_name in customers.items():
             if not code:
                 continue
-            
+
             raw_docdate = invoice_dates.get(code)
             if raw_docdate is not None:
                 docdate = raw_docdate if not isinstance(raw_docdate, datetime) else raw_docdate.date()
@@ -960,16 +973,21 @@ def invoice_aging_summary():
         # Sort: invoices first by days_ago, then no-invoice at the end by company name
         latest_by_code.sort(key=lambda item: (item['days_ago'] if item['days_ago'] is not None else 99999, item['company_name'].lower(), item['code']))
 
+        # Pagination
+        total_codes = len(latest_by_code)
+        paged_items = latest_by_code[offset:offset+limit]
 
-        latest_days_ago = latest_by_code[0]['days_ago_label'] if latest_by_code else None
-        latest_company_name = latest_by_code[0]['company_name'] if latest_by_code else None
+        latest_days_ago = paged_items[0]['days_ago_label'] if paged_items else None
+        latest_company_name = paged_items[0]['company_name'] if paged_items else None
 
         return jsonify({
             'success': True,
             'data': {
-                'items': latest_by_code,
-                'latest_by_code': latest_by_code,
-                'total_codes': len(latest_by_code),
+                'items': paged_items,
+                'total_codes': total_codes,
+                'offset': offset,
+                'limit': limit,
+                'has_more': offset + limit < total_codes,
                 'latest_invoice_age': latest_days_ago,
                 'latest_invoice_company': latest_company_name,
                 'today': today.isoformat(),
