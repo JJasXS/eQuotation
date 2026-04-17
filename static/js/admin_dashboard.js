@@ -328,8 +328,22 @@ async function loadQtIvConversionWidget() {
                 }
                 return (a.qt_docno || '').localeCompare(b.qt_docno || '');
             });
-            const labels = sorted.map(item => item.qt_docno || '');
-            const values = sorted.map(item => Number(item.conversion_pct || 0));
+
+            // Ignore 0% conversions for lowest calculation and chart points.
+            const nonzeroItems = sorted.filter(item => Number(item.conversion_pct || 0) > 0);
+            const labels = nonzeroItems.map(item => item.qt_docno || '');
+            const values = nonzeroItems.map(item => Number(item.conversion_pct || 0));
+
+            const lowestNonzero = values.length > 0 ? Math.min(...values) : null;
+
+            if (breakdownEl) {
+                const baseText = `QT lines: <strong>${totalLines}</strong>. QT qty: <strong>${totalQtQty.toFixed(2)}</strong>. IV qty: <strong>${totalIvQty.toFixed(2)}</strong>. Not invoiced: <strong>${notInvoiced}</strong>, partial: <strong>${partial}</strong>, full/over: <strong>${fullOrOver}</strong>.`;
+                const lowestText = lowestNonzero !== null
+                    ? ` Lowest nonzero conversion: <strong>${lowestNonzero.toFixed(2)}%</strong>.`
+                    : ' Lowest nonzero conversion: <strong>N/A</strong>.';
+                breakdownEl.innerHTML = `${baseText}${lowestText}`;
+            }
+
             if (window.qtIvConversionChart) {
                 window.qtIvConversionChart.destroy();
             }

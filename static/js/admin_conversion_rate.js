@@ -311,12 +311,15 @@ function renderStats(items) {
     const totalIvQty = items.reduce((sum, row) => sum + row.iv_qty, 0);
     const weightedAvg = totalQtQty > 0 ? (totalIvQty / totalQtQty) * 100 : 0;
     const top = Math.max(...items.map(row => row.conversion_pct));
-    const low = Math.min(...items.map(row => row.conversion_pct));
+    const nonzeroRows = items.filter(row => Number(row.conversion_pct || 0) > 0);
+    const low = nonzeroRows.length > 0
+        ? Math.min(...nonzeroRows.map(row => row.conversion_pct))
+        : null;
 
     if (totalEl) totalEl.textContent = String(items.length);
     if (avgEl) avgEl.textContent = `${weightedAvg.toFixed(2)}%`;
     if (topEl) topEl.textContent = `${top.toFixed(2)}%`;
-    if (lowEl) lowEl.textContent = `${low.toFixed(2)}%`;
+    if (lowEl) lowEl.textContent = low === null ? 'N/A' : `${low.toFixed(2)}%`;
 }
 
 function filterByRange(items, range) {
