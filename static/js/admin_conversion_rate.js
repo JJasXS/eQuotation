@@ -3,6 +3,15 @@ let conversionRateChart = null;
 let allConversionItems = [];
 let currentFilter = 'all';
 
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 function toDisplayDate(value) {
     if (!value) {
         return '-';
@@ -31,15 +40,30 @@ function aggregateByQuotation(items) {
             bucket.set(key, {
                 qt_docno: key,
                 qt_docdate: qtDate,
+                customer_code: (item.customer_code || '').trim(),
                 company_name: (item.customer_name || '').trim(),
                 qt_qty: 0,
                 iv_qty: 0,
+                line_count: 0,
+                lines: [],
             });
         }
 
         const row = bucket.get(key);
         row.qt_qty += qtQty;
         row.iv_qty += ivQty;
+        row.line_count += 1;
+        row.lines.push({
+            itemcode: (item.itemcode || '').trim(),
+            qt_qty: qtQty,
+            iv_qty: ivQty,
+            conversion_pct: Number(item.conversion_pct || 0),
+            invoice_count: Number(item.invoice_count || 0),
+            latest_iv_date: item.latest_iv_date || null,
+        });
+        if (!row.customer_code && item.customer_code) {
+            row.customer_code = String(item.customer_code).trim();
+        }
         if (!row.company_name && item.customer_name) {
             row.company_name = String(item.customer_name).trim();
         }
@@ -197,12 +221,76 @@ function renderConversionList(items) {
         return;
     }
 
-    listEl.innerHTML = items.map(item => `
-        <div class="analytics-list-item">
-            <span>${item.qt_docno} (${toDisplayDate(item.qt_docdate)})${item.company_name ? ` <span class="company-pill">${item.company_name}</span>` : ''}</span>
-            <span>${item.conversion_pct.toFixed(2)}% · IV ${item.iv_qty.toFixed(2)} / QT ${item.qt_qty.toFixed(2)}</span>
+    listEl.innerHTML = items.map((item, idx) => {
+        const linePreview = item.lines.slice(0, 6).map(line => `
+            <tr>
+                <td>${escapeHtml(line.itemcode || '-')}</td>
+                <td>${line.qt_qty.toFixed(2)}</td>
+                <td>${line.iv_qty.toFixed(2)}</td>
+                <td>${line.conversion_pct.toFixed(2)}%</td>
+                <td>${line.invoice_count}</td>
+                <td>${escapeHtml(toDisplayDate(line.latest_iv_date))}</td>
+            </tr>
+        `).join('');
+
+        return `
+        <div class="conversion-detail-card" data-row-index="${idx}">
+            <button type="button" class="conversion-detail-toggle" aria-expanded="false" aria-controls="conversion-detail-panel-${idx}">
+                <span>${escapeHtml(item.qt_docno)} (${escapeHtml(toDisplayDate(item.qt_docdate))})${item.company_name ? ` <span class="company-pill">${escapeHtml(item.company_name)}</span>` : ''}</span>
+                <span>${item.conversion_pct.toFixed(2)}% · IV ${item.iv_qty.toFixed(2)} / QT ${item.qt_qty.toFixed(2)} <span class="conversion-caret">▼</span></span>
+            </button>
+            <div class="conversion-detail-panel" id="conversion-detail-panel-${idx}" hidden>
+                <div class="conversion-detail-grid">
+                    <div><strong>Customer Code:</strong> ${escapeHtml(item.customer_code || '-')}</div>
+                    <div><strong>QT Date:</strong> ${escapeHtml(toDisplayDate(item.qt_docdate))}</div>
+                    <div><strong>Total Lines:</strong> ${item.line_count}</div>
+                    <div><strong>Company:</strong> ${escapeHtml(item.company_name || '-')}</div>
+                </div>
+                <div class="conversion-detail-table-wrap">
+                    <table class="conversion-detail-table">
+                        <thead>
+                            <tr>
+                                <th>Item Code</th>
+                                <th>QT Qty</th>
+                                <th>IV Qty</th>
+                                <th>Line %</th>
+                                <th>Invoices</th>
+                                <th>Latest IV</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${linePreview || '<tr><td colspan="6">No line details.</td></tr>'}
+                        </tbody>
+                    </table>
+                </div>
+                ${item.lines.length > 6 ? `<div class="analytics-empty">Showing first 6 of ${item.lines.length} lines.</div>` : ''}
+            </div>
         </div>
-    `).join('');
+    `;
+    }).join('');
+
+    setupConversionDetailAccordion();
+}
+
+function setupConversionDetailAccordion() {
+    const toggles = document.querySelectorAll('.conversion-detail-toggle');
+    toggles.forEach(toggle => {
+        toggle.addEventListener('click', () => {
+            const isExpanded = toggle.getAttribute('aria-expanded') === 'true';
+            const panelId = toggle.getAttribute('aria-controls');
+            const panel = panelId ? document.getElementById(panelId) : null;
+            if (!panel) {
+                return;
+            }
+
+            toggle.setAttribute('aria-expanded', isExpanded ? 'false' : 'true');
+            panel.hidden = isExpanded;
+            const caret = toggle.querySelector('.conversion-caret');
+            if (caret) {
+                caret.textContent = isExpanded ? '▼' : '▲';
+            }
+        });
+    });
 }
 
 function renderStats(items) {
