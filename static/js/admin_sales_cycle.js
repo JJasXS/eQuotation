@@ -1,4 +1,4 @@
-let salesCycleChart = null;
+// Chart.js chart removed as per user request.
 let salesCycleItems = [];
 let salesCycleSort = 'desc';
 
@@ -12,159 +12,14 @@ function escapeHtml(value) {
 }
 
 function formatDisplayDate(value) {
-    if (!value) {
-        return '-';
-    }
-
+    if (!value) return '-';
     const date = new Date(`${value}T00:00:00`);
-    if (Number.isNaN(date.getTime())) {
-        return value;
-    }
-
+    if (Number.isNaN(date.getTime())) return value;
     return new Intl.DateTimeFormat('en-MY', {
         year: 'numeric',
         month: 'short',
         day: 'numeric',
     }).format(date);
-}
-
-function sortedSalesCycleItems(items) {
-    const sorted = [...items];
-    sorted.sort((a, b) => {
-        // Sort by minutes (longest to shortest or vice versa)
-        if (salesCycleSort === 'asc') {
-            return a.sales_cycle_minutes - b.sales_cycle_minutes;
-        }
-        return b.sales_cycle_minutes - a.sales_cycle_minutes;
-    });
-    return sorted;
-}
-
-function renderSalesCycleChart(items) {
-    const canvas = document.getElementById('sales-cycle-chart');
-    if (!canvas || typeof Chart === 'undefined') {
-        return;
-    }
-
-    if (!items.length) {
-        if (salesCycleChart) {
-            salesCycleChart.destroy();
-            salesCycleChart = null;
-        }
-        return;
-    }
-
-    const sorted = sortedSalesCycleItems(items);
-
-    const labels = sorted.map(item => item.invoice_docno || `DOCKEY ${item.invoice_dockey}`);
-    // Use minutes for value, but display as hours if <1 day, else days
-    const values = sorted.map(item => item.sales_cycle_minutes);
-    const maxMinutes = values.length ? Math.max(...values) : 0;
-    const chartWrap = canvas.parentElement;
-
-    if (chartWrap) {
-        chartWrap.style.minHeight = `${Math.max(420, sorted.length * 36)}px`;
-    }
-
-    const backgroundColors = sorted.map(item => {
-        if (item.sales_cycle_days >= 30) return 'rgba(199, 77, 111, 0.82)';
-        if (item.sales_cycle_days >= 14) return 'rgba(230, 139, 90, 0.82)';
-        return 'rgba(106, 143, 199, 0.82)';
-    });
-
-    if (salesCycleChart) {
-        salesCycleChart.destroy();
-    }
-
-    salesCycleChart = new Chart(canvas, {
-        type: 'line',
-        data: {
-            labels,
-            datasets: [{
-                label: 'Sales Cycle',
-                data: values,
-                fill: false,
-                borderColor: '#6a8fc7',
-                backgroundColor: '#6a8fc7',
-                tension: 0.3,
-                pointBackgroundColor: backgroundColors,
-                pointBorderColor: '#9bb8ea',
-                pointRadius: 5,
-                pointHoverRadius: 7,
-            }],
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                x: {
-                    ticks: {
-                        color: '#d8deea',
-                        autoSkip: false,
-                        maxRotation: 40,
-                        minRotation: 30,
-                    },
-                    grid: {
-                        color: 'rgba(255, 255, 255, 0.08)',
-                    },
-                    title: {
-                        display: true,
-                        text: 'Invoice',
-                        color: '#b8c7e0',
-                    },
-                },
-                y: {
-                    beginAtZero: true,
-                    ticks: {
-                        color: '#d8deea',
-                        callback(value) {
-                            if (value < 1440) {
-                                return `${Math.round(value / 60)}h`;
-                            }
-                            return `${Math.round(value / 1440)}d`;
-                        },
-                    },
-                    grid: {
-                        color: 'rgba(255, 255, 255, 0.05)',
-                    },
-                    title: {
-                        display: true,
-                        text: 'Cycle Duration',
-                        color: '#b8c7e0',
-                    },
-                },
-            },
-            plugins: {
-                legend: {
-                    labels: {
-                        color: '#d8deea',
-                    },
-                },
-                tooltip: {
-                    callbacks: {
-                        title(context) {
-                            const index = context[0].dataIndex;
-                            const item = sorted[index];
-                            const invoiceLabel = item.invoice_docno || `DOCKEY ${item.invoice_dockey}`;
-                            return `Invoice: ${invoiceLabel}`;
-                        },
-                        label(context) {
-                            const index = context.dataIndex;
-                            const item = sorted[index];
-                            const qtDocNo = item.quotation_docno || '-';
-                            const qtDate = formatDisplayDate(item.quotation_docdate);
-                            const ivDate = formatDisplayDate(item.invoice_docdate);
-                            return [
-                                `Cycle: ${item.sales_cycle_display}`,
-                                `Quotation: ${qtDocNo} (${qtDate})`,
-                                `Invoice date: ${ivDate}`,
-                            ];
-                        },
-                    },
-                },
-            },
-        },
-    });
 }
 
 function renderSalesCycleList(items) {

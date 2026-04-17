@@ -44,11 +44,29 @@
                             <span class="dashboard-widget-badge">Live Metric</span>
                         </div>
                         <div class="dashboard-widget-body">
-                            <div class="dashboard-chart-wrap">
-                                <canvas id="sales-cycle-chart" aria-label="Sales cycle invoice bar chart"></canvas>
+                            <div class="analytics-stats">
+                                <div class="analytics-stat">
+                                    <div class="analytics-stat-label">Converted Invoices</div>
+                                    <div class="analytics-stat-value" id="sales-cycle-converted">0</div>
+                                    <div class="analytics-stat-note">Invoices with valid QT to IV flow</div>
+                                </div>
+                                <div class="analytics-stat">
+                                    <div class="analytics-stat-label">Average Cycle</div>
+                                    <div class="analytics-stat-value" id="sales-cycle-avg">0.00 days</div>
+                                    <div class="analytics-stat-note">Average days from quotation to invoice</div>
+                                </div>
+                                <div class="analytics-stat">
+                                    <div class="analytics-stat-label">Shortest Cycle</div>
+                                    <div class="analytics-stat-value" id="sales-cycle-shortest">0 day(s)</div>
+                                    <div class="analytics-stat-note">Fastest conversion observed</div>
+                                </div>
+                                <div class="analytics-stat">
+                                    <div class="analytics-stat-label">Longest Cycle</div>
+                                    <div class="analytics-stat-value" id="sales-cycle-longest">0 day(s)</div>
+                                    <div class="analytics-stat-note">Slowest conversion observed</div>
+                                </div>
                             </div>
-                            <div class="dashboard-widget-meta" id="sales-cycle-summary">Loading sales cycle...</div>
-                            <div class="dashboard-widget-hint" id="sales-cycle-breakdown">Loading invoice durations. Click this card for detail view.</div>
+                            <div class="dashboard-widget-hint" id="sales-cycle-breakdown">Loading sales cycle metrics. Click this card for detail view.</div>
                         </div>
                     </div>
 
@@ -60,11 +78,29 @@
                             <span class="dashboard-widget-badge">Open Detail</span>
                         </div>
                         <div class="dashboard-widget-body">
-                            <div class="dashboard-widget-meta" id="qt-iv-conversion-summary">Loading conversion report...</div>
-                            <div class="dashboard-widget-hint" id="qt-iv-conversion-breakdown">Computing quoted qty, invoiced qty, and conversion percentage from ST_XTRANS. Click this card for detail view.</div>
-                            <div class="dashboard-chart-wrap" style="margin-top:18px;">
-                                <canvas id="qt-iv-conversion-chart" aria-label="QT to IV conversion line chart"></canvas>
+                            <div class="analytics-stats">
+                                <div class="analytics-stat">
+                                    <div class="analytics-stat-label">Quotations</div>
+                                    <div class="analytics-stat-value" id="conversion-total-qt">0</div>
+                                    <div class="analytics-stat-note">Distinct quotations in report</div>
+                                </div>
+                                <div class="analytics-stat">
+                                    <div class="analytics-stat-label">Average Conversion</div>
+                                    <div class="analytics-stat-value" id="conversion-avg">0.00%</div>
+                                    <div class="analytics-stat-note">Qty-weighted average</div>
+                                </div>
+                                <div class="analytics-stat">
+                                    <div class="analytics-stat-label">Top Conversion</div>
+                                    <div class="analytics-stat-value" id="conversion-top">0.00%</div>
+                                    <div class="analytics-stat-note">Highest quotation conversion</div>
+                                </div>
+                                <div class="analytics-stat">
+                                    <div class="analytics-stat-label">Lowest Conversion</div>
+                                    <div class="analytics-stat-value" id="conversion-low">0.00%</div>
+                                    <div class="analytics-stat-note">Lowest quotation conversion</div>
+                                </div>
                             </div>
+                            <div class="dashboard-widget-hint" id="qt-iv-conversion-breakdown">Click this card for detail view.</div>
                         </div>
                     </div>
                 </div>

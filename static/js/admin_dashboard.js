@@ -1,5 +1,4 @@
 let customerStatusChart = null;
-let salesCycleChart = null;
 
 function attachDashboardNavigation() {
     const widgets = document.querySelectorAll('.dashboard-widget--interactive[data-href]');
@@ -37,7 +36,6 @@ function renderCustomerStatusChart(items) {
         return;
     }
 
-    // Ensure 'Active' and 'Active w/o invoice' have distinct colors
     const colorMap = {
         'Active': '#4b6e9e',
         'Active w/o invoice': '#e68b5a',
@@ -46,8 +44,9 @@ function renderCustomerStatusChart(items) {
         'Prospect': '#b49aff',
         'Pending': '#f7c873',
     };
+
     const labels = items.map(item => item.label);
-    const counts = items.map(item => item.count);
+    const counts = items.map(item => Number(item.count || 0));
     const backgroundColors = items.map(item => colorMap[item.label] || '#cccccc');
     const totalCustomers = counts.reduce((sum, count) => sum + count, 0);
 
@@ -93,7 +92,6 @@ function renderCustomerStatusChart(items) {
     });
 
     if (summary) {
-        const totalCustomers = counts.reduce((sum, count) => sum + count, 0);
         const activeItem = items.find(item => item.code === 'A');
         const awoItem = items.find(item => item.code === 'AWO');
         summary.innerHTML = `<strong>${totalCustomers}</strong> total customers. Active: <strong>${activeItem ? activeItem.count : 0}</strong>. Active w/o invoice: <strong>${awoItem ? awoItem.count : 0}</strong>.`;
@@ -119,9 +117,11 @@ async function loadCustomerStatusWidget() {
 }
 
 async function loadSalesCycleWidget() {
-    const summaryEl = document.getElementById('sales-cycle-summary');
+    const convertedEl = document.getElementById('sales-cycle-converted');
+    const avgEl = document.getElementById('sales-cycle-avg');
+    const shortestEl = document.getElementById('sales-cycle-shortest');
+    const longestEl = document.getElementById('sales-cycle-longest');
     const breakdownEl = document.getElementById('sales-cycle-breakdown');
-    const canvas = document.getElementById('sales-cycle-chart');
 
     try {
         const response = await fetch('/api/admin/sales_cycle_details');
@@ -134,109 +134,33 @@ async function loadSalesCycleWidget() {
         const data = payload.data;
         const totalInvoices = Number(data.total_converted_invoices || 0);
         const avgDays = Number(data.avg_sales_cycle_days || 0);
-        const sorted = [...data.items]
-            .sort((a, b) => Number(b.sales_cycle_minutes || 0) - Number(a.sales_cycle_minutes || 0))
-            .slice(0, 10);
 
-        const labels = sorted.map(item => item.invoice_docno || `DOCKEY ${item.invoice_dockey}`);
-        const values = sorted.map(item => Number(item.sales_cycle_minutes || 0));
-        const backgroundColors = sorted.map(item => {
-            const days = Number(item.sales_cycle_days || 0);
-            if (days >= 30) return 'rgba(199, 77, 111, 0.82)';
-            if (days >= 14) return 'rgba(230, 139, 90, 0.82)';
-            return 'rgba(106, 143, 199, 0.82)';
-        });
+        const validDays = data.items
+            .map(item => Number(item.sales_cycle_days || 0))
+            .filter(days => Number.isFinite(days) && days > 0);
 
-        if (summaryEl) {
-            summaryEl.innerHTML = `<strong>${avgDays.toFixed(2)}</strong> average days`;
-        }
-        if (breakdownEl) {
-            breakdownEl.innerHTML = `Top <strong>${labels.length}</strong> longest invoices shown. Converted invoices: <strong>${totalInvoices}</strong>.`;
-        }
+        const shortestDays = validDays.length ? Math.min(...validDays) : 0;
+        const longestDays = validDays.length ? Math.max(...validDays) : 0;
 
-        if (canvas && typeof Chart !== 'undefined') {
-            if (salesCycleChart) {
-                salesCycleChart.destroy();
-            }
-
-            salesCycleChart = new Chart(canvas, {
-                type: 'bar',
-                data: {
-                    labels,
-                    datasets: [{
-                        label: 'Sales Cycle',
-                        data: values,
-                        backgroundColor: backgroundColors,
-                        borderColor: '#9bb8ea',
-                        borderWidth: 1,
-                        borderRadius: 8,
-                        maxBarThickness: 28,
-                    }],
-                },
-                options: {
-                    indexAxis: 'x',
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        x: {
-                            ticks: {
-                                color: '#d8deea',
-                                maxRotation: 40,
-                                minRotation: 30,
-                            },
-                            grid: {
-                                color: 'rgba(255, 255, 255, 0.08)',
-                            },
-                        },
-                        y: {
-                            beginAtZero: true,
-                            ticks: {
-                                color: '#d8deea',
-                                callback(value) {
-                                    if (value < 1440) {
-                                        return `${Math.round(value / 60)}h`;
-                                    }
-                                    return `${Math.round(value / 1440)}d`;
-                                },
-                            },
-                            grid: {
-                                color: 'rgba(255, 255, 255, 0.05)',
-                            },
-                            title: {
-                                display: true,
-                                text: 'Cycle Duration',
-                                color: '#b8c7e0',
-                            },
-                        },
-                    },
-                    plugins: {
-                        legend: {
-                            display: false,
-                        },
-                        tooltip: {
-                            callbacks: {
-                                label(context) {
-                                    const item = sorted[context.dataIndex];
-                                    return `Cycle: ${item.sales_cycle_display || `${item.sales_cycle_days || 0} day(s)`}`;
-                                },
-                            },
-                        },
-                    },
-                },
-            });
-        }
+        if (convertedEl) convertedEl.textContent = String(totalInvoices);
+        if (avgEl) avgEl.textContent = `${avgDays.toFixed(2)} days`;
+        if (shortestEl) shortestEl.textContent = `${Math.round(shortestDays)} day(s)`;
+        if (longestEl) longestEl.textContent = `${Math.round(longestDays)} day(s)`;
+        if (breakdownEl) breakdownEl.textContent = 'Click this card for detail view.';
     } catch (error) {
-        if (summaryEl) {
-            summaryEl.textContent = 'Sales cycle unavailable';
-        }
-        if (breakdownEl) {
-            breakdownEl.textContent = error.message || 'Failed to load sales cycle metrics.';
-        }
+        if (convertedEl) convertedEl.textContent = '0';
+        if (avgEl) avgEl.textContent = '0.00 days';
+        if (shortestEl) shortestEl.textContent = '0 day(s)';
+        if (longestEl) longestEl.textContent = '0 day(s)';
+        if (breakdownEl) breakdownEl.textContent = error.message || 'Failed to load sales cycle metrics.';
     }
 }
 
 async function loadQtIvConversionWidget() {
-    const summaryEl = document.getElementById('qt-iv-conversion-summary');
+    const totalEl = document.getElementById('conversion-total-qt');
+    const avgEl = document.getElementById('conversion-avg');
+    const topEl = document.getElementById('conversion-top');
+    const lowEl = document.getElementById('conversion-low');
     const breakdownEl = document.getElementById('qt-iv-conversion-breakdown');
 
     try {
@@ -253,7 +177,7 @@ async function loadQtIvConversionWidget() {
                 const response = await fetch(url, {
                     method: 'GET',
                     headers: {
-                        'Accept': 'application/json',
+                        Accept: 'application/json',
                     },
                 });
 
@@ -278,13 +202,11 @@ async function loadQtIvConversionWidget() {
                     throw new Error(`${url}: ${err}`);
                 }
 
-                // Flask proxy shape: { success: true, data: { ... } }
                 if (payload && payload.success === true && payload.data && typeof payload.data === 'object') {
                     data = payload.data;
                     break;
                 }
 
-                // Direct FastAPI shape: { total_qt_lines, ... }
                 if (payload && typeof payload === 'object' && Object.prototype.hasOwnProperty.call(payload, 'total_qt_lines')) {
                     data = payload;
                     break;
@@ -297,131 +219,80 @@ async function loadQtIvConversionWidget() {
         }
 
         if (!data) {
-            if (lastError && /404/.test(String(lastError.message || ''))) {
-                throw new Error('QT->IV conversion proxy route is unavailable on the current Flask server. Restart the Flask app so the new /api/admin/qt_iv_conversion_report route is loaded.');
-            }
             throw lastError || new Error('Failed to load QT->IV conversion report');
         }
 
-        const totalLines = Number(data.total_qt_lines || 0);
-        const totalQtQty = Number(data.total_qt_qty || 0);
-        const totalIvQty = Number(data.total_iv_qty || 0);
-        const overallPct = Number(data.overall_conversion_pct || 0);
-        const notInvoiced = Number(data.not_invoiced_lines || 0);
-        const partial = Number(data.partial_lines || 0);
-        const fullOrOver = Number(data.full_or_over_lines || 0);
+        const lines = Array.isArray(data.items) ? data.items : [];
 
-        if (summaryEl) {
-            summaryEl.innerHTML = `<strong>${overallPct.toFixed(2)}%</strong> overall conversion`;
-        }
+        const pick = (obj, ...keys) => {
+            for (const key of keys) {
+                if (obj && Object.prototype.hasOwnProperty.call(obj, key)) {
+                    return obj[key];
+                }
+            }
+            return undefined;
+        };
+
+        const grouped = lines.reduce((acc, item) => {
+            const key = String(
+                pick(item, 'qt_docno', 'QT_DOCNO', 'qt_dockey', 'QT_DOCKEY') || ''
+            ).trim();
+            if (!key) {
+                return acc;
+            }
+
+            if (!acc[key]) {
+                acc[key] = {
+                    qt_qty: 0,
+                    iv_qty: 0,
+                };
+            }
+
+            acc[key].qt_qty += Number(pick(item, 'qt_qty', 'QT_QTY') || 0);
+            acc[key].iv_qty += Number(pick(item, 'iv_qty', 'IV_QTY') || 0);
+            return acc;
+        }, {});
+
+        const rows = Object.values(grouped).map(row => {
+            const qtQty = Number(row.qt_qty || 0);
+            const ivQty = Number(row.iv_qty || 0);
+            const pct = qtQty > 0 ? (ivQty / qtQty) * 100 : 0;
+            return {
+                qt_qty: qtQty,
+                iv_qty: ivQty,
+                conversion_pct: Number(pct.toFixed(2)),
+            };
+        });
+
+        const totalQt = rows.length;
+        const groupedQtQty = rows.reduce((sum, row) => sum + row.qt_qty, 0);
+        const groupedIvQty = rows.reduce((sum, row) => sum + row.iv_qty, 0);
+        const apiQtQty = Number(data.total_qt_qty || data.TOTAL_QT_QTY || 0);
+        const apiIvQty = Number(data.total_iv_qty || data.TOTAL_IV_QTY || 0);
+        const totalQtQty = groupedQtQty > 0 ? groupedQtQty : apiQtQty;
+        const totalIvQty = groupedIvQty > 0 ? groupedIvQty : apiIvQty;
+        const weightedAvg = totalQtQty > 0 ? (totalIvQty / totalQtQty) * 100 : 0;
+        const top = rows.length ? Math.max(...rows.map(row => row.conversion_pct)) : 0;
+        const nonzeroRows = rows.filter(row => row.conversion_pct > 0);
+        const low = nonzeroRows.length ? Math.min(...nonzeroRows.map(row => row.conversion_pct)) : 0;
+
+        if (totalEl) totalEl.textContent = String(totalQt);
+        if (avgEl) avgEl.textContent = `${weightedAvg.toFixed(2)}%`;
+        if (topEl) topEl.textContent = `${top.toFixed(2)}%`;
+        if (lowEl) lowEl.textContent = `${low.toFixed(2)}%`;
+
         if (breakdownEl) {
+            const totalLines = Number(data.total_qt_lines || data.TOTAL_QT_LINES || lines.length || 0);
+            const notInvoiced = Number(data.not_invoiced_lines || data.NOT_INVOICED_LINES || 0);
+            const partial = Number(data.partial_lines || data.PARTIAL_LINES || 0);
+            const fullOrOver = Number(data.full_or_over_lines || data.FULL_OR_OVER_LINES || 0);
             breakdownEl.innerHTML = `QT lines: <strong>${totalLines}</strong>. QT qty: <strong>${totalQtQty.toFixed(2)}</strong>. IV qty: <strong>${totalIvQty.toFixed(2)}</strong>. Not invoiced: <strong>${notInvoiced}</strong>, partial: <strong>${partial}</strong>, full/over: <strong>${fullOrOver}</strong>.`;
         }
-
-        // Render line chart of each quotation's conversion %
-        const chartEl = document.getElementById('qt-iv-conversion-chart');
-        if (chartEl && typeof Chart !== 'undefined' && Array.isArray(data.items)) {
-            // Sort by date, then docno
-            const sorted = [...data.items].sort((a, b) => {
-                if (a.qt_docdate !== b.qt_docdate) {
-                    return (a.qt_docdate || '').localeCompare(b.qt_docdate || '');
-                }
-                return (a.qt_docno || '').localeCompare(b.qt_docno || '');
-            });
-
-            // Ignore 0% conversions for lowest calculation and chart points.
-            const nonzeroItems = sorted.filter(item => Number(item.conversion_pct || 0) > 0);
-            const labels = nonzeroItems.map(item => item.qt_docno || '');
-            const values = nonzeroItems.map(item => Number(item.conversion_pct || 0));
-
-            const lowestNonzero = values.length > 0 ? Math.min(...values) : null;
-
-            if (breakdownEl) {
-                const baseText = `QT lines: <strong>${totalLines}</strong>. QT qty: <strong>${totalQtQty.toFixed(2)}</strong>. IV qty: <strong>${totalIvQty.toFixed(2)}</strong>. Not invoiced: <strong>${notInvoiced}</strong>, partial: <strong>${partial}</strong>, full/over: <strong>${fullOrOver}</strong>.`;
-                const lowestText = lowestNonzero !== null
-                    ? ` Lowest nonzero conversion: <strong>${lowestNonzero.toFixed(2)}%</strong>.`
-                    : ' Lowest nonzero conversion: <strong>N/A</strong>.';
-                breakdownEl.innerHTML = `${baseText}${lowestText}`;
-            }
-
-            if (window.qtIvConversionChart) {
-                window.qtIvConversionChart.destroy();
-            }
-            window.qtIvConversionChart = new Chart(chartEl, {
-                type: 'line',
-                data: {
-                    labels,
-                    datasets: [{
-                        label: 'Conversion %',
-                        data: values,
-                        borderColor: '#4b6e9e',
-                        backgroundColor: 'rgba(75, 110, 158, 0.15)',
-                        pointBackgroundColor: '#e68b5a',
-                        pointRadius: 3,
-                        fill: true,
-                        tension: 0.2,
-                    }],
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            display: false,
-                        },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    return `QT ${context.label}: ${context.parsed.y.toFixed(2)}%`;
-                                }
-                            }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            title: {
-                                display: true,
-                                text: 'Quotation',
-                                color: '#b8c7e0',
-                            },
-                            ticks: {
-                                color: '#d8deea',
-                                font: {
-                                    size: 9,
-                                },
-                                maxRotation: 60,
-                                minRotation: 30,
-                                autoSkip: true,
-                                maxTicksLimit: 20,
-                            },
-                            grid: {
-                                color: 'rgba(255,255,255,0.08)',
-                            },
-                        },
-                        y: {
-                            beginAtZero: true,
-                            max: 120,
-                            title: {
-                                display: true,
-                                text: 'Conversion %',
-                                color: '#b8c7e0',
-                            },
-                            ticks: {
-                                color: '#d8deea',
-                                callback: value => value + '%',
-                            },
-                            grid: {
-                                color: 'rgba(255,255,255,0.05)',
-                            },
-                        },
-                    },
-                },
-            });
-        }
     } catch (error) {
-        if (summaryEl) {
-            summaryEl.textContent = 'QT->IV conversion unavailable';
-        }
+        if (totalEl) totalEl.textContent = '0';
+        if (avgEl) avgEl.textContent = '0.00%';
+        if (topEl) topEl.textContent = '0.00%';
+        if (lowEl) lowEl.textContent = '0.00%';
         if (breakdownEl) {
             breakdownEl.textContent = error.message || 'Failed to load QT->IV conversion report.';
         }

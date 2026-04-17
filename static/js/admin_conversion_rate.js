@@ -10,7 +10,6 @@ function escapeHtml(value) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
-}
 
 function toDisplayDate(value) {
     if (!value) {
@@ -88,127 +87,7 @@ function aggregateByQuotation(items) {
         });
 }
 
-function renderConversionChart(items) {
-    const canvas = document.getElementById('conversion-rate-chart');
-    if (!canvas || typeof Chart === 'undefined') {
-        return;
-    }
-
-    if (conversionRateChart) {
-        conversionRateChart.destroy();
-    }
-
-    const labels = items.map(item => item.qt_docno);
-    const values = items.map(item => item.conversion_pct);
-
-    const neonLinePlugin = {
-        id: 'neonLineGlow',
-        beforeDatasetDraw(chart, args) {
-            const { ctx } = chart;
-            if (args.index !== 0) {
-                return;
-            }
-            ctx.save();
-            ctx.shadowColor = 'rgba(86, 201, 255, 0.85)';
-            ctx.shadowBlur = 16;
-            ctx.shadowOffsetX = 0;
-            ctx.shadowOffsetY = 0;
-        },
-        afterDatasetDraw(chart, args) {
-            const { ctx } = chart;
-            if (args.index !== 0) {
-                return;
-            }
-            ctx.restore();
-        },
-    };
-
-    conversionRateChart = new Chart(canvas, {
-        type: 'line',
-        data: {
-            labels,
-            datasets: [
-                {
-                    label: 'Conversion %',
-                    data: values,
-                    borderColor: '#56c9ff',
-                    backgroundColor: 'rgba(86, 201, 255, 0.14)',
-                    pointBackgroundColor: '#ffd28a',
-                    pointBorderColor: '#56c9ff',
-                    pointRadius: 3,
-                    pointHoverRadius: 6,
-                    borderWidth: 2,
-                    fill: true,
-                    tension: 0.34,
-                },
-            ],
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: {
-                    display: false,
-                },
-                tooltip: {
-                    callbacks: {
-                        title(context) {
-                            const item = items[context[0].dataIndex];
-                            return `${item.qt_docno} (${toDisplayDate(item.qt_docdate)})`;
-                        },
-                        label(context) {
-                            const item = items[context.dataIndex];
-                            return [
-                                `Conversion: ${context.parsed.y.toFixed(2)}%`,
-                                `QT Qty: ${item.qt_qty.toFixed(2)}`,
-                                `IV Qty: ${item.iv_qty.toFixed(2)}`,
-                            ];
-                        },
-                    },
-                },
-            },
-            scales: {
-                x: {
-                    ticks: {
-                        color: '#c9d8f0',
-                        font: {
-                            size: 10,
-                        },
-                        maxRotation: 60,
-                        minRotation: 45,
-                        autoSkip: true,
-                        maxTicksLimit: 28,
-                    },
-                    grid: {
-                        color: 'rgba(86, 201, 255, 0.12)',
-                    },
-                    title: {
-                        display: true,
-                        text: 'Quotation',
-                        color: '#9fc4f5',
-                    },
-                },
-                y: {
-                    beginAtZero: true,
-                    suggestedMax: 110,
-                    ticks: {
-                        color: '#c9d8f0',
-                        callback: value => `${value}%`,
-                    },
-                    grid: {
-                        color: 'rgba(168, 190, 220, 0.12)',
-                    },
-                    title: {
-                        display: true,
-                        text: 'Conversion %',
-                        color: '#9fc4f5',
-                    },
-                },
-            },
-        },
-        plugins: [neonLinePlugin],
-    });
-}
+// Chart rendering removed as per user request.
 
 function renderConversionList(items) {
     const listEl = document.getElementById('conversion-rate-list');
@@ -329,10 +208,8 @@ function filterByRange(items, range) {
     return items.filter(row => row.conversion_pct >= min && row.conversion_pct < max);
 }
 
-function updateConversionView() {
     const filtered = filterByRange(allConversionItems, currentFilter);
     renderStats(filtered);
-    renderConversionChart(filtered);
     renderConversionList(filtered);
 }
 
