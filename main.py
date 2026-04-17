@@ -1006,6 +1006,60 @@ def invoice_aging_summary():
         if con:
             con.close()
 
+
+@app.route('/api/admin/sales_cycle_summary', methods=['GET'])
+@api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
+def sales_cycle_summary():
+    """Return sales cycle metrics from FastAPI dashboard endpoint."""
+    headers = _build_sql_api_auth_headers()
+    try:
+        response = requests.get(
+            f"{FASTAPI_BASE_URL}/dashboard/sales-cycle-metrics",
+            headers=headers if headers else None,
+            timeout=20,
+        )
+        payload = response.json()
+    except requests.exceptions.RequestException as exc:
+        return jsonify({'success': False, 'error': f'Failed to reach FastAPI sales cycle endpoint: {exc}'}), 502
+    except ValueError:
+        return jsonify({'success': False, 'error': 'FastAPI sales cycle endpoint returned invalid JSON'}), 502
+
+    if not response.ok:
+        detail = payload.get('detail') if isinstance(payload, dict) else None
+        return jsonify({'success': False, 'error': detail or 'Failed to load sales cycle metrics'}), response.status_code
+
+    if not isinstance(payload, dict):
+        return jsonify({'success': False, 'error': 'Unexpected sales cycle response format'}), 502
+
+    return jsonify({'success': True, 'data': payload}), 200
+
+
+@app.route('/api/admin/sales_cycle_details', methods=['GET'])
+@api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
+def sales_cycle_details():
+    """Return detailed sales cycle rows from FastAPI dashboard endpoint."""
+    headers = _build_sql_api_auth_headers()
+    try:
+        response = requests.get(
+            f"{FASTAPI_BASE_URL}/dashboard/sales-cycle-details",
+            headers=headers if headers else None,
+            timeout=25,
+        )
+        payload = response.json()
+    except requests.exceptions.RequestException as exc:
+        return jsonify({'success': False, 'error': f'Failed to reach FastAPI sales cycle detail endpoint: {exc}'}), 502
+    except ValueError:
+        return jsonify({'success': False, 'error': 'FastAPI sales cycle detail endpoint returned invalid JSON'}), 502
+
+    if not response.ok:
+        detail = payload.get('detail') if isinstance(payload, dict) else None
+        return jsonify({'success': False, 'error': detail or 'Failed to load sales cycle details'}), response.status_code
+
+    if not isinstance(payload, dict):
+        return jsonify({'success': False, 'error': 'Unexpected sales cycle details response format'}), 502
+
+    return jsonify({'success': True, 'data': payload}), 200
+
 # ============================================
 # ROUTE: Delete Order Detail
 # ============================================
@@ -2253,6 +2307,16 @@ def admin_invoice_aging():
     """Display invoice aging analytics page (admin only)."""
     return render_protected_template(
         'adminInvoiceAging.html',
+        require_admin=True,
+        user_type=session.get('user_type', 'admin')
+    )
+
+
+@app.route('/admin/sales-cycle')
+def admin_sales_cycle():
+    """Display sales cycle analytics page (admin only)."""
+    return render_protected_template(
+        'adminSalesCycle.html',
         require_admin=True,
         user_type=session.get('user_type', 'admin')
     )

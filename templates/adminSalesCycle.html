@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Sales Cycle</title>
+    <link rel="stylesheet" href="/static/css/admin.css">
+    <link rel="stylesheet" href="/static/css/hamburger_menu.css">
+</head>
+<body>
+    <div class="admin-container">
+        <div class="admin-header">
+            {% include 'components/admin_hamburger_menu.html' %}
+            <h2>Admin Dashboard</h2>
+        </div>
+
+        <div class="analytics-page">
+            <div class="analytics-shell">
+                <div class="analytics-toolbar">
+                    <div class="analytics-title">
+                        <h1>Sales Cycle</h1>
+                        <p>Time from earliest related quotation (SL_QT) to sales invoice (SL_IV).</p>
+                    </div>
+                    <a class="analytics-back-link" href="/admin">← Back to Dashboard</a>
+                </div>
+
+                <div class="analytics-stats">
+                    <div class="analytics-stat">
+                        <div class="analytics-stat-label">Converted Invoices</div>
+                        <div class="analytics-stat-value" id="sales-cycle-total">-</div>
+                        <div class="analytics-stat-note">Invoices with valid QT to IV flow</div>
+                    </div>
+                    <div class="analytics-stat">
+                        <div class="analytics-stat-label">Average Cycle</div>
+                        <div class="analytics-stat-value" id="sales-cycle-avg">-</div>
+                        <div class="analytics-stat-note">Average days from quotation to invoice</div>
+                    </div>
+                    <div class="analytics-stat">
+                        <div class="analytics-stat-label">Shortest Cycle</div>
+                        <div class="analytics-stat-value" id="sales-cycle-shortest">-</div>
+                        <div class="analytics-stat-note">Fastest conversion observed</div>
+                    </div>
+                    <div class="analytics-stat">
+                        <div class="analytics-stat-label">Longest Cycle</div>
+                        <div class="analytics-stat-value" id="sales-cycle-longest">-</div>
+                        <div class="analytics-stat-note">Slowest conversion observed</div>
+                    </div>
+                </div>
+
+                <div class="analytics-card analytics-chart-panel">
+                    <div class="dashboard-widget-header">
+                        <div>
+                            <h3>Invoice Sales Cycle Distribution</h3>
+                            <p>Bar graph of cycle days for each invoice linked back to quotations.</p>
+                        </div>
+                        <div class="invoice-aging-filter-wrap">
+                            <label for="sales-cycle-sort" class="invoice-aging-filter-label">Sort:</label>
+                            <select id="sales-cycle-sort">
+                                <option value="desc">Longest to shortest</option>
+                                <option value="asc">Shortest to longest</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="analytics-chart-wrap">
+                        <canvas id="sales-cycle-chart" aria-label="Sales cycle bar chart"></canvas>
+                    </div>
+                </div>
+
+                <div class="analytics-card">
+                    <div class="dashboard-widget-header">
+                        <div>
+                            <h3>Sales Cycle Details</h3>
+                            <p>Per-invoice breakdown showing quotation and invoice dates.</p>
+                        </div>
+                    </div>
+                    <div class="analytics-list" id="sales-cycle-list">
+                        <div class="analytics-empty">Loading sales cycle details...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/static/js/admin_menu.js"></script>
+    <script src="/static/js/admin_sales_cycle.js"></script>
+</body>
+</html>

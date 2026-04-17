@@ -287,15 +287,24 @@ body {
     font-size: 13px;
 }
 
+
 .analytics-chart-panel {
     display: flex;
     flex-direction: column;
     gap: 18px;
+    align-items: stretch;
+    background: linear-gradient(180deg, rgba(36, 43, 61, 0.98) 0%, rgba(19, 25, 35, 0.99) 100%);
+    border-radius: 22px;
+    box-shadow: 0 10px 32px rgba(0,0,0,0.18);
+    padding-bottom: 12px;
 }
 
 .analytics-chart-wrap {
     position: relative;
     min-height: 420px;
+    width: 100%;
+    max-width: 100%;
+    margin: 0 auto;
 }
 
 .analytics-list {
@@ -307,11 +316,15 @@ body {
 .analytics-list-item {
     display: flex;
     justify-content: space-between;
+    align-items: center;
     gap: 16px;
     padding: 12px 14px;
     border-radius: 14px;
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba(255, 255, 255, 0.06);
     color: #d5dce6;
+    font-size: 16px;
+    border: 1px solid rgba(120, 146, 190, 0.10);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
 }
 
 .analytics-empty {
