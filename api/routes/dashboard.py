@@ -223,6 +223,34 @@ def sales_cycle_details():
         cur.execute(sql)
         rows = cur.fetchall() or []
 
+        invoice_dockeys = [int(row[0]) for row in rows if row and row[0] is not None]
+        invoice_items_by_dockey = {}
+
+        if invoice_dockeys:
+            in_clause = ", ".join(str(dockey) for dockey in sorted(set(invoice_dockeys)))
+            cur.execute(
+                f"""
+                SELECT
+                    d.DOCKEY,
+                    TRIM(COALESCE(d.ITEMCODE, '')) AS ITEMCODE,
+                    TRIM(COALESCE(d.DESCRIPTION, '')) AS DESCRIPTION,
+                    CAST(COALESCE(d.QTY, 0) AS DOUBLE PRECISION) AS QTY,
+                    TRIM(COALESCE(d.UOM, '')) AS UOM
+                FROM SL_IVDTL d
+                WHERE d.DOCKEY IN ({in_clause})
+                ORDER BY d.DOCKEY, d.SEQ, d.DTLKEY
+            """
+            )
+
+            for detail_dockey, itemcode, description, qty, uom in cur.fetchall() or []:
+                key = int(detail_dockey)
+                invoice_items_by_dockey.setdefault(key, []).append({
+                    "itemcode": (itemcode or '').strip(),
+                    "description": (description or '').strip(),
+                    "qty": round(float(qty or 0), 4),
+                    "uom": (uom or '').strip(),
+                })
+
         items = []
         total_days = 0
         shortest_minutes = None
@@ -254,6 +282,7 @@ def sales_cycle_details():
                 "sales_cycle_minutes": cycle_minutes,
                 "sales_cycle_display": display,
                 "company_name": (company_name or '').strip(),
+                "invoice_items": invoice_items_by_dockey.get(int(invoice_dockey), []),
             })
 
         total_invoices = len(items)

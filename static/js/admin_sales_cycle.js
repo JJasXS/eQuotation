@@ -2,6 +2,15 @@ let salesCycleChart = null;
 let salesCycleItems = [];
 let salesCycleSort = 'desc';
 
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 function formatDisplayDate(value) {
     if (!value) {
         return '-';
@@ -170,19 +179,83 @@ function renderSalesCycleList(items) {
     }
 
     const sorted = sortedSalesCycleItems(items);
-    container.innerHTML = sorted.map(item => {
+    container.innerHTML = sorted.map((item, index) => {
         const invoiceLabel = item.invoice_docno || `DOCKEY ${item.invoice_dockey}`;
         const quotationLabel = item.quotation_docno || '-';
         const qtDate = formatDisplayDate(item.quotation_docdate);
         const ivDate = formatDisplayDate(item.invoice_docdate);
         const company = item.company_name ? `<span class="company-pill">${item.company_name}</span>` : '';
+        const invoiceItems = Array.isArray(item.invoice_items) ? item.invoice_items : [];
+        const invoiceItemsRows = invoiceItems.length
+            ? invoiceItems.map(line => `
+                <tr>
+                    <td>${escapeHtml(line.itemcode || '-')}</td>
+                    <td>${escapeHtml(line.description || '-')}</td>
+                    <td>${Number(line.qty || 0).toFixed(2)}</td>
+                    <td>${escapeHtml(line.uom || '-')}</td>
+                </tr>
+            `).join('')
+            : '<tr><td colspan="4">No invoice items found.</td></tr>';
         return `
-            <div class="analytics-list-item">
-                <span>${invoiceLabel} · ${item.sales_cycle_display} ${company}</span>
-                <span>QT ${quotationLabel} (${qtDate}) → IV (${ivDate})</span>
+            <div class="conversion-detail-card">
+                <button type="button" class="conversion-detail-toggle" aria-expanded="false" aria-controls="sales-cycle-panel-${index}">
+                    <span>${escapeHtml(invoiceLabel)} · ${escapeHtml(item.sales_cycle_display)} ${company}</span>
+                    <span>QT ${escapeHtml(quotationLabel)} (${escapeHtml(qtDate)}) → IV (${escapeHtml(ivDate)}) <span class="conversion-caret">▼</span></span>
+                </button>
+                <div class="conversion-detail-panel" id="sales-cycle-panel-${index}" hidden>
+                    <div class="conversion-detail-grid">
+                        <div><strong>Invoice:</strong> ${escapeHtml(invoiceLabel)}</div>
+                        <div><strong>Invoice Date:</strong> ${escapeHtml(ivDate)}</div>
+                        <div><strong>Quotation:</strong> ${escapeHtml(quotationLabel)}</div>
+                        <div><strong>Quotation Date:</strong> ${escapeHtml(qtDate)}</div>
+                        <div><strong>Company:</strong> ${escapeHtml(item.company_name || '-')}</div>
+                        <div><strong>Invoice DOCKEY:</strong> ${escapeHtml(item.invoice_dockey)}</div>
+                        <div><strong>Cycle Days:</strong> ${escapeHtml(item.sales_cycle_days)}</div>
+                        <div><strong>Cycle Minutes:</strong> ${escapeHtml(item.sales_cycle_minutes)}</div>
+                    </div>
+                    <div class="conversion-detail-table-wrap">
+                        <table class="conversion-detail-table">
+                            <thead>
+                                <tr>
+                                    <th>Item Code</th>
+                                    <th>Description</th>
+                                    <th>Qty</th>
+                                    <th>UOM</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${invoiceItemsRows}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         `;
     }).join('');
+
+    setupSalesCycleAccordion();
+}
+
+function setupSalesCycleAccordion() {
+    const toggles = document.querySelectorAll('#sales-cycle-list .conversion-detail-toggle');
+    toggles.forEach(toggle => {
+        toggle.addEventListener('click', () => {
+            const expanded = toggle.getAttribute('aria-expanded') === 'true';
+            const panelId = toggle.getAttribute('aria-controls');
+            const panel = panelId ? document.getElementById(panelId) : null;
+            if (!panel) {
+                return;
+            }
+
+            toggle.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+            panel.hidden = expanded;
+
+            const caret = toggle.querySelector('.conversion-caret');
+            if (caret) {
+                caret.textContent = expanded ? '▼' : '▲';
+            }
+        });
+    });
 }
 
 function renderSalesCycleView() {
