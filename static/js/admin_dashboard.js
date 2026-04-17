@@ -235,8 +235,188 @@ async function loadSalesCycleWidget() {
     }
 }
 
+async function loadQtIvConversionWidget() {
+    const summaryEl = document.getElementById('qt-iv-conversion-summary');
+    const breakdownEl = document.getElementById('qt-iv-conversion-breakdown');
+
+    try {
+        const candidateUrls = [
+            '/api/admin/qt_iv_conversion_report',
+            '/api/admin/qt-iv-conversion-report',
+        ];
+
+        let data = null;
+        let lastError = null;
+
+        for (const url of candidateUrls) {
+            try {
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json',
+                    },
+                });
+
+                const raw = await response.text();
+                const contentType = (response.headers.get('content-type') || '').toLowerCase();
+                const looksJson = contentType.includes('application/json') || raw.trim().startsWith('{') || raw.trim().startsWith('[');
+
+                if (!looksJson) {
+                    const preview = raw.trim().slice(0, 80).replace(/\s+/g, ' ');
+                    throw new Error(`Non-JSON response from ${url} (${response.status}): ${preview || 'empty response'}`);
+                }
+
+                let payload;
+                try {
+                    payload = JSON.parse(raw);
+                } catch {
+                    throw new Error(`Invalid JSON payload from ${url} (${response.status})`);
+                }
+
+                if (!response.ok) {
+                    const err = (payload && (payload.error || payload.detail)) || `HTTP ${response.status}`;
+                    throw new Error(`${url}: ${err}`);
+                }
+
+                // Flask proxy shape: { success: true, data: { ... } }
+                if (payload && payload.success === true && payload.data && typeof payload.data === 'object') {
+                    data = payload.data;
+                    break;
+                }
+
+                // Direct FastAPI shape: { total_qt_lines, ... }
+                if (payload && typeof payload === 'object' && Object.prototype.hasOwnProperty.call(payload, 'total_qt_lines')) {
+                    data = payload;
+                    break;
+                }
+
+                throw new Error(`${url}: Unexpected QT->IV response format`);
+            } catch (err) {
+                lastError = err;
+            }
+        }
+
+        if (!data) {
+            if (lastError && /404/.test(String(lastError.message || ''))) {
+                throw new Error('QT->IV conversion proxy route is unavailable on the current Flask server. Restart the Flask app so the new /api/admin/qt_iv_conversion_report route is loaded.');
+            }
+            throw lastError || new Error('Failed to load QT->IV conversion report');
+        }
+
+        const totalLines = Number(data.total_qt_lines || 0);
+        const totalQtQty = Number(data.total_qt_qty || 0);
+        const totalIvQty = Number(data.total_iv_qty || 0);
+        const overallPct = Number(data.overall_conversion_pct || 0);
+        const notInvoiced = Number(data.not_invoiced_lines || 0);
+        const partial = Number(data.partial_lines || 0);
+        const fullOrOver = Number(data.full_or_over_lines || 0);
+
+        if (summaryEl) {
+            summaryEl.innerHTML = `<strong>${overallPct.toFixed(2)}%</strong> overall conversion`;
+        }
+        if (breakdownEl) {
+            breakdownEl.innerHTML = `QT lines: <strong>${totalLines}</strong>. QT qty: <strong>${totalQtQty.toFixed(2)}</strong>. IV qty: <strong>${totalIvQty.toFixed(2)}</strong>. Not invoiced: <strong>${notInvoiced}</strong>, partial: <strong>${partial}</strong>, full/over: <strong>${fullOrOver}</strong>.`;
+        }
+
+        // Render line chart of each quotation's conversion %
+        const chartEl = document.getElementById('qt-iv-conversion-chart');
+        if (chartEl && typeof Chart !== 'undefined' && Array.isArray(data.items)) {
+            // Sort by date, then docno
+            const sorted = [...data.items].sort((a, b) => {
+                if (a.qt_docdate !== b.qt_docdate) {
+                    return (a.qt_docdate || '').localeCompare(b.qt_docdate || '');
+                }
+                return (a.qt_docno || '').localeCompare(b.qt_docno || '');
+            });
+            const labels = sorted.map(item => item.qt_docno || '');
+            const values = sorted.map(item => Number(item.conversion_pct || 0));
+            if (window.qtIvConversionChart) {
+                window.qtIvConversionChart.destroy();
+            }
+            window.qtIvConversionChart = new Chart(chartEl, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Conversion %',
+                        data: values,
+                        borderColor: '#4b6e9e',
+                        backgroundColor: 'rgba(75, 110, 158, 0.15)',
+                        pointBackgroundColor: '#e68b5a',
+                        pointRadius: 3,
+                        fill: true,
+                        tension: 0.2,
+                    }],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false,
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `QT ${context.label}: ${context.parsed.y.toFixed(2)}%`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Quotation',
+                                color: '#b8c7e0',
+                            },
+                            ticks: {
+                                color: '#d8deea',
+                                font: {
+                                    size: 9,
+                                },
+                                maxRotation: 60,
+                                minRotation: 30,
+                                autoSkip: true,
+                                maxTicksLimit: 20,
+                            },
+                            grid: {
+                                color: 'rgba(255,255,255,0.08)',
+                            },
+                        },
+                        y: {
+                            beginAtZero: true,
+                            max: 120,
+                            title: {
+                                display: true,
+                                text: 'Conversion %',
+                                color: '#b8c7e0',
+                            },
+                            ticks: {
+                                color: '#d8deea',
+                                callback: value => value + '%',
+                            },
+                            grid: {
+                                color: 'rgba(255,255,255,0.05)',
+                            },
+                        },
+                    },
+                },
+            });
+        }
+    } catch (error) {
+        if (summaryEl) {
+            summaryEl.textContent = 'QT->IV conversion unavailable';
+        }
+        if (breakdownEl) {
+            breakdownEl.textContent = error.message || 'Failed to load QT->IV conversion report.';
+        }
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     attachDashboardNavigation();
     loadCustomerStatusWidget();
     loadSalesCycleWidget();
+    loadQtIvConversionWidget();
 });

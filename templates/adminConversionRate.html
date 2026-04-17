@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Conversion Rate</title>
+    <link rel="stylesheet" href="/static/css/admin.css">
+    <link rel="stylesheet" href="/static/css/hamburger_menu.css">
+</head>
+<body>
+    <div class="admin-container">
+        <div class="admin-header">
+            {% include 'components/admin_hamburger_menu.html' %}
+            <h2>Admin Dashboard</h2>
+        </div>
+
+        <div class="analytics-page">
+            <div class="analytics-shell">
+                <div class="analytics-toolbar">
+                    <div class="analytics-title">
+                        <h1>Conversion Rate</h1>
+                        <p>Quotation-to-invoice conversion percentage by quotation document.</p>
+                    </div>
+                    <a class="analytics-back-link" href="/admin"><- Back to Dashboard</a>
+                </div>
+
+                <div class="analytics-stats">
+                    <div class="analytics-stat">
+                        <div class="analytics-stat-label">Quotations</div>
+                        <div class="analytics-stat-value" id="conversion-total-qt">-</div>
+                        <div class="analytics-stat-note">Distinct quotations in report</div>
+                    </div>
+                    <div class="analytics-stat">
+                        <div class="analytics-stat-label">Average Conversion</div>
+                        <div class="analytics-stat-value" id="conversion-avg">-</div>
+                        <div class="analytics-stat-note">Qty-weighted average</div>
+                    </div>
+                    <div class="analytics-stat">
+                        <div class="analytics-stat-label">Top Conversion</div>
+                        <div class="analytics-stat-value" id="conversion-top">-</div>
+                        <div class="analytics-stat-note">Highest quotation conversion</div>
+                    </div>
+                    <div class="analytics-stat">
+                        <div class="analytics-stat-label">Lowest Conversion</div>
+                        <div class="analytics-stat-value" id="conversion-low">-</div>
+                        <div class="analytics-stat-note">Lowest quotation conversion</div>
+                    </div>
+                </div>
+
+                <div class="analytics-card analytics-chart-panel conversion-futuristic-panel">
+                    <div class="dashboard-widget-header">
+                        <div>
+                            <h3>Quotation Conversion Line Graph</h3>
+                            <p>Each point is one quotation (QT DOCNO), using percentage conversion from QT qty to IV qty.</p>
+                        </div>
+                    </div>
+                    <div class="conversion-filter-tabs" id="conversion-filter-tabs">
+                        <button class="conversion-filter-tab active" data-range="all">All</button>
+                        <button class="conversion-filter-tab" data-range="0-20">0-20%</button>
+                        <button class="conversion-filter-tab" data-range="20-40">20-40%</button>
+                        <button class="conversion-filter-tab" data-range="40-60">40-60%</button>
+                        <button class="conversion-filter-tab" data-range="60-80">60-80%</button>
+                        <button class="conversion-filter-tab" data-range="80-100">80-100%</button>
+                        <button class="conversion-filter-tab" data-range="100+">100%+</button>
+                    </div>
+                    <div class="analytics-chart-wrap conversion-futuristic-wrap">
+                        <canvas id="conversion-rate-chart" aria-label="Quotation conversion percentage line chart"></canvas>
+                    </div>
+                </div>
+
+                <div class="analytics-card">
+                    <div class="dashboard-widget-header">
+                        <div>
+                            <h3>Conversion Detail</h3>
+                            <p>Per quotation totals with company name and IV-first quantity view.</p>
+                        </div>
+                    </div>
+                    <div class="analytics-list" id="conversion-rate-list">
+                        <div class="analytics-empty">Loading conversion details...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/static/js/admin_menu.js"></script>
+    <script src="/static/js/admin_conversion_rate.js"></script>
+</body>
+</html>

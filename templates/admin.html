@@ -16,11 +16,7 @@
 
         <div class="admin-welcome" id="admin-welcome">
             <div class="admin-dashboard-shell">
-                <div class="welcome-content">
-                    <h1>Welcome Admin</h1>
-                    <p>Session: {{ user_email }}</p>
-                    <p>Use the menu to navigate dashboard features</p>
-                </div>
+               
 
                 <div class="admin-dashboard-grid">
                     <div class="dashboard-widget dashboard-widget--interactive" id="customer-status-widget" data-href="/admin/invoice-aging" role="link" tabindex="0" aria-label="Open invoice aging analytics">
@@ -54,6 +50,22 @@
                             </div>
                             <div class="dashboard-widget-meta" id="sales-cycle-summary">Loading sales cycle...</div>
                             <div class="dashboard-widget-hint" id="sales-cycle-breakdown">Loading invoice durations. Click this card for detail view.</div>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-widget dashboard-widget--interactive" id="qt-iv-conversion-widget" data-href="/admin/conversion-rate" role="link" tabindex="0" aria-label="Open conversion rate analytics">
+                        <div class="dashboard-widget-header">
+                            <div>
+                                <h3>Conversion Rate</h3>
+                               </div>
+                            <span class="dashboard-widget-badge">Open Detail</span>
+                        </div>
+                        <div class="dashboard-widget-body">
+                            <div class="dashboard-widget-meta" id="qt-iv-conversion-summary">Loading conversion report...</div>
+                            <div class="dashboard-widget-hint" id="qt-iv-conversion-breakdown">Computing quoted qty, invoiced qty, and conversion percentage from ST_XTRANS. Click this card for detail view.</div>
+                            <div class="dashboard-chart-wrap" style="margin-top:18px;">
+                                <canvas id="qt-iv-conversion-chart" aria-label="QT to IV conversion line chart"></canvas>
+                            </div>
                         </div>
                     </div>
                 </div>

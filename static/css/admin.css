@@ -203,10 +203,22 @@ body {
 
 .admin-dashboard-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(320px, 420px));
+    grid-template-columns: repeat(4, 1fr);
     gap: 24px;
     align-items: start;
     justify-content: center;
+}
+
+@media (max-width: 1200px) {
+    .admin-dashboard-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 700px) {
+    .admin-dashboard-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 .dashboard-widget {
@@ -426,6 +438,48 @@ body {
     color: #98a4b5;
     text-align: center;
     padding: 28px 16px;
+}
+
+.conversion-futuristic-panel {
+    border: 1px solid rgba(86, 201, 255, 0.36);
+    background:
+        radial-gradient(circle at 12% 20%, rgba(86, 201, 255, 0.15) 0%, rgba(86, 201, 255, 0) 46%),
+        radial-gradient(circle at 84% 16%, rgba(255, 210, 138, 0.14) 0%, rgba(255, 210, 138, 0) 42%),
+        linear-gradient(180deg, rgba(22, 31, 48, 0.98) 0%, rgba(12, 18, 29, 1) 100%);
+    box-shadow: 0 14px 42px rgba(26, 168, 232, 0.15);
+}
+
+.conversion-futuristic-wrap {
+    border: 1px solid rgba(143, 198, 255, 0.24);
+    border-radius: 16px;
+    padding: 12px;
+    background: linear-gradient(180deg, rgba(13, 20, 35, 0.75) 0%, rgba(8, 14, 25, 0.92) 100%);
+}
+
+.conversion-filter-tabs {
+    display: flex;
+    gap: 10px;
+    margin: 0 0 18px 0;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+}
+.conversion-filter-tab {
+    background: rgba(86, 201, 255, 0.10);
+    border: 1px solid rgba(86, 201, 255, 0.22);
+    color: #b8e6ff;
+    border-radius: 999px;
+    padding: 7px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.18s, color 0.18s, border 0.18s;
+    outline: none;
+}
+.conversion-filter-tab.active, .conversion-filter-tab:focus {
+    background: #56c9ff;
+    color: #0d1118;
+    border-color: #56c9ff;
+}
 }
 
 @media (max-width: 768px) {

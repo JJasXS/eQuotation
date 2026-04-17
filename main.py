@@ -1060,6 +1060,35 @@ def sales_cycle_details():
 
     return jsonify({'success': True, 'data': payload}), 200
 
+
+@app.route('/api/admin/qt_iv_conversion_report', methods=['GET'])
+@app.route('/api/admin/qt_iv_conversion_report/', methods=['GET'])
+@app.route('/api/admin/qt-iv-conversion-report', methods=['GET'])
+@api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
+def qt_iv_conversion_report():
+    """Return QT->IV conversion report from FastAPI dashboard endpoint."""
+    headers = _build_sql_api_auth_headers()
+    try:
+        response = requests.get(
+            f"{FASTAPI_BASE_URL}/dashboard/qt-iv-conversion-report",
+            headers=headers if headers else None,
+            timeout=30,
+        )
+        payload = response.json()
+    except requests.exceptions.RequestException as exc:
+        return jsonify({'success': False, 'error': f'Failed to reach FastAPI QT->IV report endpoint: {exc}'}), 502
+    except ValueError:
+        return jsonify({'success': False, 'error': 'FastAPI QT->IV report endpoint returned invalid JSON'}), 502
+
+    if not response.ok:
+        detail = payload.get('detail') if isinstance(payload, dict) else None
+        return jsonify({'success': False, 'error': detail or 'Failed to load QT->IV conversion report'}), response.status_code
+
+    if not isinstance(payload, dict):
+        return jsonify({'success': False, 'error': 'Unexpected QT->IV report response format'}), 502
+
+    return jsonify({'success': True, 'data': payload}), 200
+
 # ============================================
 # ROUTE: Delete Order Detail
 # ============================================
@@ -2317,6 +2346,16 @@ def admin_sales_cycle():
     """Display sales cycle analytics page (admin only)."""
     return render_protected_template(
         'adminSalesCycle.html',
+        require_admin=True,
+        user_type=session.get('user_type', 'admin')
+    )
+
+
+@app.route('/admin/conversion-rate')
+def admin_conversion_rate():
+    """Display quotation-to-invoice conversion rate analytics page (admin only)."""
+    return render_protected_template(
+        'adminConversionRate.html',
         require_admin=True,
         user_type=session.get('user_type', 'admin')
     )
