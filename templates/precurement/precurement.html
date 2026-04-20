@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -44,7 +45,9 @@
                                     <div id="available-location-list" class="location-pill-list"></div>
                                 </div>
                             </div>
-                            <!-- Scrollbar removed: table will always fit container -->
+                            <div class="stock-card-scrollbar-wrap" id="stock-card-scrollbar-wrap">
+                                <div class="stock-card-scrollbar" id="stock-card-scrollbar"></div>
+                            </div>
                             <div class="stock-card-table-wrap" id="stock-card-table-wrap">
                                 <table class="stock-card-table" id="stock-card-table">
                                     <thead id="stock-card-table-head">
@@ -133,17 +136,54 @@
             border-left: 4px solid #4b6e9e;
             color: #fff;
         }
-        /* Scrollbar removed: table always fits container */
+        .stock-card-scrollbar-wrap {
+            width: 100%;
+            overflow-x: auto;
+            overflow-y: hidden;
+            height: 18px;
+            margin-bottom: 2px;
+            background: #1f2533;
+            border: 1px solid #343b46;
+            border-radius: 8px 8px 0 0;
+            box-sizing: border-box;
+        }
+        .stock-card-scrollbar {
+            height: 16px;
+            min-width: 100%;
+            background: transparent;
+        }
+        .stock-card-scrollbar-wrap::-webkit-scrollbar {
+            height: 12px;
+            background: #23293a;
+            border-radius: 8px;
+        }
+        .stock-card-scrollbar-wrap::-webkit-scrollbar-thumb {
+            background: #343b46;
+            border-radius: 8px;
+            border: 2px solid #1f2533;
+        }
+        .stock-card-scrollbar-wrap::-webkit-scrollbar-thumb:hover {
+            background: #4b6e9e;
+        }
+        .stock-card-scrollbar-wrap {
+            scrollbar-color: #343b46 #23293a;
+            scrollbar-width: thin;
+        }
         .stock-card-table-wrap {
             background: #1f2533;
             border: 1px solid #343b46;
             border-radius: 8px;
             width: 100%;
             max-width: 100%;
-            overflow-x: hidden;
+            overflow-x: auto;
             overflow-y: hidden;
             box-sizing: border-box;
             padding: 8px;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+        .stock-card-table-wrap::-webkit-scrollbar {
+            height: 0;
         }
         .location-filter-shell {
             display: grid;
@@ -210,10 +250,10 @@
             padding: 6px 0;
         }
         .stock-card-table {
-            width: 100%;
+            width: max-content;
             border-collapse: collapse;
-            min-width: 0;
-            margin: 0;
+            min-width: 100%;
+            margin: 0 auto;
         }
         /* When no locations, allow the base columns to stretch within fixed table width */
         .stock-card-expand {
@@ -251,9 +291,9 @@
         }
         .stock-card-table th.qty-col,
         .stock-card-table td.qty-col {
-            width: 14%;
-            min-width: 44px;
-            max-width: 160px;
+            width: 90px;
+            min-width: 90px;
+            max-width: 90px;
             text-align: center;
             padding-left: 8px;
             padding-right: 8px;
@@ -278,11 +318,49 @@
                 min-width: 0;
                 padding-top: 0;
             }
+
+            
         }
+
+
+            /* 10 harmonious background colors for location columns */
+    .location-bg-1 { background: #2a3a4d !important; }
+    .location-bg-2 { background: #2d444d !important; }
+    .location-bg-3 { background: #2d4d3a !important; }
+    .location-bg-4 { background: #3a2d4d !important; }
+    .location-bg-5 { background: #4d2d3a !important; }
+    .location-bg-6 { background: #4d3a2d !important; }
+    .location-bg-7 { background: #3a4d2d !important; }
+    .location-bg-8 { background: #2d4d44 !important; }
+    .location-bg-9 { background: #2d394d !important; }
+    .location-bg-10 { background: #394d2d !important; }
     </style>
     <script>
-        // No scrollbar: table always fits container
-        function afterStockCardTableRender() {}
+        function syncStockCardScrollbar() {
+            const table = document.getElementById('stock-card-table');
+            const tableWrap = document.getElementById('stock-card-table-wrap');
+            const scrollbarWrap = document.getElementById('stock-card-scrollbar-wrap');
+            const scrollbar = document.getElementById('stock-card-scrollbar');
+            if (!table || !tableWrap || !scrollbarWrap || !scrollbar) return;
+
+            // Match dummy scroller width with actual table width.
+            scrollbar.style.width = Math.max(table.scrollWidth, tableWrap.clientWidth) + 'px';
+
+            const syncFromTop = () => {
+                tableWrap.scrollLeft = scrollbarWrap.scrollLeft;
+            };
+            const syncFromTable = () => {
+                scrollbarWrap.scrollLeft = tableWrap.scrollLeft;
+            };
+
+            scrollbarWrap.onscroll = syncFromTop;
+            tableWrap.onscroll = syncFromTable;
+            syncFromTable();
+        }
+
+        function afterStockCardTableRender() {
+            setTimeout(syncStockCardScrollbar, 0);
+        }
         let reportLoaded = false;
         let stockCardRows = [];
         let stockCardLocations = [];
@@ -343,8 +421,9 @@
             const groupHeaders = stockCardMetricGroups
                 .map((group) => `<th colspan="${locationColumns.length}" class="qty-group-col">${group.label}</th>`)
                 .join('');
+            // Assign a color class to each location (up to 10)
             const subColumns = stockCardMetricGroups
-                .map(() => locationColumns.map((locationCode) => `<th class="qty-col">${escapeHtml(locationCode)}</th>`).join(''))
+                .map(() => locationColumns.map((locationCode, idx) => `<th class="qty-col location-bg-${(idx % 10) + 1}">${escapeHtml(locationCode)}</th>`).join(''))
                 .join('');
 
             thead.innerHTML = `
@@ -420,7 +499,7 @@
                     return `<td class="qty-col stock-card-expand">${Number(row[fallbackKey] || 0)}</td>`;
                 }
                 const map = row[metricKey] || {};
-                return locationColumns.map((locationCode) => `<td class="qty-col">${Number(map[locationCode] || 0)}</td>`).join('');
+                return locationColumns.map((locationCode, idx) => `<td class="qty-col location-bg-${(idx % 10) + 1}">${Number(map[locationCode] || 0)}</td>`).join('');
             };
 
             tbody.innerHTML = rows.map((row) => `
@@ -476,6 +555,7 @@
         document.addEventListener('DOMContentLoaded', function () {
             loadStockCardRows();
             afterStockCardTableRender();
+            window.addEventListener('resize', afterStockCardTableRender);
         });
     </script>
 
