@@ -3189,6 +3189,31 @@ def api_admin_procurement_stock_card():
         cur.execute("SELECT CODE FROM ST_ITEM ORDER BY CODE")
         rows = cur.fetchall() or []
 
+        # Build availability map from ST_TR using ITEMCODE + LOCATION.
+        cur.execute(
+            """
+            SELECT ITEMCODE,
+                   LOCATION,
+                   CAST(SUM(CAST(QTY AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TOTAL_QTY
+            FROM ST_TR
+            GROUP BY ITEMCODE, LOCATION
+            """
+        )
+        tr_rows = cur.fetchall() or []
+        avail_map = {}
+        for tr_row in tr_rows:
+            item_code = (str(tr_row[0]).strip() if tr_row and tr_row[0] is not None else '')
+            location_code = (str(tr_row[1]).strip() if len(tr_row) > 1 and tr_row[1] is not None else '')
+            total_qty = tr_row[2] if len(tr_row) > 2 else 0
+            if not item_code or not location_code:
+                continue
+            if item_code not in avail_map:
+                avail_map[item_code] = {}
+            try:
+                avail_map[item_code][location_code] = float(total_qty or 0)
+            except Exception:
+                avail_map[item_code][location_code] = 0
+
         data = []
         for row in rows:
             code = (str(row[0]).strip() if row and row[0] is not None else '')
@@ -3200,6 +3225,12 @@ def api_admin_procurement_stock_card():
             jo_qty_by_location = {location_code: 0 for location_code in locations}
             qty_by_location = {location_code: 0 for location_code in locations}
             avail_qty_by_location = {location_code: 0 for location_code in locations}
+
+            # Fill Avail.Qty by location from ST_TR sums.
+            item_avail = avail_map.get(code, {})
+            for location_code in locations:
+                avail_qty_by_location[location_code] = item_avail.get(location_code, 0)
+
             data.append({
                 'code': code,
                 'so_qty': 0,
@@ -3210,7 +3241,7 @@ def api_admin_procurement_stock_card():
                 'jo_qty_by_location': jo_qty_by_location,
                 'qty': 0,
                 'qty_by_location': qty_by_location,
-                'avail_qty': 0,
+                'avail_qty': sum(avail_qty_by_location.values()),
                 'avail_qty_by_location': avail_qty_by_location,
             })
 
