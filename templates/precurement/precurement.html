@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Procurement Module</title>
+    <link rel="stylesheet" href="/static/css/chat.css">
+    <link rel="stylesheet" href="/static/css/hamburger_menu.css">
+    <link rel="stylesheet" href="/static/css/orderQuotation.css">
+    <link rel="stylesheet" href="/static/css/adminViewQuotations.css">
+</head>
+<body>
+
+
+    <div class="container" style="min-height: 80vh;">
+        <div class="main-content">
+            <div class="header">
+                {% include 'components/admin_hamburger_menu.html' %}
+                <div>
+                    <h3 class="header-title">Procurement Module</h3>
+                    <div style="font-size: 12px; color: #9ba7b6; margin-top: 4px;">Welcome, {{ user_name }}</div>
+                </div>
+            </div>
+
+            <div id="content-view" class="tab-content active">
+                <div class="procurement-shell">
+                    <nav class="sidebar-nav">
+                        <div class="sidebar-title">eProcurement</div>
+                        <button id="tab-report" class="side-tab active" onclick="showTab('report')">Overall Report</button>
+                        <button id="tab-view" class="side-tab" onclick="showTab('view')">View eProcurement</button>
+                        <button id="tab-create" class="side-tab" onclick="showTab('create')">Create eProcurement</button>
+                    </nav>
+
+                    <div class="procurement-panel">
+                        <div id="panel-report" class="panel-content">
+                            <h2 style="margin-bottom: 12px;">Overall Report</h2>
+                            <div class="location-filter-shell">
+                                <div class="location-filter-row">
+                                    <span class="location-filter-label">Selected Locations</span>
+                                    <div id="selected-location-list" class="location-pill-list"></div>
+                                </div>
+                                <div class="location-filter-row">
+                                    <span class="location-filter-label">Add Location</span>
+                                    <div id="available-location-list" class="location-pill-list"></div>
+                                </div>
+                            </div>
+                            <!-- Scrollbar removed: table will always fit container -->
+                            <div class="stock-card-table-wrap" id="stock-card-table-wrap">
+                                <table class="stock-card-table" id="stock-card-table">
+                                    <thead id="stock-card-table-head">
+                                        <tr>
+                                            <th class="code-col">ST_ITEM.CODE</th>
+                                            <th class="qty-col">S.O Qty</th>
+                                            <th class="qty-col">P.O Qty</th>
+                                            <th class="qty-col">J.O Qty</th>
+                                            <th class="qty-col">Qty</th>
+                                            <th class="qty-col">Avail.Qty</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="stock-card-table-body">
+                                        <tr>
+                                            <td colspan="6" class="stock-card-status">Loading stock items...</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div id="panel-view" class="panel-content" style="display: none;">
+                            <h2 style="margin-bottom: 12px;">View eProcurement</h2>
+                            <p>This section will display all eProcurement records.</p>
+                        </div>
+                        <div id="panel-create" class="panel-content" style="display: none;">
+                            <h2 style="margin-bottom: 12px;">Create eProcurement</h2>
+                            <p>This section will allow you to create a new eProcurement record.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        body {
+            overflow-x: hidden;
+        }
+        .container,
+        .main-content,
+        .procurement-shell {
+            min-width: 0;
+        }
+        .procurement-shell {
+            display: flex;
+            min-height: 62vh;
+        }
+        .procurement-panel {
+            flex: 1;
+            min-width: 0;
+            padding: 20px;
+        }
+        .sidebar-nav {
+            width: 220px;
+            background: #23293a;
+            padding: 0;
+            border-radius: 8px 0 0 8px;
+            box-shadow: 2px 0 8px rgba(0,0,0,0.04);
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            flex-shrink: 0;
+        }
+        .sidebar-title {
+            padding: 32px 0 16px 0;
+            text-align: center;
+            color: #9ba7b6;
+            font-weight: bold;
+            letter-spacing: 0.04em;
+        }
+        .side-tab {
+            background: none;
+            border: none;
+            color: #e4e9f1;
+            padding: 18px 0 18px 32px;
+            text-align: left;
+            font-size: 16px;
+            cursor: pointer;
+            outline: none;
+            border-left: 4px solid transparent;
+            transition: background 0.2s, border-color 0.2s;
+        }
+        .side-tab.active, .side-tab:hover {
+            background: #2d3440;
+            border-left: 4px solid #4b6e9e;
+            color: #fff;
+        }
+        /* Scrollbar removed: table always fits container */
+        .stock-card-table-wrap {
+            background: #1f2533;
+            border: 1px solid #343b46;
+            border-radius: 8px;
+            width: 100%;
+            max-width: 100%;
+            overflow-x: hidden;
+            overflow-y: hidden;
+            box-sizing: border-box;
+            padding: 8px;
+        }
+        .location-filter-shell {
+            display: grid;
+            gap: 10px;
+            margin-bottom: 14px;
+            padding: 12px;
+            background: #1f2533;
+            border: 1px solid #343b46;
+            border-radius: 8px;
+        }
+        .location-filter-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+        }
+        .location-filter-label {
+            min-width: 110px;
+            padding-top: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #b9c4d1;
+        }
+        .location-pill-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .location-pill,
+        .location-add-btn {
+            border: 1px solid #485161;
+            border-radius: 999px;
+            padding: 5px 10px;
+            font-size: 11px;
+            line-height: 1;
+        }
+        .location-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: #2d3440;
+            color: #e4e9f1;
+        }
+        .location-pill button {
+            border: none;
+            background: transparent;
+            color: #ff9c9c;
+            cursor: pointer;
+            font-size: 11px;
+            padding: 0;
+            line-height: 1;
+        }
+        .location-add-btn {
+            background: #202735;
+            color: #b9c4d1;
+            cursor: pointer;
+        }
+        .location-add-btn:hover {
+            background: #2d3440;
+            color: #fff;
+        }
+        .location-empty {
+            color: #7f8a99;
+            font-size: 11px;
+            padding: 6px 0;
+        }
+        .stock-card-table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 0;
+            margin: 0;
+        }
+        /* When no locations, allow the base columns to stretch within fixed table width */
+        .stock-card-expand {
+            width: auto !important;
+            min-width: 0 !important;
+            max-width: none !important;
+        }
+        .stock-card-table th,
+        .stock-card-table td {
+            padding: 6px 8px;
+            border-bottom: 1px solid #343b46;
+            text-align: center;
+            font-size: 12px;
+            line-height: 1.2;
+            color: #e4e9f1;
+            white-space: nowrap;
+            vertical-align: middle;
+        }
+        .stock-card-table th {
+            background: #2d3440;
+            color: #b9c4d1;
+            font-weight: 600;
+        }
+        .stock-card-table th.code-col,
+        .stock-card-table td.code-col {
+            width: 14%;
+            min-width: 80px;
+            max-width: 200px;
+            text-align: center;
+        }
+        .stock-card-table th.qty-group-col {
+            text-align: center;
+            padding-left: 4px;
+            padding-right: 4px;
+        }
+        .stock-card-table th.qty-col,
+        .stock-card-table td.qty-col {
+            width: 14%;
+            min-width: 44px;
+            max-width: 160px;
+            text-align: center;
+            padding-left: 8px;
+            padding-right: 8px;
+        }
+        .stock-card-status {
+            text-align: center;
+            color: #9ba7b6;
+            font-style: italic;
+        }
+        @media (max-width: 900px) {
+            .procurement-shell {
+                flex-direction: column;
+            }
+            .sidebar-nav {
+                width: 100%;
+                border-radius: 8px 8px 0 0;
+            }
+            .location-filter-row {
+                flex-direction: column;
+            }
+            .location-filter-label {
+                min-width: 0;
+                padding-top: 0;
+            }
+        }
+    </style>
+    <script>
+        // No scrollbar: table always fits container
+        function afterStockCardTableRender() {}
+        let reportLoaded = false;
+        let stockCardRows = [];
+        let stockCardLocations = [];
+        let selectedStockCardLocations = [];
+
+        const stockCardMetricGroups = [
+            { key: 'so_qty_by_location', label: 'S.O Qty' },
+            { key: 'po_qty_by_location', label: 'P.O Qty' },
+            { key: 'jo_qty_by_location', label: 'J.O Qty' },
+            { key: 'qty_by_location', label: 'Qty' },
+            { key: 'avail_qty_by_location', label: 'Avail.Qty' }
+        ];
+
+        function getStockCardTotalColumns(locations) {
+            const locationCount = Array.isArray(locations) && locations.length ? locations.length : 1;
+            return 1 + (stockCardMetricGroups.length * locationCount);
+        }
+
+        function showTab(tab) {
+            document.getElementById('tab-report').classList.remove('active');
+            document.getElementById('tab-view').classList.remove('active');
+            document.getElementById('tab-create').classList.remove('active');
+            document.getElementById('panel-report').style.display = 'none';
+            document.getElementById('panel-view').style.display = 'none';
+            document.getElementById('panel-create').style.display = 'none';
+
+            if (tab === 'report') {
+                document.getElementById('tab-report').classList.add('active');
+                document.getElementById('panel-report').style.display = '';
+                if (!reportLoaded) {
+                    loadStockCardRows();
+                }
+            } else if (tab === 'view') {
+                document.getElementById('tab-view').classList.add('active');
+                document.getElementById('panel-view').style.display = '';
+            } else {
+                document.getElementById('tab-create').classList.add('active');
+                document.getElementById('panel-create').style.display = '';
+            }
+        }
+
+        function renderStockCardHeader(locations) {
+            const locationColumns = Array.isArray(locations) ? locations : [];
+            const thead = document.getElementById('stock-card-table-head');
+
+            if (!locationColumns.length) {
+                // When no locations, make the main columns expand to fill space
+                const defaultColumns = stockCardMetricGroups.map((group) => `<th class=\"qty-col stock-card-expand\">${group.label}</th>`).join('');
+                thead.innerHTML = `
+                    <tr>
+                        <th class=\"code-col stock-card-expand\">ST_ITEM.CODE</th>
+                        ${defaultColumns}
+                    </tr>
+                `;
+                return;
+            }
+
+            const groupHeaders = stockCardMetricGroups
+                .map((group) => `<th colspan="${locationColumns.length}" class="qty-group-col">${group.label}</th>`)
+                .join('');
+            const subColumns = stockCardMetricGroups
+                .map(() => locationColumns.map((locationCode) => `<th class="qty-col">${escapeHtml(locationCode)}</th>`).join(''))
+                .join('');
+
+            thead.innerHTML = `
+                <tr>
+                    <th rowspan="2" class="code-col">ST_ITEM.CODE</th>
+                    ${groupHeaders}
+                </tr>
+                <tr>
+                    ${subColumns}
+                </tr>
+            `;
+        }
+
+        function renderLocationFilters() {
+            const selectedList = document.getElementById('selected-location-list');
+            const availableList = document.getElementById('available-location-list');
+            const selected = Array.isArray(selectedStockCardLocations) ? selectedStockCardLocations : [];
+            const available = stockCardLocations.filter((locationCode) => !selected.includes(locationCode));
+
+            if (!selected.length) {
+                selectedList.innerHTML = '<span class="location-empty">No locations selected.</span>';
+            } else {
+                selectedList.innerHTML = selected.map((locationCode) => `
+                    <span class="location-pill">
+                        <span>${escapeHtml(locationCode)}</span>
+                        <button type="button" onclick="removeLocationFilter('${escapeJs(locationCode)}')">x</button>
+                    </span>
+                `).join('');
+            }
+
+            if (!available.length) {
+                availableList.innerHTML = '<span class="location-empty">All locations selected.</span>';
+            } else {
+                availableList.innerHTML = available.map((locationCode) => `
+                    <button type="button" class="location-add-btn" onclick="addLocationFilter('${escapeJs(locationCode)}')">+ ${escapeHtml(locationCode)}</button>
+                `).join('');
+            }
+        }
+
+        function addLocationFilter(locationCode) {
+            if (!stockCardLocations.includes(locationCode) || selectedStockCardLocations.includes(locationCode)) {
+                return;
+            }
+            selectedStockCardLocations.push(locationCode);
+            syncStockCardTable();
+        }
+
+        function removeLocationFilter(locationCode) {
+            selectedStockCardLocations = selectedStockCardLocations.filter((code) => code !== locationCode);
+            syncStockCardTable();
+        }
+
+        function syncStockCardTable() {
+            renderLocationFilters();
+            renderStockCardHeader(selectedStockCardLocations);
+            renderStockCardRows(stockCardRows, selectedStockCardLocations);
+            afterStockCardTableRender();
+        }
+
+        function renderStockCardRows(rows, locations) {
+            const tbody = document.getElementById('stock-card-table-body');
+            const locationColumns = Array.isArray(locations) ? locations : [];
+            const noLocations = !locationColumns.length;
+            const totalColumns = getStockCardTotalColumns(locationColumns);
+
+            if (!rows || !rows.length) {
+                tbody.innerHTML = `<tr><td colspan="${totalColumns}" class="stock-card-status">No stock items found.</td></tr>`;
+                return;
+            }
+
+            const renderMetricColumns = (row, metricKey, fallbackKey) => {
+                if (!locationColumns.length) {
+                    return `<td class="qty-col stock-card-expand">${Number(row[fallbackKey] || 0)}</td>`;
+                }
+                const map = row[metricKey] || {};
+                return locationColumns.map((locationCode) => `<td class="qty-col">${Number(map[locationCode] || 0)}</td>`).join('');
+            };
+
+            tbody.innerHTML = rows.map((row) => `
+                <tr>
+                    <td class="code-col${noLocations ? ' stock-card-expand' : ''}">${escapeHtml(row.code || '')}</td>
+                    ${renderMetricColumns(row, 'so_qty_by_location', 'so_qty')}
+                    ${renderMetricColumns(row, 'po_qty_by_location', 'po_qty')}
+                    ${renderMetricColumns(row, 'jo_qty_by_location', 'jo_qty')}
+                    ${renderMetricColumns(row, 'qty_by_location', 'qty')}
+                    ${renderMetricColumns(row, 'avail_qty_by_location', 'avail_qty')}
+                </tr>
+            `).join('');
+        }
+
+        function loadStockCardRows() {
+            const tbody = document.getElementById('stock-card-table-body');
+            tbody.innerHTML = '<tr><td colspan="6" class="stock-card-status">Loading stock items...</td></tr>';
+
+            fetch('/api/admin/procurement/stock-card')
+                .then((res) => res.json())
+                .then((payload) => {
+                    if (!payload.success) {
+                        throw new Error(payload.error || 'Failed to load stock items');
+                    }
+                    const locations = Array.isArray(payload.locations) ? payload.locations : [];
+                    stockCardLocations = locations.slice();
+                    selectedStockCardLocations = locations.slice();
+                    stockCardRows = Array.isArray(payload.data) ? payload.data : [];
+                    reportLoaded = true;
+                    syncStockCardTable();
+                })
+                .catch((error) => {
+                    console.error('Failed to load stock card rows:', error);
+                    tbody.innerHTML = `<tr><td colspan="6" class="stock-card-status">${escapeHtml(error.message || 'Failed to load stock items.')}</td></tr>`;
+                });
+        }
+
+        function escapeHtml(value) {
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/\"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function escapeJs(value) {
+            return String(value)
+                .replace(/\\/g, '\\\\')
+                .replace(/'/g, "\\'");
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            loadStockCardRows();
+            afterStockCardTableRender();
+        });
+    </script>
+
+    <script src="/static/js/admin_hamburger_menu.js"></script>
+</body>
+</html>

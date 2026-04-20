@@ -13,11 +13,10 @@ import string
 from difflib import SequenceMatcher
 import traceback
 from urllib.parse import quote
-
+from flask import Flask, render_template, request, jsonify, session, redirect
 import fdb
 import openai
 import requests
-from flask import Flask, render_template, request, jsonify, session, redirect
 from dotenv import load_dotenv
 from db_initializer import initialize_database
 from api.services.local_customer_sync import LocalCustomerSyncRequest, sync_local_customer_fields
@@ -2331,6 +2330,16 @@ def admin_pricing_priority_rules():
     )
 
 
+@app.route('/admin/precurement/precurement')
+def admin_procurement_module():
+    """Display procurement module page (admin only)."""
+    return render_protected_template(
+        'precurement/precurement.html',
+        require_admin=True,
+        user_type=session.get('user_type', 'admin')
+    )
+
+
 @app.route('/admin/invoice-aging')
 def admin_invoice_aging():
     """Display invoice aging analytics page (admin only)."""
@@ -3157,6 +3166,68 @@ def api_get_stock_items():
                 con.close()
         except Exception:
             pass
+
+
+@app.route('/api/admin/procurement/stock-card')
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_procurement_stock_card():
+    """Return stock card table rows for procurement overall report."""
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+
+        cur.execute("SELECT CODE FROM ST_LOCATION ORDER BY CODE")
+        location_rows = cur.fetchall() or []
+        locations = []
+        for row in location_rows:
+            location_code = (str(row[0]).strip() if row and row[0] is not None else '')
+            if location_code:
+                locations.append(location_code)
+
+        cur.execute("SELECT CODE FROM ST_ITEM ORDER BY CODE")
+        rows = cur.fetchall() or []
+
+        data = []
+        for row in rows:
+            code = (str(row[0]).strip() if row and row[0] is not None else '')
+            if not code:
+                continue
+
+            so_qty_by_location = {location_code: 0 for location_code in locations}
+            po_qty_by_location = {location_code: 0 for location_code in locations}
+            jo_qty_by_location = {location_code: 0 for location_code in locations}
+            qty_by_location = {location_code: 0 for location_code in locations}
+            avail_qty_by_location = {location_code: 0 for location_code in locations}
+            data.append({
+                'code': code,
+                'so_qty': 0,
+                'so_qty_by_location': so_qty_by_location,
+                'po_qty': 0,
+                'po_qty_by_location': po_qty_by_location,
+                'jo_qty': 0,
+                'jo_qty_by_location': jo_qty_by_location,
+                'qty': 0,
+                'qty_by_location': qty_by_location,
+                'avail_qty': 0,
+                'avail_qty_by_location': avail_qty_by_location,
+            })
+
+        return jsonify({
+            'success': True,
+            'count': len(data),
+            'locations': locations,
+            'data': data,
+        })
+    except Exception as e:
+        print(f"[PROCUREMENT STOCK CARD] DB error: {e}", flush=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
 
 @app.route('/api/get_product_price')
 @api_login_required(unauth_message='Unauthorized')

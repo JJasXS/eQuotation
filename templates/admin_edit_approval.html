@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="/static/css/hamburger_menu.css">
     <link rel="stylesheet" href="/static/css/admin_edit_approval.css">
 </head>
-<body>
+<body data-orderid="{{ orderid }}">
     <div class="admin-container">
         <div class="admin-header">
             {% include 'components/admin_hamburger_menu.html' %}
@@ -88,7 +88,7 @@
     </div>
 
     <script>
-        window.editOrderId = {{ orderid }};
+        window.editOrderId = Number(document.body.dataset.orderid || 0);
     </script>
     <script src="/static/js/admin_edit_approval.js"></script>
 </body>
