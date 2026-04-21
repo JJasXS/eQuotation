@@ -39,6 +39,11 @@ from utils.procurement_stock_card_queries import (
     fetch_procurement_metric_breakdown,
     fetch_procurement_stock_card_data,
 )
+from utils.procurement_purchase_request import (
+    PurchaseRequestValidationError,
+    create_purchase_request,
+    transition_purchase_request_status,
+)
 from utils.sql_query_helpers import (
     fetch_stock_items,
     find_customer_code_by_email,
@@ -3194,6 +3199,47 @@ def api_admin_procurement_stock_card_breakdown():
             cur.close()
         if con:
             con.close()
+
+
+@app.route('/api/admin/procurement/purchase-requests', methods=['POST'])
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_create_purchase_request():
+    """Create eProcurement purchase request with validation, persistence, and optional upstream submit."""
+    payload = request.get_json(silent=True) or {}
+    actor = (session.get('user_email') or session.get('user_name') or 'admin').strip()
+    auth_header = (request.headers.get('Authorization') or '').strip() or None
+
+    try:
+        result = create_purchase_request(payload, created_by=actor, auth_header=auth_header)
+        return jsonify({
+            'success': True,
+            'message': 'Purchase request created successfully',
+            'data': result,
+        }), 201
+    except PurchaseRequestValidationError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+    except Exception as exc:
+        print(f"[PROCUREMENT CREATE PR] error: {exc}", flush=True)
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
+@app.route('/api/admin/procurement/purchase-requests/<request_number>/status', methods=['PATCH'])
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_update_purchase_request_status(request_number):
+    """Update purchase request status across workflow states."""
+    payload = request.get_json(silent=True) or {}
+    raw_target_status = payload.get('status')
+    target_status = '' if raw_target_status is None else str(raw_target_status).strip()
+    actor = (session.get('user_email') or session.get('user_name') or 'admin').strip()
+
+    try:
+        result = transition_purchase_request_status(request_number, target_status, actor)
+        return jsonify({'success': True, 'message': 'Status updated', 'data': result})
+    except PurchaseRequestValidationError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+    except Exception as exc:
+        print(f"[PROCUREMENT PR STATUS] error: {exc}", flush=True)
+        return jsonify({'success': False, 'error': str(exc)}), 500
 
 @app.route('/api/get_product_price')
 @api_login_required(unauth_message='Unauthorized')

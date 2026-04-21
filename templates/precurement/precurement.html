@@ -54,8 +54,8 @@
                                             <th class="qty-col">S.O Qty</th>
                                             <th class="qty-col">P.O Qty</th>
                                             <th class="qty-col">J.O Qty</th>
-                                            <th class="qty-col">Qty</th>
                                             <th class="qty-col">Avail.Qty</th>
+                                                                                        <th class="qty-col">Quantity on Hand</th>
                                         </tr>
                                     </thead>
                                     <tbody id="stock-card-table-body">
@@ -106,7 +106,90 @@
                         </div>
                         <div id="panel-create" class="panel-content" style="display: none;">
                             <h2 style="margin-bottom: 12px;">Create eProcurement</h2>
-                            <p>This section will allow you to create a new eProcurement record.</p>
+                            <form id="purchase-request-form" class="pr-form" novalidate>
+                                <div class="pr-grid">
+                                    <label class="pr-field">
+                                        <span>Request Number</span>
+                                        <input type="text" id="pr-request-number" placeholder="Auto-generated if empty" />
+                                    </label>
+                                    <label class="pr-field">
+                                        <span>Requester ID <em>*</em></span>
+                                        <input type="text" id="pr-requester-id" required />
+                                    </label>
+                                    <label class="pr-field">
+                                        <span>Department ID <em>*</em></span>
+                                        <input type="text" id="pr-department-id" required />
+                                    </label>
+                                    <label class="pr-field">
+                                        <span>Cost Center</span>
+                                        <input type="text" id="pr-cost-center" />
+                                    </label>
+                                    <label class="pr-field">
+                                        <span>Supplier ID</span>
+                                        <input type="text" id="pr-supplier-id" />
+                                    </label>
+                                    <label class="pr-field">
+                                        <span>Currency</span>
+                                        <input type="text" id="pr-currency" value="MYR" maxlength="8" />
+                                    </label>
+                                    <label class="pr-field">
+                                        <span>Request Date <em>*</em></span>
+                                        <input type="date" id="pr-request-date" required />
+                                    </label>
+                                    <label class="pr-field">
+                                        <span>Required Date <em>*</em></span>
+                                        <input type="date" id="pr-required-date" required />
+                                    </label>
+                                    <label class="pr-field pr-field-wide">
+                                        <span>Delivery Location</span>
+                                        <input type="text" id="pr-delivery-location" />
+                                    </label>
+                                    <label class="pr-field pr-field-wide">
+                                        <span>Justification</span>
+                                        <textarea id="pr-justification" rows="2"></textarea>
+                                    </label>
+                                    <label class="pr-field pr-field-wide">
+                                        <span>Notes</span>
+                                        <textarea id="pr-notes" rows="2"></textarea>
+                                    </label>
+                                </div>
+
+                                <div class="pr-line-items-head">
+                                    <h3>Line Items</h3>
+                                    <button type="button" class="pr-add-item-btn" onclick="addPurchaseRequestLineItem()">+ Add Item</button>
+                                </div>
+
+                                <div class="pr-line-items-wrap">
+                                    <table class="pr-line-items-table" id="pr-line-items-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Item Code <em>*</em></th>
+                                                <th>Item Name <em>*</em></th>
+                                                <th>Description</th>
+                                                <th>Qty <em>*</em></th>
+                                                <th>Unit Price <em>*</em></th>
+                                                <th>Tax</th>
+                                                <th>Amount</th>
+                                                <th></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="pr-line-items-body"></tbody>
+                                    </table>
+                                </div>
+
+                                <div class="pr-summary-row">
+                                    <div class="pr-summary-block">Subtotal: <strong id="pr-subtotal">0.00</strong></div>
+                                    <div class="pr-summary-block">Tax: <strong id="pr-tax-total">0.00</strong></div>
+                                    <div class="pr-summary-block">Total: <strong id="pr-grand-total">0.00</strong></div>
+                                </div>
+
+                                <div class="pr-actions">
+                                    <button type="button" class="pr-secondary-btn" onclick="savePurchaseRequestDraft()">Save Draft</button>
+                                    <button type="button" class="pr-primary-btn" id="pr-submit-btn" onclick="submitPurchaseRequest()">Submit Purchase Request</button>
+                                </div>
+
+                                <div id="pr-form-message" class="pr-form-message" style="display:none;"></div>
+                            </form>
                         </div>
                     </div>
                 </div>
@@ -150,8 +233,8 @@
             { key: 'so_qty_by_location', label: 'S.O Qty' },
             { key: 'po_qty_by_location', label: 'P.O Qty' },
             { key: 'jo_qty_by_location', label: 'J.O Qty' },
-            { key: 'qty_by_location', label: 'Qty' },
-            { key: 'avail_qty_by_location', label: 'Avail.Qty' }
+            { key: 'qty_by_location', label: 'Avail.Qty' },
+            { key: 'avail_qty_by_location', label: 'Quantity on Hand' }
         ];
 
         function getStockCardTotalColumns(locations) {
@@ -332,7 +415,7 @@
                         <tr>
                             <td>${escapeHtml(row.docno || '-')}</td>
                             <td>${escapeHtml(row.docdate || '-')}</td>
-                            <td>${escapeHtml(row.party || '-')}</td> <!-- If you want to rename the data key, update backend and JS as well -->
+                            <td>${escapeHtml(row.party || '-')}</td>
                             <td>${escapeHtml(row.remarks || '-')}</td>
                             <td class="stock-card-breakdown-num">${formatStockCardNumber(row.total_qty)}</td>
                             <td class="stock-card-breakdown-num">${formatStockCardNumber(row.moved_qty)}</td>
@@ -426,9 +509,228 @@
                 .replace(/'/g, "\\'");
         }
 
+        function prTodayIso() {
+            return new Date().toISOString().slice(0, 10);
+        }
+
+        function addDaysIso(baseIso, days) {
+            const d = new Date(baseIso + 'T00:00:00');
+            d.setDate(d.getDate() + days);
+            return d.toISOString().slice(0, 10);
+        }
+
+        function formatMoney(value) {
+            const num = Number(value || 0);
+            if (!Number.isFinite(num)) {
+                return '0.00';
+            }
+            return num.toFixed(2);
+        }
+
+        function showPurchaseRequestMessage(message, kind) {
+            const el = document.getElementById('pr-form-message');
+            if (!el) return;
+            el.style.display = '';
+            el.className = `pr-form-message ${kind || 'info'}`;
+            el.textContent = message;
+        }
+
+        function renderPurchaseRequestLineItems() {
+            const body = document.getElementById('pr-line-items-body');
+            if (!body) return;
+
+            if (!window.purchaseRequestItems || !window.purchaseRequestItems.length) {
+                window.purchaseRequestItems = [{ itemCode: '', itemName: '', description: '', quantity: 1, unitPrice: 0, tax: 0 }];
+            }
+
+            body.innerHTML = window.purchaseRequestItems.map((item, idx) => {
+                const qty = Number(item.quantity || 0);
+                const unitPrice = Number(item.unitPrice || 0);
+                const tax = Number(item.tax || 0);
+                const amount = (qty * unitPrice) + tax;
+                return `
+                    <tr>
+                        <td><input type="text" value="${escapeHtml(item.itemCode || '')}" oninput="updatePurchaseRequestItem(${idx}, 'itemCode', this.value)" /></td>
+                        <td><input type="text" value="${escapeHtml(item.itemName || '')}" oninput="updatePurchaseRequestItem(${idx}, 'itemName', this.value)" /></td>
+                        <td><input type="text" value="${escapeHtml(item.description || '')}" oninput="updatePurchaseRequestItem(${idx}, 'description', this.value)" /></td>
+                        <td><input type="number" min="0.0001" step="0.0001" value="${escapeHtml(item.quantity || 0)}" oninput="updatePurchaseRequestItem(${idx}, 'quantity', this.value)" /></td>
+                        <td><input type="number" min="0" step="0.01" value="${escapeHtml(item.unitPrice || 0)}" oninput="updatePurchaseRequestItem(${idx}, 'unitPrice', this.value)" /></td>
+                        <td><input type="number" min="0" step="0.01" value="${escapeHtml(item.tax || 0)}" oninput="updatePurchaseRequestItem(${idx}, 'tax', this.value)" /></td>
+                        <td class="pr-amount-cell">${formatMoney(amount)}</td>
+                        <td><button type="button" class="pr-row-remove" onclick="removePurchaseRequestLineItem(${idx})">x</button></td>
+                    </tr>
+                `;
+            }).join('');
+
+            recalcPurchaseRequestTotals();
+        }
+
+        function updatePurchaseRequestItem(index, key, value) {
+            if (!window.purchaseRequestItems || !window.purchaseRequestItems[index]) return;
+            if (key === 'quantity' || key === 'unitPrice' || key === 'tax') {
+                const num = Number(value);
+                window.purchaseRequestItems[index][key] = Number.isFinite(num) ? num : 0;
+            } else {
+                window.purchaseRequestItems[index][key] = value;
+            }
+            renderPurchaseRequestLineItems();
+        }
+
+        function addPurchaseRequestLineItem() {
+            if (!window.purchaseRequestItems) window.purchaseRequestItems = [];
+            window.purchaseRequestItems.push({ itemCode: '', itemName: '', description: '', quantity: 1, unitPrice: 0, tax: 0 });
+            renderPurchaseRequestLineItems();
+        }
+
+        function removePurchaseRequestLineItem(index) {
+            if (!window.purchaseRequestItems || window.purchaseRequestItems.length <= 1) {
+                showPurchaseRequestMessage('At least one line item is required.', 'error');
+                return;
+            }
+            window.purchaseRequestItems.splice(index, 1);
+            renderPurchaseRequestLineItems();
+        }
+
+        function recalcPurchaseRequestTotals() {
+            const items = window.purchaseRequestItems || [];
+            let subtotal = 0;
+            let taxTotal = 0;
+
+            items.forEach((item) => {
+                const qty = Number(item.quantity || 0);
+                const unitPrice = Number(item.unitPrice || 0);
+                const tax = Number(item.tax || 0);
+                subtotal += qty * unitPrice;
+                taxTotal += tax;
+            });
+
+            const grand = subtotal + taxTotal;
+            document.getElementById('pr-subtotal').textContent = formatMoney(subtotal);
+            document.getElementById('pr-tax-total').textContent = formatMoney(taxTotal);
+            document.getElementById('pr-grand-total').textContent = formatMoney(grand);
+            return { subtotal, taxTotal, grand };
+        }
+
+        function buildPurchaseRequestPayload(status) {
+            const totals = recalcPurchaseRequestTotals();
+            const defaultProject = '----';
+            const lineItems = (window.purchaseRequestItems || []).map((item) => ({
+                itemCode: String(item.itemCode || '').trim(),
+                itemName: String(item.itemName || '').trim(),
+                description: String(item.description || '').trim(),
+                project: String(item.project || defaultProject).trim() || defaultProject,
+                quantity: Number(item.quantity || 0),
+                unitPrice: Number(item.unitPrice || 0),
+                tax: Number(item.tax || 0),
+                amount: Number((Number(item.quantity || 0) * Number(item.unitPrice || 0) + Number(item.tax || 0)).toFixed(2)),
+            }));
+
+            return {
+                requestNumber: document.getElementById('pr-request-number').value.trim(),
+                requesterId: document.getElementById('pr-requester-id').value.trim(),
+                departmentId: document.getElementById('pr-department-id').value.trim(),
+                costCenter: document.getElementById('pr-cost-center').value.trim(),
+                project: defaultProject,
+                supplierId: document.getElementById('pr-supplier-id').value.trim(),
+                currency: document.getElementById('pr-currency').value.trim() || 'MYR',
+                requestDate: document.getElementById('pr-request-date').value,
+                requiredDate: document.getElementById('pr-required-date').value,
+                justification: document.getElementById('pr-justification').value.trim(),
+                deliveryLocation: document.getElementById('pr-delivery-location').value.trim(),
+                notes: document.getElementById('pr-notes').value.trim(),
+                totalAmount: Number(totals.grand.toFixed(2)),
+                status,
+                lineItems,
+            };
+        }
+
+        function validatePurchaseRequestPayload(payload) {
+            if (!payload.requesterId) return 'requesterId is required';
+            if (!payload.departmentId) return 'departmentId is required';
+            if (!payload.requestDate) return 'requestDate is required';
+            if (!payload.requiredDate) return 'requiredDate is required';
+            if (new Date(payload.requiredDate) < new Date(payload.requestDate)) return 'requiredDate cannot be before requestDate';
+            if (!Array.isArray(payload.lineItems) || !payload.lineItems.length) return 'At least one line item is required';
+
+            for (let i = 0; i < payload.lineItems.length; i += 1) {
+                const item = payload.lineItems[i];
+                if (!item.itemCode) return `line ${i + 1}: itemCode is required`;
+                if (!item.itemName) return `line ${i + 1}: itemName is required`;
+                if (!(Number(item.quantity) > 0)) return `line ${i + 1}: quantity must be > 0`;
+                if (!(Number(item.unitPrice) >= 0)) return `line ${i + 1}: unitPrice must be >= 0`;
+                if (!(Number(item.tax) >= 0)) return `line ${i + 1}: tax must be >= 0`;
+            }
+
+            return '';
+        }
+
+        async function submitPurchaseRequestInternal(status) {
+            const btn = document.getElementById('pr-submit-btn');
+            const payload = buildPurchaseRequestPayload(status);
+            const validationError = validatePurchaseRequestPayload(payload);
+            if (validationError) {
+                showPurchaseRequestMessage(validationError, 'error');
+                return;
+            }
+
+            try {
+                btn.disabled = true;
+                btn.textContent = status === 'DRAFT' ? 'Saving...' : 'Submitting...';
+
+                showPurchaseRequestMessage(status === 'DRAFT' ? 'Saving draft...' : 'Submitting purchase request...', 'info');
+
+                const response = await fetch('/api/admin/procurement/purchase-requests', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(payload),
+                });
+
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    throw new Error(data.error || `Request failed with HTTP ${response.status}`);
+                }
+
+                const requestNumber = data.data && data.data.requestNumber ? data.data.requestNumber : 'N/A';
+                const msg = status === 'DRAFT'
+                    ? `Draft saved successfully. Request Number: ${requestNumber}`
+                    : `Purchase request submitted successfully. Request Number: ${requestNumber}`;
+                showPurchaseRequestMessage(msg, 'success');
+                document.getElementById('pr-request-number').value = requestNumber;
+            } catch (error) {
+                showPurchaseRequestMessage(error.message || 'Failed to submit purchase request.', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Submit Purchase Request';
+            }
+        }
+
+        function submitPurchaseRequest() {
+            submitPurchaseRequestInternal('SUBMITTED');
+        }
+
+        function savePurchaseRequestDraft() {
+            submitPurchaseRequestInternal('DRAFT');
+        }
+
+        function initPurchaseRequestForm() {
+            window.purchaseRequestItems = [{ itemCode: '', itemName: '', description: '', quantity: 1, unitPrice: 0, tax: 0 }];
+            const requestDateInput = document.getElementById('pr-request-date');
+            const requiredDateInput = document.getElementById('pr-required-date');
+            if (requestDateInput && !requestDateInput.value) {
+                requestDateInput.value = prTodayIso();
+            }
+            if (requiredDateInput && !requiredDateInput.value) {
+                requiredDateInput.value = addDaysIso(requestDateInput.value || prTodayIso(), 7);
+            }
+            renderPurchaseRequestLineItems();
+        }
+
         document.addEventListener('DOMContentLoaded', function () {
             loadStockCardRows();
             afterStockCardTableRender();
+            initPurchaseRequestForm();
             window.addEventListener('resize', afterStockCardTableRender);
         });
     </script>

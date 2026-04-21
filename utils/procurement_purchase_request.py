@@ -1,0 +1,812 @@
+"""Purchase request service for eProcurement create flow."""
+from __future__ import annotations
+
+import time
+import os
+import re
+from datetime import date, datetime
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from typing import Any
+
+import requests
+
+from utils.db_utils import get_db_connection
+
+
+class PurchaseRequestValidationError(ValueError):
+    """Raised when purchase request payload fails validation."""
+
+
+def _clean_text(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _as_decimal(value: Any, default: str = "0") -> Decimal:
+    try:
+        return Decimal(str(value if value is not None else default))
+    except (InvalidOperation, TypeError, ValueError):
+        return Decimal(default)
+
+
+def _as_date(value: Any) -> date | None:
+    text = _clean_text(value)
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _money(value: Decimal) -> Decimal:
+    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _connect_db():
+    return get_db_connection()
+
+
+def _get_table_columns(cur: Any, table_name: str) -> set[str]:
+    cur.execute(
+        """
+        SELECT TRIM(RF.RDB$FIELD_NAME)
+        FROM RDB$RELATION_FIELDS RF
+        WHERE RF.RDB$RELATION_NAME = ?
+        """,
+        (table_name.upper(),),
+    )
+    return {str(row[0]).strip().upper() for row in (cur.fetchall() or []) if row and row[0]}
+
+
+def _column_is_numeric(cur: Any, table_name: str, column_name: str) -> bool:
+    cur.execute(
+        """
+        SELECT F.RDB$FIELD_TYPE
+        FROM RDB$RELATION_FIELDS RF
+        JOIN RDB$FIELDS F ON RF.RDB$FIELD_SOURCE = F.RDB$FIELD_NAME
+        WHERE RF.RDB$RELATION_NAME = ? AND RF.RDB$FIELD_NAME = ?
+        """,
+        (table_name.upper(), column_name.upper()),
+    )
+    row = cur.fetchone()
+    if not row or row[0] is None:
+        return False
+
+    # Firebird numeric family: SMALLINT(7), INTEGER/LONG(8), BIGINT(16), NUMERIC/DECIMAL(27)
+    return int(row[0]) in {7, 8, 16, 27}
+
+
+def _encode_status(status: str, numeric_target: bool) -> Any:
+    if not numeric_target:
+        return status
+    mapping = {
+        "DRAFT": 0,
+        "SUBMITTED": 1,
+        "APPROVED": 2,
+        "REJECTED": 3,
+        "CANCELLED": 4,
+    }
+    return mapping.get(status, 0)
+
+
+def _decode_status(raw_status: Any) -> str:
+    text = _clean_text(raw_status).upper()
+    if text in {"DRAFT", "SUBMITTED", "APPROVED", "REJECTED", "CANCELLED"}:
+        return text
+    try:
+        numeric = int(raw_status)
+    except Exception:
+        return text or ""
+    reverse = {
+        0: "DRAFT",
+        1: "SUBMITTED",
+        2: "APPROVED",
+        3: "REJECTED",
+        4: "CANCELLED",
+    }
+    return reverse.get(numeric, str(numeric))
+
+
+def _pick_existing(columns: set[str], *candidates: str) -> str:
+    for name in candidates:
+        if name.upper() in columns:
+            return name.upper()
+    return ""
+
+
+def _next_key(cur: Any, table_name: str, key_column: str, generator_candidates: list[str]) -> int:
+    for generator_name in generator_candidates:
+        try:
+            cur.execute(f"SELECT GEN_ID({generator_name}, 1) FROM RDB$DATABASE")
+            row = cur.fetchone()
+            if row and row[0] is not None:
+                return int(row[0])
+        except Exception:
+            continue
+
+    cur.execute(f"SELECT COALESCE(MAX({key_column}), 0) + 1 FROM {table_name}")
+    row = cur.fetchone()
+    return int(row[0] if row and row[0] is not None else 1)
+
+
+def _insert_dynamic(cur: Any, table_name: str, data: dict[str, Any], existing_columns: set[str]) -> None:
+    filtered: list[tuple[str, Any]] = []
+    for col, value in data.items():
+        col_name = col.upper()
+        if col_name in existing_columns:
+            filtered.append((col_name, value))
+
+    if not filtered:
+        raise RuntimeError(f"No matching columns found for insert into {table_name}")
+
+    columns = ", ".join(col for col, _ in filtered)
+    placeholders = ", ".join(["?"] * len(filtered))
+    values = tuple(value for _, value in filtered)
+    cur.execute(f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})", values)
+
+
+def ensure_purchase_request_schema() -> None:
+    """Verify existing PR tables are present. This function does not create tables."""
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        header_cols = _get_table_columns(cur, "PH_PQ")
+        detail_cols = _get_table_columns(cur, "PH_PQDTL")
+        if not header_cols:
+            raise RuntimeError("PH_PQ table not found")
+        if not detail_cols:
+            raise RuntimeError("PH_PQDTL table not found")
+    finally:
+        con.close()
+
+
+def _next_request_number(cur: Any, header_columns: set[str]) -> str:
+    request_no_col = _pick_existing(
+        header_columns,
+        "DOCNO",
+        "REQUESTNO",
+        "PRNO",
+        "PURCHASEREQUESTNO",
+    )
+
+    prefix = f"PR-{datetime.utcnow().strftime('%Y%m%d')}-"
+    if not request_no_col:
+        return f"{prefix}{datetime.utcnow().strftime('%H%M%S')}"
+
+    cur.execute(
+        f"""
+        SELECT FIRST 1 {request_no_col}
+        FROM PH_PQ
+        WHERE {request_no_col} LIKE ?
+        ORDER BY {request_no_col} DESC
+        """,
+        (f"{prefix}%",),
+    )
+    row = cur.fetchone()
+    if not row:
+        return f"{prefix}0001"
+
+    last = _clean_text(row[0])
+    try:
+        seq = int(last.split("-")[-1]) + 1
+    except Exception:
+        seq = 1
+    return f"{prefix}{seq:04d}"
+
+
+def _request_number_exists(cur: Any, header_columns: set[str], request_number: str) -> bool:
+    request_no_col = _pick_existing(
+        header_columns,
+        "DOCNO",
+        "REQUESTNO",
+        "PRNO",
+        "PURCHASEREQUESTNO",
+    )
+    if not request_no_col or not request_number:
+        return False
+
+    cur.execute(
+        f"SELECT FIRST 1 {request_no_col} FROM PH_PQ WHERE {request_no_col} = ?",
+        (request_number,),
+    )
+    return cur.fetchone() is not None
+
+
+def _next_request_number_from_seed(cur: Any, header_columns: set[str], seed: str) -> str:
+    request_no_col = _pick_existing(
+        header_columns,
+        "DOCNO",
+        "REQUESTNO",
+        "PRNO",
+        "PURCHASEREQUESTNO",
+    )
+    seed_text = _clean_text(seed)
+    if not request_no_col or not seed_text:
+        return _next_request_number(cur, header_columns)
+
+    match = re.match(r"^(.*?)(\d+)$", seed_text)
+    if not match:
+        return _next_request_number(cur, header_columns)
+
+    prefix = match.group(1)
+    width = len(match.group(2))
+    cur.execute(
+        f"""
+        SELECT FIRST 1 {request_no_col}
+        FROM PH_PQ
+        WHERE {request_no_col} LIKE ?
+        ORDER BY {request_no_col} DESC
+        """,
+        (f"{prefix}%",),
+    )
+    row = cur.fetchone()
+    if row and row[0]:
+        text = _clean_text(row[0])
+        hit = re.match(rf"^{re.escape(prefix)}(\d+)$", text)
+        if hit:
+            next_num = int(hit.group(1)) + 1
+            return f"{prefix}{next_num:0{width}d}"
+
+    return f"{prefix}{1:0{width}d}"
+
+
+def _normalize_sql_api_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    errors: list[str] = []
+    header_project = _clean_text(payload.get("project")) or "----"
+
+    request_number = _clean_text(payload.get("docno") or payload.get("requestNumber"))
+    request_date_raw = _clean_text(payload.get("docdate") or payload.get("requestDate"))
+    required_date_raw = _clean_text(payload.get("postdate") or payload.get("requiredDate"))
+
+    request_date = _as_date(request_date_raw)
+    required_date = _as_date(required_date_raw)
+    if not request_date:
+        request_date = datetime.utcnow().date()
+    if not required_date:
+        required_date = request_date
+
+    details = payload.get("sdsdocdetail")
+    if not isinstance(details, list):
+        details = payload.get("lineItems")
+    if not isinstance(details, list) or not details:
+        errors.append("At least one detail row is required in sdsdocdetail")
+        details = []
+
+    normalized_items: list[dict[str, Any]] = []
+    subtotal = Decimal("0")
+    total_tax = Decimal("0")
+
+    for idx, item in enumerate(details, start=1):
+        if not isinstance(item, dict):
+            errors.append(f"sdsdocdetail[{idx}] must be an object")
+            continue
+
+        item_code = _clean_text(item.get("itemcode") or item.get("itemCode")) or f"LINE-{idx:03d}"
+        item_name = (
+            _clean_text(item.get("description") or item.get("itemName") or item.get("description2"))
+            or f"Line {idx}"
+        )
+        description = _clean_text(item.get("description3") or item.get("description") or item_name)
+        line_project = _clean_text(item.get("project")) or header_project
+
+        quantity = _as_decimal(item.get("qty") if item.get("qty") is not None else item.get("quantity"), "0")
+        unit_price = _as_decimal(item.get("unitprice") if item.get("unitprice") is not None else item.get("unitPrice"), "0")
+        tax = _as_decimal(item.get("taxamt") if item.get("taxamt") is not None else item.get("tax"), "0")
+
+        if quantity < 0:
+            errors.append(f"sdsdocdetail[{idx}].qty must be >= 0")
+        if unit_price < 0:
+            errors.append(f"sdsdocdetail[{idx}].unitprice must be >= 0")
+        if tax < 0:
+            errors.append(f"sdsdocdetail[{idx}].taxamt must be >= 0")
+
+        amount_source = item.get("amount")
+        if amount_source is None:
+            amount_source = item.get("localamount")
+        line_amount = _money(_as_decimal(amount_source, str((quantity * unit_price) + tax)))
+
+        subtotal += _money(quantity * unit_price)
+        total_tax += _money(tax)
+
+        normalized_items.append(
+            {
+                "itemCode": item_code,
+                "itemName": item_name,
+                "description": description,
+                "project": line_project,
+                "quantity": float(quantity),
+                "unitPrice": float(_money(unit_price)),
+                "tax": float(_money(tax)),
+                "amount": float(line_amount),
+            }
+        )
+
+    computed_total = _money(subtotal + total_tax)
+    provided_total = _money(_as_decimal(payload.get("docamt"), str(computed_total)))
+    if abs(provided_total - computed_total) > Decimal("0.01"):
+        errors.append("docamt must equal sum of detail amounts")
+
+    raw_status = payload.get("status")
+    status = _decode_status(raw_status).upper() if raw_status is not None else ""
+    if status and status not in {"DRAFT", "SUBMITTED"}:
+        errors.append("status must be DRAFT/SUBMITTED or 0/1 for create")
+
+    if errors:
+        raise PurchaseRequestValidationError("; ".join(errors))
+
+    return {
+        "requestNumber": request_number,
+        "requesterId": _clean_text(payload.get("code")) or "SYSTEM",
+        "departmentId": _clean_text(payload.get("businessunit")) or "PROC",
+        "costCenter": _clean_text(payload.get("businessunit")),
+        "project": header_project,
+        "supplierId": _clean_text(payload.get("agent")),
+        "currency": _clean_text(payload.get("currencycode")) or "MYR",
+        "requestDate": request_date.isoformat(),
+        "requiredDate": required_date.isoformat(),
+        "justification": _clean_text(payload.get("description")),
+        "deliveryLocation": _clean_text(payload.get("daddress1") or payload.get("address1")),
+        "notes": _clean_text(payload.get("note")),
+        "subtotalAmount": float(_money(subtotal)),
+        "taxAmount": float(_money(total_tax)),
+        "totalAmount": float(computed_total),
+        "status": status,
+        "lineItems": normalized_items,
+        "sqlPayload": payload,
+    }
+
+
+def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(payload.get("sdsdocdetail"), list):
+        return _normalize_sql_api_payload(payload)
+
+    errors: list[str] = []
+    header_project = _clean_text(payload.get("project")) or "----"
+
+    requester_id = _clean_text(payload.get("requesterId"))
+    if not requester_id:
+        errors.append("requesterId is required")
+
+    department_id = _clean_text(payload.get("departmentId"))
+    if not department_id:
+        errors.append("departmentId is required")
+
+    currency = _clean_text(payload.get("currency")) or "MYR"
+
+    request_date_raw = _clean_text(payload.get("requestDate"))
+    required_date_raw = _clean_text(payload.get("requiredDate"))
+
+    request_date = _as_date(request_date_raw)
+    required_date = _as_date(required_date_raw)
+
+    if not request_date:
+        errors.append("requestDate is required and must be YYYY-MM-DD")
+    if not required_date:
+        errors.append("requiredDate is required and must be YYYY-MM-DD")
+    if request_date and required_date and required_date < request_date:
+        errors.append("requiredDate cannot be before requestDate")
+
+    items = payload.get("lineItems")
+    if not isinstance(items, list) or not items:
+        errors.append("At least one line item is required")
+        items = []
+
+    normalized_items: list[dict[str, Any]] = []
+    subtotal = Decimal("0")
+    total_tax = Decimal("0")
+
+    for idx, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            errors.append(f"lineItems[{idx}] must be an object")
+            continue
+
+        item_code = _clean_text(item.get("itemCode"))
+        item_name = _clean_text(item.get("itemName"))
+        description = _clean_text(item.get("description"))
+        line_project = _clean_text(item.get("project")) or header_project
+
+        if not item_code:
+            errors.append(f"lineItems[{idx}].itemCode is required")
+        if not item_name:
+            errors.append(f"lineItems[{idx}].itemName is required")
+
+        quantity = _as_decimal(item.get("quantity"))
+        unit_price = _as_decimal(item.get("unitPrice"))
+        tax = _as_decimal(item.get("tax"))
+
+        if quantity <= 0:
+            errors.append(f"lineItems[{idx}].quantity must be > 0")
+        if unit_price < 0:
+            errors.append(f"lineItems[{idx}].unitPrice must be >= 0")
+        if tax < 0:
+            errors.append(f"lineItems[{idx}].tax must be >= 0")
+
+        line_amount = _money((quantity * unit_price) + tax)
+
+        subtotal += _money(quantity * unit_price)
+        total_tax += _money(tax)
+
+        normalized_items.append(
+            {
+                "itemCode": item_code,
+                "itemName": item_name,
+                "description": description,
+                "project": line_project,
+                "quantity": float(quantity),
+                "unitPrice": float(_money(unit_price)),
+                "tax": float(_money(tax)),
+                "amount": float(line_amount),
+            }
+        )
+
+    computed_total = _money(subtotal + total_tax)
+    provided_total = _money(_as_decimal(payload.get("totalAmount"), str(computed_total)))
+
+    if abs(provided_total - computed_total) > Decimal("0.01"):
+        errors.append("totalAmount must equal sum of line items plus taxes")
+
+    request_number = _clean_text(payload.get("requestNumber"))
+    raw_status = payload.get("status")
+    if isinstance(raw_status, (int, float)):
+        status = _decode_status(int(raw_status))
+    else:
+        status = _clean_text(raw_status).upper()
+    if status and status not in {"DRAFT", "SUBMITTED"}:
+        errors.append("status must be DRAFT or SUBMITTED for create")
+
+    if errors:
+        raise PurchaseRequestValidationError("; ".join(errors))
+
+    return {
+        "requestNumber": request_number,
+        "requesterId": requester_id,
+        "departmentId": department_id,
+        "costCenter": _clean_text(payload.get("costCenter")),
+        "project": header_project,
+        "supplierId": _clean_text(payload.get("supplierId")),
+        "currency": currency,
+        "requestDate": request_date.isoformat() if request_date else request_date_raw,
+        "requiredDate": required_date.isoformat() if required_date else required_date_raw,
+        "justification": _clean_text(payload.get("justification")),
+        "deliveryLocation": _clean_text(payload.get("deliveryLocation")),
+        "notes": _clean_text(payload.get("notes")),
+        "subtotalAmount": float(_money(subtotal)),
+        "taxAmount": float(_money(total_tax)),
+        "totalAmount": float(computed_total),
+        "status": status,
+        "lineItems": normalized_items,
+    }
+
+
+def _resolve_initial_status(payload_status: str) -> str:
+    return payload_status or "DRAFT"
+
+
+def _build_upstream_payload(validated: dict[str, Any]) -> dict[str, Any]:
+    source_sql_payload = validated.get("sqlPayload")
+    if isinstance(source_sql_payload, dict):
+        payload = dict(source_sql_payload)
+        payload["sdsdocdetail"] = [dict(row) for row in (source_sql_payload.get("sdsdocdetail") or [])]
+        return payload
+
+    payload = dict(validated)
+    payload["lineItems"] = [dict(item) for item in validated.get("lineItems", [])]
+    return payload
+
+
+def _forward_to_upstream(payload: dict[str, Any], auth_header: str | None) -> tuple[str, str]:
+    upstream_url = _clean_text(os.getenv("PROCUREMENT_CREATE_PR_URL"))
+    if not upstream_url:
+        return ("SKIPPED", "")
+
+    timeout_seconds = int(_clean_text(os.getenv("PROCUREMENT_UPSTREAM_TIMEOUT", "8")) or "8")
+    max_attempts = int(_clean_text(os.getenv("PROCUREMENT_UPSTREAM_RETRY", "2")) or "2")
+    max_attempts = max(0, max_attempts)
+
+    headers = {
+        "Content-Type": "application/json",
+    }
+    service_token = _clean_text(os.getenv("PROCUREMENT_UPSTREAM_TOKEN"))
+    if service_token:
+        headers["Authorization"] = f"Bearer {service_token}"
+    elif auth_header:
+        headers["Authorization"] = auth_header
+
+    last_error = ""
+    for attempt in range(max_attempts + 1):
+        try:
+            response = requests.post(
+                upstream_url,
+                json=payload,
+                headers=headers,
+                timeout=timeout_seconds,
+            )
+            if 200 <= response.status_code < 300:
+                try:
+                    body = response.json() if response.text else {}
+                except Exception:
+                    body = {}
+                ref = _clean_text(body.get("requestNumber") if isinstance(body, dict) else "")
+                if not ref:
+                    ref = _clean_text(body.get("id") if isinstance(body, dict) else "")
+                return ("SENT", ref)
+
+            if response.status_code >= 500 and attempt < max_attempts:
+                time.sleep(0.4 * (attempt + 1))
+                continue
+
+            preview = (response.text or "").strip()[:300]
+            raise RuntimeError(f"Upstream returned HTTP {response.status_code}: {preview}")
+        except Exception as exc:
+            last_error = str(exc)
+            if attempt >= max_attempts:
+                break
+            time.sleep(0.4 * (attempt + 1))
+
+    raise RuntimeError(last_error or "Failed to send purchase request to upstream API")
+
+
+def create_purchase_request(
+    payload: dict[str, Any],
+    created_by: str,
+    auth_header: str | None = None,
+) -> dict[str, Any]:
+    """Validate, persist, and optionally forward a purchase request."""
+    ensure_purchase_request_schema()
+    validated = _validate_and_normalize(payload)
+    normalized_actor = _clean_text(created_by) or "system"
+    now_iso = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    now_date = datetime.utcnow().date()
+
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        header_cols = _get_table_columns(cur, "PH_PQ")
+        detail_cols = _get_table_columns(cur, "PH_PQDTL")
+
+        request_number = validated.get("requestNumber") or _next_request_number(cur, header_cols)
+        if _request_number_exists(cur, header_cols, request_number):
+            request_number = _next_request_number_from_seed(cur, header_cols, request_number)
+        status = _resolve_initial_status(validated.get("status") or "")
+
+        header_key_col = _pick_existing(header_cols, "DOCKEY", "PQKEY", "ID")
+        detail_key_col = _pick_existing(detail_cols, "DTLKEY", "PQDTLKEY", "ID")
+        detail_fk_col = _pick_existing(detail_cols, "DOCKEY", "PQKEY", "REQUEST_ID", "HEADER_ID")
+        detail_seq_col = _pick_existing(detail_cols, "SEQ", "LINE_NO", "LINENO")
+
+        if not header_key_col:
+            raise RuntimeError("PH_PQ primary key column not found (expected DOCKEY/PQKEY/ID)")
+        if not detail_fk_col:
+            raise RuntimeError("PH_PQDTL foreign key column not found (expected DOCKEY/PQKEY/REQUEST_ID/HEADER_ID)")
+
+        header_id = _next_key(
+            cur,
+            "PH_PQ",
+            header_key_col,
+            ["GEN_PH_PQ_ID", "GEN_PH_PQ_DOCKEY", "GEN_PH_PQ", "SEQ_PH_PQ_DOCKEY"],
+        )
+
+        upstream_status = "PENDING"
+        upstream_reference = ""
+        status_col = _pick_existing(header_cols, "STATUS")
+        status_is_numeric = bool(status_col and _column_is_numeric(cur, "PH_PQ", status_col))
+
+        header_values = {
+            header_key_col: header_id,
+            "DOCNO": request_number,
+            "DOCNOEX": request_number,
+            "REQUESTNO": request_number,
+            "PRNO": request_number,
+            "DOCDATE": validated["requestDate"] or now_date,
+            "POSTDATE": validated["requestDate"] or now_date,
+            "TAXDATE": validated["requestDate"] or now_date,
+            "REQUESTDATE": validated["requestDate"] or now_date,
+            "REQUIREDDATE": validated["requiredDate"],
+            "CODE": validated["requesterId"],
+            "REQUESTERID": validated["requesterId"],
+            "DEPARTMENTID": validated["departmentId"],
+            "COSTCENTER": validated["costCenter"],
+            "PROJECT": validated.get("project", ""),
+            "SUPPLIERID": validated["supplierId"],
+            "SHIPPER": "----",
+            "CURRENCYCODE": validated["currency"],
+            "CURRENCY": validated["currency"],
+            "CURRENCYRATE": 1,
+            "DESCRIPTION": validated["justification"] or validated["notes"],
+            "JUSTIFICATION": validated["justification"],
+            "DELIVERYLOCATION": validated["deliveryLocation"],
+            "NOTES": validated["notes"],
+            "SUBTOTAL": validated["subtotalAmount"],
+            "SUBTOTALAMT": validated["subtotalAmount"],
+            "TAXAMT": validated["taxAmount"],
+            "DOCAMT": validated["totalAmount"],
+            "TOTALAMT": validated["totalAmount"],
+            "TOTAL_AMOUNT": validated["totalAmount"],
+            "STATUS": _encode_status(status, status_is_numeric),
+            "UPSTREAM_STATUS": upstream_status,
+            "UPSTREAM_REFERENCE": upstream_reference,
+            "CREATEDBY": normalized_actor,
+            "CREATED_AT": now_iso,
+            "UPDATEDBY": normalized_actor,
+            "UPDATED_AT": now_iso,
+        }
+        _insert_dynamic(cur, "PH_PQ", header_values, header_cols)
+
+        for idx, item in enumerate(validated["lineItems"], start=1):
+            detail_values = {
+                detail_fk_col: header_id,
+                detail_seq_col: idx if detail_seq_col else None,
+                "ITEMCODE": item["itemCode"],
+                "ITEMNAME": item["itemName"],
+                "PROJECT": item.get("project") or validated.get("project", ""),
+                "DESCRIPTION": item["description"] or item["itemName"],
+                "QTY": item["quantity"],
+                "QUANTITY": item["quantity"],
+                "UNITPRICE": item["unitPrice"],
+                "DISC": 0,
+                "TAX": item["tax"],
+                "AMOUNT": item["amount"],
+                "TOTAL": item["amount"],
+                "CREATED_AT": now_iso,
+            }
+            if detail_key_col:
+                detail_values[detail_key_col] = _next_key(
+                    cur,
+                    "PH_PQDTL",
+                    detail_key_col,
+                    ["GEN_PH_PQDTL_ID", "GEN_PH_PQDTL_DTLKEY", "GEN_PH_PQDTL", "SEQ_PH_PQDTL_DTLKEY"],
+                )
+            _insert_dynamic(cur, "PH_PQDTL", detail_values, detail_cols)
+
+        if status == "SUBMITTED":
+            upstream_payload = _build_upstream_payload(
+                {
+                    **validated,
+                    "requestNumber": request_number,
+                    "status": status,
+                }
+            )
+            upstream_status, upstream_reference = _forward_to_upstream(upstream_payload, auth_header)
+
+            status_col = _pick_existing(header_cols, "STATUS")
+            upstream_status_col = _pick_existing(header_cols, "UPSTREAM_STATUS")
+            upstream_ref_col = _pick_existing(header_cols, "UPSTREAM_REFERENCE")
+            status_is_numeric = bool(status_col and _column_is_numeric(cur, "PH_PQ", status_col))
+
+            updates: list[str] = []
+            values: list[Any] = []
+            if status_col:
+                updates.append(f"{status_col} = ?")
+                values.append(_encode_status(status, status_is_numeric))
+            if upstream_status_col:
+                updates.append(f"{upstream_status_col} = ?")
+                values.append(upstream_status)
+            if upstream_ref_col:
+                updates.append(f"{upstream_ref_col} = ?")
+                values.append(upstream_reference)
+            if updates:
+                values.append(header_id)
+                cur.execute(
+                    f"UPDATE PH_PQ SET {', '.join(updates)} WHERE {header_key_col} = ?",
+                    tuple(values),
+                )
+
+        con.commit()
+
+        return {
+            "id": header_id,
+            "requestNumber": request_number,
+            "status": status,
+            "upstreamStatus": upstream_status if status == "SUBMITTED" else "PENDING",
+            "upstreamReference": upstream_reference or None,
+            "requestDate": validated["requestDate"],
+            "requiredDate": validated["requiredDate"],
+            "totalAmount": validated["totalAmount"],
+            "currency": validated["currency"],
+            "lineItemCount": len(validated["lineItems"]),
+        }
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def transition_purchase_request_status(
+    request_number: str,
+    new_status: str,
+    actor: str,
+) -> dict[str, Any]:
+    """Transition purchase request status with simple workflow guards."""
+    ensure_purchase_request_schema()
+    normalized_request_number = _clean_text(request_number)
+    if new_status is None:
+        normalized_status = ""
+    elif isinstance(new_status, (int, float)):
+        normalized_status = _decode_status(int(new_status)).upper()
+    else:
+        normalized_status = _decode_status(new_status).upper()
+    normalized_actor = _clean_text(actor) or "system"
+
+    if not normalized_request_number:
+        raise PurchaseRequestValidationError("requestNumber is required")
+    if normalized_status not in {"DRAFT", "SUBMITTED", "APPROVED", "REJECTED", "CANCELLED"}:
+        raise PurchaseRequestValidationError("Invalid target status")
+
+    allowed = {
+        "DRAFT": {"SUBMITTED", "CANCELLED"},
+        "SUBMITTED": {"APPROVED", "REJECTED", "CANCELLED"},
+        "APPROVED": set(),
+        "REJECTED": set(),
+        "CANCELLED": set(),
+    }
+
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        header_cols = _get_table_columns(cur, "PH_PQ")
+        key_col = _pick_existing(header_cols, "DOCKEY", "PQKEY", "ID")
+        status_col = _pick_existing(header_cols, "STATUS")
+        request_no_col = _pick_existing(header_cols, "DOCNO", "REQUESTNO", "PRNO", "PURCHASEREQUESTNO")
+        updated_by_col = _pick_existing(header_cols, "UPDATEDBY")
+        updated_at_col = _pick_existing(header_cols, "UPDATED_AT")
+
+        if not key_col or not status_col or not request_no_col:
+            raise RuntimeError("PH_PQ is missing required columns for status transition")
+
+        cur.execute(
+            f"SELECT FIRST 1 {key_col}, {status_col} FROM PH_PQ WHERE {request_no_col} = ?",
+            (normalized_request_number,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise PurchaseRequestValidationError("Purchase request not found")
+
+        request_id = int(row[0])
+        status_is_numeric = _column_is_numeric(cur, "PH_PQ", status_col)
+        current_status = _decode_status(row[1])
+
+        if normalized_status == current_status:
+            return {
+                "requestNumber": normalized_request_number,
+                "status": current_status,
+                "message": "Status unchanged",
+            }
+
+        if normalized_status not in allowed.get(current_status, set()):
+            raise PurchaseRequestValidationError(
+                f"Transition from {current_status} to {normalized_status} is not allowed"
+            )
+
+        updates = [f"{status_col} = ?"]
+        params: list[Any] = [_encode_status(normalized_status, status_is_numeric)]
+        if updated_by_col:
+            updates.append(f"{updated_by_col} = ?")
+            params.append(normalized_actor)
+        if updated_at_col:
+            now_iso = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+            updates.append(f"{updated_at_col} = ?")
+            params.append(now_iso)
+        else:
+            now_iso = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+        params.append(request_id)
+        cur.execute(
+            f"UPDATE PH_PQ SET {', '.join(updates)} WHERE {key_col} = ?",
+            tuple(params),
+        )
+
+        con.commit()
+        return {
+            "requestNumber": normalized_request_number,
+            "previousStatus": current_status,
+            "status": normalized_status,
+            "updatedAt": now_iso,
+        }
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
