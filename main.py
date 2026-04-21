@@ -35,6 +35,15 @@ from utils import (
     resolve_numbered_reference, get_selling_price,
     create_or_update_quotation, save_draft_quotation
 )
+from utils.procurement_stock_card_queries import fetch_procurement_stock_card_data
+from utils.sql_query_helpers import (
+    fetch_stock_items,
+    find_customer_code_by_email,
+    find_draft_order_id_by_chatid,
+    find_price_seed_item,
+    get_st_item_udf_stdprice,
+    has_user_draft_orders,
+)
 
 # Load environment variables from .env file
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
@@ -3069,13 +3078,12 @@ def check_draft_order():
     try:
         con = get_db_connection()
         cur = con.cursor()
-        cur.execute('SELECT ORDERID FROM ORDER_TPL WHERE CHATID = ? AND STATUS = ?', (chatid, 'DRAFT'))
-        result = cur.fetchone()
+        order_id = find_draft_order_id_by_chatid(cur, chatid)
         cur.close()
         con.close()
         
-        if result:
-            return jsonify({'success': True, 'hasDraft': True, 'orderid': result[0]})
+        if order_id is not None:
+            return jsonify({'success': True, 'hasDraft': True, 'orderid': order_id})
         else:
             return jsonify({'success': True, 'hasDraft': False})
     except Exception as e:
@@ -3091,17 +3099,11 @@ def check_user_has_draft():
     try:
         con = get_db_connection()
         cur = con.cursor()
-        # Check if user has any draft orders
-        cur.execute('''
-            SELECT COUNT(*) FROM ORDER_TPL o
-            INNER JOIN CHAT_TPL c ON o.CHATID = c.CHATID
-            WHERE c.USEREMAIL = ? AND o.STATUS = ? AND o.CUSTOMERCODE = ?
-        ''', (user_email, 'DRAFT', customer_code))
-        count = cur.fetchone()[0]
+        has_draft = has_user_draft_orders(cur, user_email, customer_code)
         cur.close()
         con.close()
         
-        return jsonify({'success': True, 'hasDraft': count > 0})
+        return jsonify({'success': True, 'hasDraft': has_draft})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -3114,45 +3116,11 @@ def api_get_stock_items():
     try:
         con = get_db_connection()
         cur = con.cursor()
-
-        wanted_columns = [
-            'CODE',
-            'DESCRIPTION',
-            'STOCKGROUP',
-            'REMARK1',
-            'REMARK2',
-            'UDF_STDPRICE',
-            'UDF_MOQ',
-            'UDF_DLEADTIME',
-            'UDF_BUNDLE',
-        ]
-
-        cur.execute(
-            """
-            SELECT TRIM(RF.RDB$FIELD_NAME)
-            FROM RDB$RELATION_FIELDS RF
-            WHERE RF.RDB$RELATION_NAME = 'ST_ITEM'
-            """
-        )
-        existing_columns = {str(row[0]).strip() for row in cur.fetchall() if row and row[0]}
-        selected_columns = [col for col in wanted_columns if col in existing_columns]
-
-        if not selected_columns:
-            return jsonify({'success': False, 'error': 'No expected columns found in ST_ITEM', 'items': []}), 500
-
-        sql = f"SELECT {', '.join(selected_columns)} FROM ST_ITEM"
-        cur.execute(sql)
-        rows = cur.fetchall() or []
-
-        items = []
-        for row in rows:
-            item = {}
-            for idx, col in enumerate(selected_columns):
-                val = row[idx]
-                item[col] = str(val).strip() if isinstance(val, str) else val
-            items.append(item)
+        items = fetch_stock_items(cur)
 
         return jsonify({'success': True, 'items': items})
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e), 'items': []}), 500
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
     finally:
@@ -3177,73 +3145,7 @@ def api_admin_procurement_stock_card():
     try:
         con = get_db_connection()
         cur = con.cursor()
-
-        cur.execute("SELECT CODE FROM ST_LOCATION ORDER BY CODE")
-        location_rows = cur.fetchall() or []
-        locations = []
-        for row in location_rows:
-            location_code = (str(row[0]).strip() if row and row[0] is not None else '')
-            if location_code:
-                locations.append(location_code)
-
-        cur.execute("SELECT CODE FROM ST_ITEM ORDER BY CODE")
-        rows = cur.fetchall() or []
-
-        # Build availability map from ST_TR using ITEMCODE + LOCATION.
-        cur.execute(
-            """
-            SELECT ITEMCODE,
-                   LOCATION,
-                   CAST(SUM(CAST(QTY AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TOTAL_QTY
-            FROM ST_TR
-            GROUP BY ITEMCODE, LOCATION
-            """
-        )
-        tr_rows = cur.fetchall() or []
-        avail_map = {}
-        for tr_row in tr_rows:
-            item_code = (str(tr_row[0]).strip() if tr_row and tr_row[0] is not None else '')
-            location_code = (str(tr_row[1]).strip() if len(tr_row) > 1 and tr_row[1] is not None else '')
-            total_qty = tr_row[2] if len(tr_row) > 2 else 0
-            if not item_code or not location_code:
-                continue
-            if item_code not in avail_map:
-                avail_map[item_code] = {}
-            try:
-                avail_map[item_code][location_code] = float(total_qty or 0)
-            except Exception:
-                avail_map[item_code][location_code] = 0
-
-        data = []
-        for row in rows:
-            code = (str(row[0]).strip() if row and row[0] is not None else '')
-            if not code:
-                continue
-
-            so_qty_by_location = {location_code: 0 for location_code in locations}
-            po_qty_by_location = {location_code: 0 for location_code in locations}
-            jo_qty_by_location = {location_code: 0 for location_code in locations}
-            qty_by_location = {location_code: 0 for location_code in locations}
-            avail_qty_by_location = {location_code: 0 for location_code in locations}
-
-            # Fill Avail.Qty by location from ST_TR sums.
-            item_avail = avail_map.get(code, {})
-            for location_code in locations:
-                avail_qty_by_location[location_code] = item_avail.get(location_code, 0)
-
-            data.append({
-                'code': code,
-                'so_qty': 0,
-                'so_qty_by_location': so_qty_by_location,
-                'po_qty': 0,
-                'po_qty_by_location': po_qty_by_location,
-                'jo_qty': 0,
-                'jo_qty_by_location': jo_qty_by_location,
-                'qty': 0,
-                'qty_by_location': qty_by_location,
-                'avail_qty': sum(avail_qty_by_location.values()),
-                'avail_qty_by_location': avail_qty_by_location,
-            })
+        locations, data = fetch_procurement_stock_card_data(cur)
 
         return jsonify({
             'success': True,
@@ -3278,10 +3180,8 @@ def api_get_product_price():
             try:
                 con = get_db_connection()
                 cur = con.cursor()
-                cur.execute('SELECT FIRST 1 CODE FROM AR_CUSTOMERBRANCH WHERE EMAIL = ?', (user_email,))
-                row = cur.fetchone()
-                if row and row[0]:
-                    customer_code = str(row[0]).strip()
+                customer_code = find_customer_code_by_email(cur, user_email)
+                if customer_code:
                     session['customer_code'] = customer_code
             except Exception as backfill_error:
                 print(f"[PRICING WARNING] Failed to backfill customer_code for {user_email}: {backfill_error}", flush=True)
@@ -3310,10 +3210,7 @@ def api_get_product_price():
             try:
                 con = get_db_connection()
                 cur = con.cursor()
-                cur.execute('SELECT UDF_STDPRICE FROM ST_ITEM WHERE CODE = ?', (item_code,))
-                row = cur.fetchone()
-                if row and row[0] is not None:
-                    st_item_udf_stdprice = float(row[0])
+                st_item_udf_stdprice = get_st_item_udf_stdprice(cur, item_code)
             except Exception as st_item_error:
                 print(f"[PRICING WARNING] Failed to fetch ST_ITEM.UDF_STDPRICE for {item_code}: {st_item_error}", flush=True)
             finally:
@@ -3371,33 +3268,14 @@ def api_get_product_price():
             con = get_db_connection()
             cur = con.cursor()
 
-            cur.execute(
-                '''
-                SELECT FIRST 1 CODE, DESCRIPTION, UDF_STDPRICE
-                FROM ST_ITEM
-                WHERE UPPER(TRIM(DESCRIPTION)) = UPPER(?)
-                ''',
-                (description,)
-            )
-            row = cur.fetchone()
+            seed_item = find_price_seed_item(cur, description)
 
-            if not row and len(description) <= 30:
-                cur.execute(
-                    '''
-                    SELECT FIRST 1 CODE, DESCRIPTION, UDF_STDPRICE
-                    FROM ST_ITEM
-                    WHERE UPPER(TRIM(CODE)) = UPPER(?)
-                    ''',
-                    (description,)
-                )
-                row = cur.fetchone()
-
-            if row:
+            if seed_item:
                 local_item = {
-                    'CODE': (row[0] or '').strip() if row[0] else '',
-                    'DESCRIPTION': (row[1] or '').strip() if row[1] else '',
-                    'UDF_STDPRICE': row[2],
-                    'STOCKVALUE': row[2] if row[2] is not None else 0,
+                    'CODE': seed_item.get('CODE', ''),
+                    'DESCRIPTION': seed_item.get('DESCRIPTION', ''),
+                    'UDF_STDPRICE': seed_item.get('UDF_STDPRICE'),
+                    'STOCKVALUE': seed_item.get('UDF_STDPRICE') if seed_item.get('UDF_STDPRICE') is not None else 0,
                 }
                 return build_price_response(local_item, 'st_item_exact')
 
