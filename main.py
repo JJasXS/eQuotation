@@ -35,7 +35,10 @@ from utils import (
     resolve_numbered_reference, get_selling_price,
     create_or_update_quotation, save_draft_quotation
 )
-from utils.procurement_stock_card_queries import fetch_procurement_stock_card_data
+from utils.procurement_stock_card_queries import (
+    fetch_procurement_metric_breakdown,
+    fetch_procurement_stock_card_data,
+)
 from utils.sql_query_helpers import (
     fetch_stock_items,
     find_customer_code_by_email,
@@ -3156,6 +3159,36 @@ def api_admin_procurement_stock_card():
     except Exception as e:
         print(f"[PROCUREMENT STOCK CARD] DB error: {e}", flush=True)
         return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
+
+
+@app.route('/api/admin/procurement/stock-card-breakdown')
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_procurement_stock_card_breakdown():
+    """Return the transaction or source breakdown for a clicked procurement stock-card cell."""
+    item_code = (request.args.get('item_code') or '').strip()
+    location = (request.args.get('location') or '').strip()
+    metric = (request.args.get('metric') or '').strip()
+
+    if not item_code or not location or not metric:
+        return jsonify({'success': False, 'error': 'item_code, location, and metric are required'}), 400
+
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        payload = fetch_procurement_metric_breakdown(cur, metric, item_code, location)
+        return jsonify({'success': True, **payload})
+    except ValueError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+    except Exception as exc:
+        print(f"[PROCUREMENT STOCK CARD BREAKDOWN] DB error: {exc}", flush=True)
+        return jsonify({'success': False, 'error': str(exc)}), 500
     finally:
         if cur:
             cur.close()

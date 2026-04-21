@@ -1,22 +1,4 @@
-/* Only show border at the start and end of each location group */
-th.qty-col.location-first {
-    border-left: 1px solid #ffffff !important;
-}
-th.qty-col.location-last {
-    border-right: 3px solid #ffffff !important;
-}
-/* Add a line under each location column header (second header row) */
-th.qty-col[class*="location-bg-"] {
-    border-bottom: 2px solid #ffffff !important;
-    position: relative;
-    z-index: 2;
-}
-/* Add a line under each location group header to separate from item code/qty rows */
-.qty-group-col {
-    border-bottom: 1px solid #ffffff !important;
-    position: relative;
-    z-index: 2;
-}
+
 
 .stock-card-table tbody tr {
     border: 2px solid transparent;
@@ -135,7 +117,8 @@ body {
     width: 100%;
     max-width: 100%;
     overflow-x: auto;
-    overflow-y: hidden;
+    overflow-y: auto;
+    max-height: 420px;
     box-sizing: border-box;
     padding: 8px;
     scrollbar-width: none;
@@ -143,7 +126,17 @@ body {
 }
 
 .stock-card-table-wrap::-webkit-scrollbar {
-    height: 0;
+    width: 10px;
+    height: 10px;
+}
+
+.stock-card-table-wrap::-webkit-scrollbar-thumb {
+    background: #343b46;
+    border-radius: 999px;
+}
+
+.stock-card-table-wrap::-webkit-scrollbar-corner {
+    background: #1f2533;
 }
 
 .location-filter-shell {
@@ -280,8 +273,39 @@ body {
     position: sticky;
     left: 0;
     z-index: 10;
-    background: #23293a;
-    box-shadow: 2px 0 6px -2px #0002;
+    background: #23293a !important;
+    background-image: none !important;
+    background-clip: border-box !important;
+    isolation: isolate;
+    box-shadow: none !important;
+    border-right: 2.5px solid #4f5b6c !important;
+    border-top: none !important;
+    border-bottom: none !important;
+}
+
+.stock-card-table th.code-col,
+.stock-card-table td.code-col {
+    /* Remove any row highlight bleed */
+    background: #23293a !important;
+}
+
+.stock-card-table tbody tr:hover > .code-col {
+    background: #23293a !important;
+    color: #e4e9f1 !important;
+}
+
+.stock-card-table th.code-col {
+    z-index: 12;
+}
+
+.stock-card-table td.code-col {
+    z-index: 11;
+    border-top-color: #23293a;
+    border-bottom-color: #23293a;
+    box-shadow:
+        10px 0 14px -10px rgba(0, 0, 0, 0.9),
+        inset 0 1px 0 #23293a,
+        inset 0 -1px 0 #23293a;
 }
 
 .stock-card-table th.qty-group-col {
@@ -339,3 +363,105 @@ body {
 .location-bg-10 { background: #394d2d !important; }
 
 /* Make each location column stand out with a border and subtle shadow */
+.stock-card-clickable-cell {
+    cursor: pointer;
+    transition: transform 0.14s ease, filter 0.14s ease;
+}
+
+.stock-card-clickable-cell:hover {
+    filter: brightness(1.14);
+    transform: translateY(-1px);
+}
+
+.stock-card-breakdown-panel {
+    margin-top: 16px;
+    background: #1a2130;
+    border: 1px solid #3a4250;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.2);
+}
+
+.stock-card-breakdown-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 18px 12px;
+    border-bottom: 1px solid #343b46;
+    background: linear-gradient(180deg, #273145 0%, #1e2533 100%);
+}
+
+.stock-card-breakdown-header h3 {
+    margin: 0;
+    font-size: 18px;
+    color: #eef3fb;
+}
+
+.stock-card-breakdown-subtitle {
+    margin-top: 4px;
+    font-size: 12px;
+    color: #9fb0c8;
+}
+
+.stock-card-breakdown-close {
+    border: 1px solid #50617c;
+    background: #253047;
+    color: #eef3fb;
+    border-radius: 999px;
+    padding: 7px 14px;
+    cursor: pointer;
+}
+
+.stock-card-breakdown-close:hover {
+    background: #30405c;
+}
+
+.stock-card-breakdown-summary {
+    padding: 12px 18px;
+    border-bottom: 1px solid #343b46;
+    color: #d5deea;
+    font-size: 13px;
+}
+
+.stock-card-breakdown-note {
+    color: #9fb0c8;
+}
+
+.stock-card-breakdown-table-wrap {
+    overflow-x: auto;
+}
+
+.stock-card-breakdown-table {
+    width: 100%;
+    min-width: 820px;
+    border-collapse: collapse;
+}
+
+.stock-card-breakdown-table th,
+.stock-card-breakdown-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid #2f3745;
+    color: #e4e9f1;
+    font-size: 12px;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.stock-card-breakdown-table th {
+    position: sticky;
+    top: 0;
+    background: #253047;
+    color: #b7c4d6;
+    z-index: 1;
+}
+
+.stock-card-breakdown-table td:nth-child(4) {
+    white-space: normal;
+    min-width: 220px;
+}
+
+.stock-card-breakdown-num {
+    text-align: right !important;
+    font-variant-numeric: tabular-nums;
+}

@@ -46,9 +46,6 @@
                                     <div id="available-location-list" class="location-pill-list"></div>
                                 </div>
                             </div>
-                            <div class="stock-card-scrollbar-wrap" id="stock-card-scrollbar-wrap">
-                                <div class="stock-card-scrollbar" id="stock-card-scrollbar"></div>
-                            </div>
                             <div class="stock-card-table-wrap" id="stock-card-table-wrap">
                                 <table class="stock-card-table" id="stock-card-table">
                                     <thead id="stock-card-table-head">
@@ -67,6 +64,39 @@
                                         </tr>
                                     </tbody>
                                 </table>
+                            </div>
+                            <div class="stock-card-scrollbar-wrap" id="stock-card-scrollbar-wrap">
+                                <div class="stock-card-scrollbar" id="stock-card-scrollbar"></div>
+                            </div>
+                            <div id="stock-card-breakdown-panel" class="stock-card-breakdown-panel" style="display: none;">
+                                <div class="stock-card-breakdown-header">
+                                    <div>
+                                        <h3 id="stock-card-breakdown-title">Breakdown</h3>
+                                        <div id="stock-card-breakdown-subtitle" class="stock-card-breakdown-subtitle"></div>
+                                    </div>
+                                    <button type="button" class="stock-card-breakdown-close" onclick="closeStockCardBreakdown()">Close</button>
+                                </div>
+                                <div id="stock-card-breakdown-summary" class="stock-card-breakdown-summary"></div>
+                                <div class="stock-card-breakdown-table-wrap">
+                                    <table class="stock-card-breakdown-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Doc No</th>
+                                                <th>Date</th>
+                                                <th>Company Name</th>
+                                                <th>Remarks</th>
+                                                <th>Total</th>
+                                                <th>Moved</th>
+                                                <th>Net</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="stock-card-breakdown-body">
+                                            <tr>
+                                                <td colspan="7" class="stock-card-status">Click a value to see its breakdown.</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
 
@@ -114,6 +144,7 @@
         let stockCardRows = [];
         let stockCardLocations = [];
         let selectedStockCardLocations = [];
+        let stockCardBreakdownRequestId = 0;
 
         const stockCardMetricGroups = [
             { key: 'so_qty_by_location', label: 'S.O Qty' },
@@ -238,6 +269,90 @@
             afterStockCardTableRender();
         }
 
+        function formatStockCardNumber(value) {
+            const number = Number(value || 0);
+            if (!Number.isFinite(number)) {
+                return '0';
+            }
+            return number.toLocaleString(undefined, {
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 4,
+            });
+        }
+
+        function metricLabel(metricKey) {
+            const found = stockCardMetricGroups.find((group) => group.key === metricKey);
+            return found ? found.label : metricKey;
+        }
+
+        function openStockCardBreakdown(itemCode, locationCode, metricKey) {
+            const panel = document.getElementById('stock-card-breakdown-panel');
+            const body = document.getElementById('stock-card-breakdown-body');
+            const title = document.getElementById('stock-card-breakdown-title');
+            const subtitle = document.getElementById('stock-card-breakdown-subtitle');
+            const summary = document.getElementById('stock-card-breakdown-summary');
+            const requestId = ++stockCardBreakdownRequestId;
+
+            panel.style.display = '';
+            title.textContent = `${metricLabel(metricKey)} Breakdown`;
+            subtitle.textContent = `${itemCode} | ${locationCode}`;
+            summary.textContent = 'Loading breakdown...';
+            body.innerHTML = '<tr><td colspan="7" class="stock-card-status">Loading breakdown...</td></tr>';
+
+            const params = new URLSearchParams({
+                item_code: itemCode,
+                location: locationCode,
+                metric: metricKey.replace('_by_location', ''),
+            });
+
+            fetch(`/api/admin/procurement/stock-card-breakdown?${params.toString()}`)
+                .then((res) => res.json())
+                .then((payload) => {
+                    if (requestId !== stockCardBreakdownRequestId) {
+                        return;
+                    }
+                    if (!payload.success) {
+                        throw new Error(payload.error || 'Failed to load breakdown');
+                    }
+
+                    title.textContent = payload.title || `${metricLabel(metricKey)} Breakdown`;
+                    subtitle.textContent = `${payload.item_code || itemCode} | ${payload.location || locationCode}`;
+
+                    const note = payload.summary && payload.summary.note ? escapeHtml(payload.summary.note) : '';
+                    const value = payload.summary ? formatStockCardNumber(payload.summary.value) : '0';
+                    summary.innerHTML = `<strong>Value:</strong> ${value}${note ? ` <span class="stock-card-breakdown-note">${note}</span>` : ''}`;
+
+                    const rows = Array.isArray(payload.rows) ? payload.rows : [];
+                    if (!rows.length) {
+                        body.innerHTML = '<tr><td colspan="7" class="stock-card-status">No supporting records found.</td></tr>';
+                        return;
+                    }
+
+                    body.innerHTML = rows.map((row) => `
+                        <tr>
+                            <td>${escapeHtml(row.docno || '-')}</td>
+                            <td>${escapeHtml(row.docdate || '-')}</td>
+                            <td>${escapeHtml(row.party || '-')}</td> <!-- If you want to rename the data key, update backend and JS as well -->
+                            <td>${escapeHtml(row.remarks || '-')}</td>
+                            <td class="stock-card-breakdown-num">${formatStockCardNumber(row.total_qty)}</td>
+                            <td class="stock-card-breakdown-num">${formatStockCardNumber(row.moved_qty)}</td>
+                            <td class="stock-card-breakdown-num">${formatStockCardNumber(row.outstanding_qty)}</td>
+                        </tr>
+                    `).join('');
+                })
+                .catch((error) => {
+                    if (requestId !== stockCardBreakdownRequestId) {
+                        return;
+                    }
+                    summary.textContent = '';
+                    body.innerHTML = `<tr><td colspan="7" class="stock-card-status">${escapeHtml(error.message || 'Failed to load breakdown.')}</td></tr>`;
+                });
+        }
+
+        function closeStockCardBreakdown() {
+            document.getElementById('stock-card-breakdown-panel').style.display = 'none';
+        }
+
         function renderStockCardRows(rows, locations) {
             const tbody = document.getElementById('stock-card-table-body');
             const locationColumns = Array.isArray(locations) ? locations : [];
@@ -254,7 +369,11 @@
                     return `<td class="qty-col stock-card-expand">${Number(row[fallbackKey] || 0)}</td>`;
                 }
                 const map = row[metricKey] || {};
-                return locationColumns.map((locationCode, idx) => `<td class="qty-col location-bg-${(idx % 10) + 1}">${Number(map[locationCode] || 0)}</td>`).join('');
+                return locationColumns.map((locationCode, idx) => `
+                    <td class="qty-col location-bg-${(idx % 10) + 1} stock-card-clickable-cell"
+                        title="Click to view ${metricLabel(metricKey)} breakdown"
+                        onclick="openStockCardBreakdown('${escapeJs(row.code || '')}', '${escapeJs(locationCode)}', '${escapeJs(metricKey)}')">${formatStockCardNumber(map[locationCode] || 0)}</td>
+                `).join('');
             };
 
             tbody.innerHTML = rows.map((row) => `

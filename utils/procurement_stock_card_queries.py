@@ -37,6 +37,319 @@ def _fetch_grouped_qty_map(cur: Any, sql: str) -> dict[str, dict[str, float]]:
     return result
 
 
+def _row_value(row: Any, index: int) -> Any:
+    if row is None:
+        return None
+    try:
+        return row[index]
+    except Exception:
+        return None
+
+
+def _stringify(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _format_date(value: Any) -> str | None:
+    if value is None:
+        return None
+    try:
+        return value.isoformat()
+    except Exception:
+        text = str(value).strip()
+        return text or None
+
+
+def _fetch_metric_detail_rows(cur: Any, sql: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
+    cur.execute(sql, params)
+    rows = cur.fetchall() or []
+
+    details: list[dict[str, Any]] = []
+    for row in rows:
+        total_qty = _to_float(_row_value(row, 4))
+        moved_qty = _to_float(_row_value(row, 5))
+        outstanding_qty = _to_float(_row_value(row, 6))
+        details.append(
+            {
+                "docno": _stringify(_row_value(row, 0)),
+                "docdate": _format_date(_row_value(row, 1)),
+                "party": _stringify(_row_value(row, 2)),
+                "remarks": _stringify(_row_value(row, 3)),
+                "total_qty": total_qty,
+                "moved_qty": moved_qty,
+                "outstanding_qty": outstanding_qty,
+            }
+        )
+
+    return details
+
+
+def fetch_procurement_metric_breakdown(
+    cur: Any,
+    metric: str,
+    item_code: str,
+    location_code: str,
+) -> dict[str, Any]:
+    metric_key = _clean_str(metric).lower()
+    item = _clean_str(item_code)
+    location = _clean_str(location_code)
+
+    if not item or not location:
+        raise ValueError("Item code and location are required")
+
+    if metric_key == "so_qty":
+        rows = _fetch_metric_detail_rows(
+            cur,
+            """
+            SELECT
+                H.DOCNO,
+                H.DOCDATE,
+                H.COMPANYNAME,
+                D.DESCRIPTION,
+                CAST(COALESCE(D.SQTY, D.QTY, 0) AS DOUBLE PRECISION) AS TOTAL_QTY,
+                CAST(COALESCE(SUM(COALESCE(X.SQTY, X.QTY, 0)), 0) AS DOUBLE PRECISION) AS MOVED_QTY,
+                CAST(
+                    COALESCE(D.SQTY, D.QTY, 0)
+                    - COALESCE(SUM(COALESCE(X.SQTY, X.QTY, 0)), 0)
+                    AS DOUBLE PRECISION
+                ) AS OUTSTANDING_QTY
+            FROM SL_SODTL D
+            JOIN SL_SO H
+              ON H.DOCKEY = D.DOCKEY
+            LEFT JOIN ST_XTRANS X
+              ON X.FROMDOCTYPE = 'SO'
+             AND X.FROMDOCKEY = D.DOCKEY
+             AND X.FROMDTLKEY = D.DTLKEY
+            WHERE D.ITEMCODE = ?
+              AND D.LOCATION = ?
+            GROUP BY H.DOCNO, H.DOCDATE, H.COMPANYNAME, D.DESCRIPTION, D.SQTY, D.QTY, H.DOCKEY, D.DTLKEY
+            HAVING (
+                COALESCE(D.SQTY, D.QTY, 0)
+                - COALESCE(SUM(COALESCE(X.SQTY, X.QTY, 0)), 0)
+            ) > 0
+            ORDER BY H.DOCDATE DESC, H.DOCNO DESC
+            """,
+            (item, location),
+        )
+        return {
+            "metric": metric_key,
+            "title": "S.O Qty Breakdown",
+            "item_code": item,
+            "location": location,
+            "rows": rows,
+            "summary": {
+                "value": sum(_to_float(row.get("outstanding_qty")) for row in rows),
+                "note": "Outstanding sales order quantity = document SQTY minus transferred SQTY.",
+            },
+        }
+
+    if metric_key == "po_qty":
+        rows = _fetch_metric_detail_rows(
+            cur,
+            """
+            SELECT
+                H.DOCNO,
+                H.DOCDATE,
+                H.COMPANYNAME,
+                D.DESCRIPTION,
+                CAST(COALESCE(D.SQTY, D.QTY, 0) AS DOUBLE PRECISION) AS TOTAL_QTY,
+                CAST(COALESCE(SUM(COALESCE(X.SQTY, X.QTY, 0)), 0) AS DOUBLE PRECISION) AS MOVED_QTY,
+                CAST(
+                    COALESCE(D.SQTY, D.QTY, 0)
+                    - COALESCE(SUM(COALESCE(X.SQTY, X.QTY, 0)), 0)
+                    AS DOUBLE PRECISION
+                ) AS OUTSTANDING_QTY
+            FROM PH_PODTL D
+            JOIN PH_PO H
+              ON H.DOCKEY = D.DOCKEY
+            LEFT JOIN ST_XTRANS X
+              ON X.FROMDOCTYPE = 'PO'
+             AND X.FROMDOCKEY = D.DOCKEY
+             AND X.FROMDTLKEY = D.DTLKEY
+            WHERE D.ITEMCODE = ?
+              AND D.LOCATION = ?
+            GROUP BY H.DOCNO, H.DOCDATE, H.COMPANYNAME, D.DESCRIPTION, D.SQTY, D.QTY, H.DOCKEY, D.DTLKEY
+            HAVING (
+                COALESCE(D.SQTY, D.QTY, 0)
+                - COALESCE(SUM(COALESCE(X.SQTY, X.QTY, 0)), 0)
+            ) > 0
+            ORDER BY H.DOCDATE DESC, H.DOCNO DESC
+            """,
+            (item, location),
+        )
+        return {
+            "metric": metric_key,
+            "title": "P.O Qty Breakdown",
+            "item_code": item,
+            "location": location,
+            "rows": rows,
+            "summary": {
+                "value": sum(_to_float(row.get("outstanding_qty")) for row in rows),
+                "note": "Outstanding purchase order quantity = document SQTY minus transferred SQTY.",
+            },
+        }
+
+    if metric_key == "jo_qty":
+        rows = _fetch_metric_detail_rows(
+            cur,
+            """
+            SELECT
+                H.DOCNO,
+                H.DOCDATE,
+                H.DESCRIPTION,
+                D.DESCRIPTION,
+                CAST(COALESCE(D.SQTY, D.QTY, 0) AS DOUBLE PRECISION) AS TOTAL_QTY,
+                CAST(COALESCE(SUM(COALESCE(X.SQTY, X.QTY, 0)), 0) AS DOUBLE PRECISION) AS MOVED_QTY,
+                CAST(
+                    COALESCE(D.SQTY, D.QTY, 0)
+                    - COALESCE(SUM(COALESCE(X.SQTY, X.QTY, 0)), 0)
+                    AS DOUBLE PRECISION
+                ) AS OUTSTANDING_QTY
+            FROM PD_JODTL D
+            JOIN PD_JO H
+              ON H.DOCKEY = D.DOCKEY
+            LEFT JOIN ST_XTRANS X
+              ON X.FROMDOCTYPE = 'JO'
+             AND X.FROMDOCKEY = D.DOCKEY
+             AND X.FROMDTLKEY = D.DTLKEY
+            WHERE D.ITEMCODE = ?
+              AND D.LOCATION = ?
+            GROUP BY H.DOCNO, H.DOCDATE, H.DESCRIPTION, D.DESCRIPTION, D.SQTY, D.QTY, H.DOCKEY, D.DTLKEY
+            HAVING (
+                COALESCE(D.SQTY, D.QTY, 0)
+                - COALESCE(SUM(COALESCE(X.SQTY, X.QTY, 0)), 0)
+            ) > 0
+            ORDER BY H.DOCDATE DESC, H.DOCNO DESC
+            """,
+            (item, location),
+        )
+        return {
+            "metric": metric_key,
+            "title": "J.O Qty Breakdown",
+            "item_code": item,
+            "location": location,
+            "rows": rows,
+            "summary": {
+                "value": sum(_to_float(row.get("outstanding_qty")) for row in rows),
+                "note": "Outstanding job order quantity = document SQTY minus transferred SQTY.",
+            },
+        }
+
+    if metric_key == "avail_qty":
+        cur.execute(
+            """
+            SELECT DOCNO, DESCRIPTION, QTY
+            FROM ST_TR
+            WHERE ITEMCODE = ?
+              AND LOCATION = ?
+            ORDER BY DOCNO DESC
+            """,
+            (item, location),
+        )
+        rows = cur.fetchall() or []
+        details = []
+        total = 0.0
+        for row in rows:
+            qty = _to_float(_row_value(row, 2))
+            total += qty
+            details.append({
+                "docno": _stringify(_row_value(row, 0)),
+                "docdate": None,
+                "party": None,
+                "remarks": _stringify(_row_value(row, 1)),
+                "total_qty": qty,
+                "moved_qty": 0,
+                "outstanding_qty": qty,
+            })
+        if not details:
+            details.append({
+                "docno": "ST_TR",
+                "docdate": None,
+                "party": None,
+                "remarks": "No ST_TR records for this item/location.",
+                "total_qty": 0,
+                "moved_qty": 0,
+                "outstanding_qty": 0,
+            })
+        return {
+            "metric": metric_key,
+            "title": "Avail.Qty Breakdown",
+            "item_code": item,
+            "location": location,
+            "rows": details,
+            "summary": {
+                "value": total,
+                "note": "Avail.Qty is the sum of QTY from all ST_TR records for this item/location.",
+            },
+        }
+
+    if metric_key == "qty":
+        so_data = fetch_procurement_metric_breakdown(cur, "so_qty", item, location)
+        po_data = fetch_procurement_metric_breakdown(cur, "po_qty", item, location)
+        jo_data = fetch_procurement_metric_breakdown(cur, "jo_qty", item, location)
+        avail_data = fetch_procurement_metric_breakdown(cur, "avail_qty", item, location)
+
+        avail_value = _to_float(avail_data["summary"].get("value"))
+        so_value = _to_float(so_data["summary"].get("value"))
+        po_value = _to_float(po_data["summary"].get("value"))
+        jo_value = _to_float(jo_data["summary"].get("value"))
+        qty_value = avail_value + so_value - po_value + jo_value
+
+        return {
+            "metric": metric_key,
+            "title": "Qty Breakdown",
+            "item_code": item,
+            "location": location,
+            "rows": [
+                {
+                    "docno": "Avail.Qty",
+                    "docdate": None,
+                    "party": None,
+                    "remarks": "Current available quantity from ST_TR.",
+                    "total_qty": avail_value,
+                    "moved_qty": 0,
+                    "outstanding_qty": avail_value,
+                },
+                {
+                    "docno": "S.O Qty",
+                    "docdate": None,
+                    "party": None,
+                    "remarks": "Outstanding sales orders added back into Qty.",
+                    "total_qty": so_value,
+                    "moved_qty": 0,
+                    "outstanding_qty": so_value,
+                },
+                {
+                    "docno": "P.O Qty",
+                    "docdate": None,
+                    "party": None,
+                    "remarks": "Outstanding purchase orders deducted from Qty.",
+                    "total_qty": po_value,
+                    "moved_qty": 0,
+                    "outstanding_qty": -po_value,
+                },
+                {
+                    "docno": "J.O Qty",
+                    "docdate": None,
+                    "party": None,
+                    "remarks": "Outstanding job orders added back into Qty.",
+                    "total_qty": jo_value,
+                    "moved_qty": 0,
+                    "outstanding_qty": jo_value,
+                },
+            ],
+            "summary": {
+                "value": qty_value,
+                "note": "Qty is derived in this report as Avail.Qty + S.O Qty - P.O Qty + J.O Qty.",
+            },
+        }
+
+    raise ValueError(f"Unsupported metric: {metric}")
+
+
 def fetch_procurement_stock_card_data(cur: Any) -> tuple[list[str], list[dict[str, Any]]]:
     """Return locations and stock-card rows for procurement overall report."""
     cur.execute("SELECT CODE FROM ST_LOCATION ORDER BY CODE")
