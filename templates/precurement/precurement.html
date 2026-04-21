@@ -171,8 +171,14 @@
                 .map((group) => `<th colspan="${locationColumns.length}" class="qty-group-col">${group.label}</th>`)
                 .join('');
             // Assign a color class to each location (up to 10)
+
             const subColumns = stockCardMetricGroups
-                .map(() => locationColumns.map((locationCode, idx) => `<th class="qty-col location-bg-${(idx % 10) + 1}">${escapeHtml(locationCode)}</th>`).join(''))
+                .map(() => locationColumns.map((locationCode, idx) => {
+                    let extraClass = '';
+                    if (idx === 0) extraClass += ' location-first';
+                    if (idx === locationColumns.length - 1) extraClass += ' location-last';
+                    return `<th class="qty-col location-bg-${(idx % 10) + 1}${extraClass}">${escapeHtml(locationCode)}</th>`;
+                }).join(''))
                 .join('');
 
             thead.innerHTML = `

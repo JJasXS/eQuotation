@@ -174,6 +174,12 @@ def fetch_procurement_stock_card_data(cur: Any) -> tuple[list[str], list[dict[st
             po_qty_by_location[location_code] = po_outstanding if po_outstanding > 0 else 0
             jo_qty_by_location[location_code] = jo_outstanding if jo_outstanding > 0 else 0
             avail_qty_by_location[location_code] = item_avail.get(location_code, 0)
+            qty_by_location[location_code] = (
+                avail_qty_by_location[location_code]
+                + so_qty_by_location[location_code]
+                - po_qty_by_location[location_code]
+                + jo_qty_by_location[location_code]
+            )
 
         data.append(
             {
@@ -184,7 +190,7 @@ def fetch_procurement_stock_card_data(cur: Any) -> tuple[list[str], list[dict[st
                 "po_qty_by_location": po_qty_by_location,
                 "jo_qty": sum(jo_qty_by_location.values()),
                 "jo_qty_by_location": jo_qty_by_location,
-                "qty": 0,
+                "qty": sum(qty_by_location.values()),
                 "qty_by_location": qty_by_location,
                 "avail_qty": sum(avail_qty_by_location.values()),
                 "avail_qty_by_location": avail_qty_by_location,

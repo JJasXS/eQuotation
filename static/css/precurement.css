@@ -1,3 +1,22 @@
+/* Only show border at the start and end of each location group */
+th.qty-col.location-first {
+    border-left: 1px solid #ffffff !important;
+}
+th.qty-col.location-last {
+    border-right: 3px solid #ffffff !important;
+}
+/* Add a line under each location column header (second header row) */
+th.qty-col[class*="location-bg-"] {
+    border-bottom: 2px solid #ffffff !important;
+    position: relative;
+    z-index: 2;
+}
+/* Add a line under each location group header to separate from item code/qty rows */
+.qty-group-col {
+    border-bottom: 1px solid #ffffff !important;
+    position: relative;
+    z-index: 2;
+}
 
 .stock-card-table tbody tr {
     border: 2px solid transparent;
@@ -7,7 +26,7 @@
 .stock-card-table tbody tr:hover {
     background: #5b82b6 !important;
     color: #fff !important;
-    border-color: #f5b301;
+    border-color: #ffffff;
     box-shadow: 0 0 8px 2px #f5b30144;
     z-index: 1;
     position: relative;
@@ -260,7 +279,7 @@ body {
     text-align: center;
     position: sticky;
     left: 0;
-    z-index: 2;
+    z-index: 10;
     background: #23293a;
     box-shadow: 2px 0 6px -2px #0002;
 }
@@ -318,3 +337,5 @@ body {
 .location-bg-8 { background: #2d4d44 !important; }
 .location-bg-9 { background: #2d394d !important; }
 .location-bg-10 { background: #394d2d !important; }
+
+/* Make each location column stand out with a border and subtle shadow */
