@@ -496,7 +496,7 @@ def update_purchase_request_detail_approval(
     payload: dict[str, Any] = Body(default={}),
     _: None = Depends(verify_api_keys),
 ):
-    """Bulk update PH_PQDTL.UDF_PQAPPROVED values by detail key."""
+    """Bulk update PH_PQDTL.UDF_PQAPPROVED and sync TRANSFERABLE by detail key."""
     changes = payload.get("changes", []) if isinstance(payload, dict) else []
     if not isinstance(changes, list) or not changes:
         raise HTTPException(status_code=400, detail="changes[] is required")
@@ -509,6 +509,7 @@ def update_purchase_request_detail_approval(
         detail_cols = _get_table_columns(cur, "PH_PQDTL")
         detail_key_col = _pick_existing(detail_cols, "DTLKEY", "PQDTLKEY", "ID")
         approved_col = _pick_existing(detail_cols, "UDF_PQAPPROVED")
+        transferable_col = _pick_existing(detail_cols, "TRANSFERABLE")
 
         if not detail_key_col:
             raise HTTPException(status_code=500, detail="PH_PQDTL key column not found")
@@ -529,10 +530,23 @@ def update_purchase_request_detail_approval(
             approved = bool(raw.get("approved"))
             encoded_value = _encode_bool_for_column(cur, "PH_PQDTL", approved_col, approved)
 
-            cur.execute(
-                f"UPDATE PH_PQDTL SET {approved_col} = ? WHERE {detail_key_col} = ?",
-                (encoded_value, detail_id),
-            )
+            if transferable_col:
+                if approved:
+                    transferable_value = _encode_bool_for_column(cur, "PH_PQDTL", transferable_col, True)
+                    cur.execute(
+                        f"UPDATE PH_PQDTL SET {approved_col} = ?, {transferable_col} = ? WHERE {detail_key_col} = ?",
+                        (encoded_value, transferable_value, detail_id),
+                    )
+                else:
+                    cur.execute(
+                        f"UPDATE PH_PQDTL SET {approved_col} = ?, {transferable_col} = NULL WHERE {detail_key_col} = ?",
+                        (encoded_value, detail_id),
+                    )
+            else:
+                cur.execute(
+                    f"UPDATE PH_PQDTL SET {approved_col} = ? WHERE {detail_key_col} = ?",
+                    (encoded_value, detail_id),
+                )
             updated += int(cur.rowcount or 0)
 
         con.commit()
