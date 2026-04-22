@@ -37,6 +37,124 @@ def _fetch_grouped_qty_map(cur: Any, sql: str) -> dict[str, dict[str, float]]:
     return result
 
 
+def _get_table_columns(cur: Any, table_name: str) -> set[str]:
+    cur.execute(
+        """
+        SELECT TRIM(RF.RDB$FIELD_NAME)
+        FROM RDB$RELATION_FIELDS RF
+        WHERE RF.RDB$RELATION_NAME = ?
+        """,
+        (table_name.upper(),),
+    )
+    return {str(row[0]).strip().upper() for row in (cur.fetchall() or []) if row and row[0]}
+
+
+def _pick_existing(columns: set[str], *candidates: str) -> str:
+    for name in candidates:
+        if name.upper() in columns:
+            return name.upper()
+    return ""
+
+
+def _status_filter_tokens(statuses: list[str]) -> list[str]:
+    status_map = {
+        "DRAFT": ["DRAFT", "0"],
+        "SUBMITTED": ["SUBMITTED", "1"],
+        "APPROVED": ["APPROVED", "2"],
+        "REJECTED": ["REJECTED", "3"],
+        "CANCELLED": ["CANCELLED", "4"],
+        "PENDING": ["PENDING"],
+        "ACTIVE": ["ACTIVE"],
+        "INACTIVE": ["INACTIVE"],
+    }
+    tokens: list[str] = []
+    for status in statuses:
+        key = _clean_str(status).upper()
+        if not key:
+            continue
+        tokens.extend(status_map.get(key, [key]))
+    # Preserve order while deduplicating
+    unique: list[str] = []
+    for token in tokens:
+        if token not in unique:
+            unique.append(token)
+    return unique
+
+
+def _fetch_pr_qty_map(cur: Any, included_statuses: list[str]) -> dict[str, dict[str, float]]:
+    header_cols = _get_table_columns(cur, "PH_PQ")
+    detail_cols = _get_table_columns(cur, "PH_PQDTL")
+
+    header_key_col = _pick_existing(header_cols, "DOCKEY", "PQKEY", "ID")
+    detail_fk_col = _pick_existing(detail_cols, "DOCKEY", "PQKEY", "REQUEST_ID", "HEADER_ID")
+    status_col = _pick_existing(header_cols, "STATUS")
+    udf_status_col = _pick_existing(header_cols, "UDF_STATUS")
+    request_no_col = _pick_existing(header_cols, "DOCNO", "REQUESTNO", "PRNO", "PURCHASEREQUESTNO")
+    item_col = _pick_existing(detail_cols, "ITEMCODE", "CODE")
+    qty_col = _pick_existing(detail_cols, "QTY", "QUANTITY", "SQTY")
+    location_col = _pick_existing(detail_cols, "LOCATION", "LOC", "STOCKLOCATION", "STORELOCATION")
+
+    if not header_key_col or not detail_fk_col or (not status_col and not udf_status_col) or not item_col or not qty_col:
+        return {}
+
+    tokens = _status_filter_tokens(included_statuses)
+    if not tokens:
+        return {}
+
+    placeholders = ", ".join(["?"] * len(tokens))
+    location_expr = f"COALESCE(NULLIF(TRIM(CAST(D.{location_col} AS VARCHAR(40))), ''), '')" if location_col else "''"
+
+    status_checks: list[str] = []
+    if status_col:
+        status_checks.append(f"UPPER(TRIM(CAST(H.{status_col} AS VARCHAR(20)))) IN ({placeholders})")
+    if udf_status_col:
+        status_checks.append(f"UPPER(TRIM(CAST(H.{udf_status_col} AS VARCHAR(20)))) IN ({placeholders})")
+
+    status_where = " OR ".join(status_checks) if status_checks else "1=0"
+    extra_filters: list[str] = []
+    params_list: list[Any] = list(tuple(tokens) * len(status_checks))
+
+    # Only include requests created through this module naming convention.
+    # This avoids legacy PH_PQ rows being treated as pending PR reservations.
+    if request_no_col:
+        extra_filters.append(f"UPPER(TRIM(CAST(H.{request_no_col} AS VARCHAR(60)))) LIKE 'PR-%'")
+
+    full_where = f"({status_where})"
+    if extra_filters:
+        full_where += " AND " + " AND ".join(extra_filters)
+
+    params = tuple(params_list)
+
+    cur.execute(
+        f"""
+        SELECT
+            D.{item_col} AS ITEM_CODE,
+            {location_expr} AS LOCATION_CODE,
+            CAST(SUM(COALESCE(D.{qty_col}, 0)) AS DOUBLE PRECISION) AS TOTAL_QTY
+        FROM PH_PQDTL D
+        JOIN PH_PQ H
+          ON H.{header_key_col} = D.{detail_fk_col}
+                WHERE {full_where}
+        GROUP BY D.{item_col}, {location_expr}
+        """,
+        params,
+    )
+
+    rows = cur.fetchall() or []
+    result: dict[str, dict[str, float]] = {}
+    for row in rows:
+        item_code = _clean_str(row[0] if len(row) > 0 else None)
+        location_code = _clean_str(row[1] if len(row) > 1 else None)
+        qty = _to_float(row[2] if len(row) > 2 else 0)
+        if not item_code:
+            continue
+        if item_code not in result:
+            result[item_code] = {}
+        result[item_code][location_code] = qty
+
+    return result
+
+
 def _row_value(row: Any, index: int) -> Any:
     if row is None:
         return None
@@ -462,6 +580,10 @@ def fetch_procurement_stock_card_data(cur: Any) -> tuple[list[str], list[dict[st
         """,
     )
 
+    # Active PR reservation reduces need-to-buy until explicitly rejected/cancelled.
+    pr_pending_map = _fetch_pr_qty_map(cur, ["DRAFT", "SUBMITTED", "PENDING"])
+    pr_active_map = _fetch_pr_qty_map(cur, ["DRAFT", "SUBMITTED", "APPROVED", "PENDING", "ACTIVE"])
+
     data: list[dict[str, Any]] = []
     for code in item_codes:
         so_qty_by_location = {location_code: 0 for location_code in locations}
@@ -469,6 +591,8 @@ def fetch_procurement_stock_card_data(cur: Any) -> tuple[list[str], list[dict[st
         jo_qty_by_location = {location_code: 0 for location_code in locations}
         qty_by_location = {location_code: 0 for location_code in locations}
         avail_qty_by_location = {location_code: 0 for location_code in locations}
+        pending_pr_by_location = {location_code: 0 for location_code in locations}
+        need_to_buy_by_location = {location_code: 0 for location_code in locations}
 
         item_avail = avail_map.get(code, {})
         item_so_total = so_total_map.get(code, {})
@@ -477,6 +601,8 @@ def fetch_procurement_stock_card_data(cur: Any) -> tuple[list[str], list[dict[st
         item_po_moved = po_moved_map.get(code, {})
         item_jo_total = jo_total_map.get(code, {})
         item_jo_moved = jo_moved_map.get(code, {})
+        item_pr_pending = pr_pending_map.get(code, {})
+        item_pr_active = pr_active_map.get(code, {})
 
         for location_code in locations:
             so_outstanding = item_so_total.get(location_code, 0) - item_so_moved.get(location_code, 0)
@@ -493,6 +619,11 @@ def fetch_procurement_stock_card_data(cur: Any) -> tuple[list[str], list[dict[st
                 - po_qty_by_location[location_code]
                 + jo_qty_by_location[location_code]
             )
+            pending_pr = max(0.0, item_pr_pending.get(location_code, 0))
+            active_pr = max(0.0, item_pr_active.get(location_code, 0))
+            base_need = max(0.0, -qty_by_location[location_code])
+            pending_pr_by_location[location_code] = pending_pr
+            need_to_buy_by_location[location_code] = max(0.0, base_need - active_pr)
 
         data.append(
             {
@@ -507,6 +638,10 @@ def fetch_procurement_stock_card_data(cur: Any) -> tuple[list[str], list[dict[st
                 "qty_by_location": qty_by_location,
                 "avail_qty": sum(avail_qty_by_location.values()),
                 "avail_qty_by_location": avail_qty_by_location,
+                "pending_pr": sum(pending_pr_by_location.values()),
+                "pending_pr_by_location": pending_pr_by_location,
+                "need_to_buy": sum(need_to_buy_by_location.values()),
+                "need_to_buy_by_location": need_to_buy_by_location,
             }
         )
 

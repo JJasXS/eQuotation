@@ -16,27 +16,36 @@
 
     <div class="container" style="min-height: 80vh;">
         <div class="main-content">
-            <div class="header">
-                {% include 'components/admin_hamburger_menu.html' %}
-                <div>
-                    <h3 class="header-title">Procurement Module</h3>
-                    <div style="font-size: 12px; color: #9ba7b6; margin-top: 4px;">Welcome, {{ user_name }}</div>
+
+            <div class="header" style="display: flex; align-items: center; justify-content: space-between; gap: 18px;">
+                <div style="display: flex; align-items: center; gap: 18px;">
+                    {% include 'components/admin_hamburger_menu.html' %}
+                    <div>
+                        <h3 class="header-title">Procurement Module</h3>
+                        <div style="font-size: 12px; color: #9ba7b6; margin-top: 4px;">Welcome, {{ user_name }}</div>
+                    </div>
                 </div>
+                <button id="sidebar-toggle-btn" style="padding: 6px 14px; font-size: 14px;">Hide Sidebar</button>
             </div>
 
             <div id="content-view" class="tab-content active">
                 <div class="procurement-shell">
                     <nav class="sidebar-nav">
-                        <div class="sidebar-title">eProcurement</div>
+                        <div class="sidebar-title">e-Purchase Request</div>
                         <button id="tab-report" class="side-tab active" onclick="showTab('report')">Overall Report</button>
-                        <button id="tab-view" class="side-tab" onclick="showTab('view')">View eProcurement</button>
-                        <button id="tab-create" class="side-tab" onclick="showTab('create')">Create eProcurement</button>
+                        <button id="tab-view" class="side-tab" onclick="showTab('view')">View e-Purchase Request</button>
+                        <button id="tab-create" class="side-tab" onclick="showTab('create')">Create e-Purchase Request</button>
                     </nav>
 
                     <div class="procurement-panel">
                         <div id="panel-report" class="panel-content">
-                            <h2 style="margin-bottom: 12px;">Overall Report</h2>
+                            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+                                <h2 style="margin: 0;">Overall Report</h2>
+                            </div>
                             <div class="location-filter-shell">
+                                <div class="location-filter-actions">
+                                    <button type="button" class="location-buy-btn" onclick="goToCreateProcurement()">New e-Purchase Request</button>
+                                </div>
                                 <div class="location-filter-row">
                                     <span class="location-filter-label">Selected Locations</span>
                                     <div id="selected-location-list" class="location-pill-list"></div>
@@ -56,11 +65,12 @@
                                             <th class="qty-col">J.O Qty</th>
                                             <th class="qty-col">Avail.Qty</th>
                                                                                         <th class="qty-col">Quantity on Hand</th>
+                                            <th class="qty-col">Quantity Need to Buy</th>
                                         </tr>
                                     </thead>
                                     <tbody id="stock-card-table-body">
                                         <tr>
-                                            <td colspan="6" class="stock-card-status">Loading stock items...</td>
+                                            <td colspan="7" class="stock-card-status">Loading stock items...</td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -101,11 +111,31 @@
                         </div>
 
                         <div id="panel-view" class="panel-content" style="display: none;">
-                            <h2 style="margin-bottom: 12px;">View eProcurement</h2>
-                            <p>This section will display all eProcurement records.</p>
+                            <h2 style="margin-bottom: 12px;">View e-Purchase Request</h2>
+                            <div class="view-pr-actions">
+                                <div class="view-pr-actions-left">
+                                    <span class="view-pr-filter-label">Filter By</span>
+                                    <select id="view-pr-status-filter" class="view-pr-filter-select">
+                                        <option value="ALL">ALL</option>
+                                        <option value="ACTIVE">ACTIVE</option>
+                                        <option value="INACTIVE">INACTIVE</option>
+                                        <option value="PENDING">PENDING</option>
+                                    </select>
+                                    <button type="button" class="view-pr-refresh-btn" onclick="applyViewStatusFilter()">Filter</button>
+                                </div>
+                                <div class="view-pr-actions-right">
+                                    <button type="button" class="view-pr-refresh-btn" onclick="loadViewPurchaseRequests(true)">Refresh</button>
+                                    <button type="button" class="view-pr-refresh-btn" id="view-pr-update-btn" onclick="saveViewDetailApprovals()" disabled>Update Details</button>
+                                </div>
+                            </div>
+                            <div class="view-pr-list-wrap">
+                                <div id="view-pr-list" class="view-pr-list">
+                                    <div class="view-pr-empty">Loading e-Purchase Request records...</div>
+                                </div>
+                            </div>
                         </div>
                         <div id="panel-create" class="panel-content" style="display: none;">
-                            <h2 style="margin-bottom: 12px;">Create eProcurement</h2>
+                            <h2 style="margin-bottom: 12px;">Create e-Purchase Request</h2>
                             <form id="purchase-request-form" class="pr-form" novalidate>
                                 <div class="pr-grid">
                                     <label class="pr-field">
@@ -125,8 +155,10 @@
                                         <input type="text" id="pr-cost-center" />
                                     </label>
                                     <label class="pr-field">
-                                        <span>Supplier ID</span>
-                                        <input type="text" id="pr-supplier-id" />
+                                        <span>Supplier</span>
+                                        <select id="pr-supplier-id">
+                                            <option value="">Select supplier</option>
+                                        </select>
                                     </label>
                                     <label class="pr-field">
                                         <span>Currency</span>
@@ -163,7 +195,6 @@
                                     <table class="pr-line-items-table" id="pr-line-items-table">
                                         <thead>
                                             <tr>
-                                                <th>Item Code <em>*</em></th>
                                                 <th>Item Name <em>*</em></th>
                                                 <th>Description</th>
                                                 <th>Qty <em>*</em></th>
@@ -228,13 +259,24 @@
         let stockCardLocations = [];
         let selectedStockCardLocations = [];
         let stockCardBreakdownRequestId = 0;
+        let stockCardBuySelections = {};
+        let viewPurchaseRequestsLoaded = false;
+        let viewPurchaseRequests = [];
+        let viewExpandedHeaderIds = new Set();
+        let viewLoadingDetailIds = new Set();
+        let viewApprovalPendingChanges = new Map();
+        let viewHeaderStatusPendingChanges = new Map();
+        let viewApprovalSaving = false;
+        let viewStatusFilter = 'ALL';
 
         const stockCardMetricGroups = [
             { key: 'so_qty_by_location', label: 'S.O Qty' },
             { key: 'po_qty_by_location', label: 'P.O Qty' },
             { key: 'jo_qty_by_location', label: 'J.O Qty' },
             { key: 'qty_by_location', label: 'Avail.Qty' },
-            { key: 'avail_qty_by_location', label: 'Quantity on Hand' }
+            { key: 'avail_qty_by_location', label: 'Quantity on Hand' },
+            { key: 'need_to_buy_by_location', label: 'Quantity Need to Buy' },
+            { key: 'pending_pr_by_location', label: 'Pending PR' }
         ];
 
         function getStockCardTotalColumns(locations) {
@@ -259,10 +301,413 @@
             } else if (tab === 'view') {
                 document.getElementById('tab-view').classList.add('active');
                 document.getElementById('panel-view').style.display = '';
+                if (!viewPurchaseRequestsLoaded) {
+                    loadViewPurchaseRequests(false);
+                }
             } else {
                 document.getElementById('tab-create').classList.add('active');
                 document.getElementById('panel-create').style.display = '';
             }
+        }
+
+        function formatPrDate(value) {
+            if (!value) return '-';
+            const d = new Date(value);
+            if (Number.isNaN(d.getTime())) {
+                return escapeHtml(String(value));
+            }
+            return d.toLocaleDateString();
+        }
+
+        function statusClass(status) {
+            const text = String(status || '').toUpperCase();
+            if (text === 'APPROVED') return 'approved';
+            if (text === 'REJECTED') return 'rejected';
+            if (text === 'CANCELLED') return 'cancelled';
+            if (text === 'SUBMITTED') return 'submitted';
+            return 'draft';
+        }
+
+        function toApprovalBool(value) {
+            if (value === true || value === 1) return true;
+            const text = String(value || '').trim().toLowerCase();
+            return text === 'true' || text === '1' || text === 't' || text === 'y';
+        }
+
+        function normalizeUdfStatus(value) {
+            const text = String(value || '').trim().toUpperCase();
+            if (text === 'ACTIVE' || text === 'INACTIVE' || text === 'PENDING') {
+                return text;
+            }
+            return 'PENDING';
+        }
+
+        function getFilteredViewPurchaseRequests() {
+            if (viewStatusFilter === 'ALL') {
+                return viewPurchaseRequests;
+            }
+            return viewPurchaseRequests.filter((row) => normalizeUdfStatus(row.udfStatus) === viewStatusFilter);
+        }
+
+        function renderFilteredViewPurchaseRequests() {
+            renderViewPurchaseRequests(getFilteredViewPurchaseRequests());
+        }
+
+        function applyViewStatusFilter() {
+            const select = document.getElementById('view-pr-status-filter');
+            if (!select) {
+                return;
+            }
+            const selected = String(select.value || 'ALL').toUpperCase();
+            viewStatusFilter = (selected === 'ACTIVE' || selected === 'INACTIVE' || selected === 'PENDING')
+                ? selected
+                : 'ALL';
+            renderFilteredViewPurchaseRequests();
+        }
+
+        function updateViewApprovalButtonState() {
+            const btn = document.getElementById('view-pr-update-btn');
+            if (!btn) return;
+            const count = viewApprovalPendingChanges.size + viewHeaderStatusPendingChanges.size;
+            btn.disabled = viewApprovalSaving || count === 0;
+            btn.textContent = viewApprovalSaving
+                ? 'Updating...'
+                : (count > 0 ? `Update Details (${count})` : 'Update Details');
+        }
+
+        function onHeaderUdfStatusChange(requestId, value) {
+            const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(requestId));
+            if (!header) return;
+
+            const normalized = normalizeUdfStatus(value);
+            const original = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
+            header.udfStatus = normalized;
+
+            if (normalized === original) {
+                viewHeaderStatusPendingChanges.delete(String(requestId));
+            } else {
+                viewHeaderStatusPendingChanges.set(String(requestId), {
+                    requestId: Number(requestId),
+                    udfStatus: normalized,
+                });
+            }
+
+            updateViewApprovalButtonState();
+        }
+
+        function onDetailApprovalChange(headerId, detailId, checked) {
+            const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(headerId));
+            if (!header || !Array.isArray(header.details)) {
+                return;
+            }
+            const detail = header.details.find((row) => Number(row.id || 0) === Number(detailId));
+            if (!detail) {
+                return;
+            }
+
+            const original = toApprovalBool(detail._originalApproved);
+            detail.udfPqApproved = Boolean(checked);
+
+            if (Boolean(checked) === original) {
+                viewApprovalPendingChanges.delete(String(detailId));
+            } else {
+                viewApprovalPendingChanges.set(String(detailId), {
+                    detailId: Number(detailId),
+                    approved: Boolean(checked),
+                    requestId: Number(headerId),
+                });
+            }
+
+            updateViewApprovalButtonState();
+        }
+
+        async function saveViewDetailApprovals() {
+            if (viewApprovalSaving || (viewApprovalPendingChanges.size === 0 && viewHeaderStatusPendingChanges.size === 0)) {
+                return;
+            }
+
+            viewApprovalSaving = true;
+            updateViewApprovalButtonState();
+
+            try {
+                if (viewHeaderStatusPendingChanges.size > 0) {
+                    const headerPayload = {
+                        changes: Array.from(viewHeaderStatusPendingChanges.values()),
+                    };
+                    const statusRes = await fetch('/api/admin/procurement/purchase-requests/header-status', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(headerPayload),
+                    });
+                    const statusData = await statusRes.json();
+                    if (!statusRes.ok || !statusData.success) {
+                        throw new Error(statusData.error || `Failed to update header status (HTTP ${statusRes.status})`);
+                    }
+                }
+
+                if (viewApprovalPendingChanges.size > 0) {
+                    const detailPayload = {
+                        changes: Array.from(viewApprovalPendingChanges.values()),
+                    };
+                    const res = await fetch('/api/admin/procurement/purchase-requests/details/approval', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(detailPayload),
+                    });
+                    const data = await res.json();
+                    if (!res.ok || !data.success) {
+                        throw new Error(data.error || `Failed to update details (HTTP ${res.status})`);
+                    }
+
+                    viewApprovalPendingChanges.forEach((change) => {
+                        const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(change.requestId));
+                        if (!header || !Array.isArray(header.details)) return;
+                        const detail = header.details.find((row) => Number(row.id || 0) === Number(change.detailId));
+                        if (!detail) return;
+                        detail._originalApproved = Boolean(change.approved);
+                        detail.udfPqApproved = Boolean(change.approved);
+                    });
+                }
+
+                viewHeaderStatusPendingChanges.forEach((change) => {
+                    const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(change.requestId));
+                    if (!header) return;
+                    header._originalUdfStatus = normalizeUdfStatus(change.udfStatus);
+                    header.udfStatus = normalizeUdfStatus(change.udfStatus);
+                });
+
+                viewApprovalPendingChanges.clear();
+                viewHeaderStatusPendingChanges.clear();
+                updateViewApprovalButtonState();
+                renderFilteredViewPurchaseRequests();
+            } catch (error) {
+                alert(error.message || 'Failed to update approval details.');
+            } finally {
+                viewApprovalSaving = false;
+                updateViewApprovalButtonState();
+            }
+        }
+
+        function renderViewPurchaseRequests(rows) {
+            const list = document.getElementById('view-pr-list');
+            if (!list) {
+                return;
+            }
+
+            if (!Array.isArray(rows) || !rows.length) {
+                list.innerHTML = '<div class="view-pr-empty">No e-Purchase Request records found.</div>';
+                return;
+            }
+
+            const htmlParts = [];
+            rows.forEach((header) => {
+                const headerId = Number(header.id || 0);
+                const details = Array.isArray(header.details) ? header.details : [];
+                const isLoadingDetails = viewLoadingDetailIds.has(headerId);
+                const isExpanded = viewExpandedHeaderIds.has(headerId);
+                const expander = isLoadingDetails ? '...' : (isExpanded ? 'v' : '>');
+
+                htmlParts.push(`
+                    <div class="view-pr-card">
+                        <div class="view-pr-card-header" onclick="toggleViewPurchaseRequest(${headerId})">
+                            <div class="view-pr-card-grid">
+                                <div class="view-pr-main-col">
+                                    <div class="view-pr-main-line">
+                                        <span class="view-pr-toggle">${expander}</span>
+                                        <span class="view-pr-docno">${escapeHtml(header.requestNumber || '-')}</span>
+                                        <span class="view-pr-status ${statusClass(header.status)}">${escapeHtml(header.status || 'DRAFT')}</span>
+                                        <select class="view-pr-udf-status" onclick="event.stopPropagation()" onchange="onHeaderUdfStatusChange(${headerId}, this.value)">
+                                            <option value="ACTIVE" ${normalizeUdfStatus(header.udfStatus) === 'ACTIVE' ? 'selected' : ''}>ACTIVE</option>
+                                            <option value="INACTIVE" ${normalizeUdfStatus(header.udfStatus) === 'INACTIVE' ? 'selected' : ''}>INACTIVE</option>
+                                            <option value="PENDING" ${normalizeUdfStatus(header.udfStatus) === 'PENDING' ? 'selected' : ''}>PENDING</option>
+                                        </select>
+                                    </div>
+                                    <div class="view-pr-sub-line">
+                                        <span><strong>Requester:</strong> ${escapeHtml(header.requesterId || '-')}</span>
+                                        <span><strong>Department:</strong> ${escapeHtml(header.departmentId || '-')}</span>
+                                    </div>
+                                </div>
+                                <div class="view-pr-meta-col">
+                                    <div class="view-pr-meta-row"><span>Request Date</span><strong>${formatPrDate(header.requestDate)}</strong></div>
+                                    <div class="view-pr-meta-row"><span>Required Date</span><strong>${formatPrDate(header.requiredDate)}</strong></div>
+                                    <div class="view-pr-meta-row"><span>Currency</span><strong>${escapeHtml(header.currency || '-')}</strong></div>
+                                </div>
+                                <div class="view-pr-amount-col">
+                                    <div class="view-pr-amount-label">Total Amount</div>
+                                    <div class="view-pr-amount-value">${formatMoney(header.totalAmount || 0)}</div>
+                                </div>
+                            </div>
+                        </div>
+                `);
+
+                if (!isExpanded) {
+                    htmlParts.push('</div>');
+                    return;
+                }
+
+                if (isLoadingDetails) {
+                    htmlParts.push(`
+                        <div class="view-pr-detail-host">
+                            <div class="view-pr-detail-empty">Loading detail rows...</div>
+                        </div>
+                    `);
+                    htmlParts.push('</div>');
+                    return;
+                }
+
+                if (!details.length) {
+                    htmlParts.push(`
+                        <div class="view-pr-detail-host">
+                            <div class="view-pr-detail-empty">No detail rows found for this request.</div>
+                        </div>
+                    `);
+                    htmlParts.push('</div>');
+                    return;
+                }
+
+                const detailRows = details.map((detail, idx) => `
+                    <tr>
+                        <td class="col-line">${escapeHtml(detail.seq || (idx + 1))}</td>
+                        <td class="col-item-name">${escapeHtml(detail.itemName || '-')}</td>
+                        <td class="col-location">${escapeHtml(detail.locationCode || '-')}</td>
+                        <td class="view-pr-num col-qty">${formatStockCardNumber(detail.quantity || 0)}</td>
+                        <td class="view-pr-num col-unit-price">${formatMoney(detail.unitPrice || 0)}</td>
+                        <td class="view-pr-num col-tax">${formatMoney(detail.tax || 0)}</td>
+                        <td class="col-approved view-pr-approved-cell"><input type="checkbox" ${detail.id ? '' : 'disabled'} ${toApprovalBool(detail.udfPqApproved) ? 'checked' : ''} onchange="onDetailApprovalChange(${headerId}, ${Number(detail.id || 0)}, this.checked)" /></td>
+                        <td class="view-pr-num col-amount">${formatMoney(detail.amount || 0)}</td>
+                    </tr>
+                `).join('');
+
+                htmlParts.push(`
+                    <div class="view-pr-detail-host">
+                        <div class="view-pr-detail-wrap">
+                            <table class="view-pr-detail-table">
+                                <colgroup>
+                                    <col class="col-line" />
+                                    <col class="col-item-name" />
+                                    <col class="col-location" />
+                                    <col class="col-qty" />
+                                    <col class="col-unit-price" />
+                                    <col class="col-tax" />
+                                    <col class="col-approved" />
+                                    <col class="col-amount" />
+                                </colgroup>
+                                <thead>
+                                    <tr>
+                                        <th class="col-line">Line</th>
+                                        <th class="col-item-name">Item Name</th>
+                                        <th class="col-location">Location</th>
+                                        <th class="view-pr-num col-qty">Qty</th>
+                                        <th class="view-pr-num col-unit-price">Unit Price</th>
+                                        <th class="view-pr-num col-tax">Tax</th>
+                                        <th class="col-approved">Approved</th>
+                                        <th class="view-pr-num col-amount">Amount</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${detailRows}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `);
+                htmlParts.push('</div>');
+            });
+
+            list.innerHTML = htmlParts.join('');
+        }
+
+        function toggleViewPurchaseRequest(headerId) {
+            if (!headerId) {
+                return;
+            }
+            const record = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(headerId));
+            if (!record) {
+                return;
+            }
+
+            if (viewExpandedHeaderIds.has(headerId)) {
+                viewExpandedHeaderIds.delete(headerId);
+                renderFilteredViewPurchaseRequests();
+                return;
+            }
+
+            viewExpandedHeaderIds.add(headerId);
+
+            if (Array.isArray(record.details)) {
+                renderFilteredViewPurchaseRequests();
+                return;
+            }
+
+            viewLoadingDetailIds.add(headerId);
+            renderFilteredViewPurchaseRequests();
+
+            const requestNo = encodeURIComponent(String(record.requestNumber || ''));
+            fetch(`/api/admin/procurement/purchase-requests/details?request_id=${headerId}&request_no=${requestNo}`)
+                .then((res) => res.json())
+                .then((payload) => {
+                    if (!payload.success) {
+                        throw new Error(payload.error || 'Failed to load detail rows');
+                    }
+                    record.details = Array.isArray(payload.details) ? payload.details : [];
+                    record.details.forEach((detail) => {
+                        detail._originalApproved = toApprovalBool(detail.udfPqApproved);
+                    });
+                })
+                .catch((error) => {
+                    console.error('Failed to load request detail:', error);
+                    record.details = [];
+                })
+                .finally(() => {
+                    viewLoadingDetailIds.delete(headerId);
+                    renderFilteredViewPurchaseRequests();
+                });
+        }
+
+        function loadViewPurchaseRequests(forceReload) {
+            if (viewPurchaseRequestsLoaded && !forceReload) {
+                return;
+            }
+
+            const list = document.getElementById('view-pr-list');
+            if (list) {
+                list.innerHTML = '<div class="view-pr-empty">Loading e-Purchase Request records...</div>';
+            }
+
+            fetch('/api/admin/procurement/purchase-requests?offset=0&limit=50')
+                .then((res) => res.json())
+                .then((payload) => {
+                    if (!payload.success) {
+                        throw new Error(payload.error || 'Failed to load e-Purchase Request records');
+                    }
+                    viewPurchaseRequests = Array.isArray(payload.data) ? payload.data : [];
+                    viewPurchaseRequests.forEach((row) => {
+                        row.udfStatus = normalizeUdfStatus(row.udfStatus);
+                        row._originalUdfStatus = row.udfStatus;
+                    });
+                    viewExpandedHeaderIds = new Set();
+                    viewLoadingDetailIds = new Set();
+                    viewApprovalPendingChanges = new Map();
+                    viewHeaderStatusPendingChanges = new Map();
+                    viewApprovalSaving = false;
+                    viewPurchaseRequestsLoaded = true;
+                    updateViewApprovalButtonState();
+                    renderFilteredViewPurchaseRequests();
+                })
+                .catch((error) => {
+                    viewPurchaseRequestsLoaded = false;
+                    viewApprovalPendingChanges = new Map();
+                    viewHeaderStatusPendingChanges = new Map();
+                    viewApprovalSaving = false;
+                    updateViewApprovalButtonState();
+                    if (list) {
+                        list.innerHTML = `<div class="view-pr-empty">${escapeHtml(error.message || 'Failed to load e-Purchase Request records.')}</div>`;
+                    }
+                });
         }
 
         function renderStockCardHeader(locations) {
@@ -344,6 +789,79 @@
             selectedStockCardLocations = selectedStockCardLocations.filter((code) => code !== locationCode);
             syncStockCardTable();
         }
+
+        function goToCreateProcurement() {
+            const selectedEntries = Object.entries(stockCardBuySelections)
+                .map(([key, value]) => ({ key, ...value }))
+                .filter((entry) => entry && entry.selected && Number(entry.quantity || 0) > 0);
+
+            if (!selectedEntries.length) {
+                showPurchaseRequestMessage('Select at least one item quantity in Quantity Need to Buy before clicking Buy.', 'error');
+                showTab('report');
+                return;
+            }
+
+            window.purchaseRequestItems = selectedEntries.map((entry) => {
+                const code = String(entry.itemCode || '').trim();
+                const locationCode = String(entry.locationCode || '').trim();
+                const locationText = locationCode ? ` (${locationCode})` : '';
+                return {
+                    itemCode: code,
+                    itemName: code,
+                    locationCode,
+                    description: `Auto-selected from Overall Report${locationText}`,
+                    quantity: Number(entry.quantity || 0),
+                    unitPrice: 0,
+                    tax: 0,
+                };
+            });
+
+            showTab('create');
+            renderPurchaseRequestLineItems();
+            showPurchaseRequestMessage(`Loaded ${window.purchaseRequestItems.length} item(s) into Create e-Purchase Request.`, 'info');
+        }
+
+        function buySelectionKey(itemCode, locationCode) {
+            return `${itemCode}||${locationCode || ''}`;
+        }
+
+        function toggleBuySelection(itemCode, locationCode, defaultQty, tdEl) {
+            const key = buySelectionKey(itemCode, locationCode);
+            const current = stockCardBuySelections[key] || {
+                itemCode,
+                locationCode,
+                selected: false,
+                quantity: Number(defaultQty || 0),
+            };
+            current.selected = !current.selected;
+            if (!(Number(current.quantity) > 0)) {
+                current.quantity = Number(defaultQty || 0);
+            }
+            stockCardBuySelections[key] = current;
+            if (tdEl) {
+                if (current.selected) {
+                    tdEl.classList.add('need-buy-selected');
+                } else {
+                    tdEl.classList.remove('need-buy-selected');
+                }
+            }
+        }
+
+        function setBuySelection(itemCode, locationCode, isSelected, defaultQty) {
+            const key = buySelectionKey(itemCode, locationCode);
+            const current = stockCardBuySelections[key] || {
+                itemCode,
+                locationCode,
+                selected: false,
+                quantity: Number(defaultQty || 0),
+            };
+            current.selected = Boolean(isSelected);
+            if (!(Number(current.quantity) > 0) && Number(defaultQty || 0) > 0) {
+                current.quantity = Number(defaultQty || 0);
+            }
+            stockCardBuySelections[key] = current;
+        }
+
 
         function syncStockCardTable() {
             renderLocationFilters();
@@ -448,8 +966,60 @@
             }
 
             const renderMetricColumns = (row, metricKey, fallbackKey) => {
+                if (metricKey === 'pending_pr_by_location') {
+                    if (!locationColumns.length) {
+                        return `<td class="qty-col stock-card-expand">${formatStockCardNumber(row.pending_pr || 0)}</td>`;
+                    }
+                    const pendingMap = row.pending_pr_by_location || {};
+                    return locationColumns.map((locationCode, idx) => `
+                        <td class="qty-col location-bg-${(idx % 10) + 1}">${formatStockCardNumber(pendingMap[locationCode] || 0)}</td>
+                    `).join('');
+                }
+
+                if (metricKey === 'need_to_buy_by_location') {
+                    if (!locationColumns.length) {
+                        const shortage = Math.max(0, Number(row.need_to_buy || 0));
+                        if (shortage <= 0) {
+                            return `<td class="qty-col stock-card-expand">0</td>`;
+                        }
+                        const key = buySelectionKey(row.code || '', '');
+                        const selection = stockCardBuySelections[key] || {
+                            itemCode: row.code || '',
+                            locationCode: '',
+                            selected: false,
+                            quantity: shortage,
+                        };
+                        const selectedClass = selection.selected ? ' need-buy-selected' : '';
+                        return `
+                            <td class="qty-col stock-card-expand need-buy-td${selectedClass}"
+                                onclick="toggleBuySelection('${escapeJs(row.code || '')}', '', ${shortage}, this)"
+                                title="Click to select/deselect">${formatStockCardNumber(shortage)}</td>
+                        `;
+                    }
+                    const needMap = row.need_to_buy_by_location || {};
+                    return locationColumns.map((locationCode, idx) => {
+                        const shortage = Math.max(0, Number(needMap[locationCode] || 0));
+                        if (shortage <= 0) {
+                            return `<td class="qty-col location-bg-${(idx % 10) + 1}">0</td>`;
+                        }
+                        const key = buySelectionKey(row.code || '', locationCode || '');
+                        const selection = stockCardBuySelections[key] || {
+                            itemCode: row.code || '',
+                            locationCode: locationCode || '',
+                            selected: false,
+                            quantity: shortage,
+                        };
+                        const selectedClass = selection.selected ? ' need-buy-selected' : '';
+                        return `
+                            <td class="qty-col location-bg-${(idx % 10) + 1} need-buy-td${selectedClass}"
+                                onclick="toggleBuySelection('${escapeJs(row.code || '')}', '${escapeJs(locationCode)}', ${shortage}, this)"
+                                title="Click to select/deselect">${formatStockCardNumber(shortage)}</td>
+                        `;
+                    }).join('');
+                }
+
                 if (!locationColumns.length) {
-                    return `<td class="qty-col stock-card-expand">${Number(row[fallbackKey] || 0)}</td>`;
+                    return `<td class="qty-col stock-card-expand">${formatStockCardNumber(row[fallbackKey] || 0)}</td>`;
                 }
                 const map = row[metricKey] || {};
                 return locationColumns.map((locationCode, idx) => `
@@ -467,13 +1037,16 @@
                     ${renderMetricColumns(row, 'jo_qty_by_location', 'jo_qty')}
                     ${renderMetricColumns(row, 'qty_by_location', 'qty')}
                     ${renderMetricColumns(row, 'avail_qty_by_location', 'avail_qty')}
+                    ${renderMetricColumns(row, 'need_to_buy_by_location', 'need_to_buy')}
+                    ${renderMetricColumns(row, 'pending_pr_by_location', 'pending_pr')}
                 </tr>
             `).join('');
         }
 
         function loadStockCardRows() {
             const tbody = document.getElementById('stock-card-table-body');
-            tbody.innerHTML = '<tr><td colspan="6" class="stock-card-status">Loading stock items...</td></tr>';
+            const loadingColumns = getStockCardTotalColumns(selectedStockCardLocations);
+            tbody.innerHTML = `<tr><td colspan="${loadingColumns}" class="stock-card-status">Loading stock items...</td></tr>`;
 
             fetch('/api/admin/procurement/stock-card')
                 .then((res) => res.json())
@@ -490,7 +1063,8 @@
                 })
                 .catch((error) => {
                     console.error('Failed to load stock card rows:', error);
-                    tbody.innerHTML = `<tr><td colspan="6" class="stock-card-status">${escapeHtml(error.message || 'Failed to load stock items.')}</td></tr>`;
+                    const totalColumns = getStockCardTotalColumns(selectedStockCardLocations);
+                    tbody.innerHTML = `<tr><td colspan="${totalColumns}" class="stock-card-status">${escapeHtml(error.message || 'Failed to load stock items.')}</td></tr>`;
                 });
         }
 
@@ -535,28 +1109,115 @@
             el.textContent = message;
         }
 
+        let prCatalogProducts = [];
+
+        function findPrProductByCode(itemCode) {
+            const code = String(itemCode || '').trim();
+            if (!code) return null;
+            return prCatalogProducts.find((p) => String(p.CODE || '').trim() === code) || null;
+        }
+
+        function buildPrProductOptions(selectedCode) {
+            const selected = String(selectedCode || '').trim();
+            const options = ['<option value="">Select product...</option>'];
+            prCatalogProducts.forEach((p) => {
+                const code = String(p.CODE || '').trim();
+                const desc = String(p.DESCRIPTION || code || '').trim();
+                if (!code || !desc) return;
+                const isSelected = code === selected ? ' selected' : '';
+                options.push(`<option value="${escapeHtml(code)}"${isSelected}>${escapeHtml(desc)}</option>`);
+            });
+            return options.join('');
+        }
+
+        function updatePurchaseRequestRowAmount(index) {
+            const items = window.purchaseRequestItems || [];
+            const item = items[index];
+            if (!item) return;
+            const qty = Number(item.quantity || 0);
+            const unitPrice = Number(item.unitPrice || 0);
+            const tax = Number(item.tax || 0);
+            const amountCell = document.getElementById(`pr-amount-${index}`);
+            if (amountCell) {
+                amountCell.textContent = formatMoney((qty * unitPrice) + tax);
+            }
+        }
+
+        function onPurchaseRequestProductChange(index, itemCode) {
+            if (!window.purchaseRequestItems || !window.purchaseRequestItems[index]) return;
+
+            const code = String(itemCode || '').trim();
+            const item = window.purchaseRequestItems[index];
+            const product = findPrProductByCode(code);
+
+            item.itemCode = code;
+            if (product) {
+                const description = String(product.DESCRIPTION || code).trim();
+                item.itemName = description;
+
+                const stdPrice = Number(product.UDF_STDPRICE);
+                if (Number.isFinite(stdPrice) && stdPrice >= 0) {
+                    item.unitPrice = stdPrice;
+                }
+
+                if (!String(item.description || '').trim()) {
+                    item.description = description;
+                }
+            }
+
+            renderPurchaseRequestLineItems();
+        }
+
+        async function loadPurchaseRequestProducts() {
+            try {
+                const response = await fetch('/api/get_stock_items');
+                const data = await response.json();
+                if (data.success && Array.isArray(data.items)) {
+                    prCatalogProducts = data.items;
+                    if (window.purchaseRequestItems && window.purchaseRequestItems.length) {
+                        renderPurchaseRequestLineItems();
+                    }
+                }
+            } catch (error) {
+                console.warn('[PR Products] Failed to load product list:', error);
+            }
+        }
+
         function renderPurchaseRequestLineItems() {
             const body = document.getElementById('pr-line-items-body');
             if (!body) return;
 
             if (!window.purchaseRequestItems || !window.purchaseRequestItems.length) {
-                window.purchaseRequestItems = [{ itemCode: '', itemName: '', description: '', quantity: 1, unitPrice: 0, tax: 0 }];
+                window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: '', description: '', quantity: 1, unitPrice: 0, tax: 0 }];
             }
 
             body.innerHTML = window.purchaseRequestItems.map((item, idx) => {
+                const product = findPrProductByCode(item.itemCode);
+                const displayName = product
+                    ? String(product.DESCRIPTION || item.itemName || item.itemCode || '').trim()
+                    : String(item.itemName || item.itemCode || '').trim();
+
+                if (displayName) {
+                    item.itemName = displayName;
+                }
+
                 const qty = Number(item.quantity || 0);
                 const unitPrice = Number(item.unitPrice || 0);
                 const tax = Number(item.tax || 0);
                 const amount = (qty * unitPrice) + tax;
                 return `
-                    <tr>
-                        <td><input type="text" value="${escapeHtml(item.itemCode || '')}" oninput="updatePurchaseRequestItem(${idx}, 'itemCode', this.value)" /></td>
-                        <td><input type="text" value="${escapeHtml(item.itemName || '')}" oninput="updatePurchaseRequestItem(${idx}, 'itemName', this.value)" /></td>
+                    <tr data-pr-index="${idx}">
+                        <td>
+                            <select onchange="onPurchaseRequestProductChange(${idx}, this.value)">
+                                ${buildPrProductOptions(item.itemCode || '')}
+                            </select>
+                            <input type="hidden" value="${escapeHtml(item.itemCode || '')}" />
+                        </td>
                         <td><input type="text" value="${escapeHtml(item.description || '')}" oninput="updatePurchaseRequestItem(${idx}, 'description', this.value)" /></td>
                         <td><input type="number" min="0.0001" step="0.0001" value="${escapeHtml(item.quantity || 0)}" oninput="updatePurchaseRequestItem(${idx}, 'quantity', this.value)" /></td>
                         <td><input type="number" min="0" step="0.01" value="${escapeHtml(item.unitPrice || 0)}" oninput="updatePurchaseRequestItem(${idx}, 'unitPrice', this.value)" /></td>
                         <td><input type="number" min="0" step="0.01" value="${escapeHtml(item.tax || 0)}" oninput="updatePurchaseRequestItem(${idx}, 'tax', this.value)" /></td>
-                        <td class="pr-amount-cell">${formatMoney(amount)}</td>
+                        <td class="pr-amount-cell" id="pr-amount-${idx}">${formatMoney(amount)}</td>
                         <td><button type="button" class="pr-row-remove" onclick="removePurchaseRequestLineItem(${idx})">x</button></td>
                     </tr>
                 `;
@@ -573,12 +1234,13 @@
             } else {
                 window.purchaseRequestItems[index][key] = value;
             }
-            renderPurchaseRequestLineItems();
+            updatePurchaseRequestRowAmount(index);
+            recalcPurchaseRequestTotals();
         }
 
         function addPurchaseRequestLineItem() {
             if (!window.purchaseRequestItems) window.purchaseRequestItems = [];
-            window.purchaseRequestItems.push({ itemCode: '', itemName: '', description: '', quantity: 1, unitPrice: 0, tax: 0 });
+            window.purchaseRequestItems.push({ itemCode: '', itemName: '', locationCode: '', description: '', quantity: 1, unitPrice: 0, tax: 0 });
             renderPurchaseRequestLineItems();
         }
 
@@ -617,6 +1279,7 @@
             const lineItems = (window.purchaseRequestItems || []).map((item) => ({
                 itemCode: String(item.itemCode || '').trim(),
                 itemName: String(item.itemName || '').trim(),
+                locationCode: String(item.locationCode || '').trim(),
                 description: String(item.description || '').trim(),
                 project: String(item.project || defaultProject).trim() || defaultProject,
                 quantity: Number(item.quantity || 0),
@@ -698,6 +1361,8 @@
                     : `Purchase request submitted successfully. Request Number: ${requestNumber}`;
                 showPurchaseRequestMessage(msg, 'success');
                 document.getElementById('pr-request-number').value = requestNumber;
+                loadStockCardRows();
+                loadViewPurchaseRequests(true);
             } catch (error) {
                 showPurchaseRequestMessage(error.message || 'Failed to submit purchase request.', 'error');
             } finally {
@@ -714,8 +1379,36 @@
             submitPurchaseRequestInternal('DRAFT');
         }
 
+        let supplierList = [];
+
+        function loadSuppliers() {
+            fetch('/api/admin/procurement/suppliers')
+                .then((res) => res.json())
+                .then((payload) => {
+                    if (payload.success && Array.isArray(payload.data)) {
+                        supplierList = payload.data;
+                        const supplierSelect = document.getElementById('pr-supplier-id');
+                        if (supplierSelect) {
+                            supplierSelect.innerHTML = '<option value="">Select supplier</option>';
+                            supplierList.forEach((s) => {
+                                const option = document.createElement('option');
+                                option.value = s.code || '';
+                                option.textContent = s.companyname
+                                    ? `${s.companyname} (${s.code || ''})`
+                                    : (s.code || 'Unknown supplier');
+                                supplierSelect.appendChild(option);
+                            });
+                        }
+                        console.log('[Suppliers] Loaded', supplierList.length, 'suppliers');
+                    } else {
+                        console.warn('[Suppliers] Failed to load:', payload.error || payload);
+                    }
+                })
+                .catch((err) => console.warn('[Suppliers] Fetch error:', err));
+        }
+
         function initPurchaseRequestForm() {
-            window.purchaseRequestItems = [{ itemCode: '', itemName: '', description: '', quantity: 1, unitPrice: 0, tax: 0 }];
+            window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: '', description: '', quantity: 1, unitPrice: 0, tax: 0 }];
             const requestDateInput = document.getElementById('pr-request-date');
             const requiredDateInput = document.getElementById('pr-required-date');
             if (requestDateInput && !requestDateInput.value) {
@@ -728,10 +1421,27 @@
         }
 
         document.addEventListener('DOMContentLoaded', function () {
-            loadStockCardRows();
-            afterStockCardTableRender();
-            initPurchaseRequestForm();
-            window.addEventListener('resize', afterStockCardTableRender);
+                loadStockCardRows();
+                afterStockCardTableRender();
+                initPurchaseRequestForm();
+                loadPurchaseRequestProducts();
+                loadSuppliers();
+                window.addEventListener('resize', afterStockCardTableRender);
+
+                // Sidebar toggle logic
+                var sidebar = document.querySelector('.sidebar-nav');
+                var toggleBtn = document.getElementById('sidebar-toggle-btn');
+                if (sidebar && toggleBtn) {
+                    toggleBtn.onclick = function() {
+                        if (sidebar.style.display === 'none') {
+                            sidebar.style.display = '';
+                            toggleBtn.textContent = 'Hide Sidebar';
+                        } else {
+                            sidebar.style.display = 'none';
+                            toggleBtn.textContent = 'Show Sidebar';
+                        }
+                    };
+                }
         });
     </script>
 

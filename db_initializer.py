@@ -1055,6 +1055,117 @@ def _ensure_sl_qt_draft_tables(conn):
     )
 
 
+def _ensure_ph_pq_status_trigger(conn):
+    """Trigger on PH_PQ that enforces UDF_PQAPPROVED based on UDF_STATUS.
+
+    Rules:
+    - STATUS = 'PENDING'  -> UDF_PQAPPROVED = NULL
+    - STATUS = 'ACTIVE'   -> UDF_PQAPPROVED = true/1/'1' (based on column type)
+    - STATUS = 'INACTIVE' -> UDF_PQAPPROVED = false/0/'0' (based on column type)
+    - Any other STATUS keeps UDF_PQAPPROVED unchanged.
+    """
+    cur = conn.cursor()
+    try:
+        try:
+            cur.execute("DROP TRIGGER TRG_PH_PQ_STATUS_SYNC")
+            conn.commit()
+        except Exception:
+            pass
+
+        # Resolve UDF_PQAPPROVED type dynamically because different DBs define it
+        # as BOOLEAN, CHAR/VARCHAR, or numeric.
+        cur.execute(
+            """
+            SELECT F.RDB$FIELD_TYPE
+            FROM RDB$RELATION_FIELDS RF
+            JOIN RDB$FIELDS F ON RF.RDB$FIELD_SOURCE = F.RDB$FIELD_NAME
+            WHERE RF.RDB$RELATION_NAME = 'PH_PQ' AND RF.RDB$FIELD_NAME = 'UDF_PQAPPROVED'
+            """
+        )
+        row = cur.fetchone()
+        field_type = int(row[0]) if row and row[0] is not None else None
+
+        # Firebird field type codes used here:
+        # BOOLEAN=23, CHAR=14, VARCHAR=37, CSTRING=40
+        if field_type == 23:
+            approved_literal = "TRUE"
+            inactive_literal = "FALSE"
+        elif field_type in (14, 37, 40):
+            approved_literal = "'1'"
+            inactive_literal = "'0'"
+        else:
+            approved_literal = "1"
+            inactive_literal = "0"
+
+        trigger_sql = f"""
+        CREATE TRIGGER TRG_PH_PQ_STATUS_SYNC FOR PH_PQ
+        ACTIVE BEFORE INSERT OR UPDATE POSITION 0
+        AS
+        DECLARE VARIABLE V_STATUS VARCHAR(60);
+        BEGIN
+          V_STATUS = UPPER(TRIM(COALESCE(NEW.UDF_STATUS, '')));
+
+          IF (V_STATUS = 'PENDING') THEN
+            NEW.UDF_PQAPPROVED = NULL;
+          ELSE IF (V_STATUS = 'ACTIVE') THEN
+            NEW.UDF_PQAPPROVED = {approved_literal};
+          ELSE IF (V_STATUS = 'INACTIVE') THEN
+            NEW.UDF_PQAPPROVED = {inactive_literal};
+        END
+        """
+        cur.execute(trigger_sql)
+        conn.commit()
+        print(
+            "[DB INIT] Trigger TRG_PH_PQ_STATUS_SYNC created: "
+            f"UDF_PQAPPROVED synced from UDF_STATUS on PH_PQ "
+            f"(ACTIVE={approved_literal}, INACTIVE={inactive_literal})"
+        )
+        return True
+    except Exception as e:
+        error_msg = str(e).lower()
+        if 'already exists' in error_msg or 'name in use' in error_msg:
+            print("[DB INIT] Trigger TRG_PH_PQ_STATUS_SYNC already exists")
+            return True
+        print(f"[DB INIT WARNING] Could not create TRG_PH_PQ_STATUS_SYNC: {e}")
+        return False
+    finally:
+        cur.close()
+
+
+def _ensure_ph_pqdtl_defaults_trigger(conn):
+    """Trigger on PH_PQDTL that sets TRANSFERABLE = NULL and UDF_PQAPPROVED = NULL on every INSERT."""
+    cur = conn.cursor()
+    try:
+        try:
+            cur.execute("DROP TRIGGER TRG_PH_PQDTL_DEFAULTS")
+            conn.commit()
+        except Exception:
+            pass
+
+        trigger_sql = f"""
+        CREATE TRIGGER TRG_PH_PQDTL_DEFAULTS FOR PH_PQDTL
+        ACTIVE BEFORE INSERT POSITION 0
+        AS
+        BEGIN
+          NEW.TRANSFERABLE   = NULL;
+          NEW.UDF_PQAPPROVED = NULL;
+        END
+        """
+        cur.execute(trigger_sql)
+        conn.commit()
+        print("[DB INIT] Trigger TRG_PH_PQDTL_DEFAULTS created: TRANSFERABLE=NULL, UDF_PQAPPROVED=NULL on PH_PQDTL INSERT")
+        return True
+    except Exception as e:
+        error_msg = str(e).lower()
+        if 'already exists' in error_msg or 'name in use' in error_msg:
+            print("[DB INIT] Trigger TRG_PH_PQDTL_DEFAULTS already exists")
+            return True
+        print(f"[DB INIT WARNING] Could not create TRG_PH_PQDTL_DEFAULTS: {e}")
+        return False
+    finally:
+        cur.close()
+
+
 def initialize_database(db_path, db_user, db_password):
     conn = None
     try:
@@ -1211,6 +1322,10 @@ def initialize_database(db_path, db_user, db_password):
         # Ensure pricing priority rule settings table exists and is seeded
         _ensure_pricing_priority_rule_table(conn)
         _seed_pricing_priority_rules(conn)
+
+        # Ensure PH_PQ status/approval triggers exist
+        _ensure_ph_pq_status_trigger(conn)
+        _ensure_ph_pqdtl_defaults_trigger(conn)
 
     except Exception as e:
         print(f"[DB INIT ERROR] {e}")

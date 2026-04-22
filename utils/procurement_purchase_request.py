@@ -284,6 +284,7 @@ def _normalize_sql_api_payload(payload: dict[str, Any]) -> dict[str, Any]:
             continue
 
         item_code = _clean_text(item.get("itemcode") or item.get("itemCode")) or f"LINE-{idx:03d}"
+        location_code = _clean_text(item.get("location") or item.get("locationCode") or item.get("loc"))
         item_name = (
             _clean_text(item.get("description") or item.get("itemName") or item.get("description2"))
             or f"Line {idx}"
@@ -314,6 +315,7 @@ def _normalize_sql_api_payload(payload: dict[str, Any]) -> dict[str, Any]:
             {
                 "itemCode": item_code,
                 "itemName": item_name,
+                "locationCode": location_code,
                 "description": description,
                 "project": line_project,
                 "quantity": float(quantity),
@@ -403,6 +405,7 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
             continue
 
         item_code = _clean_text(item.get("itemCode"))
+        location_code = _clean_text(item.get("locationCode") or item.get("location") or item.get("loc"))
         item_name = _clean_text(item.get("itemName"))
         description = _clean_text(item.get("description"))
         line_project = _clean_text(item.get("project")) or header_project
@@ -432,6 +435,7 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
             {
                 "itemCode": item_code,
                 "itemName": item_name,
+                "locationCode": location_code,
                 "description": description,
                 "project": line_project,
                 "quantity": float(quantity),
@@ -575,6 +579,7 @@ def create_purchase_request(
         detail_key_col = _pick_existing(detail_cols, "DTLKEY", "PQDTLKEY", "ID")
         detail_fk_col = _pick_existing(detail_cols, "DOCKEY", "PQKEY", "REQUEST_ID", "HEADER_ID")
         detail_seq_col = _pick_existing(detail_cols, "SEQ", "LINE_NO", "LINENO")
+        detail_location_col = _pick_existing(detail_cols, "LOCATION", "LOC", "STOCKLOCATION", "STORELOCATION")
 
         if not header_key_col:
             raise RuntimeError("PH_PQ primary key column not found (expected DOCKEY/PQKEY/ID)")
@@ -635,11 +640,17 @@ def create_purchase_request(
         _insert_dynamic(cur, "PH_PQ", header_values, header_cols)
 
         for idx, item in enumerate(validated["lineItems"], start=1):
+            line_location = _clean_text(item.get("locationCode"))
             detail_values = {
                 detail_fk_col: header_id,
                 detail_seq_col: idx if detail_seq_col else None,
                 "ITEMCODE": item["itemCode"],
                 "ITEMNAME": item["itemName"],
+                detail_location_col: line_location if detail_location_col else None,
+                "LOCATION": line_location,
+                "LOC": line_location,
+                "STOCKLOCATION": line_location,
+                "STORELOCATION": line_location,
                 "PROJECT": item.get("project") or validated.get("project", ""),
                 "DESCRIPTION": item["description"] or item["itemName"],
                 "QTY": item["quantity"],
@@ -710,6 +721,138 @@ def create_purchase_request(
     except Exception:
         con.rollback()
         raise
+    finally:
+        con.close()
+
+
+def list_purchase_requests(limit: int = 200) -> list[dict[str, Any]]:
+    """Return purchase request headers with nested detail lines for the eProcurement view."""
+    ensure_purchase_request_schema()
+    safe_limit = max(1, min(int(limit or 200), 1000))
+
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        header_cols = _get_table_columns(cur, "PH_PQ")
+        detail_cols = _get_table_columns(cur, "PH_PQDTL")
+
+        header_key_col = _pick_existing(header_cols, "DOCKEY", "PQKEY", "ID")
+        detail_key_col = _pick_existing(detail_cols, "DTLKEY", "PQDTLKEY", "ID")
+        detail_fk_col = _pick_existing(detail_cols, "DOCKEY", "PQKEY", "REQUEST_ID", "HEADER_ID")
+
+        if not header_key_col:
+            raise RuntimeError("PH_PQ primary key column not found (expected DOCKEY/PQKEY/ID)")
+        if not detail_fk_col:
+            raise RuntimeError("PH_PQDTL foreign key column not found (expected DOCKEY/PQKEY/REQUEST_ID/HEADER_ID)")
+
+        request_no_col = _pick_existing(header_cols, "DOCNO", "REQUESTNO", "PRNO", "PURCHASEREQUESTNO")
+        request_date_col = _pick_existing(header_cols, "DOCDATE", "REQUESTDATE")
+        required_date_col = _pick_existing(header_cols, "REQUIREDDATE", "DUEDATE", "POSTDATE")
+        requester_col = _pick_existing(header_cols, "REQUESTERID", "CODE")
+        department_col = _pick_existing(header_cols, "DEPARTMENTID")
+        supplier_col = _pick_existing(header_cols, "SUPPLIERID", "CODE")
+        currency_col = _pick_existing(header_cols, "CURRENCYCODE", "CURRENCY")
+        total_col = _pick_existing(header_cols, "TOTAL_AMOUNT", "TOTALAMT", "DOCAMT")
+        status_col = _pick_existing(header_cols, "STATUS")
+
+        detail_seq_col = _pick_existing(detail_cols, "SEQ", "LINE_NO", "LINENO")
+        item_code_col = _pick_existing(detail_cols, "ITEMCODE")
+        item_name_col = _pick_existing(detail_cols, "ITEMNAME")
+        detail_desc_col = _pick_existing(detail_cols, "DESCRIPTION")
+        detail_location_col = _pick_existing(detail_cols, "LOCATION", "LOC", "STOCKLOCATION", "STORELOCATION")
+        detail_qty_col = _pick_existing(detail_cols, "QTY", "QUANTITY")
+        detail_unit_price_col = _pick_existing(detail_cols, "UNITPRICE")
+        detail_tax_col = _pick_existing(detail_cols, "TAX")
+        detail_amount_col = _pick_existing(detail_cols, "AMOUNT", "TOTAL")
+
+        def _h(col: str) -> str:
+            return f"H.{col}" if col else "NULL"
+
+        def _d(col: str) -> str:
+            return f"D.{col}" if col else "NULL"
+
+        order_date_col = request_date_col or header_key_col
+        order_seq_col = detail_seq_col or detail_key_col
+
+        query = f"""
+            SELECT
+                H.{header_key_col} AS HEADER_ID,
+                {_h(request_no_col)} AS REQUEST_NO,
+                {_h(request_date_col)} AS REQUEST_DATE,
+                {_h(required_date_col)} AS REQUIRED_DATE,
+                {_h(requester_col)} AS REQUESTER_ID,
+                {_h(department_col)} AS DEPARTMENT_ID,
+                {_h(supplier_col)} AS SUPPLIER_ID,
+                {_h(currency_col)} AS CURRENCY,
+                {_h(total_col)} AS TOTAL_AMOUNT,
+                {_h(status_col)} AS STATUS,
+                {_d(detail_key_col)} AS DETAIL_ID,
+                {_d(order_seq_col)} AS DETAIL_SEQ,
+                {_d(item_code_col)} AS ITEM_CODE,
+                {_d(item_name_col)} AS ITEM_NAME,
+                {_d(detail_desc_col)} AS DETAIL_DESC,
+                {_d(detail_location_col)} AS DETAIL_LOCATION,
+                {_d(detail_qty_col)} AS DETAIL_QTY,
+                {_d(detail_unit_price_col)} AS DETAIL_UNIT_PRICE,
+                {_d(detail_tax_col)} AS DETAIL_TAX,
+                {_d(detail_amount_col)} AS DETAIL_AMOUNT
+            FROM PH_PQ H
+            LEFT JOIN PH_PQDTL D ON D.{detail_fk_col} = H.{header_key_col}
+            ORDER BY H.{order_date_col} DESC, H.{header_key_col} DESC, D.{order_seq_col} ASC
+        """
+
+        cur.execute(query)
+        rows = cur.fetchall() or []
+
+        grouped: dict[int, dict[str, Any]] = {}
+        ordered_headers: list[dict[str, Any]] = []
+
+        def _num(value: Any) -> float:
+            try:
+                return float(value or 0)
+            except Exception:
+                return 0.0
+
+        for row in rows:
+            header_id = int(row[0])
+            header = grouped.get(header_id)
+            if header is None:
+                header = {
+                    "id": header_id,
+                    "requestNumber": _clean_text(row[1]),
+                    "requestDate": row[2].isoformat() if hasattr(row[2], "isoformat") and row[2] is not None else _clean_text(row[2]),
+                    "requiredDate": row[3].isoformat() if hasattr(row[3], "isoformat") and row[3] is not None else _clean_text(row[3]),
+                    "requesterId": _clean_text(row[4]),
+                    "departmentId": _clean_text(row[5]),
+                    "supplierId": _clean_text(row[6]),
+                    "currency": _clean_text(row[7]),
+                    "totalAmount": _num(row[8]),
+                    "status": _decode_status(row[9]),
+                    "details": [],
+                }
+                grouped[header_id] = header
+                ordered_headers.append(header)
+
+            detail_id = row[10]
+            if detail_id is None and not _clean_text(row[12]):
+                continue
+
+            header["details"].append(
+                {
+                    "id": int(detail_id) if detail_id is not None else None,
+                    "seq": int(row[11]) if row[11] is not None else len(header["details"]) + 1,
+                    "itemCode": _clean_text(row[12]),
+                    "itemName": _clean_text(row[13]),
+                    "description": _clean_text(row[14]),
+                    "locationCode": _clean_text(row[15]),
+                    "quantity": _num(row[16]),
+                    "unitPrice": _num(row[17]),
+                    "tax": _num(row[18]),
+                    "amount": _num(row[19]),
+                }
+            )
+
+        return ordered_headers[:safe_limit]
     finally:
         con.close()
 

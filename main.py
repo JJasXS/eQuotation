@@ -3201,6 +3201,44 @@ def api_admin_procurement_stock_card_breakdown():
             con.close()
 
 
+@app.route('/api/admin/procurement/suppliers')
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_procurement_suppliers():
+    """Proxy full supplier list from the external accounting API with pagination."""
+    try:
+        headers = _build_sql_api_auth_headers()
+        all_suppliers = []
+        offset = 0
+        limit = 100
+        while True:
+            resp = requests.get(
+                f"{FASTAPI_BASE_URL}/supplier",
+                params={'offset': offset, 'limit': limit},
+                headers=headers or None,
+                timeout=10,
+            )
+            if not resp.ok:
+                return jsonify({'success': False, 'error': f'Supplier API returned {resp.status_code}'}), 502
+            payload = resp.json()
+            rows = payload.get('data', []) if isinstance(payload, dict) else []
+            if not isinstance(rows, list):
+                break
+            all_suppliers.extend(rows)
+            pagination = payload.get('pagination', {})
+            total_count = pagination.get('count', len(rows)) if isinstance(pagination, dict) else len(rows)
+            offset += limit
+            if offset >= total_count or not rows:
+                break
+        return jsonify({'success': True, 'data': all_suppliers})
+    except requests.exceptions.Timeout:
+        return jsonify({'success': False, 'error': 'Supplier list request timed out'}), 504
+    except requests.exceptions.ConnectionError:
+        return jsonify({'success': False, 'error': 'Cannot reach accounting API for supplier list'}), 503
+    except Exception as exc:
+        print(f"[PROCUREMENT SUPPLIERS] Error: {exc}", flush=True)
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
 @app.route('/api/admin/procurement/purchase-requests', methods=['POST'])
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_create_purchase_request():
@@ -3220,6 +3258,283 @@ def api_admin_create_purchase_request():
         return jsonify({'success': False, 'error': str(exc)}), 400
     except Exception as exc:
         print(f"[PROCUREMENT CREATE PR] error: {exc}", flush=True)
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
+@app.route('/api/admin/procurement/purchase-requests', methods=['GET'])
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_list_purchase_requests():
+    """List eProcurement purchase request headers from SQL API."""
+    raw_offset = (request.args.get('offset') or '').strip()
+    raw_limit = (request.args.get('limit') or '').strip()
+    try:
+        offset = int(raw_offset) if raw_offset else 0
+        limit = int(raw_limit) if raw_limit else 200
+    except ValueError:
+        return jsonify({'success': False, 'error': 'offset and limit must be integers'}), 400
+
+    offset = max(0, offset)
+    # SQL API pagination typically expects smaller pages; keep this conservative.
+    limit = max(1, min(limit, 50))
+
+    def _status_text(raw_status):
+        text = str(raw_status).strip().upper() if raw_status is not None else ''
+        if text in {'DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED', 'CANCELLED'}:
+            return text
+        try:
+            status_num = int(raw_status)
+        except Exception:
+            return text or 'DRAFT'
+        return {
+            0: 'DRAFT',
+            1: 'SUBMITTED',
+            2: 'APPROVED',
+            3: 'REJECTED',
+            4: 'CANCELLED',
+        }.get(status_num, str(status_num))
+
+    def _num(value):
+        if value is None:
+            return 0.0
+        try:
+            return float(str(value).replace(',', '').strip() or 0)
+        except Exception:
+            return 0.0
+
+    try:
+        headers = _build_sql_api_auth_headers()
+        candidates = [
+            f"{FASTAPI_BASE_URL}/purchaserequest",
+            f"{FASTAPI_BASE_URL}/purchase-request",
+            f"{FASTAPI_BASE_URL}/purchaserequests",
+            f"{FASTAPI_BASE_URL}/purchase-requests",
+        ]
+        payload = {}
+        last_status = None
+        tried = []
+
+        for url in candidates:
+            resp = requests.get(
+                url,
+                params={'offset': offset, 'limit': limit},
+                headers=headers or None,
+                timeout=12,
+            )
+            last_status = resp.status_code
+            tried.append(f"{url} -> {resp.status_code}")
+            if not resp.ok:
+                continue
+            payload = resp.json() if resp.text else {}
+            break
+
+        if not payload:
+            detail = '; '.join(tried) if tried else 'No upstream attempts were made'
+            return jsonify({'success': False, 'error': f'SQL API list failed ({detail})'}), 502
+
+        rows = payload.get('data', []) if isinstance(payload, dict) else []
+        pagination = payload.get('pagination', {}) if isinstance(payload, dict) else {}
+        if not isinstance(rows, list):
+            return jsonify({'success': False, 'error': f'Unexpected SQL API format: missing data[] (last status: {last_status})'}), 502
+
+        records = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            dockey = row.get('dockey')
+            try:
+                row_id = int(dockey)
+            except Exception:
+                row_id = 0
+
+            records.append({
+                'id': row_id,
+                'requestNumber': str(row.get('docno') or '').strip(),
+                'requestDate': row.get('docdate'),
+                'requiredDate': row.get('postdate'),
+                'requesterId': str(row.get('code') or row.get('companyname') or '').strip(),
+                'departmentId': str(row.get('businessunit') or row.get('area') or '').strip(),
+                'supplierId': str(row.get('agent') or '').strip(),
+                'currency': str(row.get('currencycode') or '').strip(),
+                'totalAmount': _num(row.get('docamt')),
+                'status': _status_text(row.get('status')),
+                'udfStatus': str(row.get('udf_status') or '').strip(),
+                'details': None,
+            })
+
+        return jsonify({
+            'success': True,
+            'data': records,
+            'count': len(records),
+            'pagination': pagination if isinstance(pagination, dict) else {'offset': offset, 'limit': limit, 'count': len(records)},
+        })
+    except requests.exceptions.Timeout:
+        return jsonify({'success': False, 'error': 'Purchase request list request timed out'}), 504
+    except requests.exceptions.ConnectionError:
+        return jsonify({'success': False, 'error': 'Cannot reach SQL API for purchase request list'}), 503
+    except Exception as exc:
+        print(f"[PROCUREMENT LIST PR] error: {exc}", flush=True)
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
+@app.route('/api/admin/procurement/purchase-requests/<int:request_id>', methods=['GET'])
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_purchase_request_details(request_id):
+    """Get one eProcurement purchase request detail rows from SQL API."""
+
+    def _num(value):
+        if value is None:
+            return 0.0
+        try:
+            return float(str(value).replace(',', '').strip() or 0)
+        except Exception:
+            return 0.0
+
+    try:
+        headers = _build_sql_api_auth_headers()
+        resp = requests.get(
+            f"{FASTAPI_BASE_URL}/purchaserequest/{int(request_id)}",
+            headers=headers or None,
+            timeout=12,
+        )
+        if not resp.ok:
+            return jsonify({'success': False, 'error': f'SQL API returned {resp.status_code}'}), 502
+
+        payload = resp.json() if resp.text else {}
+        records = payload.get('data', []) if isinstance(payload, dict) else []
+        if not isinstance(records, list) or not records:
+            return jsonify({'success': False, 'error': 'Purchase request not found'}), 404
+
+        header = records[0] if isinstance(records[0], dict) else {}
+        detail_rows = header.get('sdsdocdetail', []) if isinstance(header, dict) else []
+        if not isinstance(detail_rows, list):
+            detail_rows = []
+
+        details = []
+        for idx, row in enumerate(detail_rows, start=1):
+            if not isinstance(row, dict):
+                continue
+            details.append({
+                'id': row.get('dtlkey'),
+                'seq': row.get('seq') if row.get('seq') is not None else idx,
+                'itemCode': str(row.get('itemcode') or '').strip(),
+                'itemName': str(row.get('itemname') or row.get('description2') or row.get('description') or '').strip(),
+                'description': str(row.get('description3') or row.get('description') or '').strip(),
+                'locationCode': str(row.get('location') or '').strip(),
+                'quantity': _num(row.get('qty')),
+                'unitPrice': _num(row.get('unitprice')),
+                'tax': _num(row.get('taxamt')),
+                'amount': _num(row.get('amount')),
+                'udfPqApproved': row.get('udf_pqapproved'),
+            })
+
+        return jsonify({'success': True, 'id': int(request_id), 'details': details, 'count': len(details)})
+    except requests.exceptions.Timeout:
+        return jsonify({'success': False, 'error': 'Purchase request detail request timed out'}), 504
+    except requests.exceptions.ConnectionError:
+        return jsonify({'success': False, 'error': 'Cannot reach SQL API for purchase request detail'}), 503
+    except Exception as exc:
+        print(f"[PROCUREMENT PR DETAIL] error: {exc}", flush=True)
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
+@app.route('/api/admin/procurement/purchase-requests/details', methods=['GET'])
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_purchase_request_details_fallback():
+    """Get eProcurement purchase request detail rows using resilient SQL API lookup patterns."""
+    raw_request_id = (request.args.get('request_id') or '').strip()
+    request_no = (request.args.get('request_no') or '').strip()
+
+    if not raw_request_id and not request_no:
+        return jsonify({'success': False, 'error': 'request_id or request_no is required'}), 400
+
+    def _num(value):
+        if value is None:
+            return 0.0
+        try:
+            return float(str(value).replace(',', '').strip() or 0)
+        except Exception:
+            return 0.0
+
+    def _extract_details(payload_obj):
+        records = payload_obj.get('data', []) if isinstance(payload_obj, dict) else []
+        if not isinstance(records, list) or not records:
+            return None
+        header = records[0] if isinstance(records[0], dict) else {}
+        detail_rows = header.get('sdsdocdetail', []) if isinstance(header, dict) else []
+        if not isinstance(detail_rows, list):
+            detail_rows = []
+
+        details = []
+        for idx, row in enumerate(detail_rows, start=1):
+            if not isinstance(row, dict):
+                continue
+            details.append({
+                'id': row.get('dtlkey'),
+                'seq': row.get('seq') if row.get('seq') is not None else idx,
+                'itemCode': str(row.get('itemcode') or '').strip(),
+                'itemName': str(row.get('itemname') or row.get('description2') or row.get('description') or '').strip(),
+                'description': str(row.get('description3') or row.get('description') or '').strip(),
+                'locationCode': str(row.get('location') or '').strip(),
+                'quantity': _num(row.get('qty')),
+                'unitPrice': _num(row.get('unitprice')),
+                'tax': _num(row.get('taxamt')),
+                'amount': _num(row.get('amount')),
+                'udfPqApproved': row.get('udf_pqapproved'),
+            })
+        return details
+
+    try:
+        headers = _build_sql_api_auth_headers()
+        candidates = []
+
+        if raw_request_id:
+            try:
+                request_id_int = int(raw_request_id)
+                candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest/{request_id_int}", None))
+                candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest", {'dockey': request_id_int}))
+                candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest", {'id': request_id_int}))
+            except ValueError:
+                pass
+
+        if request_no:
+            candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest/{request_no}", None))
+            candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest", {'docno': request_no}))
+            candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest", {'requestno': request_no}))
+
+        last_status = 404
+        for url, params in candidates:
+            resp = requests.get(
+                url,
+                params=params,
+                headers=headers or None,
+                timeout=12,
+            )
+            last_status = resp.status_code
+            if not resp.ok:
+                continue
+
+            payload = resp.json() if resp.text else {}
+            details = _extract_details(payload)
+            if details is None:
+                continue
+
+            return jsonify({
+                'success': True,
+                'id': int(raw_request_id) if raw_request_id.isdigit() else None,
+                'requestNumber': request_no or None,
+                'details': details,
+                'count': len(details),
+            })
+
+        if last_status == 404:
+            return jsonify({'success': True, 'details': [], 'count': 0, 'message': 'No details found for this request'}), 200
+        return jsonify({'success': False, 'error': f'SQL API returned {last_status}'}), 502
+    except requests.exceptions.Timeout:
+        return jsonify({'success': False, 'error': 'Purchase request detail request timed out'}), 504
+    except requests.exceptions.ConnectionError:
+        return jsonify({'success': False, 'error': 'Cannot reach SQL API for purchase request detail'}), 503
+    except Exception as exc:
+        print(f"[PROCUREMENT PR DETAIL FALLBACK] error: {exc}", flush=True)
         return jsonify({'success': False, 'error': str(exc)}), 500
 
 
@@ -3419,6 +3734,42 @@ def api_get_product_price():
         print(f"Error getting product price: {e}", flush=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
+@app.route('/api/admin/procurement/purchase-requests/details/approval', methods=['POST'])
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_purchase_request_detail_approval_update():
+    """Update UDF_PQAPPROVED for purchase request detail rows."""
+    payload = request.get_json(silent=True) or {}
+
+    try:
+        headers = _build_sql_api_auth_headers()
+        resp = requests.post(
+            f"{FASTAPI_BASE_URL}/purchaserequest/detail-approval",
+            json=payload,
+            headers=headers or None,
+            timeout=12,
+        )
+
+        if not resp.ok:
+            message = ''
+            try:
+                body = resp.json()
+                message = body.get('detail') if isinstance(body, dict) else ''
+            except Exception:
+                message = (resp.text or '').strip()
+            err = f"SQL API returned {resp.status_code}" + (f": {message}" if message else '')
+            return jsonify({'success': False, 'error': err}), 502
+
+        body = resp.json() if resp.text else {}
+        return jsonify({'success': True, 'data': body})
+    except requests.exceptions.Timeout:
+        return jsonify({'success': False, 'error': 'Approval update request timed out'}), 504
+    except requests.exceptions.ConnectionError:
+        return jsonify({'success': False, 'error': 'Cannot reach SQL API for approval update'}), 503
+    except Exception as exc:
+        print(f"[PROCUREMENT PR APPROVAL UPDATE] error: {exc}", flush=True)
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
 @app.route('/api/create_order', methods=['POST'])
 @api_login_required(unauth_message='Unauthorized')
 def api_create_order():
@@ -3454,6 +3805,42 @@ def api_create_order():
     except Exception as e:
         print(f"Error creating order: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/procurement/purchase-requests/header-status', methods=['POST'])
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_purchase_request_header_status_update():
+    """Update UDF_STATUS for purchase request headers."""
+    payload = request.get_json(silent=True) or {}
+
+    try:
+        headers = _build_sql_api_auth_headers()
+        resp = requests.post(
+            f"{FASTAPI_BASE_URL}/purchaserequest/header-status",
+            json=payload,
+            headers=headers or None,
+            timeout=12,
+        )
+
+        if not resp.ok:
+            message = ''
+            try:
+                body = resp.json()
+                message = body.get('detail') if isinstance(body, dict) else ''
+            except Exception:
+                message = (resp.text or '').strip()
+            err = f"SQL API returned {resp.status_code}" + (f": {message}" if message else '')
+            return jsonify({'success': False, 'error': err}), 502
+
+        body = resp.json() if resp.text else {}
+        return jsonify({'success': True, 'data': body})
+    except requests.exceptions.Timeout:
+        return jsonify({'success': False, 'error': 'Header status update request timed out'}), 504
+    except requests.exceptions.ConnectionError:
+        return jsonify({'success': False, 'error': 'Cannot reach SQL API for header status update'}), 503
+    except Exception as exc:
+        print(f"[PROCUREMENT PR HEADER STATUS UPDATE] error: {exc}", flush=True)
+        return jsonify({'success': False, 'error': str(exc)}), 500
 
 @app.route('/api/create_quotation', methods=['POST'])
 @api_login_required(unauth_message='Session expired. Please log in again.')
