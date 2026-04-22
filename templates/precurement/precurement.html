@@ -519,7 +519,6 @@
                                     <div class="view-pr-main-line">
                                         <span class="view-pr-toggle">${expander}</span>
                                         <span class="view-pr-docno">${escapeHtml(header.requestNumber || '-')}</span>
-                                        <span class="view-pr-status ${statusClass(header.status)}">${escapeHtml(header.status || 'DRAFT')}</span>
                                         <select class="view-pr-udf-status" onclick="event.stopPropagation()" onchange="onHeaderUdfStatusChange(${headerId}, this.value)">
                                             <option value="ACTIVE" ${normalizeUdfStatus(header.udfStatus) === 'ACTIVE' ? 'selected' : ''}>ACTIVE</option>
                                             <option value="INACTIVE" ${normalizeUdfStatus(header.udfStatus) === 'INACTIVE' ? 'selected' : ''}>INACTIVE</option>
@@ -795,9 +794,13 @@
                 .map(([key, value]) => ({ key, ...value }))
                 .filter((entry) => entry && entry.selected && Number(entry.quantity || 0) > 0);
 
+
             if (!selectedEntries.length) {
-                showPurchaseRequestMessage('Select at least one item quantity in Quantity Need to Buy before clicking Buy.', 'error');
-                showTab('report');
+                // No selection: go straight to create with a blank line item
+                window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: '', description: '', quantity: 1, unitPrice: 0, tax: 0 }];
+                showTab('create');
+                renderPurchaseRequestLineItems();
+                showPurchaseRequestMessage('Starting a new e-Purchase Request.', 'info');
                 return;
             }
 
@@ -805,13 +808,24 @@
                 const code = String(entry.itemCode || '').trim();
                 const locationCode = String(entry.locationCode || '').trim();
                 const locationText = locationCode ? ` (${locationCode})` : '';
+                let unitPrice = 0;
+                let itemName = code;
+                const product = typeof findPrProductByCode === 'function' ? findPrProductByCode(code) : (window.prCatalogProducts || []).find((p) => String(p.CODE || '').trim() === code);
+                if (product) {
+                    if (Number.isFinite(Number(product.UDF_STDPRICE))) {
+                        unitPrice = Number(product.UDF_STDPRICE);
+                    }
+                    if (product.DESCRIPTION) {
+                        itemName = String(product.DESCRIPTION).trim();
+                    }
+                }
                 return {
                     itemCode: code,
-                    itemName: code,
+                    itemName: itemName,
                     locationCode,
                     description: `Auto-selected from Overall Report${locationText}`,
                     quantity: Number(entry.quantity || 0),
-                    unitPrice: 0,
+                    unitPrice: unitPrice,
                     tax: 0,
                 };
             });
