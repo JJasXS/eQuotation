@@ -84,15 +84,23 @@ def _status_filter_tokens(statuses: list[str]) -> list[str]:
 def _fetch_pr_qty_map(cur: Any, included_statuses: list[str]) -> dict[str, dict[str, float]]:
     header_cols = _get_table_columns(cur, "PH_PQ")
     detail_cols = _get_table_columns(cur, "PH_PQDTL")
+    xtrans_cols = _get_table_columns(cur, "ST_XTRANS")
 
     header_key_col = _pick_existing(header_cols, "DOCKEY", "PQKEY", "ID")
     detail_fk_col = _pick_existing(detail_cols, "DOCKEY", "PQKEY", "REQUEST_ID", "HEADER_ID")
+    detail_key_col = _pick_existing(detail_cols, "DTLKEY", "PQDTLKEY", "ID")
     status_col = _pick_existing(header_cols, "STATUS")
     udf_status_col = _pick_existing(header_cols, "UDF_STATUS")
     request_no_col = _pick_existing(header_cols, "DOCNO", "REQUESTNO", "PRNO", "PURCHASEREQUESTNO")
     item_col = _pick_existing(detail_cols, "ITEMCODE", "CODE")
     qty_col = _pick_existing(detail_cols, "QTY", "QUANTITY", "SQTY")
     location_col = _pick_existing(detail_cols, "LOCATION", "LOC", "STOCKLOCATION", "STORELOCATION")
+
+    x_fromdoctype_col = _pick_existing(xtrans_cols, "FROMDOCTYPE")
+    x_fromdockey_col = _pick_existing(xtrans_cols, "FROMDOCKEY")
+    x_fromdtlkey_col = _pick_existing(xtrans_cols, "FROMDTLKEY")
+    x_qty_col = _pick_existing(xtrans_cols, "QTY")
+    x_sqty_col = _pick_existing(xtrans_cols, "SQTY")
 
     if not header_key_col or not detail_fk_col or (not status_col and not udf_status_col) or not item_col or not qty_col:
         return {}
@@ -125,20 +133,69 @@ def _fetch_pr_qty_map(cur: Any, included_statuses: list[str]) -> dict[str, dict[
 
     params = tuple(params_list)
 
-    cur.execute(
-        f"""
-        SELECT
-            D.{item_col} AS ITEM_CODE,
-            {location_expr} AS LOCATION_CODE,
-            CAST(SUM(COALESCE(D.{qty_col}, 0)) AS DOUBLE PRECISION) AS TOTAL_QTY
-        FROM PH_PQDTL D
-        JOIN PH_PQ H
-          ON H.{header_key_col} = D.{detail_fk_col}
-                WHERE {full_where}
-        GROUP BY D.{item_col}, {location_expr}
-        """,
-        params,
+    can_compute_outstanding = all(
+        [
+            detail_key_col,
+            x_fromdoctype_col,
+            x_fromdockey_col,
+            x_fromdtlkey_col,
+            (x_qty_col or x_sqty_col),
+        ]
     )
+
+    if can_compute_outstanding:
+        x_qty_expr = (
+            f"COALESCE(X.{x_sqty_col}, X.{x_qty_col}, 0)"
+            if x_sqty_col and x_qty_col
+            else (f"COALESCE(X.{x_sqty_col}, 0)" if x_sqty_col else f"COALESCE(X.{x_qty_col}, 0)")
+        )
+        cur.execute(
+            f"""
+            SELECT
+                D.{item_col} AS ITEM_CODE,
+                {location_expr} AS LOCATION_CODE,
+                CAST(
+                    SUM(
+                        CASE
+                            WHEN (COALESCE(D.{qty_col}, 0) - COALESCE(T.TRANSFERRED_QTY, 0)) > 0
+                                THEN (COALESCE(D.{qty_col}, 0) - COALESCE(T.TRANSFERRED_QTY, 0))
+                            ELSE 0
+                        END
+                    )
+                AS DOUBLE PRECISION) AS TOTAL_QTY
+            FROM PH_PQDTL D
+            JOIN PH_PQ H
+              ON H.{header_key_col} = D.{detail_fk_col}
+            LEFT JOIN (
+                SELECT X.{x_fromdockey_col} AS FROMDOCKEY,
+                       X.{x_fromdtlkey_col} AS FROMDTLKEY,
+                       CAST(SUM(CAST({x_qty_expr} AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TRANSFERRED_QTY
+                FROM ST_XTRANS X
+                WHERE X.{x_fromdoctype_col} = ?
+                GROUP BY X.{x_fromdockey_col}, X.{x_fromdtlkey_col}
+            ) T
+              ON T.FROMDOCKEY = D.{detail_fk_col}
+             AND T.FROMDTLKEY = D.{detail_key_col}
+            WHERE {full_where}
+            GROUP BY D.{item_col}, {location_expr}
+            """,
+            tuple(["PQ", *params]),
+        )
+    else:
+        cur.execute(
+            f"""
+            SELECT
+                D.{item_col} AS ITEM_CODE,
+                {location_expr} AS LOCATION_CODE,
+                CAST(SUM(COALESCE(D.{qty_col}, 0)) AS DOUBLE PRECISION) AS TOTAL_QTY
+            FROM PH_PQDTL D
+            JOIN PH_PQ H
+              ON H.{header_key_col} = D.{detail_fk_col}
+            WHERE {full_where}
+            GROUP BY D.{item_col}, {location_expr}
+            """,
+            params,
+        )
 
     rows = cur.fetchall() or []
     result: dict[str, dict[str, float]] = {}
@@ -580,9 +637,9 @@ def fetch_procurement_stock_card_data(cur: Any) -> tuple[list[str], list[dict[st
         """,
     )
 
-    # Active PR reservation reduces need-to-buy until explicitly rejected/cancelled.
-    pr_pending_map = _fetch_pr_qty_map(cur, ["DRAFT", "SUBMITTED", "PENDING"])
-    pr_active_map = _fetch_pr_qty_map(cur, ["DRAFT", "SUBMITTED", "APPROVED", "PENDING", "ACTIVE"])
+    # Open PR reservation reduces need-to-buy until explicitly rejected/cancelled.
+    # Include ACTIVE/APPROVED so approved PR balances still count as reserved demand.
+    pr_pending_map = _fetch_pr_qty_map(cur, ["DRAFT", "SUBMITTED", "PENDING", "APPROVED", "ACTIVE"])
 
     data: list[dict[str, Any]] = []
     for code in item_codes:
@@ -602,7 +659,6 @@ def fetch_procurement_stock_card_data(cur: Any) -> tuple[list[str], list[dict[st
         item_jo_total = jo_total_map.get(code, {})
         item_jo_moved = jo_moved_map.get(code, {})
         item_pr_pending = pr_pending_map.get(code, {})
-        item_pr_active = pr_active_map.get(code, {})
 
         for location_code in locations:
             so_outstanding = item_so_total.get(location_code, 0) - item_so_moved.get(location_code, 0)
@@ -620,10 +676,17 @@ def fetch_procurement_stock_card_data(cur: Any) -> tuple[list[str], list[dict[st
                 + jo_qty_by_location[location_code]
             )
             pending_pr = max(0.0, item_pr_pending.get(location_code, 0))
-            active_pr = max(0.0, item_pr_active.get(location_code, 0))
-            base_need = max(0.0, -qty_by_location[location_code])
+            # Procurement shortfall should treat PO as incoming supply and SO/JO as demand.
+            procurement_balance = (
+                avail_qty_by_location[location_code]
+                + po_qty_by_location[location_code]
+                - so_qty_by_location[location_code]
+                - jo_qty_by_location[location_code]
+            )
+            base_need = max(0.0, -procurement_balance)
             pending_pr_by_location[location_code] = pending_pr
-            need_to_buy_by_location[location_code] = max(0.0, base_need - active_pr)
+            # Only subtract pending PR (remaining not yet transferred)
+            need_to_buy_by_location[location_code] = max(0.0, base_need - pending_pr)
 
         data.append(
             {

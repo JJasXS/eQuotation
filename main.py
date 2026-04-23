@@ -42,6 +42,7 @@ from utils.procurement_stock_card_queries import (
 from utils.procurement_purchase_request import (
     PurchaseRequestValidationError,
     create_purchase_request,
+    preview_purchase_request_number,
     transition_purchase_request_status,
 )
 from utils.procurement_purchase_order_transfer import (
@@ -3265,6 +3266,22 @@ def api_admin_create_purchase_request():
         return jsonify({'success': False, 'error': str(exc)}), 500
 
 
+@app.route('/api/admin/procurement/purchase-requests/next-number', methods=['GET'])
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_next_purchase_request_number():
+    """Preview the next auto-generated eProcurement purchase request number."""
+    try:
+        return jsonify({
+            'success': True,
+            'data': {
+                'requestNumber': preview_purchase_request_number(),
+            },
+        })
+    except Exception as exc:
+        print(f"[PROCUREMENT NEXT PR NO] error: {exc}", flush=True)
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
 @app.route('/api/admin/procurement/purchase-requests', methods=['GET'])
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_list_purchase_requests():
@@ -3305,6 +3322,68 @@ def api_admin_list_purchase_requests():
         except Exception:
             return 0.0
 
+    def _fetch_pr_balance_qty_map(request_ids):
+        if not request_ids:
+            return {}
+
+        con = None
+        cur = None
+        try:
+            con = get_db_connection()
+            cur = con.cursor()
+            placeholders = ', '.join(['?'] * len(request_ids))
+            params = tuple(['PQ', *request_ids, *request_ids])
+            cur.execute(
+                f"""
+                SELECT D.DOCKEY,
+                       CAST(SUM(CAST(COALESCE(D.QTY, 0) AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TOTAL_QTY,
+                       CAST(COALESCE(T.TRANSFERRED_QTY, 0) AS DOUBLE PRECISION) AS TRANSFERRED_QTY
+                FROM PH_PQDTL D
+                LEFT JOIN (
+                    SELECT FROMDOCKEY,
+                           CAST(SUM(CAST(COALESCE(SQTY, QTY, 0) AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TRANSFERRED_QTY
+                    FROM ST_XTRANS
+                    WHERE FROMDOCTYPE = ?
+                      AND FROMDOCKEY IN ({placeholders})
+                    GROUP BY FROMDOCKEY
+                ) T ON T.FROMDOCKEY = D.DOCKEY
+                WHERE D.DOCKEY IN ({placeholders})
+                GROUP BY D.DOCKEY, T.TRANSFERRED_QTY
+                """,
+                params,
+            )
+            rows = cur.fetchall() or []
+            result = {}
+            for row in rows:
+                if not row:
+                    continue
+                try:
+                    request_id = int(row[0])
+                except Exception:
+                    continue
+                total_qty = _num(row[1])
+                transferred_qty = _num(row[2])
+                result[request_id] = {
+                    'totalQty': total_qty,
+                    'transferredQty': transferred_qty,
+                    'balanceQty': max(0.0, total_qty - transferred_qty),
+                }
+            return result
+        except Exception as exc:
+            print(f"[PROCUREMENT LIST PR] balance qty lookup error: {exc}", flush=True)
+            return {}
+        finally:
+            try:
+                if cur:
+                    cur.close()
+            except Exception:
+                pass
+            try:
+                if con:
+                    con.close()
+            except Exception:
+                pass
+
     try:
         headers = _build_sql_api_auth_headers()
         candidates = [
@@ -3340,6 +3419,16 @@ def api_admin_list_purchase_requests():
         if not isinstance(rows, list):
             return jsonify({'success': False, 'error': f'Unexpected SQL API format: missing data[] (last status: {last_status})'}), 502
 
+        header_ids = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            try:
+                header_ids.append(int(row.get('dockey')))
+            except Exception:
+                continue
+        balance_qty_map = _fetch_pr_balance_qty_map(header_ids)
+
         records = []
         for row in rows:
             if not isinstance(row, dict):
@@ -3349,6 +3438,8 @@ def api_admin_list_purchase_requests():
                 row_id = int(dockey)
             except Exception:
                 row_id = 0
+
+            qty_summary = balance_qty_map.get(row_id, {})
 
             records.append({
                 'id': row_id,
@@ -3363,6 +3454,9 @@ def api_admin_list_purchase_requests():
                 'status': _status_text(row.get('status')),
                 'udfStatus': str(row.get('udf_status') or '').strip(),
                 'transferable': bool(row.get('transferable') if row.get('transferable') is not None else True),
+                'totalQty': _num(qty_summary.get('totalQty')),
+                'transferredQty': _num(qty_summary.get('transferredQty')),
+                'balanceQty': _num(qty_summary.get('balanceQty')),
                 'details': None,
             })
 

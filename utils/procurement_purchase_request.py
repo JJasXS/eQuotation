@@ -348,7 +348,8 @@ def _normalize_sql_api_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "currency": _clean_text(payload.get("currencycode")) or "MYR",
         "requestDate": request_date.isoformat(),
         "requiredDate": required_date.isoformat(),
-        "justification": _clean_text(payload.get("description")),
+        "description": _clean_text(payload.get("description")),
+        "justification": _clean_text(payload.get("justification")) or _clean_text(payload.get("description")),
         "deliveryLocation": _clean_text(payload.get("daddress1") or payload.get("address1")),
         "notes": _clean_text(payload.get("note")),
         "subtotalAmount": float(_money(subtotal)),
@@ -470,6 +471,7 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
         "currency": currency,
         "requestDate": request_date.isoformat() if request_date else request_date_raw,
         "requiredDate": required_date.isoformat() if required_date else required_date_raw,
+        "description": _clean_text(payload.get("description")),
         "justification": _clean_text(payload.get("justification")),
         "deliveryLocation": _clean_text(payload.get("deliveryLocation")),
         "notes": _clean_text(payload.get("notes")),
@@ -616,7 +618,7 @@ def create_purchase_request(
             "CURRENCYCODE": validated["currency"],
             "CURRENCY": validated["currency"],
             "CURRENCYRATE": 1,
-            "DESCRIPTION": validated["justification"] or validated["notes"],
+            "DESCRIPTION": validated.get("description") or "",
             "JUSTIFICATION": validated["justification"],
             "DELIVERYLOCATION": validated["deliveryLocation"],
             "NOTES": validated["notes"],
@@ -718,6 +720,19 @@ def create_purchase_request(
     except Exception:
         con.rollback()
         raise
+    finally:
+        con.close()
+
+
+def preview_purchase_request_number() -> str:
+    """Return the next auto-generated purchase request number."""
+    ensure_purchase_request_schema()
+
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        header_cols = _get_table_columns(cur, "PH_PQ")
+        return _next_request_number(cur, header_cols)
     finally:
         con.close()
 

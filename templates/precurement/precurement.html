@@ -138,44 +138,65 @@
                             <h2 style="margin-bottom: 12px;">Create e-Purchase Request</h2>
                             <form id="purchase-request-form" class="pr-form" novalidate>
                                 <div class="pr-grid">
-                                    <label class="pr-field">
-                                        <span>Request Number</span>
-                                        <input type="text" id="pr-request-number" placeholder="Auto-generated if empty" />
-                                    </label>
-                                    <label class="pr-field">
-                                        <span>Cost Center</span>
-                                        <input type="text" id="pr-cost-center" />
-                                    </label>
-                                    <label class="pr-field">
-                                        <span>Supplier</span>
-                                        <select id="pr-supplier-id">
-                                            <option value="">Select supplier</option>
-                                        </select>
-                                    </label>
-                                    <label class="pr-field">
-                                        <span>Currency</span>
-                                        <input type="text" id="pr-currency" value="MYR" maxlength="8" />
-                                    </label>
-                                    <label class="pr-field">
-                                        <span>Request Date <em>*</em></span>
-                                        <input type="date" id="pr-request-date" required />
-                                    </label>
-                                    <label class="pr-field">
-                                        <span>Required Date <em>*</em></span>
-                                        <input type="date" id="pr-required-date" required />
-                                    </label>
-                                    <label class="pr-field">
-                                        <span>Delivery Location</span>
-                                        <input type="text" id="pr-delivery-location" />
-                                    </label>
-                                    <label class="pr-field pr-field-wide">
-                                        <span>Justification</span>
-                                        <input type="text" id="pr-justification" />
-                                    </label>
-                                    <label class="pr-field pr-field-wide">
-                                        <span>Notes</span>
-                                        <textarea id="pr-notes" rows="2"></textarea>
-                                    </label>
+                                    <div class="pr-form-row">
+                                        <label class="pr-field">
+                                            <span>Request Number</span>
+                                            <input type="text" id="pr-request-number" readonly class="pr-system-generated" />
+                                        </label>
+                                        <label class="pr-field">
+                                            <span>Supplier</span>
+                                            <select id="pr-supplier-id">
+                                                <option value="">Select supplier</option>
+                                            </select>
+                                        </label>
+                                    </div>
+                                    <div class="pr-form-row">
+                                        <label class="pr-field">
+                                            <span>Required Date <em>*</em></span>
+                                            <input type="date" id="pr-required-date" required />
+                                        </label>
+                                        <label class="pr-field">
+                                            <span>Cost Center</span>
+                                            <input type="text" id="pr-cost-center" />
+                                        </label>
+                                        <label class="pr-field">
+                                            <span>Currency</span>
+                                            <input type="text" id="pr-currency" value="MYR" maxlength="8" />
+                                        </label>
+                                    </div>
+                                    <div class="pr-form-row">
+                                        <label class="pr-field pr-field-wide">
+                                            <span>Description</span>
+                                            <input type="text" id="pr-header-description" placeholder="Header description for PH_PQ.DESCRIPTION" />
+                                        </label>
+                                        <label class="pr-field pr-field-wide">
+                                            <span>Delivery Location</span>
+                                            <input type="text" id="pr-delivery-location" />
+                                        </label>
+                                    </div>
+                                        <style>
+                                            .pr-form-row {
+                                                display: flex;
+                                                gap: 24px;
+                                                margin-bottom: 10px;
+                                                flex-wrap: wrap;
+                                            }
+                                            .pr-form-row .pr-field {
+                                                flex: 1 1 180px;
+                                                min-width: 180px;
+                                                margin-bottom: 0;
+                                            }
+                                            .pr-form-row .pr-field-wide {
+                                                flex: 2 1 360px;
+                                                min-width: 300px;
+                                            }
+                                            .pr-system-generated {
+                                                background: #f5f5f5;
+                                                color: #888;
+                                                font-style: italic;
+                                                border: 1px solid #ddd;
+                                            }
+                                        </style>
                                 </div>
 
                                 <div class="pr-line-items-head">
@@ -300,6 +321,9 @@
             } else {
                 document.getElementById('tab-create').classList.add('active');
                 document.getElementById('panel-create').style.display = '';
+                if (typeof loadNextPurchaseRequestNumber === 'function') {
+                    loadNextPurchaseRequestNumber();
+                }
             }
         }
 
@@ -669,8 +693,8 @@
 
                 htmlParts.push(`
                     <div class="view-pr-card">
-                        <div class="view-pr-card-header" onclick="toggleViewPurchaseRequest(${headerId})">
-                            <div class="view-pr-card-grid">
+                        <div class="view-pr-card-header">
+                            <div class="view-pr-card-grid" onclick="toggleViewPurchaseRequest(${headerId})" style="cursor: pointer;">
                                 <div class="view-pr-main-col">
                                     <div class="view-pr-main-line">
                                         <span class="view-pr-toggle">${expander}</span>
@@ -687,6 +711,7 @@
                                     <div class="view-pr-meta-row"><span>Request Date</span><strong>${formatPrDate(header.requestDate)}</strong></div>
                                     <div class="view-pr-meta-row"><span>Required Date</span><strong>${formatPrDate(header.requiredDate)}</strong></div>
                                     <div class="view-pr-meta-row"><span>Currency</span><strong>${escapeHtml(header.currency || '-')}</strong></div>
+                                    <div class="view-pr-meta-row"><span>Balance Qty</span><strong>${formatStockCardNumber(header.balanceQty || 0)}</strong></div>
                                 </div>
                                 <div class="view-pr-amount-col">
                                     <div class="view-pr-amount-label">Total Amount</div>
@@ -1495,11 +1520,10 @@
                 supplierId: supplierCode,
                 supplierName: supplierName,
                 currency: document.getElementById('pr-currency').value.trim() || 'MYR',
-                requestDate: document.getElementById('pr-request-date').value,
+                requestDate: prTodayIso(),
                 requiredDate: document.getElementById('pr-required-date').value,
-                justification: document.getElementById('pr-justification').value.trim(),
+                description: document.getElementById('pr-header-description').value.trim(),
                 deliveryLocation: document.getElementById('pr-delivery-location').value.trim(),
-                notes: document.getElementById('pr-notes').value.trim(),
                 totalAmount: Number(totals.grand.toFixed(2)),
                 status,
                 lineItems,
@@ -1560,6 +1584,7 @@
                 document.getElementById('pr-request-number').value = requestNumber;
                 loadStockCardRows();
                 loadViewPurchaseRequests(true);
+                loadNextPurchaseRequestNumber();
             } catch (error) {
                 showPurchaseRequestMessage(error.message || 'Failed to submit purchase request.', 'error');
             } finally {
@@ -1604,16 +1629,34 @@
                 .catch((err) => console.warn('[Suppliers] Fetch error:', err));
         }
 
+        async function loadNextPurchaseRequestNumber() {
+            const requestNumberInput = document.getElementById('pr-request-number');
+            if (!requestNumberInput) {
+                return;
+            }
+
+            requestNumberInput.value = 'Loading...';
+
+            try {
+                const response = await fetch('/api/admin/procurement/purchase-requests/next-number');
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    throw new Error(data.error || `Failed to load request number (HTTP ${response.status})`);
+                }
+                requestNumberInput.value = String(data?.data?.requestNumber || '').trim() || 'Auto-generated on save';
+            } catch (error) {
+                requestNumberInput.value = 'Auto-generated on save';
+                console.warn('[Purchase Request] Failed to preload request number:', error);
+            }
+        }
+
         function initPurchaseRequestForm() {
             window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: '', description: '', quantity: 1, unitPrice: 0, tax: 0 }];
-            const requestDateInput = document.getElementById('pr-request-date');
             const requiredDateInput = document.getElementById('pr-required-date');
-            if (requestDateInput && !requestDateInput.value) {
-                requestDateInput.value = prTodayIso();
-            }
             if (requiredDateInput && !requiredDateInput.value) {
-                requiredDateInput.value = addDaysIso(requestDateInput.value || prTodayIso(), 7);
+                requiredDateInput.value = addDaysIso(prTodayIso(), 7);
             }
+            loadNextPurchaseRequestNumber();
             renderPurchaseRequestLineItems();
         }
 
