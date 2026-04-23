@@ -3153,16 +3153,42 @@ def api_get_stock_items():
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_procurement_stock_card():
     """Return stock card table rows for procurement overall report."""
+    raw_from_date = (request.args.get('from_date') or '').strip()
+    raw_to_date = (request.args.get('to_date') or '').strip()
+    qty_mode = (request.args.get('qty_mode') or 'SQTY').strip().upper()
+    if qty_mode not in ('SQTY', 'SUOMQTY'):
+        qty_mode = 'SQTY'
+
+    from_date = None
+    to_date = None
+    try:
+        if raw_from_date:
+            from_date = datetime.fromisoformat(raw_from_date).date()
+        if raw_to_date:
+            to_date = datetime.fromisoformat(raw_to_date).date()
+    except ValueError:
+        return jsonify({'success': False, 'error': 'from_date and to_date must be YYYY-MM-DD'}), 400
+
+    if from_date and to_date and from_date > to_date:
+        return jsonify({'success': False, 'error': 'from_date cannot be after to_date'}), 400
+
     con = None
     cur = None
     try:
         con = get_db_connection()
         cur = con.cursor()
-        locations, data = fetch_procurement_stock_card_data(cur)
+        locations, data = fetch_procurement_stock_card_data(
+            cur, from_date=from_date, to_date=to_date, qty_mode=qty_mode
+        )
 
         return jsonify({
             'success': True,
             'count': len(data),
+            'filters': {
+                'from_date': from_date.isoformat() if from_date else None,
+                'to_date': to_date.isoformat() if to_date else None,
+                'qty_mode': qty_mode,
+            },
             'locations': locations,
             'data': data,
         })
@@ -3759,6 +3785,15 @@ def api_admin_transfer_purchase_request_to_po():
             if last_status == 404:
                 return jsonify({'success': False, 'error': 'Purchase request not found'}), 404
             return jsonify({'success': False, 'error': f'SQL API returned {last_status} while loading purchase request'}), 502
+
+        udf_status_text = str(
+            request_header.get('udf_status')
+            or request_header.get('udfStatus')
+            or request_header.get('UDF_STATUS')
+            or ''
+        ).strip().upper()
+        if udf_status_text != 'ACTIVE':
+            return jsonify({'success': False, 'error': 'Transfer is allowed only when purchase request UDF status is ACTIVE'}), 400
 
         # Resolve supplier master data (especially currency) from SQL supplier API by PR CODE.
         supplier_code = str(request_header.get('code') or '').strip()

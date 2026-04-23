@@ -1,6 +1,7 @@
 """Reusable data loaders for procurement stock card metrics."""
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 
@@ -17,8 +18,18 @@ def _to_float(value: Any) -> float:
         return 0.0
 
 
-def _fetch_grouped_qty_map(cur: Any, sql: str) -> dict[str, dict[str, float]]:
-    cur.execute(sql)
+def _parse_iso_date(value: Any) -> date | None:
+    text = _clean_str(value)
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _fetch_grouped_qty_map(cur: Any, sql: str, params: tuple[Any, ...] = ()) -> dict[str, dict[str, float]]:
+    cur.execute(sql, params)
     rows = cur.fetchall() or []
 
     result: dict[str, dict[str, float]] = {}
@@ -81,7 +92,12 @@ def _status_filter_tokens(statuses: list[str]) -> list[str]:
     return unique
 
 
-def _fetch_pr_qty_map(cur: Any, included_statuses: list[str]) -> dict[str, dict[str, float]]:
+def _fetch_pr_qty_map(
+    cur: Any,
+    included_statuses: list[str],
+    from_date: date | None = None,
+    to_date: date | None = None,
+) -> dict[str, dict[str, float]]:
     header_cols = _get_table_columns(cur, "PH_PQ")
     detail_cols = _get_table_columns(cur, "PH_PQDTL")
     xtrans_cols = _get_table_columns(cur, "ST_XTRANS")
@@ -92,6 +108,7 @@ def _fetch_pr_qty_map(cur: Any, included_statuses: list[str]) -> dict[str, dict[
     status_col = _pick_existing(header_cols, "STATUS")
     udf_status_col = _pick_existing(header_cols, "UDF_STATUS")
     request_no_col = _pick_existing(header_cols, "DOCNO", "REQUESTNO", "PRNO", "PURCHASEREQUESTNO")
+    docdate_col = _pick_existing(header_cols, "DOCDATE", "REQUESTDATE", "POSTDATE", "TAXDATE")
     item_col = _pick_existing(detail_cols, "ITEMCODE", "CODE")
     qty_col = _pick_existing(detail_cols, "QTY", "QUANTITY", "SQTY")
     location_col = _pick_existing(detail_cols, "LOCATION", "LOC", "STOCKLOCATION", "STORELOCATION")
@@ -126,6 +143,12 @@ def _fetch_pr_qty_map(cur: Any, included_statuses: list[str]) -> dict[str, dict[
     # This avoids legacy PH_PQ rows being treated as pending PR reservations.
     if request_no_col:
         extra_filters.append(f"UPPER(TRIM(CAST(H.{request_no_col} AS VARCHAR(60)))) LIKE 'PR-%'")
+    if docdate_col and from_date:
+        extra_filters.append(f"H.{docdate_col} >= ?")
+        params_list.append(from_date)
+    if docdate_col and to_date:
+        extra_filters.append(f"H.{docdate_col} <= ?")
+        params_list.append(to_date)
 
     full_where = f"({status_where})"
     if extra_filters:
@@ -525,8 +548,54 @@ def fetch_procurement_metric_breakdown(
     raise ValueError(f"Unsupported metric: {metric}")
 
 
-def fetch_procurement_stock_card_data(cur: Any) -> tuple[list[str], list[dict[str, Any]]]:
-    """Return locations and stock-card rows for procurement overall report."""
+def fetch_procurement_stock_card_data(
+    cur: Any,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    qty_mode: str = "SQTY",
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """Return locations and stock-card rows for procurement overall report.
+
+    qty_mode: 'SQTY' (default) uses QTY/SQTY fields; 'SUOMQTY' uses secondary
+    UOM quantity fields (SUOMQTY) when available, falling back to QTY/SQTY.
+    """
+    normalized_from = from_date if isinstance(from_date, date) else _parse_iso_date(from_date)
+    normalized_to = to_date if isinstance(to_date, date) else _parse_iso_date(to_date)
+    use_suom = _clean_str(qty_mode).upper() == "SUOMQTY"
+
+    # Detect SUOMQTY availability on each table when mode is SUOMQTY.
+    if use_suom:
+        _sodtl_cols  = _get_table_columns(cur, "SL_SODTL")
+        _podtl_cols  = _get_table_columns(cur, "PH_PODTL")
+        _jodtl_cols  = _get_table_columns(cur, "PD_JODTL")
+        _sttr_cols   = _get_table_columns(cur, "ST_TR")
+        _xtrans_cols = _get_table_columns(cur, "ST_XTRANS")
+
+        def _doc_qty(alias: str, cols: set) -> str:
+            if "SUOMQTY" in cols:
+                return f"COALESCE({alias}.SUOMQTY, {alias}.QTY, 0)"
+            return f"COALESCE({alias}.QTY, 0)"
+
+        _so_doc_qty  = _doc_qty("SL_SODTL", _sodtl_cols)
+        _po_doc_qty  = _doc_qty("D", _podtl_cols)
+        _jo_doc_qty  = _doc_qty("D", _jodtl_cols)
+        _avail_qty   = "COALESCE(SUOMQTY, QTY, 0)" if "SUOMQTY" in _sttr_cols else "QTY"
+
+        _x_parts = []
+        if "SUOMQTY" in _xtrans_cols:
+            _x_parts.append("X.SUOMQTY")
+        if "SQTY" in _xtrans_cols:
+            _x_parts.append("X.SQTY")
+        _x_parts.append("X.QTY")
+        _x_parts.append("0")
+        _xtrans_qty = "COALESCE(" + ", ".join(_x_parts) + ")"
+    else:
+        _so_doc_qty  = "QTY"
+        _po_doc_qty  = "D.QTY"
+        _jo_doc_qty  = "D.QTY"
+        _avail_qty   = "QTY"
+        _xtrans_qty  = "COALESCE(X.SQTY, X.QTY, 0)"
+
     cur.execute("SELECT CODE FROM ST_LOCATION ORDER BY CODE")
     location_rows = cur.fetchall() or []
     locations = []
@@ -545,10 +614,10 @@ def fetch_procurement_stock_card_data(cur: Any) -> tuple[list[str], list[dict[st
 
     avail_map = _fetch_grouped_qty_map(
         cur,
-        """
+        f"""
         SELECT ITEMCODE,
                LOCATION,
-               CAST(SUM(CAST(QTY AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TOTAL_QTY
+               CAST(SUM(CAST({_avail_qty} AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TOTAL_QTY
         FROM ST_TR
         GROUP BY ITEMCODE, LOCATION
         """,
@@ -556,47 +625,68 @@ def fetch_procurement_stock_card_data(cur: Any) -> tuple[list[str], list[dict[st
 
     so_total_map = _fetch_grouped_qty_map(
         cur,
-        """
+        f"""
         SELECT ITEMCODE,
                LOCATION,
-               CAST(SUM(CAST(QTY AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TOTAL_SO_QTY
+               CAST(SUM(CAST({_so_doc_qty} AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TOTAL_SO_QTY
         FROM SL_SODTL
+                JOIN SL_SO H
+                    ON H.DOCKEY = SL_SODTL.DOCKEY
+                WHERE 1 = 1
+                """
+                + ("\n          AND H.DOCDATE >= ?" if normalized_from else "")
+                + ("\n          AND H.DOCDATE <= ?" if normalized_to else "")
+                + """
         GROUP BY ITEMCODE, LOCATION
-        """,
+                """,
+                tuple(value for value in (normalized_from, normalized_to) if value is not None),
     )
     so_moved_map = _fetch_grouped_qty_map(
         cur,
-        """
+        f"""
         SELECT D.ITEMCODE,
                D.LOCATION,
-               CAST(SUM(CAST(COALESCE(X.SQTY, X.QTY, 0) AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TOTAL_XTRANS_QTY
+               CAST(SUM(CAST({_xtrans_qty} AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TOTAL_XTRANS_QTY
         FROM ST_XTRANS X
         JOIN SL_SODTL D
           ON D.DOCKEY = X.FROMDOCKEY
          AND D.DTLKEY = X.FROMDTLKEY
+                JOIN SL_SO H
+                    ON H.DOCKEY = D.DOCKEY
         WHERE X.FROMDOCTYPE = 'SO'
+                """
+                + ("\n          AND H.DOCDATE >= ?" if normalized_from else "")
+                + ("\n          AND H.DOCDATE <= ?" if normalized_to else "")
+                + """
         GROUP BY D.ITEMCODE, D.LOCATION
-        """,
+                """,
+                tuple(value for value in (normalized_from, normalized_to) if value is not None),
     )
 
     po_total_map = _fetch_grouped_qty_map(
         cur,
-        """
+        f"""
         SELECT D.ITEMCODE,
                D.LOCATION,
-               CAST(SUM(CAST(D.QTY AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TOTAL_PO_QTY
+               CAST(SUM(CAST({_po_doc_qty} AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TOTAL_PO_QTY
         FROM PH_PODTL D
         JOIN PH_PO H
           ON H.DOCKEY = D.DOCKEY
+                WHERE 1 = 1
+                """
+                + ("\n          AND H.DOCDATE >= ?" if normalized_from else "")
+                + ("\n          AND H.DOCDATE <= ?" if normalized_to else "")
+                + """
         GROUP BY D.ITEMCODE, D.LOCATION
-        """,
+                """,
+                tuple(value for value in (normalized_from, normalized_to) if value is not None),
     )
     po_moved_map = _fetch_grouped_qty_map(
         cur,
-        """
+        f"""
         SELECT D.ITEMCODE,
                D.LOCATION,
-               CAST(SUM(CAST(COALESCE(X.SQTY, X.QTY, 0) AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TOTAL_XTRANS_QTY
+               CAST(SUM(CAST({_xtrans_qty} AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TOTAL_XTRANS_QTY
         FROM ST_XTRANS X
         JOIN PH_PODTL D
           ON D.DOCKEY = X.FROMDOCKEY
@@ -604,28 +694,39 @@ def fetch_procurement_stock_card_data(cur: Any) -> tuple[list[str], list[dict[st
         JOIN PH_PO H
           ON H.DOCKEY = D.DOCKEY
         WHERE X.FROMDOCTYPE = 'PO'
+                """
+                + ("\n          AND H.DOCDATE >= ?" if normalized_from else "")
+                + ("\n          AND H.DOCDATE <= ?" if normalized_to else "")
+                + """
         GROUP BY D.ITEMCODE, D.LOCATION
-        """,
+                """,
+                tuple(value for value in (normalized_from, normalized_to) if value is not None),
     )
 
     jo_total_map = _fetch_grouped_qty_map(
         cur,
-        """
+        f"""
         SELECT D.ITEMCODE,
                D.LOCATION,
-               CAST(SUM(CAST(D.QTY AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TOTAL_JO_QTY
+               CAST(SUM(CAST({_jo_doc_qty} AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TOTAL_JO_QTY
         FROM PD_JODTL D
         JOIN PD_JO H
           ON H.DOCKEY = D.DOCKEY
+                WHERE 1 = 1
+                """
+                + ("\n          AND H.DOCDATE >= ?" if normalized_from else "")
+                + ("\n          AND H.DOCDATE <= ?" if normalized_to else "")
+                + """
         GROUP BY D.ITEMCODE, D.LOCATION
-        """,
+                """,
+                tuple(value for value in (normalized_from, normalized_to) if value is not None),
     )
     jo_moved_map = _fetch_grouped_qty_map(
         cur,
-        """
+        f"""
         SELECT D.ITEMCODE,
                D.LOCATION,
-               CAST(SUM(CAST(COALESCE(X.SQTY, X.QTY, 0) AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TOTAL_XTRANS_QTY
+               CAST(SUM(CAST({_xtrans_qty} AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TOTAL_XTRANS_QTY
         FROM ST_XTRANS X
         JOIN PD_JODTL D
           ON D.DOCKEY = X.FROMDOCKEY
@@ -633,13 +734,23 @@ def fetch_procurement_stock_card_data(cur: Any) -> tuple[list[str], list[dict[st
         JOIN PD_JO H
           ON H.DOCKEY = D.DOCKEY
         WHERE X.FROMDOCTYPE = 'JO'
+                """
+                + ("\n          AND H.DOCDATE >= ?" if normalized_from else "")
+                + ("\n          AND H.DOCDATE <= ?" if normalized_to else "")
+                + """
         GROUP BY D.ITEMCODE, D.LOCATION
-        """,
+                """,
+                tuple(value for value in (normalized_from, normalized_to) if value is not None),
     )
 
     # Open PR reservation reduces need-to-buy until explicitly rejected/cancelled.
     # Include ACTIVE/APPROVED so approved PR balances still count as reserved demand.
-    pr_pending_map = _fetch_pr_qty_map(cur, ["DRAFT", "SUBMITTED", "PENDING", "APPROVED", "ACTIVE"])
+    pr_pending_map = _fetch_pr_qty_map(
+        cur,
+        ["DRAFT", "SUBMITTED", "PENDING", "APPROVED", "ACTIVE"],
+        normalized_from,
+        normalized_to,
+    )
 
     data: list[dict[str, Any]] = []
     for code in item_codes:

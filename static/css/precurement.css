@@ -1,5 +1,79 @@
 
 
+/* ── Qty Mode Toggle ─────────────────────────────────── */
+.qty-mode-toggle {
+    display: flex;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid #3a4254;
+    gap: 0;
+}
+
+.qty-mode-btn {
+    padding: 5px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    background: #202735;
+    color: #8a96a8;
+    border: none;
+    letter-spacing: 0.03em;
+    transition: background 0.15s, color 0.15s;
+}
+
+.qty-mode-btn:not(:last-child) {
+    border-right: 1px solid #3a4254;
+}
+
+.qty-mode-btn:hover {
+    background: #2d3440;
+    color: #e4e9f1;
+}
+
+.qty-mode-btn.qty-mode-active {
+    background: #3c5f96;
+    color: #fff;
+}
+
+/* ── Report Summary Cards ─────────────────────────── */
+.report-summary-cards {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.report-summary-card {
+    flex: 1 1 130px;
+    min-width: 120px;
+    max-width: 200px;
+    border-radius: 10px;
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+    border: 1px solid rgba(255,255,255,0.07);
+}
+
+.report-summary-card-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    opacity: 0.75;
+    color: inherit;
+}
+
+.report-summary-card-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: inherit;
+    letter-spacing: -0.01em;
+    line-height: 1;
+}
+/* ─────────────────────────────────────────────────── */
+
 .stock-card-table tbody tr {
     border: 2px solid transparent;
     transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;

@@ -42,6 +42,29 @@
                             <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
                                 <h2 style="margin: 0;">Overall Report</h2>
                             </div>
+                            <div class="location-filter-shell" style="margin-bottom: 12px;">
+                                <div class="location-filter-row" style="align-items: end; gap: 12px; flex-wrap: wrap;">
+                                    <label class="pr-field" style="max-width: 180px; margin-bottom: 0;">
+                                        <span>From Date</span>
+                                        <input type="date" id="stock-card-from-date" />
+                                    </label>
+                                    <label class="pr-field" style="max-width: 180px; margin-bottom: 0;">
+                                        <span>To Date</span>
+                                        <input type="date" id="stock-card-to-date" />
+                                    </label>
+                                    <div class="location-filter-actions" style="gap: 8px;">
+                                        <button type="button" class="view-pr-refresh-btn" onclick="applyStockCardDateFilter()">Apply Date Filter</button>
+                                        <button type="button" class="view-pr-refresh-btn" onclick="clearStockCardDateFilter()">Clear Dates</button>
+                                    </div>
+                                </div>
+                                <div class="location-filter-row" style="margin-top: 10px; align-items: center; gap: 10px;">
+                                    <span class="location-filter-label">Qty Mode</span>
+                                    <div class="qty-mode-toggle" id="qty-mode-toggle">
+                                        <button type="button" class="qty-mode-btn qty-mode-active" id="qty-mode-sqty" onclick="setQtyMode('SQTY')">SQTY</button>
+                                        <button type="button" class="qty-mode-btn" id="qty-mode-suomqty" onclick="setQtyMode('SUOMQTY')">SUOMQTY</button>
+                                    </div>
+                                </div>
+                            </div>
                             <div class="location-filter-shell">
                                 <div class="location-filter-actions">
                                     <button type="button" class="location-buy-btn" onclick="goToCreateProcurement()">New e-Purchase Request</button>
@@ -55,6 +78,7 @@
                                     <div id="available-location-list" class="location-pill-list"></div>
                                 </div>
                             </div>
+                            <div id="report-summary-cards" class="report-summary-cards"></div>
                             <div class="stock-card-table-wrap" id="stock-card-table-wrap">
                                 <table class="stock-card-table" id="stock-card-table">
                                     <thead id="stock-card-table-head">
@@ -271,6 +295,7 @@
         let stockCardRows = [];
         let stockCardLocations = [];
         let selectedStockCardLocations = [];
+        let stockCardQtyMode = 'SQTY';
         let stockCardBreakdownRequestId = 0;
         let stockCardBuySelections = {};
         let viewPurchaseRequestsLoaded = false;
@@ -446,6 +471,9 @@
             if (!header || !header.transferable) {
                 return false;
             }
+            if (normalizeUdfStatus(header.udfStatus) !== 'ACTIVE') {
+                return false;
+            }
             if (viewTransferSavingHeaderIds.has(Number(header.id || 0))) {
                 return false;
             }
@@ -463,6 +491,9 @@
         function getPurchaseRequestTransferTitle(header) {
             if (!header || !header.transferable) {
                 return 'This request is not marked transferable.';
+            }
+            if (normalizeUdfStatus(header.udfStatus) !== 'ACTIVE') {
+                return 'Transfer is allowed only when UDF status is ACTIVE.';
             }
             if (viewTransferSavingHeaderIds.has(Number(header.id || 0))) {
                 return 'Transfer in progress...';
@@ -1176,7 +1207,53 @@
             document.getElementById('stock-card-breakdown-panel').style.display = 'none';
         }
 
+        function updateReportSummaryCards(rows, locations) {
+            const el = document.getElementById('report-summary-cards');
+            if (!el) return;
+            if (!rows || !rows.length) { el.innerHTML = ''; return; }
+            const locationColumns = Array.isArray(locations) ? locations : [];
+            const hasLocations = locationColumns.length > 0;
+            const totals = { so_qty: 0, po_qty: 0, jo_qty: 0, qty: 0, avail_qty: 0, need_to_buy: 0, pending_pr: 0 };
+            for (const row of rows) {
+                if (hasLocations) {
+                    for (const loc of locationColumns) {
+                        totals.so_qty     += Number((row.so_qty_by_location     || {})[loc] || 0);
+                        totals.po_qty     += Number((row.po_qty_by_location     || {})[loc] || 0);
+                        totals.jo_qty     += Number((row.jo_qty_by_location     || {})[loc] || 0);
+                        totals.qty        += Number((row.qty_by_location        || {})[loc] || 0);
+                        totals.avail_qty  += Number((row.avail_qty_by_location  || {})[loc] || 0);
+                        totals.need_to_buy+= Number((row.need_to_buy_by_location|| {})[loc] || 0);
+                        totals.pending_pr += Number((row.pending_pr_by_location || {})[loc] || 0);
+                    }
+                } else {
+                    totals.so_qty      += Number(row.so_qty      || 0);
+                    totals.po_qty      += Number(row.po_qty      || 0);
+                    totals.jo_qty      += Number(row.jo_qty      || 0);
+                    totals.qty         += Number(row.qty         || 0);
+                    totals.avail_qty   += Number(row.avail_qty   || 0);
+                    totals.need_to_buy += Number(row.need_to_buy || 0);
+                    totals.pending_pr  += Number(row.pending_pr  || 0);
+                }
+            }
+            const cards = [
+                { label: 'S.O Qty',      key: 'so_qty',      bg: '#1a2d45', color: '#7ec8f7' },
+                { label: 'P.O Qty',      key: 'po_qty',      bg: '#2e2107', color: '#f5c842' },
+                { label: 'J.O Qty',      key: 'jo_qty',      bg: '#112a1a', color: '#5de0a0' },
+                { label: 'Avail. Qty',   key: 'qty',         bg: '#1e1535', color: '#c27eff' },
+                { label: 'Qty on Hand',  key: 'avail_qty',   bg: '#0d2530', color: '#5ad4f7' },
+                { label: 'Need to Buy',  key: 'need_to_buy', bg: '#2e0e18', color: '#ff7a9c' },
+                { label: 'Pending PR',   key: 'pending_pr',  bg: '#2a2005', color: '#ffd66b' },
+            ];
+            el.innerHTML = cards.map(c => `
+                <div class="report-summary-card" style="background:${c.bg};color:${c.color};">
+                    <div class="report-summary-card-label">${c.label}</div>
+                    <div class="report-summary-card-value">${formatStockCardNumber(totals[c.key])}</div>
+                </div>
+            `).join('');
+        }
+
         function renderStockCardRows(rows, locations) {
+            updateReportSummaryCards(rows, locations);
             const tbody = document.getElementById('stock-card-table-body');
             const locationColumns = Array.isArray(locations) ? locations : [];
             const noLocations = !locationColumns.length;
@@ -1270,15 +1347,53 @@
             const loadingColumns = getStockCardTotalColumns(selectedStockCardLocations);
             tbody.innerHTML = `<tr><td colspan="${loadingColumns}" class="stock-card-status">Loading stock items...</td></tr>`;
 
-            fetch('/api/admin/procurement/stock-card')
+            const fromDateInput = document.getElementById('stock-card-from-date');
+            const toDateInput = document.getElementById('stock-card-to-date');
+            const fromDate = fromDateInput ? String(fromDateInput.value || '').trim() : '';
+            const toDate = toDateInput ? String(toDateInput.value || '').trim() : '';
+            const query = new URLSearchParams();
+
+            if (fromDate && toDate && fromDate > toDate) {
+                tbody.innerHTML = `<tr><td colspan="${loadingColumns}" class="stock-card-status">From Date cannot be after To Date.</td></tr>`;
+                return;
+            }
+            if (fromDate) {
+                query.set('from_date', fromDate);
+            }
+            if (toDate) {
+                query.set('to_date', toDate);
+            }
+            if (stockCardQtyMode && stockCardQtyMode !== 'SQTY') {
+                query.set('qty_mode', stockCardQtyMode);
+            }
+
+            const requestUrl = query.toString()
+                ? `/api/admin/procurement/stock-card?${query.toString()}`
+                : '/api/admin/procurement/stock-card';
+
+            fetch(requestUrl)
                 .then((res) => res.json())
                 .then((payload) => {
                     if (!payload.success) {
                         throw new Error(payload.error || 'Failed to load stock items');
                     }
                     const locations = Array.isArray(payload.locations) ? payload.locations : [];
+                    const previousSelected = Array.isArray(selectedStockCardLocations)
+                        ? selectedStockCardLocations.slice()
+                        : [];
                     stockCardLocations = locations.slice();
-                    selectedStockCardLocations = locations.slice();
+                    if (!reportLoaded) {
+                        selectedStockCardLocations = locations.slice();
+                    } else {
+                        const locationSet = new Set(locations);
+                        const preserved = previousSelected.filter((code) => locationSet.has(code));
+                        // Keep an intentional empty selection; otherwise fall back to all when none remain valid.
+                        if (!previousSelected.length) {
+                            selectedStockCardLocations = [];
+                        } else {
+                            selectedStockCardLocations = preserved.length ? preserved : locations.slice();
+                        }
+                    }
                     stockCardRows = Array.isArray(payload.data) ? payload.data : [];
                     reportLoaded = true;
                     syncStockCardTable();
@@ -1288,6 +1403,29 @@
                     const totalColumns = getStockCardTotalColumns(selectedStockCardLocations);
                     tbody.innerHTML = `<tr><td colspan="${totalColumns}" class="stock-card-status">${escapeHtml(error.message || 'Failed to load stock items.')}</td></tr>`;
                 });
+        }
+
+        function setQtyMode(mode) {
+            stockCardQtyMode = mode;
+            document.getElementById('qty-mode-sqty').classList.toggle('qty-mode-active', mode === 'SQTY');
+            document.getElementById('qty-mode-suomqty').classList.toggle('qty-mode-active', mode === 'SUOMQTY');
+            loadStockCardRows();
+        }
+
+        function applyStockCardDateFilter() {
+            loadStockCardRows();
+        }
+
+        function clearStockCardDateFilter() {
+            const fromDateInput = document.getElementById('stock-card-from-date');
+            const toDateInput = document.getElementById('stock-card-to-date');
+            if (fromDateInput) {
+                fromDateInput.value = '';
+            }
+            if (toDateInput) {
+                toDateInput.value = '';
+            }
+            loadStockCardRows();
         }
 
         function escapeHtml(value) {

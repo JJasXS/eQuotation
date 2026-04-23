@@ -36,6 +36,13 @@ def _coerce_bool(value: Any) -> bool:
     return text in {"true", "1", "t", "y", "yes"}
 
 
+def _normalize_udf_status(value: Any) -> str:
+    text = _clean_text(value).upper()
+    if text in {"ACTIVE", "INACTIVE", "PENDING"}:
+        return text
+    return "PENDING"
+
+
 def _normalize_transfer_date(value: Any) -> str:
     parsed = _as_date(value)
     if parsed:
@@ -184,6 +191,8 @@ def transfer_purchase_request_to_po(
     request_docno = _clean_text(purchase_request.get("docno")) or f"PQ-{request_dockey}"
     if not _coerce_bool(purchase_request.get("transferable", True)):
         raise PurchaseOrderTransferValidationError("purchase request is not transferable")
+    if _normalize_udf_status(purchase_request.get("udf_status")) != "ACTIVE":
+        raise PurchaseOrderTransferValidationError("purchase request UDF status must be ACTIVE before transfer")
 
     supplier_code = _clean_text(
         supplier.get("code")
