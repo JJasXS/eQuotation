@@ -893,6 +893,10 @@ body {
 .view-pr-amount-col {
     text-align: right;
     justify-self: end;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 10px;
 }
 
 .view-pr-amount-label {
@@ -912,6 +916,33 @@ body {
     font-size: 12px;
     font-weight: 700;
     display: inline-block;
+}
+
+.view-pr-transfer-btn {
+    border: 1px solid #5b85bc;
+    background: linear-gradient(180deg, #5f8fcd 0%, #4972a4 100%);
+    color: #f5f8ff;
+    border-radius: 8px;
+    padding: 7px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.2;
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+.view-pr-transfer-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(73, 114, 164, 0.28);
+}
+
+.view-pr-transfer-btn.is-disabled,
+.view-pr-transfer-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+    border-color: #516074;
+    background: #364255;
+    box-shadow: none;
 }
 
 @media (max-width: 1320px) {
@@ -999,6 +1030,15 @@ body {
     width: 90px;
 }
 
+.view-pr-detail-table .col-remaining-qty {
+    width: 110px;
+}
+
+.view-pr-detail-table .col-transfer-qty {
+    width: 120px;
+    text-align: center;
+}
+
 .view-pr-detail-table .col-unit-price,
 .view-pr-detail-table .col-tax,
 .view-pr-detail-table .col-amount {
@@ -1019,6 +1059,28 @@ body {
     height: 14px;
     accent-color: #6ea3e2;
     cursor: default;
+}
+
+.view-pr-transfer-qty-input {
+    width: 88px;
+    padding: 5px 8px;
+    border: 1px solid #4b566b;
+    border-radius: 6px;
+    background: #17202e;
+    color: #e4e9f1;
+    font-size: 12px;
+    text-align: right;
+}
+
+.view-pr-transfer-qty-input:focus {
+    outline: none;
+    border-color: #6ea3e2;
+    box-shadow: 0 0 0 2px rgba(110, 163, 226, 0.18);
+}
+
+.view-pr-transfer-qty-input:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
 }
 
 .view-pr-detail-host {

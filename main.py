@@ -44,6 +44,10 @@ from utils.procurement_purchase_request import (
     create_purchase_request,
     transition_purchase_request_status,
 )
+from utils.procurement_purchase_order_transfer import (
+    PurchaseOrderTransferValidationError,
+    transfer_purchase_request_to_po,
+)
 from utils.sql_query_helpers import (
     fetch_stock_items,
     find_customer_code_by_email,
@@ -3358,6 +3362,7 @@ def api_admin_list_purchase_requests():
                 'totalAmount': _num(row.get('docamt')),
                 'status': _status_text(row.get('status')),
                 'udfStatus': str(row.get('udf_status') or '').strip(),
+                'transferable': bool(row.get('transferable') if row.get('transferable') is not None else True),
                 'details': None,
             })
 
@@ -3455,31 +3460,93 @@ def api_admin_purchase_request_details_fallback():
         except Exception:
             return 0.0
 
+    def _fetch_transferred_qty_map(request_id, detail_ids):
+        if not request_id or not detail_ids:
+            return {}
+
+        con = None
+        cur = None
+        try:
+            con = get_db_connection()
+            cur = con.cursor()
+            placeholders = ', '.join(['?'] * len(detail_ids))
+            cur.execute(
+                f"""
+                SELECT FROMDTLKEY,
+                       CAST(SUM(CAST(COALESCE(SQTY, QTY, 0) AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TRANSFERRED_QTY
+                FROM ST_XTRANS
+                WHERE FROMDOCTYPE = ?
+                  AND FROMDOCKEY = ?
+                  AND FROMDTLKEY IN ({placeholders})
+                GROUP BY FROMDTLKEY
+                """,
+                tuple(['PQ', int(request_id), *[int(x) for x in detail_ids]]),
+            )
+            rows = cur.fetchall() or []
+            transferred = {}
+            for row in rows:
+                if not row:
+                    continue
+                try:
+                    transferred[int(row[0])] = _num(row[1])
+                except Exception:
+                    continue
+            return transferred
+        except Exception as exc:
+            print(f"[PROCUREMENT PR DETAIL] warning: failed to read ST_XTRANS qty map: {exc}", flush=True)
+            return {}
+        finally:
+            if cur:
+                cur.close()
+            if con:
+                con.close()
+
     def _extract_details(payload_obj):
         records = payload_obj.get('data', []) if isinstance(payload_obj, dict) else []
         if not isinstance(records, list) or not records:
             return None
         header = records[0] if isinstance(records[0], dict) else {}
+        request_id = header.get('dockey')
         detail_rows = header.get('sdsdocdetail', []) if isinstance(header, dict) else []
         if not isinstance(detail_rows, list):
             detail_rows = []
+
+        detail_ids = []
+        for row in detail_rows:
+            if not isinstance(row, dict):
+                continue
+            try:
+                detail_ids.append(int(row.get('dtlkey')))
+            except Exception:
+                continue
+
+        transferred_qty_map = _fetch_transferred_qty_map(request_id, detail_ids)
 
         details = []
         for idx, row in enumerate(detail_rows, start=1):
             if not isinstance(row, dict):
                 continue
+            detail_id = row.get('dtlkey')
+            quantity = _num(row.get('qty'))
+            try:
+                transferred_qty = _num(transferred_qty_map.get(int(detail_id), 0))
+            except Exception:
+                transferred_qty = 0.0
+            remaining_qty = max(0.0, quantity - transferred_qty)
             details.append({
-                'id': row.get('dtlkey'),
+                'id': detail_id,
                 'seq': row.get('seq') if row.get('seq') is not None else idx,
                 'itemCode': str(row.get('itemcode') or '').strip(),
                 'itemName': str(row.get('itemname') or row.get('description2') or row.get('description') or '').strip(),
                 'description': str(row.get('description3') or row.get('description') or '').strip(),
                 'locationCode': str(row.get('location') or '').strip(),
-                'quantity': _num(row.get('qty')),
+                'quantity': quantity,
                 'unitPrice': _num(row.get('unitprice')),
                 'tax': _num(row.get('taxamt')),
                 'amount': _num(row.get('amount')),
                 'udfPqApproved': row.get('udf_pqapproved'),
+                'transferredQty': transferred_qty,
+                'remainingQty': remaining_qty,
             })
         return details
 
@@ -3535,6 +3602,137 @@ def api_admin_purchase_request_details_fallback():
         return jsonify({'success': False, 'error': 'Cannot reach SQL API for purchase request detail'}), 503
     except Exception as exc:
         print(f"[PROCUREMENT PR DETAIL FALLBACK] error: {exc}", flush=True)
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
+@app.route('/api/admin/procurement/purchase-requests/transfer-to-po', methods=['POST'])
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_transfer_purchase_request_to_po():
+    """Transfer approved purchase request detail quantities into PH_PO/PH_PODTL and ST_XTRANS."""
+    payload = request.get_json(silent=True) or {}
+    raw_request_id = str(payload.get('requestId') or '').strip()
+    request_no = str(payload.get('requestNumber') or '').strip()
+    transfer_lines = payload.get('transferLines') if isinstance(payload.get('transferLines'), list) else []
+    supplier = payload.get('supplier') if isinstance(payload.get('supplier'), dict) else {}
+    transfer_date = payload.get('transferDate')
+    actor = (session.get('user_email') or session.get('user_name') or 'admin').strip()
+
+    if not raw_request_id and not request_no:
+        return jsonify({'success': False, 'error': 'requestId or requestNumber is required'}), 400
+    if not transfer_lines:
+        return jsonify({'success': False, 'error': 'transferLines[] is required'}), 400
+
+    try:
+        headers = _build_sql_api_auth_headers()
+        candidates = []
+
+        if raw_request_id:
+            try:
+                request_id_int = int(raw_request_id)
+                candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest/{request_id_int}", None))
+                candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest", {'dockey': request_id_int}))
+                candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest", {'id': request_id_int}))
+            except ValueError:
+                pass
+
+        if request_no:
+            candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest/{request_no}", None))
+            candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest", {'docno': request_no}))
+            candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest", {'requestno': request_no}))
+
+        request_header = None
+        last_status = 404
+        for url, params in candidates:
+            resp = requests.get(
+                url,
+                params=params,
+                headers=headers or None,
+                timeout=12,
+            )
+            last_status = resp.status_code
+            if not resp.ok:
+                continue
+
+            body = resp.json() if resp.text else {}
+            data_rows = body.get('data', []) if isinstance(body, dict) else []
+            if isinstance(data_rows, list) and data_rows:
+                first = data_rows[0]
+                if isinstance(first, dict):
+                    request_header = first
+                    break
+
+        if not request_header:
+            if last_status == 404:
+                return jsonify({'success': False, 'error': 'Purchase request not found'}), 404
+            return jsonify({'success': False, 'error': f'SQL API returned {last_status} while loading purchase request'}), 502
+
+        # Resolve supplier master data (especially currency) from SQL supplier API by PR CODE.
+        supplier_code = str(request_header.get('code') or '').strip()
+        supplier_master = dict(supplier)
+        if supplier_code:
+            offset = 0
+            limit = 100
+            while True:
+                resp = requests.get(
+                    f"{FASTAPI_BASE_URL}/supplier",
+                    params={'offset': offset, 'limit': limit},
+                    headers=headers or None,
+                    timeout=10,
+                )
+                if not resp.ok:
+                    break
+
+                supplier_payload = resp.json() if resp.text else {}
+                supplier_rows = supplier_payload.get('data', []) if isinstance(supplier_payload, dict) else []
+                if not isinstance(supplier_rows, list) or not supplier_rows:
+                    break
+
+                hit = None
+                for row in supplier_rows:
+                    if not isinstance(row, dict):
+                        continue
+                    if str(row.get('code') or '').strip() == supplier_code:
+                        hit = row
+                        break
+
+                if hit is not None:
+                    supplier_master = hit
+                    break
+
+                pagination = supplier_payload.get('pagination', {}) if isinstance(supplier_payload, dict) else {}
+                total_count = pagination.get('count', len(supplier_rows)) if isinstance(pagination, dict) else len(supplier_rows)
+                offset += limit
+                if offset >= total_count:
+                    break
+
+        # Fallback values from PR header if supplier lookup does not return a hit.
+        if not supplier_master.get('code'):
+            supplier_master['code'] = supplier_code
+        if not supplier_master.get('companyname'):
+            supplier_master['companyname'] = str(request_header.get('companyname') or '').strip()
+
+        transfer_result = transfer_purchase_request_to_po(
+            purchase_request=request_header,
+            transfer_lines=transfer_lines,
+            supplier=supplier_master,
+            created_by=actor,
+            transfer_date=transfer_date,
+        )
+
+        return jsonify({
+            'success': True,
+            'message': 'Purchase request transferred to purchase order successfully',
+            'data': transfer_result,
+        })
+    except PurchaseOrderTransferValidationError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+    except requests.exceptions.Timeout:
+        return jsonify({'success': False, 'error': 'Purchase request lookup timed out'}), 504
+    except requests.exceptions.ConnectionError:
+        return jsonify({'success': False, 'error': 'Cannot reach SQL API for purchase request lookup'}), 503
+    except Exception as exc:
+        print(f"[PROCUREMENT PR TRANSFER] error: {exc}", flush=True)
+        traceback.print_exc()
         return jsonify({'success': False, 'error': str(exc)}), 500
 
 
@@ -4910,5 +5108,23 @@ if __name__ == "__main__":
     initialize_database(DB_DSN, DB_USER, DB_PASSWORD)
     pricing_sql_path = os.path.join(os.path.dirname(__file__), 'sql', 'pricing_priority_rule_firebird.sql')
     run_firebird_sql_script(pricing_sql_path, DB_DSN, DB_USER, DB_PASSWORD)
+
+    # Start FastAPI (SQL API) on port 8000 in the background
+    import subprocess
+    import sys
+    api_proc = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    def _pipe_api_output(proc):
+        for line in proc.stdout:
+            print("[API]", line.decode(errors="replace"), end="", flush=True)
+    threading.Thread(target=_pipe_api_output, args=(api_proc,), daemon=True).start()
+    print("Starting FastAPI SQL API at http://localhost:8000 ...")
+
     print("Starting Flask web server at http://localhost:5000 ...")
-    app.run(debug=True, use_reloader=False)
+    try:
+        app.run(debug=True, use_reloader=False)
+    finally:
+        api_proc.terminate()

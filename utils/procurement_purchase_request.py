@@ -368,12 +368,8 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
     header_project = _clean_text(payload.get("project")) or "----"
 
     requester_id = _clean_text(payload.get("requesterId"))
-    if not requester_id:
-        errors.append("requesterId is required")
 
     department_id = _clean_text(payload.get("departmentId"))
-    if not department_id:
-        errors.append("departmentId is required")
 
     currency = _clean_text(payload.get("currency")) or "MYR"
 
@@ -470,6 +466,7 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
         "costCenter": _clean_text(payload.get("costCenter")),
         "project": header_project,
         "supplierId": _clean_text(payload.get("supplierId")),
+        "supplierName": _clean_text(payload.get("supplierName")),
         "currency": currency,
         "requestDate": request_date.isoformat() if request_date else request_date_raw,
         "requiredDate": required_date.isoformat() if required_date else required_date_raw,
@@ -609,8 +606,8 @@ def create_purchase_request(
             "TAXDATE": validated["requestDate"] or now_date,
             "REQUESTDATE": validated["requestDate"] or now_date,
             "REQUIREDDATE": validated["requiredDate"],
-            "CODE": validated["requesterId"],
-            "REQUESTERID": validated["requesterId"],
+            "CODE": validated["supplierId"],
+            "COMPANYNAME": validated.get("supplierName") or "",
             "DEPARTMENTID": validated["departmentId"],
             "COSTCENTER": validated["costCenter"],
             "PROJECT": validated.get("project", ""),

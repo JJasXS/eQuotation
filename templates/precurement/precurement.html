@@ -143,14 +143,6 @@
                                         <input type="text" id="pr-request-number" placeholder="Auto-generated if empty" />
                                     </label>
                                     <label class="pr-field">
-                                        <span>Requester ID <em>*</em></span>
-                                        <input type="text" id="pr-requester-id" required />
-                                    </label>
-                                    <label class="pr-field">
-                                        <span>Department ID <em>*</em></span>
-                                        <input type="text" id="pr-department-id" required />
-                                    </label>
-                                    <label class="pr-field">
                                         <span>Cost Center</span>
                                         <input type="text" id="pr-cost-center" />
                                     </label>
@@ -172,13 +164,13 @@
                                         <span>Required Date <em>*</em></span>
                                         <input type="date" id="pr-required-date" required />
                                     </label>
-                                    <label class="pr-field pr-field-wide">
+                                    <label class="pr-field">
                                         <span>Delivery Location</span>
                                         <input type="text" id="pr-delivery-location" />
                                     </label>
                                     <label class="pr-field pr-field-wide">
                                         <span>Justification</span>
-                                        <textarea id="pr-justification" rows="2"></textarea>
+                                        <input type="text" id="pr-justification" />
                                     </label>
                                     <label class="pr-field pr-field-wide">
                                         <span>Notes</span>
@@ -264,6 +256,7 @@
         let viewPurchaseRequests = [];
         let viewExpandedHeaderIds = new Set();
         let viewLoadingDetailIds = new Set();
+        let viewTransferSavingHeaderIds = new Set();
         let viewApprovalPendingChanges = new Map();
         let viewHeaderStatusPendingChanges = new Map();
         let viewApprovalSaving = false;
@@ -375,6 +368,165 @@
                 : (count > 0 ? `Update Details (${count})` : 'Update Details');
         }
 
+        function hasPendingApprovalChangesForHeader(headerId) {
+            for (const change of viewApprovalPendingChanges.values()) {
+                if (Number(change.requestId || 0) === Number(headerId || 0)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function clampTransferQuantity(value, maxQty) {
+            const numericMax = Number(maxQty || 0);
+            const parsed = Number(value);
+            if (!Number.isFinite(parsed) || parsed <= 0) {
+                return 0;
+            }
+            if (!Number.isFinite(numericMax) || numericMax <= 0) {
+                return 0;
+            }
+            return Math.min(parsed, numericMax);
+        }
+
+        function getDetailMaxTransferQuantity(detail) {
+            if (!detail) {
+                return 0;
+            }
+            const remaining = Number(detail.remainingQty);
+            if (Number.isFinite(remaining)) {
+                return Math.max(0, remaining);
+            }
+            const quantity = Number(detail.quantity);
+            return Number.isFinite(quantity) ? Math.max(0, quantity) : 0;
+        }
+
+        function getDetailTransferQuantity(detail) {
+            if (!detail) {
+                return 0;
+            }
+            return clampTransferQuantity(detail.transferQty, getDetailMaxTransferQuantity(detail));
+        }
+
+        function getSelectedTransferDetails(header) {
+            const details = Array.isArray(header?.details) ? header.details : [];
+            return details.filter((detail) => getDetailTransferQuantity(detail) > 0);
+        }
+
+        function getSelectedTransferQuantityTotal(header) {
+            return getSelectedTransferDetails(header)
+                .reduce((sum, detail) => sum + getDetailTransferQuantity(detail), 0);
+        }
+
+        function isPurchaseRequestTransferReady(header) {
+            if (!header || !header.transferable) {
+                return false;
+            }
+            if (viewTransferSavingHeaderIds.has(Number(header.id || 0))) {
+                return false;
+            }
+            const details = Array.isArray(header.details) ? header.details : [];
+            if (!details.length || hasPendingApprovalChangesForHeader(header.id)) {
+                return false;
+            }
+            const selectedDetails = getSelectedTransferDetails(header);
+            if (!selectedDetails.length) {
+                return false;
+            }
+            return selectedDetails.every((detail) => toApprovalBool(detail._originalApproved));
+        }
+
+        function getPurchaseRequestTransferTitle(header) {
+            if (!header || !header.transferable) {
+                return 'This request is not marked transferable.';
+            }
+            if (viewTransferSavingHeaderIds.has(Number(header.id || 0))) {
+                return 'Transfer in progress...';
+            }
+            const details = Array.isArray(header.details) ? header.details : [];
+            if (!details.length) {
+                return 'Expand this request to load detail approval status before transfer.';
+            }
+            if (hasPendingApprovalChangesForHeader(header.id)) {
+                return 'Save approval changes before transferring this request.';
+            }
+            const selectedDetails = getSelectedTransferDetails(header);
+            if (!selectedDetails.length) {
+                return 'Enter a transfer quantity greater than 0 for at least one approved row.';
+            }
+            if (!selectedDetails.every((detail) => toApprovalBool(detail._originalApproved))) {
+                return 'Only rows with saved UDF_PQAPPROVED = true can be transferred.';
+            }
+            return `This request is ready to transfer ${formatStockCardNumber(getSelectedTransferQuantityTotal(header))} unit(s) to Purchase Order.`;
+        }
+
+        async function onTransferPurchaseRequest(headerId) {
+            const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(headerId));
+            if (!header) {
+                return;
+            }
+            if (!isPurchaseRequestTransferReady(header)) {
+                alert(getPurchaseRequestTransferTitle(header));
+                return;
+            }
+
+            const selectedDetails = getSelectedTransferDetails(header)
+                .filter((detail) => Number(detail.id || 0) > 0)
+                .map((detail) => ({
+                    detailId: Number(detail.id || 0),
+                    quantity: getDetailTransferQuantity(detail),
+                }))
+                .filter((line) => line.quantity > 0);
+
+            if (!selectedDetails.length) {
+                alert('Please set transfer quantity greater than zero on at least one approved detail row.');
+                return;
+            }
+
+            viewTransferSavingHeaderIds.add(Number(headerId));
+            renderFilteredViewPurchaseRequests();
+
+            try {
+                const res = await fetch('/api/admin/procurement/purchase-requests/transfer-to-po', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        requestId: Number(headerId),
+                        requestNumber: String(header.requestNumber || ''),
+                        transferLines: selectedDetails,
+                    }),
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    throw new Error(data.error || `Transfer failed (HTTP ${res.status})`);
+                }
+
+                const poNo = data?.data?.poNumber || '-';
+                alert(`Transfer completed. Purchase Order: ${poNo}`);
+                loadViewPurchaseRequests(true);
+            } catch (error) {
+                alert(error.message || 'Transfer to Purchase Order failed.');
+            } finally {
+                viewTransferSavingHeaderIds.delete(Number(headerId));
+                renderFilteredViewPurchaseRequests();
+            }
+        }
+
+        function onTransferQuantityChange(headerId, detailId, rawValue) {
+            const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(headerId));
+            if (!header || !Array.isArray(header.details)) {
+                return;
+            }
+            const detail = header.details.find((row) => Number(row.id || 0) === Number(detailId));
+            if (!detail) {
+                return;
+            }
+            detail.transferQty = clampTransferQuantity(rawValue, detail.quantity);
+            renderFilteredViewPurchaseRequests();
+        }
+
         function onHeaderUdfStatusChange(requestId, value) {
             const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(requestId));
             if (!header) return;
@@ -419,6 +571,7 @@
             }
 
             updateViewApprovalButtonState();
+            renderFilteredViewPurchaseRequests();
         }
 
         async function saveViewDetailApprovals() {
@@ -509,6 +662,9 @@
                 const details = Array.isArray(header.details) ? header.details : [];
                 const isLoadingDetails = viewLoadingDetailIds.has(headerId);
                 const isExpanded = viewExpandedHeaderIds.has(headerId);
+                const isTransferring = viewTransferSavingHeaderIds.has(headerId);
+                const canTransfer = isPurchaseRequestTransferReady(header);
+                const transferTitle = getPurchaseRequestTransferTitle(header);
                 const expander = isLoadingDetails ? '...' : (isExpanded ? 'v' : '>');
 
                 htmlParts.push(`
@@ -525,12 +681,9 @@
                                             <option value="PENDING" ${normalizeUdfStatus(header.udfStatus) === 'PENDING' ? 'selected' : ''}>PENDING</option>
                                         </select>
                                     </div>
-                                    <div class="view-pr-sub-line">
-                                        <span><strong>Requester:</strong> ${escapeHtml(header.requesterId || '-')}</span>
-                                        <span><strong>Department:</strong> ${escapeHtml(header.departmentId || '-')}</span>
-                                    </div>
                                 </div>
                                 <div class="view-pr-meta-col">
+                                    <div class="view-pr-meta-row"><span>Requester / Location</span><strong>${escapeHtml(header.requesterId || '-')} / ${escapeHtml(header.departmentId || '-')}</strong></div>
                                     <div class="view-pr-meta-row"><span>Request Date</span><strong>${formatPrDate(header.requestDate)}</strong></div>
                                     <div class="view-pr-meta-row"><span>Required Date</span><strong>${formatPrDate(header.requiredDate)}</strong></div>
                                     <div class="view-pr-meta-row"><span>Currency</span><strong>${escapeHtml(header.currency || '-')}</strong></div>
@@ -538,6 +691,13 @@
                                 <div class="view-pr-amount-col">
                                     <div class="view-pr-amount-label">Total Amount</div>
                                     <div class="view-pr-amount-value">${formatMoney(header.totalAmount || 0)}</div>
+                                    <button
+                                        type="button"
+                                        class="view-pr-transfer-btn ${(canTransfer && !isTransferring) ? '' : 'is-disabled'}"
+                                        onclick="event.stopPropagation(); onTransferPurchaseRequest(${headerId})"
+                                        ${canTransfer ? '' : 'disabled'}
+                                        title="${escapeHtml(transferTitle)}"
+                                    >${isTransferring ? 'Transferring...' : (canTransfer ? 'Transfer to Purchase Order' : 'Awaiting Approval')}</button>
                                 </div>
                             </div>
                         </div>
@@ -574,6 +734,20 @@
                         <td class="col-item-name">${escapeHtml(detail.itemName || '-')}</td>
                         <td class="col-location">${escapeHtml(detail.locationCode || '-')}</td>
                         <td class="view-pr-num col-qty">${formatStockCardNumber(detail.quantity || 0)}</td>
+                        <td class="view-pr-num col-remaining-qty">${formatStockCardNumber(getDetailMaxTransferQuantity(detail))}</td>
+                        <td class="col-transfer-qty">
+                            <input
+                                type="number"
+                                class="view-pr-transfer-qty-input"
+                                min="0"
+                                max="${escapeHtml(String(getDetailMaxTransferQuantity(detail)))}"
+                                step="0.01"
+                                value="${escapeHtml(String(getDetailTransferQuantity(detail)))}"
+                                ${toApprovalBool(detail._originalApproved) && detail.id ? '' : 'disabled'}
+                                title="${escapeHtml(toApprovalBool(detail._originalApproved) ? 'Enter transfer quantity up to remaining quantity for this line.' : 'Save approval first before setting transfer quantity.')}"
+                                onchange="onTransferQuantityChange(${headerId}, ${Number(detail.id || 0)}, this.value)"
+                            />
+                        </td>
                         <td class="view-pr-num col-unit-price">${formatMoney(detail.unitPrice || 0)}</td>
                         <td class="view-pr-num col-tax">${formatMoney(detail.tax || 0)}</td>
                         <td class="col-approved view-pr-approved-cell"><input type="checkbox" ${detail.id ? '' : 'disabled'} ${toApprovalBool(detail.udfPqApproved) ? 'checked' : ''} onchange="onDetailApprovalChange(${headerId}, ${Number(detail.id || 0)}, this.checked)" /></td>
@@ -590,6 +764,8 @@
                                     <col class="col-item-name" />
                                     <col class="col-location" />
                                     <col class="col-qty" />
+                                    <col class="col-remaining-qty" />
+                                    <col class="col-transfer-qty" />
                                     <col class="col-unit-price" />
                                     <col class="col-tax" />
                                     <col class="col-approved" />
@@ -601,6 +777,8 @@
                                         <th class="col-item-name">Item Name</th>
                                         <th class="col-location">Location</th>
                                         <th class="view-pr-num col-qty">Qty</th>
+                                        <th class="view-pr-num col-remaining-qty">Remaining Qty</th>
+                                        <th class="col-transfer-qty">Transfer Qty</th>
                                         <th class="view-pr-num col-unit-price">Unit Price</th>
                                         <th class="view-pr-num col-tax">Tax</th>
                                         <th class="col-approved">Approved</th>
@@ -655,6 +833,9 @@
                     record.details = Array.isArray(payload.details) ? payload.details : [];
                     record.details.forEach((detail) => {
                         detail._originalApproved = toApprovalBool(detail.udfPqApproved);
+                        detail.transferQty = detail._originalApproved
+                            ? clampTransferQuantity(detail.remainingQty, getDetailMaxTransferQuantity(detail))
+                            : 0;
                     });
                 })
                 .catch((error) => {
@@ -690,6 +871,7 @@
                     });
                     viewExpandedHeaderIds = new Set();
                     viewLoadingDetailIds = new Set();
+                    viewTransferSavingHeaderIds = new Set();
                     viewApprovalPendingChanges = new Map();
                     viewHeaderStatusPendingChanges = new Map();
                     viewApprovalSaving = false;
@@ -701,6 +883,7 @@
                     viewPurchaseRequestsLoaded = false;
                     viewApprovalPendingChanges = new Map();
                     viewHeaderStatusPendingChanges = new Map();
+                    viewTransferSavingHeaderIds = new Set();
                     viewApprovalSaving = false;
                     updateViewApprovalButtonState();
                     if (list) {
@@ -1290,6 +1473,9 @@
         function buildPurchaseRequestPayload(status) {
             const totals = recalcPurchaseRequestTotals();
             const defaultProject = '----';
+            const supplierCode = document.getElementById('pr-supplier-id').value.trim();
+            const supplierObj = supplierList.find((s) => String(s.code || '').trim() === supplierCode) || null;
+            const supplierName = supplierObj ? String(supplierObj.companyname || '').trim() : '';
             const lineItems = (window.purchaseRequestItems || []).map((item) => ({
                 itemCode: String(item.itemCode || '').trim(),
                 itemName: String(item.itemName || '').trim(),
@@ -1304,11 +1490,10 @@
 
             return {
                 requestNumber: document.getElementById('pr-request-number').value.trim(),
-                requesterId: document.getElementById('pr-requester-id').value.trim(),
-                departmentId: document.getElementById('pr-department-id').value.trim(),
                 costCenter: document.getElementById('pr-cost-center').value.trim(),
                 project: defaultProject,
-                supplierId: document.getElementById('pr-supplier-id').value.trim(),
+                supplierId: supplierCode,
+                supplierName: supplierName,
                 currency: document.getElementById('pr-currency').value.trim() || 'MYR',
                 requestDate: document.getElementById('pr-request-date').value,
                 requiredDate: document.getElementById('pr-required-date').value,
@@ -1322,8 +1507,6 @@
         }
 
         function validatePurchaseRequestPayload(payload) {
-            if (!payload.requesterId) return 'requesterId is required';
-            if (!payload.departmentId) return 'departmentId is required';
             if (!payload.requestDate) return 'requestDate is required';
             if (!payload.requiredDate) return 'requiredDate is required';
             if (new Date(payload.requiredDate) < new Date(payload.requestDate)) return 'requiredDate cannot be before requestDate';
