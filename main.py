@@ -3792,8 +3792,12 @@ def api_admin_transfer_purchase_request_to_po():
             or request_header.get('UDF_STATUS')
             or ''
         ).strip().upper()
-        if udf_status_text != 'ACTIVE':
-            return jsonify({'success': False, 'error': 'Transfer is allowed only when purchase request UDF status is ACTIVE'}), 400
+        if udf_status_text == 'ACTIVE':
+            udf_status_text = 'APPROVED'
+        elif udf_status_text == 'INACTIVE':
+            udf_status_text = 'CANCELLED'
+        if udf_status_text != 'APPROVED':
+            return jsonify({'success': False, 'error': 'Transfer is allowed only when purchase request UDF status is APPROVED'}), 400
 
         # Resolve supplier master data (especially currency) from SQL supplier API by PR CODE.
         supplier_code = str(request_header.get('code') or '').strip()

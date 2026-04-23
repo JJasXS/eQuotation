@@ -1060,8 +1060,8 @@ def _ensure_ph_pq_status_trigger(conn):
 
     Rules:
     - STATUS = 'PENDING'  -> UDF_PQAPPROVED = NULL
-    - STATUS = 'ACTIVE'   -> UDF_PQAPPROVED = true/1/'1' (based on column type)
-    - STATUS = 'INACTIVE' -> UDF_PQAPPROVED = false/0/'0' (based on column type)
+    - STATUS = 'APPROVED' -> UDF_PQAPPROVED = true/1/'1' (based on column type)
+    - STATUS = 'CANCELLED' -> UDF_PQAPPROVED = false/0/'0' (based on column type)
     - Any other STATUS keeps UDF_PQAPPROVED unchanged.
     """
     cur = conn.cursor()
@@ -1107,9 +1107,9 @@ def _ensure_ph_pq_status_trigger(conn):
 
           IF (V_STATUS = 'PENDING') THEN
             NEW.UDF_PQAPPROVED = NULL;
-          ELSE IF (V_STATUS = 'ACTIVE') THEN
+                    ELSE IF (V_STATUS = 'APPROVED') THEN
             NEW.UDF_PQAPPROVED = {approved_literal};
-          ELSE IF (V_STATUS = 'INACTIVE') THEN
+                    ELSE IF (V_STATUS = 'CANCELLED') THEN
             NEW.UDF_PQAPPROVED = {inactive_literal};
         END
         """
@@ -1118,7 +1118,7 @@ def _ensure_ph_pq_status_trigger(conn):
         print(
             "[DB INIT] Trigger TRG_PH_PQ_STATUS_SYNC created: "
             f"UDF_PQAPPROVED synced from UDF_STATUS on PH_PQ "
-            f"(ACTIVE={approved_literal}, INACTIVE={inactive_literal})"
+            f"(APPROVED={approved_literal}, CANCELLED={inactive_literal})"
         )
         return True
     except Exception as e:

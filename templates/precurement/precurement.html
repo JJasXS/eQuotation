@@ -77,8 +77,8 @@
                                     <span class="location-filter-label">Add Location</span>
                                     <div id="available-location-list" class="location-pill-list"></div>
                                 </div>
+                                <div id="report-summary-cards" class="report-summary-cards"></div>
                             </div>
-                            <div id="report-summary-cards" class="report-summary-cards"></div>
                             <div class="stock-card-table-wrap" id="stock-card-table-wrap">
                                 <table class="stock-card-table" id="stock-card-table">
                                     <thead id="stock-card-table-head">
@@ -141,8 +141,8 @@
                                     <span class="view-pr-filter-label">Filter By</span>
                                     <select id="view-pr-status-filter" class="view-pr-filter-select">
                                         <option value="ALL">ALL</option>
-                                        <option value="ACTIVE">ACTIVE</option>
-                                        <option value="INACTIVE">INACTIVE</option>
+                                        <option value="APPROVED">APPROVED</option>
+                                        <option value="CANCELLED">CANCELLED</option>
                                         <option value="PENDING">PENDING</option>
                                     </select>
                                     <button type="button" class="view-pr-refresh-btn" onclick="applyViewStatusFilter()">Filter</button>
@@ -378,7 +378,13 @@
 
         function normalizeUdfStatus(value) {
             const text = String(value || '').trim().toUpperCase();
-            if (text === 'ACTIVE' || text === 'INACTIVE' || text === 'PENDING') {
+            if (text === 'ACTIVE') {
+                return 'APPROVED';
+            }
+            if (text === 'INACTIVE') {
+                return 'CANCELLED';
+            }
+            if (text === 'APPROVED' || text === 'CANCELLED' || text === 'PENDING') {
                 return text;
             }
             return 'PENDING';
@@ -401,7 +407,7 @@
                 return;
             }
             const selected = String(select.value || 'ALL').toUpperCase();
-            viewStatusFilter = (selected === 'ACTIVE' || selected === 'INACTIVE' || selected === 'PENDING')
+            viewStatusFilter = (selected === 'APPROVED' || selected === 'CANCELLED' || selected === 'PENDING')
                 ? selected
                 : 'ALL';
             renderFilteredViewPurchaseRequests();
@@ -471,7 +477,7 @@
             if (!header || !header.transferable) {
                 return false;
             }
-            if (normalizeUdfStatus(header.udfStatus) !== 'ACTIVE') {
+            if (normalizeUdfStatus(header.udfStatus) !== 'APPROVED') {
                 return false;
             }
             if (viewTransferSavingHeaderIds.has(Number(header.id || 0))) {
@@ -492,8 +498,8 @@
             if (!header || !header.transferable) {
                 return 'This request is not marked transferable.';
             }
-            if (normalizeUdfStatus(header.udfStatus) !== 'ACTIVE') {
-                return 'Transfer is allowed only when UDF status is ACTIVE.';
+            if (normalizeUdfStatus(header.udfStatus) !== 'APPROVED') {
+                return 'Transfer is allowed only when UDF status is APPROVED.';
             }
             if (viewTransferSavingHeaderIds.has(Number(header.id || 0))) {
                 return 'Transfer in progress...';
@@ -731,29 +737,20 @@
                                         <span class="view-pr-toggle">${expander}</span>
                                         <span class="view-pr-docno">${escapeHtml(header.requestNumber || '-')}</span>
                                         <select class="view-pr-udf-status" onclick="event.stopPropagation()" onchange="onHeaderUdfStatusChange(${headerId}, this.value)">
-                                            <option value="ACTIVE" ${normalizeUdfStatus(header.udfStatus) === 'ACTIVE' ? 'selected' : ''}>ACTIVE</option>
-                                            <option value="INACTIVE" ${normalizeUdfStatus(header.udfStatus) === 'INACTIVE' ? 'selected' : ''}>INACTIVE</option>
+                                            <option value="APPROVED" ${normalizeUdfStatus(header.udfStatus) === 'APPROVED' ? 'selected' : ''}>APPROVED</option>
+                                            <option value="CANCELLED" ${normalizeUdfStatus(header.udfStatus) === 'CANCELLED' ? 'selected' : ''}>CANCELLED</option>
                                             <option value="PENDING" ${normalizeUdfStatus(header.udfStatus) === 'PENDING' ? 'selected' : ''}>PENDING</option>
                                         </select>
                                     </div>
                                 </div>
-                                <div class="view-pr-meta-col">
-                                    <div class="view-pr-meta-row"><span>Requester / Location</span><strong>${escapeHtml(header.requesterId || '-')} / ${escapeHtml(header.departmentId || '-')}</strong></div>
-                                    <div class="view-pr-meta-row"><span>Request Date</span><strong>${formatPrDate(header.requestDate)}</strong></div>
-                                    <div class="view-pr-meta-row"><span>Required Date</span><strong>${formatPrDate(header.requiredDate)}</strong></div>
-                                    <div class="view-pr-meta-row"><span>Currency</span><strong>${escapeHtml(header.currency || '-')}</strong></div>
-                                    <div class="view-pr-meta-row"><span>Balance Qty</span><strong>${formatStockCardNumber(header.balanceQty || 0)}</strong></div>
-                                </div>
+                                <div class="view-pr-meta-row"><span>Requester / Location</span><strong>${escapeHtml(header.requesterId || '-')} / ${escapeHtml(header.departmentId || '-')}</strong></div>
+                                <div class="view-pr-meta-row"><span>Request Date</span><strong>${formatPrDate(header.requestDate)}</strong></div>
+                                <div class="view-pr-meta-row"><span>Required Date</span><strong>${formatPrDate(header.requiredDate)}</strong></div>
+                                <div class="view-pr-meta-row"><span>Currency</span><strong>${escapeHtml(header.currency || '-')}</strong></div>
+                                <div class="view-pr-meta-row"><span>Balance Qty</span><strong>${formatStockCardNumber(header.balanceQty || 0)}</strong></div>
                                 <div class="view-pr-amount-col">
                                     <div class="view-pr-amount-label">Total Amount</div>
                                     <div class="view-pr-amount-value">${formatMoney(header.totalAmount || 0)}</div>
-                                    <button
-                                        type="button"
-                                        class="view-pr-transfer-btn ${(canTransfer && !isTransferring) ? '' : 'is-disabled'}"
-                                        onclick="event.stopPropagation(); onTransferPurchaseRequest(${headerId})"
-                                        ${canTransfer ? '' : 'disabled'}
-                                        title="${escapeHtml(transferTitle)}"
-                                    >${isTransferring ? 'Transferring...' : (canTransfer ? 'Transfer to Purchase Order' : 'Awaiting Approval')}</button>
                                 </div>
                             </div>
                         </div>
@@ -813,6 +810,16 @@
 
                 htmlParts.push(`
                     <div class="view-pr-detail-host">
+                        <div class="view-pr-detail-actions">
+                            <div class="view-pr-detail-summary">Selected transfer qty: <strong>${formatStockCardNumber(getSelectedTransferQuantityTotal(header))}</strong></div>
+                            <button
+                                type="button"
+                                class="view-pr-transfer-btn ${(canTransfer && !isTransferring) ? '' : 'is-disabled'}"
+                                onclick="event.stopPropagation(); onTransferPurchaseRequest(${headerId})"
+                                ${canTransfer ? '' : 'disabled'}
+                                title="${escapeHtml(transferTitle)}"
+                            >${isTransferring ? 'Transferring...' : (canTransfer ? 'Transfer to Purchase Order' : 'Awaiting Approval')}</button>
+                        </div>
                         <div class="view-pr-detail-wrap">
                             <table class="view-pr-detail-table">
                                 <colgroup>

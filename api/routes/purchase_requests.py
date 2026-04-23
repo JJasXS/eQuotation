@@ -580,7 +580,7 @@ def update_purchase_request_header_status(
     if not isinstance(changes, list) or not changes:
         raise HTTPException(status_code=400, detail="changes[] is required")
 
-    allowed = {"ACTIVE", "INACTIVE", "PENDING"}
+    allowed = {"APPROVED", "CANCELLED", "PENDING", "ACTIVE", "INACTIVE"}
 
     con = None
     cur = None
@@ -611,6 +611,10 @@ def update_purchase_request_header_status(
             status_value = str(raw.get("udfStatus") or "").strip().upper()
             if status_value not in allowed:
                 continue
+            if status_value == "ACTIVE":
+                status_value = "APPROVED"
+            elif status_value == "INACTIVE":
+                status_value = "CANCELLED"
 
             cur.execute(
                 f"UPDATE PH_PQ SET {udf_status_col} = ? WHERE {key_col} = ?",
