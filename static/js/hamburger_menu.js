@@ -56,6 +56,9 @@ function handleMenuAction(action) {
         case 'viewQuotation':
             window.location.href = '/view-quotation';
             break;
+        case 'supplierBidding':
+            window.location.href = '/supplier/bidding';
+            break;
         case 'viewOrderStatus':
             window.location.href = '/user/approvals';
             break;

@@ -1166,6 +1166,109 @@ def _ensure_ph_pqdtl_defaults_trigger(conn):
         cur.close()
 
 
+
+
+def _ensure_procurement_bidding_tables(conn):
+    """Create PR_BID_INVITE, PR_BID_HDR, PR_BID_DTL tables and related objects if missing."""
+    _execute_ddl(
+        conn,
+        """
+        CREATE TABLE PR_BID_INVITE (
+            INVITE_ID INTEGER NOT NULL,
+            REQUEST_DOCKEY INTEGER NOT NULL,
+            REQUEST_NO VARCHAR(60),
+            SUPPLIER_CODE VARCHAR(30) NOT NULL,
+            SUPPLIER_NAME VARCHAR(160),
+            STATUS VARCHAR(20),
+            CREATED_BY VARCHAR(120),
+            CREATED_AT TIMESTAMP,
+            UPDATED_AT TIMESTAMP,
+            PRIMARY KEY (INVITE_ID)
+        )
+        """,
+        success_message='[DB INIT] PR_BID_INVITE table created.',
+        ignore_if_contains=['already exists', 'name in use', 'table unknown']
+    )
+    _execute_ddl(
+        conn,
+        'CREATE GENERATOR GEN_PR_BID_INVITE_ID',
+        success_message='[DB INIT] GEN_PR_BID_INVITE_ID generator created.',
+        ignore_if_contains=['already exists', 'name in use']
+    )
+    _execute_ddl(
+        conn,
+        """
+        CREATE TABLE PR_BID_HDR (
+            BID_ID INTEGER NOT NULL,
+            REQUEST_DOCKEY INTEGER NOT NULL,
+            REQUEST_NO VARCHAR(60),
+            SUPPLIER_CODE VARCHAR(30) NOT NULL,
+            SUPPLIER_NAME VARCHAR(160),
+            STATUS VARCHAR(20),
+            REMARKS VARCHAR(500),
+            CREATED_BY VARCHAR(120),
+            CREATED_AT TIMESTAMP,
+            APPROVED_BY VARCHAR(120),
+            APPROVED_AT TIMESTAMP,
+            PRIMARY KEY (BID_ID)
+        )
+        """,
+        success_message='[DB INIT] PR_BID_HDR table created.',
+        ignore_if_contains=['already exists', 'name in use', 'table unknown']
+    )
+    _execute_ddl(
+        conn,
+        'CREATE GENERATOR GEN_PR_BID_HDR_ID',
+        success_message='[DB INIT] GEN_PR_BID_HDR_ID generator created.',
+        ignore_if_contains=['already exists', 'name in use']
+    )
+    _execute_ddl(
+        conn,
+        """
+        CREATE TABLE PR_BID_DTL (
+            BID_DTL_ID INTEGER NOT NULL,
+            BID_ID INTEGER NOT NULL,
+            SOURCE_DTLKEY INTEGER NOT NULL,
+            ITEMCODE VARCHAR(60),
+            DESCRIPTION VARCHAR(255),
+            BID_QTY NUMERIC(18, 2),
+            BID_UNITPRICE NUMERIC(18, 2),
+            BID_TAXAMT NUMERIC(18, 2),
+            BID_AMOUNT NUMERIC(18, 2),
+            LEAD_DAYS INTEGER,
+            REMARKS VARCHAR(255),
+            PRIMARY KEY (BID_DTL_ID)
+        )
+        """,
+        success_message='[DB INIT] PR_BID_DTL table created.',
+        ignore_if_contains=['already exists', 'name in use', 'table unknown']
+    )
+    _execute_ddl(
+        conn,
+        'CREATE GENERATOR GEN_PR_BID_DTL_ID',
+        success_message='[DB INIT] GEN_PR_BID_DTL_ID generator created.',
+        ignore_if_contains=['already exists', 'name in use']
+    )
+    _execute_ddl(
+        conn,
+        'CREATE INDEX IX_PR_BID_INVITE_REQ_SUP ON PR_BID_INVITE (REQUEST_DOCKEY, SUPPLIER_CODE)',
+        success_message='[DB INIT] IX_PR_BID_INVITE_REQ_SUP index created.',
+        ignore_if_contains=['already exists', 'name in use']
+    )
+    _execute_ddl(
+        conn,
+        'CREATE INDEX IX_PR_BID_HDR_REQ ON PR_BID_HDR (REQUEST_DOCKEY)',
+        success_message='[DB INIT] IX_PR_BID_HDR_REQ index created.',
+        ignore_if_contains=['already exists', 'name in use']
+    )
+    _execute_ddl(
+        conn,
+        'CREATE INDEX IX_PR_BID_DTL_BID ON PR_BID_DTL (BID_ID)',
+        success_message='[DB INIT] IX_PR_BID_DTL_BID index created.',
+        ignore_if_contains=['already exists', 'name in use']
+    )
+
+
 def initialize_database(db_path, db_user, db_password):
     conn = None
     try:
@@ -1283,6 +1386,7 @@ def initialize_database(db_path, db_user, db_password):
         # Ensure AR_CUSTOMER has UDF_EMAIL for guest sign-in payload
         _ensure_ar_customer_udf_email_column(conn)
 
+
         # Ensure ST_ITEM has UDF_UOM for quotation item lookup queries
         _ensure_st_item_udf_uom_column(conn)
         
@@ -1326,6 +1430,9 @@ def initialize_database(db_path, db_user, db_password):
         # Ensure PH_PQ status/approval triggers exist
         _ensure_ph_pq_status_trigger(conn)
         _ensure_ph_pqdtl_defaults_trigger(conn)
+
+        # Ensure supplier bidding tables exist
+        _ensure_procurement_bidding_tables(conn)
 
     except Exception as e:
         print(f"[DB INIT ERROR] {e}")

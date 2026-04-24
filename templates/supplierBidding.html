@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supplier Bidding</title>
+    <link rel="stylesheet" href="/static/css/chat.css">
+    <link rel="stylesheet" href="/static/css/hamburger_menu.css">
+    <style>
+        body { background: linear-gradient(160deg, #f3f6ef 0%, #dfe8d3 100%); color: #1f2a1f; }
+        .bidding-shell { max-width: 1200px; margin: 20px auto; padding: 16px; }
+        .bidding-card { background: #ffffff; border: 1px solid #d4dec9; border-radius: 12px; box-shadow: 0 8px 24px rgba(31, 42, 31, 0.08); }
+        .bidding-head { padding: 16px; border-bottom: 1px solid #e4ecd9; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+        .muted { color: #5f6f5a; font-size: 13px; }
+        .invites-list { padding: 16px; display: grid; gap: 10px; }
+        .invite-row { border: 1px solid #d8e4cb; border-radius: 10px; padding: 12px; background: #f8fbf5; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+        .invite-row button, .action-btn { background: #245c2e; color: #fff; border: none; border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+        .invite-row button:disabled, .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .status-chip { display: inline-block; border-radius: 999px; padding: 3px 10px; font-size: 11px; font-weight: 600; }
+        .status-open { background: #e4f4e1; color: #1f6b2a; }
+        .status-responded { background: #fff3d7; color: #8a6300; }
+        .status-awarded { background: #dff0ff; color: #12598f; }
+        .status-closed { background: #f0f0f0; color: #636363; }
+        .bidding-workbench { margin-top: 16px; display: none; }
+        .table-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border-bottom: 1px solid #e8efe1; padding: 8px; font-size: 13px; text-align: left; }
+        th { background: #f4f9ee; color: #2f422d; }
+        input[type='number'], input[type='text'] { width: 100%; padding: 6px 8px; border: 1px solid #cbd8bf; border-radius: 6px; }
+        .footer-actions { padding: 16px; border-top: 1px solid #e4ecd9; display: flex; justify-content: flex-end; gap: 10px; }
+        .secondary-btn { background: #ffffff; color: #245c2e; border: 1px solid #245c2e; border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+        #supplier-bid-message { padding: 12px 16px; font-size: 13px; display: none; }
+    </style>
+</head>
+<body>
+    <div class="container" style="min-height: 90vh;">
+        <div class="main-content">
+            <div class="header" style="display:flex;justify-content:space-between;align-items:center;gap:16px;">
+                <div style="display:flex;align-items:center;gap:16px;">
+                    {% include 'components/hamburger_menu.html' %}
+                    <div>
+                        <h3 class="header-title" style="margin:0;">Supplier Bidding</h3>
+                        <div class="muted">Logged in as {{ user_name }} | Supplier Code: <strong id="supplier-code-text">{{ supplier_code }}</strong></div>
+                    </div>
+                </div>
+                <button class="action-btn" onclick="loadInvitations()">Refresh</button>
+            </div>
+
+            <div class="bidding-shell">
+                <div class="bidding-card">
+                    <div class="bidding-head">
+                        <div>
+                            <h2 style="margin:0;">My Invitations</h2>
+                            <div class="muted">Select an invitation and submit your item-level bid.</div>
+                        </div>
+                    </div>
+                    <div id="invites-list" class="invites-list">
+                        <div class="muted">Loading invitations...</div>
+                    </div>
+                </div>
+
+                <div id="bidding-workbench" class="bidding-workbench bidding-card">
+                    <div class="bidding-head">
+                        <div>
+                            <h3 id="active-request-title" style="margin:0;">Bid Details</h3>
+                            <div id="active-request-subtitle" class="muted"></div>
+                        </div>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Item</th>
+                                    <th>Requested Qty</th>
+                                    <th>Bid Qty</th>
+                                    <th>Bid Unit Price</th>
+                                    <th>Lead Days</th>
+                                    <th>Remarks</th>
+                                </tr>
+                            </thead>
+                            <tbody id="bid-lines-body"></tbody>
+                        </table>
+                    </div>
+                    <div id="supplier-bid-message"></div>
+                    <div class="footer-actions">
+                        <button class="secondary-btn" type="button" onclick="resetWorkbench()">Cancel</button>
+                        <button class="action-btn" type="button" id="submit-bid-btn" onclick="submitBid()">Submit Bid</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/hamburger_menu.js"></script>
+    <script>
+        let activeInvite = null;
+        let activeRequest = null;
+        const supplierCode = '{{ supplier_code }}'.trim();
+
+        function chipClass(status) {
+            const normalized = String(status || '').toUpperCase();
+            if (normalized === 'OPEN') return 'status-open';
+            if (normalized === 'RESPONDED') return 'status-responded';
+            if (normalized === 'AWARDED') return 'status-awarded';
+            return 'status-closed';
+        }
+
+        function escapeHtml(text) {
+            return String(text || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function showBidMessage(message, isError) {
+            const box = document.getElementById('supplier-bid-message');
+            box.style.display = 'block';
+            box.textContent = message;
+            box.style.background = isError ? '#fde3e3' : '#e4f4e1';
+            box.style.color = isError ? '#8d1f1f' : '#1f6b2a';
+        }
+
+        function clearBidMessage() {
+            const box = document.getElementById('supplier-bid-message');
+            box.style.display = 'none';
+            box.textContent = '';
+        }
+
+        function renderInvitations(rows) {
+            const list = document.getElementById('invites-list');
+            if (!Array.isArray(rows) || !rows.length) {
+                list.innerHTML = '<div class="muted">No invitations available.</div>';
+                return;
+            }
+
+            list.innerHTML = rows.map((row) => {
+                const bidStatus = row.bidStatus || row.inviteStatus || 'OPEN';
+                const disabled = String(row.inviteStatus || '').toUpperCase() === 'CLOSED';
+                return `
+                    <div class="invite-row">
+                        <div>
+                            <div><strong>${escapeHtml(row.requestNumber || ('PR-' + row.requestDockey))}</strong></div>
+                            <div class="muted">Supplier: ${escapeHtml(row.supplierCode)} | Bid Status: <span class="status-chip ${chipClass(bidStatus)}">${escapeHtml(bidStatus || 'OPEN')}</span></div>
+                        </div>
+                        <button type="button" onclick="openInvite(${row.requestDockey}, '${escapeHtml(row.requestNumber || '')}')" ${disabled ? 'disabled' : ''}>Open</button>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function loadInvitations() {
+            const list = document.getElementById('invites-list');
+            list.innerHTML = '<div class="muted">Loading invitations...</div>';
+
+            const qs = supplierCode ? ('?supplierCode=' + encodeURIComponent(supplierCode)) : '';
+            const res = await fetch('/api/procurement/bidding/my-invitations' + qs);
+            const body = await res.json();
+            if (!res.ok || !body.success) {
+                list.innerHTML = `<div class="muted" style="color:#a43f3f;">${escapeHtml(body.error || 'Failed to load invitations')}</div>`;
+                return;
+            }
+            renderInvitations(body.data || []);
+        }
+
+        async function openInvite(requestId, requestNo) {
+            clearBidMessage();
+            activeInvite = { requestId, requestNo };
+            const res = await fetch(`/api/procurement/bidding/purchase-request-details?request_id=${encodeURIComponent(requestId)}&request_no=${encodeURIComponent(requestNo || '')}`);
+            const body = await res.json();
+            if (!res.ok || !body.success) {
+                alert(body.error || 'Failed to load request details');
+                return;
+            }
+            activeRequest = body;
+            document.getElementById('active-request-title').textContent = 'Bid for ' + (body.requestNumber || ('PR-' + body.requestId));
+            document.getElementById('active-request-subtitle').textContent = 'Fill in your quote and submit to admin for approval.';
+
+            const rows = (body.details || []).map((line) => {
+                return `
+                    <tr data-detail-id="${line.id}">
+                        <td>${escapeHtml(line.itemCode)} - ${escapeHtml(line.itemName || line.description)}</td>
+                        <td>${Number(line.quantity || 0).toFixed(2)}</td>
+                        <td><input type="number" step="0.01" min="0" class="bid-qty" value="${Number(line.quantity || 0).toFixed(2)}"></td>
+                        <td><input type="number" step="0.01" min="0" class="bid-unit-price" value="" placeholder="Enter quote unit price"></td>
+                        <td><input type="number" step="1" min="0" class="bid-lead-days" value="0"></td>
+                        <td><input type="text" class="bid-remarks" placeholder="Optional"></td>
+                    </tr>
+                `;
+            }).join('');
+
+            document.getElementById('bid-lines-body').innerHTML = rows || '<tr><td colspan="6" class="muted">No lines available</td></tr>';
+            document.getElementById('bidding-workbench').style.display = 'block';
+            window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+        }
+
+        function collectBidLines() {
+            const bodyRows = Array.from(document.querySelectorAll('#bid-lines-body tr[data-detail-id]'));
+            return bodyRows.map((row) => {
+                return {
+                    detailId: Number(row.dataset.detailId),
+                    quantity: Number((row.querySelector('.bid-qty') || {}).value || 0),
+                    unitPrice: Number((row.querySelector('.bid-unit-price') || {}).value || 0),
+                    leadDays: Number((row.querySelector('.bid-lead-days') || {}).value || 0),
+                    remarks: String((row.querySelector('.bid-remarks') || {}).value || '').trim(),
+                };
+            }).filter((line) => line.detailId > 0);
+        }
+
+        async function submitBid() {
+            if (!activeInvite || !activeRequest) {
+                alert('Please open an invitation first.');
+                return;
+            }
+            const lines = collectBidLines();
+            if (!lines.length) {
+                showBidMessage('No bid lines to submit.', true);
+                return;
+            }
+
+            const btn = document.getElementById('submit-bid-btn');
+            btn.disabled = true;
+            clearBidMessage();
+
+            try {
+                const res = await fetch('/api/procurement/bidding/submit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        requestId: activeInvite.requestId,
+                        requestNumber: activeInvite.requestNo,
+                        supplierCode,
+                        bidLines: lines,
+                    }),
+                });
+                const body = await res.json();
+                if (!res.ok || !body.success) {
+                    showBidMessage(body.error || 'Failed to submit bid', true);
+                    return;
+                }
+                showBidMessage('Bid submitted successfully. Awaiting admin review.', false);
+                await loadInvitations();
+            } catch (err) {
+                showBidMessage('Bid submission failed: ' + err.message, true);
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function resetWorkbench() {
+            activeInvite = null;
+            activeRequest = null;
+            clearBidMessage();
+            document.getElementById('bidding-workbench').style.display = 'none';
+            document.getElementById('bid-lines-body').innerHTML = '';
+        }
+
+        loadInvitations();
+    </script>
+</body>
+</html>

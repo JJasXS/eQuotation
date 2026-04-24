@@ -171,9 +171,9 @@ def _next_request_number(cur: Any, header_columns: set[str]) -> str:
         "PURCHASEREQUESTNO",
     )
 
-    prefix = f"PR-{datetime.utcnow().strftime('%Y%m%d')}-"
+    prefix = f"PR-{datetime.utcnow().strftime('%y%m')}"
     if not request_no_col:
-        return f"{prefix}{datetime.utcnow().strftime('%H%M%S')}"
+        return f"{prefix}0001"
 
     cur.execute(
         f"""
@@ -190,7 +190,7 @@ def _next_request_number(cur: Any, header_columns: set[str]) -> str:
 
     last = _clean_text(row[0])
     try:
-        seq = int(last.split("-")[-1]) + 1
+        seq = int(last[-4:]) + 1
     except Exception:
         seq = 1
     return f"{prefix}{seq:04d}"
@@ -295,6 +295,8 @@ def _normalize_sql_api_payload(payload: dict[str, Any]) -> dict[str, Any]:
         quantity = _as_decimal(item.get("qty") if item.get("qty") is not None else item.get("quantity"), "0")
         unit_price = _as_decimal(item.get("unitprice") if item.get("unitprice") is not None else item.get("unitPrice"), "0")
         tax = _as_decimal(item.get("taxamt") if item.get("taxamt") is not None else item.get("tax"), "0")
+        delivery_date_raw = _clean_text(item.get("deliverydate") or item.get("deliveryDate"))
+        delivery_date = _as_date(delivery_date_raw)
 
         if quantity < 0:
             errors.append(f"sdsdocdetail[{idx}].qty must be >= 0")
@@ -302,6 +304,10 @@ def _normalize_sql_api_payload(payload: dict[str, Any]) -> dict[str, Any]:
             errors.append(f"sdsdocdetail[{idx}].unitprice must be >= 0")
         if tax < 0:
             errors.append(f"sdsdocdetail[{idx}].taxamt must be >= 0")
+        if delivery_date_raw and not delivery_date:
+            errors.append(f"sdsdocdetail[{idx}].deliverydate must be YYYY-MM-DD")
+
+        effective_delivery_date = delivery_date or required_date or request_date
 
         amount_source = item.get("amount")
         if amount_source is None:
@@ -322,6 +328,7 @@ def _normalize_sql_api_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 "unitPrice": float(_money(unit_price)),
                 "tax": float(_money(tax)),
                 "amount": float(line_amount),
+                "deliveryDate": effective_delivery_date.isoformat() if effective_delivery_date else "",
             }
         )
 
@@ -415,6 +422,8 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
         quantity = _as_decimal(item.get("quantity"))
         unit_price = _as_decimal(item.get("unitPrice"))
         tax = _as_decimal(item.get("tax"))
+        delivery_date_raw = _clean_text(item.get("deliveryDate") or item.get("deliverydate"))
+        delivery_date = _as_date(delivery_date_raw)
 
         if quantity <= 0:
             errors.append(f"lineItems[{idx}].quantity must be > 0")
@@ -422,6 +431,10 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
             errors.append(f"lineItems[{idx}].unitPrice must be >= 0")
         if tax < 0:
             errors.append(f"lineItems[{idx}].tax must be >= 0")
+        if delivery_date_raw and not delivery_date:
+            errors.append(f"lineItems[{idx}].deliveryDate must be YYYY-MM-DD")
+
+        effective_delivery_date = delivery_date or required_date
 
         line_amount = _money((quantity * unit_price) + tax)
 
@@ -439,6 +452,7 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
                 "unitPrice": float(_money(unit_price)),
                 "tax": float(_money(tax)),
                 "amount": float(line_amount),
+                "deliveryDate": effective_delivery_date.isoformat() if effective_delivery_date else "",
             }
         )
 
@@ -657,6 +671,8 @@ def create_purchase_request(
                 "UNITPRICE": item["unitPrice"],
                 "DISC": 0,
                 "TAX": item["tax"],
+                "DELIVERYDATE": item.get("deliveryDate") or validated["requiredDate"],
+                "DELIVERY_DATE": item.get("deliveryDate") or validated["requiredDate"],
                 "AMOUNT": item["amount"],
                 "TOTAL": item["amount"],
                 "CREATED_AT": now_iso,
@@ -958,6 +974,212 @@ def transition_purchase_request_status(
             "requestNumber": normalized_request_number,
             "previousStatus": current_status,
             "status": normalized_status,
+            "updatedAt": now_iso,
+        }
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def update_purchase_request(
+    request_id: int,
+    payload: dict[str, Any],
+    actor: str,
+) -> dict[str, Any]:
+    """Update editable PR header/detail fields for an existing purchase request."""
+    ensure_purchase_request_schema()
+
+    try:
+        normalized_request_id = int(request_id)
+    except Exception as exc:
+        raise PurchaseRequestValidationError("request_id must be a valid integer") from exc
+
+    if not isinstance(payload, dict):
+        raise PurchaseRequestValidationError("payload must be an object")
+
+    required_date = _as_date(payload.get("requiredDate"))
+    if payload.get("requiredDate") and not required_date:
+        raise PurchaseRequestValidationError("requiredDate must be YYYY-MM-DD")
+
+    cost_center = _clean_text(payload.get("costCenter"))
+    currency = _clean_text(payload.get("currency"))
+    description = _clean_text(payload.get("description"))
+    delivery_location = _clean_text(payload.get("deliveryLocation"))
+
+    line_items = payload.get("lineItems")
+    if not isinstance(line_items, list) or not line_items:
+        raise PurchaseRequestValidationError("lineItems[] is required")
+
+    normalized_lines: list[dict[str, Any]] = []
+    subtotal = Decimal("0")
+    for idx, line in enumerate(line_items, start=1):
+        if not isinstance(line, dict):
+            raise PurchaseRequestValidationError(f"lineItems[{idx}] must be an object")
+
+        raw_detail_id = line.get("detailId")
+        try:
+            detail_id = int(raw_detail_id)
+        except Exception as exc:
+            raise PurchaseRequestValidationError(f"lineItems[{idx}].detailId is required") from exc
+
+        quantity = _money(_as_decimal(line.get("quantity"), "0"))
+        unit_price = _money(_as_decimal(line.get("unitPrice"), "0"))
+        if quantity <= 0:
+            raise PurchaseRequestValidationError(f"lineItems[{idx}].quantity must be > 0")
+        if unit_price < 0:
+            raise PurchaseRequestValidationError(f"lineItems[{idx}].unitPrice must be >= 0")
+
+        delivery_date = _as_date(line.get("deliveryDate"))
+        if line.get("deliveryDate") and not delivery_date:
+            raise PurchaseRequestValidationError(f"lineItems[{idx}].deliveryDate must be YYYY-MM-DD")
+
+        line_amount = _money(quantity * unit_price)
+        subtotal += line_amount
+
+        normalized_lines.append(
+            {
+                "detailId": detail_id,
+                "description": _clean_text(line.get("description")),
+                "quantity": float(quantity),
+                "unitPrice": float(unit_price),
+                "tax": 0.0,
+                "amount": float(line_amount),
+                "deliveryDate": delivery_date.isoformat() if delivery_date else None,
+            }
+        )
+
+    total_amount = float(_money(subtotal))
+    normalized_actor = _clean_text(actor) or "system"
+    now_iso = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        header_cols = _get_table_columns(cur, "PH_PQ")
+        detail_cols = _get_table_columns(cur, "PH_PQDTL")
+
+        header_key_col = _pick_existing(header_cols, "DOCKEY", "PQKEY", "ID")
+        detail_key_col = _pick_existing(detail_cols, "DTLKEY", "PQDTLKEY", "ID")
+        detail_fk_col = _pick_existing(detail_cols, "DOCKEY", "PQKEY", "REQUEST_ID", "HEADER_ID")
+
+        if not header_key_col:
+            raise RuntimeError("PH_PQ primary key column not found")
+        if not detail_key_col or not detail_fk_col:
+            raise RuntimeError("PH_PQDTL key columns not found")
+
+        cur.execute(
+            f"SELECT FIRST 1 {header_key_col}, {_pick_existing(header_cols, 'STATUS') or 'NULL'} FROM PH_PQ WHERE {header_key_col} = ?",
+            (normalized_request_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise PurchaseRequestValidationError("Purchase request not found")
+
+        current_status = _decode_status(row[1]).upper() if len(row) > 1 else ""
+        if current_status and current_status != "DRAFT":
+            raise PurchaseRequestValidationError("Only draft purchase requests can be edited")
+
+        updates: list[str] = []
+        values: list[Any] = []
+
+        required_date_col = _pick_existing(header_cols, "REQUIREDDATE", "DUEDATE", "POSTDATE")
+        cost_center_col = _pick_existing(header_cols, "COSTCENTER", "DEPARTMENTID")
+        currency_cols = [c for c in ("CURRENCYCODE", "CURRENCY") if c in header_cols]
+        description_col = _pick_existing(header_cols, "DESCRIPTION")
+        delivery_loc_col = _pick_existing(header_cols, "DELIVERYLOCATION")
+        subtotal_col = _pick_existing(header_cols, "SUBTOTAL", "SUBTOTALAMT")
+        tax_col = _pick_existing(header_cols, "TAXAMT")
+        total_cols = [c for c in ("DOCAMT", "TOTALAMT", "TOTAL_AMOUNT") if c in header_cols]
+        updated_by_col = _pick_existing(header_cols, "UPDATEDBY")
+        updated_at_col = _pick_existing(header_cols, "UPDATED_AT")
+
+        if required_date_col and required_date:
+            updates.append(f"{required_date_col} = ?")
+            values.append(required_date)
+        if cost_center_col:
+            updates.append(f"{cost_center_col} = ?")
+            values.append(cost_center)
+        for col in currency_cols:
+            updates.append(f"{col} = ?")
+            values.append(currency or "MYR")
+        if description_col:
+            updates.append(f"{description_col} = ?")
+            values.append(description)
+        if delivery_loc_col:
+            updates.append(f"{delivery_loc_col} = ?")
+            values.append(delivery_location)
+        if subtotal_col:
+            updates.append(f"{subtotal_col} = ?")
+            values.append(total_amount)
+        if tax_col:
+            updates.append(f"{tax_col} = ?")
+            values.append(0)
+        for col in total_cols:
+            updates.append(f"{col} = ?")
+            values.append(total_amount)
+        if updated_by_col:
+            updates.append(f"{updated_by_col} = ?")
+            values.append(normalized_actor)
+        if updated_at_col:
+            updates.append(f"{updated_at_col} = ?")
+            values.append(now_iso)
+
+        if updates:
+            values.append(normalized_request_id)
+            cur.execute(
+                f"UPDATE PH_PQ SET {', '.join(updates)} WHERE {header_key_col} = ?",
+                tuple(values),
+            )
+
+        detail_desc_col = _pick_existing(detail_cols, "DESCRIPTION")
+        detail_qty_col = _pick_existing(detail_cols, "QTY", "QUANTITY")
+        detail_unit_col = _pick_existing(detail_cols, "UNITPRICE")
+        detail_tax_col = _pick_existing(detail_cols, "TAX", "TAXAMT")
+        detail_amount_col = _pick_existing(detail_cols, "AMOUNT", "TOTAL")
+        detail_delivery_col = _pick_existing(detail_cols, "DELIVERYDATE", "DELIVERY_DATE")
+
+        updated_lines = 0
+        for line in normalized_lines:
+            line_updates: list[str] = []
+            line_values: list[Any] = []
+
+            if detail_desc_col:
+                line_updates.append(f"{detail_desc_col} = ?")
+                line_values.append(line["description"])
+            if detail_qty_col:
+                line_updates.append(f"{detail_qty_col} = ?")
+                line_values.append(line["quantity"])
+            if detail_unit_col:
+                line_updates.append(f"{detail_unit_col} = ?")
+                line_values.append(line["unitPrice"])
+            if detail_tax_col:
+                line_updates.append(f"{detail_tax_col} = ?")
+                line_values.append(0)
+            if detail_amount_col:
+                line_updates.append(f"{detail_amount_col} = ?")
+                line_values.append(line["amount"])
+            if detail_delivery_col and line["deliveryDate"]:
+                line_updates.append(f"{detail_delivery_col} = ?")
+                line_values.append(line["deliveryDate"])
+
+            if not line_updates:
+                continue
+
+            line_values.extend([line["detailId"], normalized_request_id])
+            cur.execute(
+                f"UPDATE PH_PQDTL SET {', '.join(line_updates)} WHERE {detail_key_col} = ? AND {detail_fk_col} = ?",
+                tuple(line_values),
+            )
+            updated_lines += int(cur.rowcount or 0)
+
+        con.commit()
+        return {
+            "requestId": normalized_request_id,
+            "updatedHeader": True,
+            "updatedLines": updated_lines,
+            "totalAmount": total_amount,
             "updatedAt": now_iso,
         }
     except Exception:

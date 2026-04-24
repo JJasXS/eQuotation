@@ -44,10 +44,23 @@ from utils.procurement_purchase_request import (
     create_purchase_request,
     preview_purchase_request_number,
     transition_purchase_request_status,
+    update_purchase_request,
 )
 from utils.procurement_purchase_order_transfer import (
     PurchaseOrderTransferValidationError,
     transfer_purchase_request_to_po,
+)
+from utils.procurement_bidding import (
+    BiddingValidationError,
+    apply_approved_bid_to_request,
+    approve_bid,
+    create_bid_invitations,
+    get_transfer_gate_state,
+    list_bids_for_request,
+    list_supplier_invitations,
+    reject_bid,
+    submit_supplier_bid,
+    validate_transfer_against_approved_bid,
 )
 from utils.sql_query_helpers import (
     fetch_stock_items,
@@ -1989,11 +2002,12 @@ def api_send_otp():
             is_admin = bool(identity.get('is_admin'))
             is_user = bool(identity.get('is_user'))
             is_customer = bool(identity.get('is_customer'))
+            is_supplier = bool(identity.get('is_supplier'))
         except Exception as e:
             print(f"[AUTH] FastAPI email lookup during send_otp failed: {e}")
             return jsonify({'success': False, 'error': 'Authentication lookup service unavailable'}), 500
 
-        if not (is_admin or is_user or is_customer):
+        if not (is_admin or is_user or is_customer or is_supplier):
             print(f"[DEBUG OTP] rejected (email not found): {email}", flush=True)
             return jsonify({
                 'success': False,
@@ -2105,6 +2119,11 @@ def api_verify_otp():
             redirect_url = '/admin'
             customer_code = None
             print(f"[AUTH] Admin user detected: {email}")
+        elif identity.get('is_supplier'):
+            user_type = 'supplier'
+            redirect_url = '/supplier/bidding'
+            customer_code = identity.get('supplier_code')
+            print(f"[AUTH] Supplier user detected: {email} -> Supplier: {customer_code}")
         elif identity.get('is_user') or identity.get('is_customer'):
             user_type = 'user'
             redirect_url = '/create-quotation'
@@ -2113,13 +2132,15 @@ def api_verify_otp():
         else:
             return jsonify({
                 'success': False,
-                'error': 'Email not found in customer records, please contact administrator'
+                'error': 'Email not found in customer or supplier records, please contact administrator'
             }), 401
         
         # OTP is valid - create session
         session['user_email'] = email
         session['user_type'] = user_type
-        session['customer_code'] = customer_code  # Store customer code in session
+        session['customer_code'] = customer_code  # Store customer/supplier code in session
+        if user_type == 'supplier':
+            session['supplier_code'] = customer_code
         session.permanent = True
         
         print(f"[SESSION] user_email: {email}")
@@ -2359,6 +2380,30 @@ def admin_procurement_module():
         'precurement/precurement.html',
         require_admin=True,
         user_type=session.get('user_type', 'admin')
+    )
+
+
+@app.route('/admin/procurement/bidding')
+def admin_procurement_bidding_page():
+    """Display admin supplier bidding management page."""
+    return render_protected_template(
+        'adminBidding.html',
+        require_admin=True,
+        user_type=session.get('user_type', 'admin'),
+        user_name=session.get('user_email', ''),
+    )
+
+
+@app.route('/supplier/bidding')
+def supplier_bidding_page():
+    """Display supplier bidding page for supplier or regular users."""
+    return render_protected_template(
+        'supplierBidding.html',
+        block_admin=True,
+        admin_redirect='/admin/precurement/precurement',
+        user_type=session.get('user_type', 'user'),
+        supplier_code=session.get('supplier_code') or session.get('customer_code', ''),
+        user_name=session.get('user_email', ''),
     )
 
 
@@ -3235,7 +3280,7 @@ def api_admin_procurement_stock_card_breakdown():
 @app.route('/api/admin/procurement/suppliers')
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_procurement_suppliers():
-    """Proxy full supplier list from the external accounting API with pagination."""
+    """Proxy full supplier list from the external accounting API, enriched with local UDF_EMAIL."""
     try:
         headers = _build_sql_api_auth_headers()
         all_suppliers = []
@@ -3260,6 +3305,8 @@ def api_admin_procurement_suppliers():
             offset += limit
             if offset >= total_count or not rows:
                 break
+
+        # Enrich with UDF_EMAIL — already returned by the external API in the udf_email field
         return jsonify({'success': True, 'data': all_suppliers})
     except requests.exceptions.Timeout:
         return jsonify({'success': False, 'error': 'Supplier list request timed out'}), 504
@@ -3275,11 +3322,135 @@ def api_admin_procurement_suppliers():
 def api_admin_create_purchase_request():
     """Create eProcurement purchase request with validation, persistence, and optional upstream submit."""
     payload = request.get_json(silent=True) or {}
+    # Create flow is draft-first: enforce draft numeric status (0) on initial save.
+    payload['status'] = 0
     actor = (session.get('user_email') or session.get('user_name') or 'admin').strip()
     auth_header = (request.headers.get('Authorization') or '').strip() or None
 
     try:
         result = create_purchase_request(payload, created_by=actor, auth_header=auth_header)
+
+        # Draft-first create does not trigger bid invitations.
+        suppliers = payload.get('suppliers') or []
+        is_submitted = str(result.get('status') or '').strip().upper() == 'SUBMITTED'
+        if is_submitted and suppliers and isinstance(suppliers, list) and result.get('id') and result.get('requestNumber'):
+            try:
+                from utils.procurement_bidding import create_bid_invitations
+                create_bid_invitations(
+                    request_dockey=result['id'],
+                    request_no=result['requestNumber'],
+                    suppliers=suppliers,
+                    created_by=actor,
+                )
+                result['bidInvitationsSent'] = len(suppliers)
+                print(f"[PROCUREMENT] Created bid invitations for {len(suppliers)} supplier(s) on PR {result['requestNumber']}", flush=True)
+
+                if is_submitted:
+                    targets = []
+                    for raw in suppliers:
+                        if not isinstance(raw, dict):
+                            continue
+                        email = str(raw.get('email') or raw.get('udf_email') or '').strip()
+                        if not email:
+                            continue
+                        targets.append({
+                            'email': email,
+                            'code': str(raw.get('code') or '').strip(),
+                            'name': str(raw.get('name') or raw.get('companyname') or '').strip(),
+                        })
+
+                    if targets:
+                        request_number = str(result.get('requestNumber') or '').strip()
+                        required_date = str(payload.get('requiredDate') or '').strip()
+                        line_items = payload.get('lineItems') if isinstance(payload.get('lineItems'), list) else []
+
+                        def _send_quote_invites_async(invite_targets, req_no, req_required_date, req_lines):
+                            def _safe(value):
+                                return (
+                                    str(value or '')
+                                    .replace('&', '&amp;')
+                                    .replace('<', '&lt;')
+                                    .replace('>', '&gt;')
+                                    .replace('"', '&quot;')
+                                    .replace("'", '&#39;')
+                                )
+
+                            item_rows = ''
+                            for idx, line in enumerate(req_lines, start=1):
+                                if not isinstance(line, dict):
+                                    continue
+                                item_name = _safe(line.get('itemName') or line.get('description') or line.get('itemCode') or f'Item {idx}')
+                                qty = _safe(line.get('quantity') or 0)
+                                item_rows += (
+                                    f"<tr>"
+                                    f"<td style='padding:8px;border:1px solid #dbe4ee;'>{idx}</td>"
+                                    f"<td style='padding:8px;border:1px solid #dbe4ee;'>{item_name}</td>"
+                                    f"<td style='padding:8px;border:1px solid #dbe4ee;text-align:right;'>{qty}</td>"
+                                    f"</tr>"
+                                )
+
+                            if not item_rows:
+                                item_rows = (
+                                    "<tr><td colspan='3' style='padding:8px;border:1px solid #dbe4ee;color:#64748b;'>"
+                                    "No line items were included in this notification."
+                                    "</td></tr>"
+                                )
+
+                            for target in invite_targets:
+                                to_email = str(target.get('email') or '').strip()
+                                if not to_email:
+                                    continue
+
+                                supplier_name = _safe(target.get('name') or target.get('code') or 'Supplier')
+                                subject = f"RFQ Invitation - Purchase Request {req_no}"
+                                body = f"""
+                                <html>
+                                    <body style='font-family: Arial, sans-serif; color: #1f2937;'>
+                                        <div style='max-width: 700px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;'>
+                                            <div style='background: #1a1f2e; color: #fff; padding: 14px 18px; font-size: 18px; font-weight: 600;'>Request for Quotation Invitation</div>
+                                            <div style='padding: 18px;'>
+                                                <p>Dear {supplier_name},</p>
+                                                <p>You are invited to quote for Purchase Request <strong>{_safe(req_no)}</strong>.</p>
+                                                <p><strong>Required Date:</strong> {_safe(req_required_date or '-')}</p>
+                                                <table style='width:100%;border-collapse:collapse;margin-top:14px;'>
+                                                    <thead>
+                                                        <tr style='background:#f8fafc;'>
+                                                            <th style='padding:8px;border:1px solid #dbe4ee;text-align:left;'>#</th>
+                                                            <th style='padding:8px;border:1px solid #dbe4ee;text-align:left;'>Item</th>
+                                                            <th style='padding:8px;border:1px solid #dbe4ee;text-align:right;'>Qty</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>{item_rows}</tbody>
+                                                </table>
+                                                <p style='margin-top:14px;'>Please submit your quotation in the supplier bidding portal.</p>
+                                            </div>
+                                        </div>
+                                    </body>
+                                </html>
+                                """
+
+                                try:
+                                    ok = send_email(to_email, subject, body)
+                                    if ok:
+                                        print(f"[PROCUREMENT] RFQ invite email sent to {to_email} for PR {req_no}", flush=True)
+                                    else:
+                                        print(f"[PROCUREMENT] RFQ invite email failed to {to_email} for PR {req_no}", flush=True)
+                                except Exception as mail_exc:
+                                    print(f"[PROCUREMENT] RFQ invite email exception for {to_email}: {mail_exc}", flush=True)
+
+                        threading.Thread(
+                            target=_send_quote_invites_async,
+                            args=(targets, request_number, required_date, line_items),
+                            daemon=True,
+                        ).start()
+                        result['bidInvitationEmailsQueued'] = len(targets)
+                    else:
+                        result['bidInvitationEmailsQueued'] = 0
+            except Exception as bid_exc:
+                print(f"[PROCUREMENT] Bid invitation creation failed (non-fatal): {bid_exc}", flush=True)
+                result['bidInvitationsSent'] = 0
+                result['bidInvitationEmailsQueued'] = 0
+
         return jsonify({
             'success': True,
             'message': 'Purchase request created successfully',
@@ -3474,8 +3645,11 @@ def api_admin_list_purchase_requests():
                 'requiredDate': row.get('postdate'),
                 'requesterId': str(row.get('code') or row.get('companyname') or '').strip(),
                 'departmentId': str(row.get('businessunit') or row.get('area') or '').strip(),
+                'costCenter': str(row.get('businessunit') or '').strip(),
                 'supplierId': str(row.get('agent') or '').strip(),
                 'currency': str(row.get('currencycode') or '').strip(),
+                'description': str(row.get('description') or '').strip(),
+                'deliveryLocation': str(row.get('deliverylocation') or row.get('daddress1') or '').strip(),
                 'totalAmount': _num(row.get('docamt')),
                 'status': _status_text(row.get('status')),
                 'udfStatus': str(row.get('udf_status') or '').strip(),
@@ -3549,6 +3723,7 @@ def api_admin_purchase_request_details(request_id):
                 'unitPrice': _num(row.get('unitprice')),
                 'tax': _num(row.get('taxamt')),
                 'amount': _num(row.get('amount')),
+                'deliveryDate': row.get('deliverydate'),
                 'udfPqApproved': row.get('udf_pqapproved'),
             })
 
@@ -3664,6 +3839,7 @@ def api_admin_purchase_request_details_fallback():
                 'unitPrice': _num(row.get('unitprice')),
                 'tax': _num(row.get('taxamt')),
                 'amount': _num(row.get('amount')),
+                'deliveryDate': row.get('deliverydate'),
                 'udfPqApproved': row.get('udf_pqapproved'),
                 'transferredQty': transferred_qty,
                 'remainingQty': remaining_qty,
@@ -3725,6 +3901,257 @@ def api_admin_purchase_request_details_fallback():
         return jsonify({'success': False, 'error': str(exc)}), 500
 
 
+def _resolve_purchase_request_header(raw_request_id, request_no, headers, timeout=12):
+    """Resolve one purchase request header via resilient SQL API lookup patterns."""
+    candidates = []
+
+    if raw_request_id:
+        try:
+            request_id_int = int(raw_request_id)
+            candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest/{request_id_int}", None))
+            candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest", {'dockey': request_id_int}))
+            candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest", {'id': request_id_int}))
+        except ValueError:
+            pass
+
+    if request_no:
+        candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest/{request_no}", None))
+        candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest", {'docno': request_no}))
+        candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest", {'requestno': request_no}))
+
+    request_header = None
+    last_status = 404
+
+    for url, params in candidates:
+        resp = requests.get(url, params=params, headers=headers or None, timeout=timeout)
+        last_status = resp.status_code
+        if not resp.ok:
+            continue
+
+        payload = resp.json() if resp.text else {}
+        data_rows = payload.get('data', []) if isinstance(payload, dict) else []
+
+        if isinstance(data_rows, list) and data_rows:
+            first = data_rows[0]
+            if isinstance(first, dict):
+                request_header = first
+                break
+        elif isinstance(data_rows, dict):
+            request_header = data_rows
+            break
+
+    return request_header, last_status
+
+
+@app.route('/api/admin/procurement/bidding/invitations', methods=['POST'])
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_create_bidding_invitations():
+    """Invite multiple suppliers to submit bids for one purchase request."""
+    payload = request.get_json(silent=True) or {}
+    raw_request_id = str(payload.get('requestId') or '').strip()
+    request_no = str(payload.get('requestNumber') or '').strip()
+    suppliers = payload.get('suppliers') if isinstance(payload.get('suppliers'), list) else []
+    actor = (session.get('user_email') or session.get('user_name') or 'admin').strip()
+
+    if not raw_request_id and not request_no:
+        return jsonify({'success': False, 'error': 'requestId or requestNumber is required'}), 400
+    if not suppliers:
+        return jsonify({'success': False, 'error': 'suppliers[] is required'}), 400
+
+    try:
+        headers = _build_sql_api_auth_headers()
+        request_header, last_status = _resolve_purchase_request_header(raw_request_id, request_no, headers, timeout=12)
+        if not request_header:
+            if last_status == 404:
+                return jsonify({'success': False, 'error': 'Purchase request not found'}), 404
+            return jsonify({'success': False, 'error': f'SQL API returned {last_status} while loading purchase request'}), 502
+
+        request_dockey = int(request_header.get('dockey'))
+        request_docno = str(request_header.get('docno') or request_no or '').strip()
+        result = create_bid_invitations(request_dockey, request_docno, suppliers, actor)
+        gate = get_transfer_gate_state(request_dockey)
+        return jsonify({'success': True, 'message': 'Bidding invitations saved', 'data': result, 'gate': gate})
+    except BiddingValidationError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+    except requests.exceptions.Timeout:
+        return jsonify({'success': False, 'error': 'Purchase request lookup timed out'}), 504
+    except requests.exceptions.ConnectionError:
+        return jsonify({'success': False, 'error': 'Cannot reach SQL API for purchase request lookup'}), 503
+    except Exception as exc:
+        print(f"[PROCUREMENT BIDDING INVITE] error: {exc}", flush=True)
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
+@app.route('/api/procurement/bidding/my-invitations', methods=['GET'])
+@api_login_required(unauth_message='Unauthorized')
+def api_supplier_bidding_invitations():
+    """List current user's bidding invitations."""
+    supplier_code = (request.args.get('supplierCode') or session.get('customer_code') or '').strip()
+    if not supplier_code:
+        return jsonify({'success': False, 'error': 'supplier code is not available in session'}), 400
+
+    try:
+        rows = list_supplier_invitations(supplier_code)
+        return jsonify({'success': True, 'data': rows, 'count': len(rows), 'supplierCode': supplier_code})
+    except BiddingValidationError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+    except Exception as exc:
+        print(f"[SUPPLIER BIDDING INVITES] error: {exc}", flush=True)
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
+@app.route('/api/procurement/bidding/purchase-request-details', methods=['GET'])
+@api_login_required(unauth_message='Unauthorized')
+def api_supplier_bidding_request_details():
+    """Get one purchase request with details for invited supplier bidding."""
+    raw_request_id = str(request.args.get('request_id') or '').strip()
+    request_no = str(request.args.get('request_no') or '').strip()
+
+    if not raw_request_id and not request_no:
+        return jsonify({'success': False, 'error': 'request_id or request_no is required'}), 400
+
+    try:
+        headers = _build_sql_api_auth_headers()
+        request_header, last_status = _resolve_purchase_request_header(raw_request_id, request_no, headers, timeout=12)
+        if not request_header:
+            if last_status == 404:
+                return jsonify({'success': False, 'error': 'Purchase request not found'}), 404
+            return jsonify({'success': False, 'error': f'SQL API returned {last_status} while loading purchase request'}), 502
+
+        details = []
+        for idx, row in enumerate(request_header.get('sdsdocdetail') or [], start=1):
+            if not isinstance(row, dict):
+                continue
+            details.append({
+                'id': row.get('dtlkey'),
+                'seq': row.get('seq') if row.get('seq') is not None else idx,
+                'itemCode': str(row.get('itemcode') or '').strip(),
+                'itemName': str(row.get('itemname') or row.get('description2') or row.get('description') or '').strip(),
+                'description': str(row.get('description3') or row.get('description') or '').strip(),
+                'locationCode': str(row.get('location') or '').strip(),
+                'quantity': float(row.get('qty') or 0),
+                'unitPrice': float(row.get('unitprice') or 0),
+                'tax': float(row.get('taxamt') or 0),
+            })
+
+        return jsonify({
+            'success': True,
+            'requestId': request_header.get('dockey'),
+            'requestNumber': str(request_header.get('docno') or '').strip(),
+            'supplierCode': str(request_header.get('code') or '').strip(),
+            'details': details,
+            'count': len(details),
+        })
+    except requests.exceptions.Timeout:
+        return jsonify({'success': False, 'error': 'Purchase request lookup timed out'}), 504
+    except requests.exceptions.ConnectionError:
+        return jsonify({'success': False, 'error': 'Cannot reach SQL API for purchase request lookup'}), 503
+    except Exception as exc:
+        print(f"[SUPPLIER BIDDING PR DETAIL] error: {exc}", flush=True)
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
+@app.route('/api/procurement/bidding/submit', methods=['POST'])
+@api_login_required(unauth_message='Unauthorized')
+def api_supplier_submit_bid():
+    """Submit supplier bid lines for an invited purchase request."""
+    payload = request.get_json(silent=True) or {}
+    raw_request_id = str(payload.get('requestId') or '').strip()
+    request_no = str(payload.get('requestNumber') or '').strip()
+    bid_lines = payload.get('bidLines') if isinstance(payload.get('bidLines'), list) else []
+    remarks = str(payload.get('remarks') or '').strip()
+
+    supplier_code = str(payload.get('supplierCode') or session.get('customer_code') or '').strip()
+    supplier_name = str(payload.get('supplierName') or session.get('user_email') or '').strip()
+    actor = (session.get('user_email') or supplier_code or 'supplier').strip()
+
+    if not raw_request_id and not request_no:
+        return jsonify({'success': False, 'error': 'requestId or requestNumber is required'}), 400
+    if not supplier_code:
+        return jsonify({'success': False, 'error': 'supplierCode is required'}), 400
+    if not bid_lines:
+        return jsonify({'success': False, 'error': 'bidLines[] is required'}), 400
+
+    try:
+        headers = _build_sql_api_auth_headers()
+        request_header, last_status = _resolve_purchase_request_header(raw_request_id, request_no, headers, timeout=12)
+        if not request_header:
+            if last_status == 404:
+                return jsonify({'success': False, 'error': 'Purchase request not found'}), 404
+            return jsonify({'success': False, 'error': f'SQL API returned {last_status} while loading purchase request'}), 502
+
+        request_dockey = int(request_header.get('dockey'))
+        request_docno = str(request_header.get('docno') or '').strip()
+        result = submit_supplier_bid(
+            request_dockey=request_dockey,
+            request_no=request_docno,
+            supplier_code=supplier_code,
+            supplier_name=supplier_name,
+            bid_lines=bid_lines,
+            remarks=remarks,
+            created_by=actor,
+        )
+        return jsonify({'success': True, 'message': 'Bid submitted successfully', 'data': result})
+    except BiddingValidationError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+    except requests.exceptions.Timeout:
+        return jsonify({'success': False, 'error': 'Purchase request lookup timed out'}), 504
+    except requests.exceptions.ConnectionError:
+        return jsonify({'success': False, 'error': 'Cannot reach SQL API for purchase request lookup'}), 503
+    except Exception as exc:
+        print(f"[SUPPLIER BIDDING SUBMIT] error: {exc}", flush=True)
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
+@app.route('/api/admin/procurement/purchase-requests/<int:request_id>/bids', methods=['GET'])
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_list_request_bids(request_id):
+    """List supplier bids and transfer gate state for one purchase request."""
+    try:
+        bids = list_bids_for_request(request_id)
+        gate = get_transfer_gate_state(request_id)
+        return jsonify({'success': True, 'data': bids, 'count': len(bids), 'gate': gate})
+    except Exception as exc:
+        print(f"[PROCUREMENT BIDDING LIST] error: {exc}", flush=True)
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
+@app.route('/api/admin/procurement/purchase-requests/<int:request_id>/bids/<int:bid_id>/approve', methods=['POST'])
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_approve_bid(request_id, bid_id):
+    """Approve one supplier bid for a purchase request."""
+    actor = (session.get('user_email') or session.get('user_name') or 'admin').strip()
+    try:
+        result = approve_bid(request_id, bid_id, actor)
+        gate = get_transfer_gate_state(request_id)
+        return jsonify({'success': True, 'message': 'Bid approved', 'data': result, 'gate': gate})
+    except BiddingValidationError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+    except Exception as exc:
+        print(f"[PROCUREMENT BIDDING APPROVE] error: {exc}", flush=True)
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
+@app.route('/api/admin/procurement/purchase-requests/<int:request_id>/bids/<int:bid_id>/reject', methods=['POST'])
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_reject_bid(request_id, bid_id):
+    """Reject one supplier bid for a purchase request."""
+    payload = request.get_json(silent=True) or {}
+    actor = (session.get('user_email') or session.get('user_name') or 'admin').strip()
+    remarks = str(payload.get('remarks') or '').strip()
+    try:
+        result = reject_bid(request_id, bid_id, actor, remarks)
+        gate = get_transfer_gate_state(request_id)
+        return jsonify({'success': True, 'message': 'Bid rejected', 'data': result, 'gate': gate})
+    except BiddingValidationError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+    except Exception as exc:
+        print(f"[PROCUREMENT BIDDING REJECT] error: {exc}", flush=True)
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
 @app.route('/api/admin/procurement/purchase-requests/transfer-to-po', methods=['POST'])
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_transfer_purchase_request_to_po():
@@ -3744,47 +4171,14 @@ def api_admin_transfer_purchase_request_to_po():
 
     try:
         headers = _build_sql_api_auth_headers()
-        candidates = []
-
-        if raw_request_id:
-            try:
-                request_id_int = int(raw_request_id)
-                candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest/{request_id_int}", None))
-                candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest", {'dockey': request_id_int}))
-                candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest", {'id': request_id_int}))
-            except ValueError:
-                pass
-
-        if request_no:
-            candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest/{request_no}", None))
-            candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest", {'docno': request_no}))
-            candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest", {'requestno': request_no}))
-
-        request_header = None
-        last_status = 404
-        for url, params in candidates:
-            resp = requests.get(
-                url,
-                params=params,
-                headers=headers or None,
-                timeout=12,
-            )
-            last_status = resp.status_code
-            if not resp.ok:
-                continue
-
-            body = resp.json() if resp.text else {}
-            data_rows = body.get('data', []) if isinstance(body, dict) else []
-            if isinstance(data_rows, list) and data_rows:
-                first = data_rows[0]
-                if isinstance(first, dict):
-                    request_header = first
-                    break
+        request_header, last_status = _resolve_purchase_request_header(raw_request_id, request_no, headers, timeout=12)
 
         if not request_header:
             if last_status == 404:
                 return jsonify({'success': False, 'error': 'Purchase request not found'}), 404
             return jsonify({'success': False, 'error': f'SQL API returned {last_status} while loading purchase request'}), 502
+
+        request_dockey = int(request_header.get('dockey'))
 
         udf_status_text = str(
             request_header.get('udf_status')
@@ -3799,8 +4193,12 @@ def api_admin_transfer_purchase_request_to_po():
         if udf_status_text != 'APPROVED':
             return jsonify({'success': False, 'error': 'Transfer is allowed only when purchase request UDF status is APPROVED'}), 400
 
-        # Resolve supplier master data (especially currency) from SQL supplier API by PR CODE.
-        supplier_code = str(request_header.get('code') or '').strip()
+        requested_supplier_code = str(supplier.get('code') or request_header.get('code') or '').strip()
+        approved_bid = validate_transfer_against_approved_bid(request_dockey, requested_supplier_code, transfer_lines)
+        request_for_transfer, approved_supplier = apply_approved_bid_to_request(request_header, approved_bid)
+
+        # Resolve supplier master data (especially currency) from SQL supplier API by selected supplier code.
+        supplier_code = str(approved_supplier.get('code') or request_for_transfer.get('code') or '').strip()
         supplier_master = dict(supplier)
         if supplier_code:
             offset = 0
@@ -3838,14 +4236,14 @@ def api_admin_transfer_purchase_request_to_po():
                 if offset >= total_count:
                     break
 
-        # Fallback values from PR header if supplier lookup does not return a hit.
+        # Fallback values from selected supplier/request if supplier lookup does not return a hit.
         if not supplier_master.get('code'):
             supplier_master['code'] = supplier_code
         if not supplier_master.get('companyname'):
-            supplier_master['companyname'] = str(request_header.get('companyname') or '').strip()
+            supplier_master['companyname'] = str(approved_supplier.get('companyname') or request_for_transfer.get('companyname') or '').strip()
 
         transfer_result = transfer_purchase_request_to_po(
-            purchase_request=request_header,
+            purchase_request=request_for_transfer,
             transfer_lines=transfer_lines,
             supplier=supplier_master,
             created_by=actor,
@@ -3857,6 +4255,8 @@ def api_admin_transfer_purchase_request_to_po():
             'message': 'Purchase request transferred to purchase order successfully',
             'data': transfer_result,
         })
+    except BiddingValidationError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
     except PurchaseOrderTransferValidationError as exc:
         return jsonify({'success': False, 'error': str(exc)}), 400
     except requests.exceptions.Timeout:
@@ -3886,6 +4286,7 @@ def api_admin_update_purchase_request_status(request_number):
     except Exception as exc:
         print(f"[PROCUREMENT PR STATUS] error: {exc}", flush=True)
         return jsonify({'success': False, 'error': str(exc)}), 500
+
 
 @app.route('/api/get_product_price')
 @api_login_required(unauth_message='Unauthorized')
@@ -4064,6 +4465,23 @@ def api_get_product_price():
     except Exception as e:
         print(f"Error getting product price: {e}", flush=True)
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/procurement/purchase-requests/<int:request_id>/edit', methods=['PATCH'])
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_edit_purchase_request(request_id):
+    """Edit draft purchase request header/detail values from View PR."""
+    payload = request.get_json(silent=True) or {}
+    actor = (session.get('user_email') or session.get('user_name') or 'admin').strip()
+
+    try:
+        result = update_purchase_request(request_id, payload, actor)
+        return jsonify({'success': True, 'message': 'Purchase request updated', 'data': result})
+    except PurchaseRequestValidationError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+    except Exception as exc:
+        print(f"[PROCUREMENT PR EDIT] error: {exc}", flush=True)
+        return jsonify({'success': False, 'error': str(exc)}), 500
 
 
 @app.route('/api/admin/procurement/purchase-requests/details/approval', methods=['POST'])

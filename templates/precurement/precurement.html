@@ -45,16 +45,12 @@
                             <div class="location-filter-shell" style="margin-bottom: 12px;">
                                 <div class="location-filter-row" style="align-items: end; gap: 12px; flex-wrap: wrap;">
                                     <label class="pr-field" style="max-width: 180px; margin-bottom: 0;">
-                                        <span>From Date</span>
+                                        <span>Last Cutoff Date</span>
                                         <input type="date" id="stock-card-from-date" />
                                     </label>
-                                    <label class="pr-field" style="max-width: 180px; margin-bottom: 0;">
-                                        <span>To Date</span>
-                                        <input type="date" id="stock-card-to-date" />
-                                    </label>
                                     <div class="location-filter-actions" style="gap: 8px;">
-                                        <button type="button" class="view-pr-refresh-btn" onclick="applyStockCardDateFilter()">Apply Date Filter</button>
-                                        <button type="button" class="view-pr-refresh-btn" onclick="clearStockCardDateFilter()">Clear Dates</button>
+                                        <button type="button" class="view-pr-refresh-btn" onclick="applyStockCardDateFilter()">Apply Cutoff</button>
+                                        <button type="button" class="view-pr-refresh-btn" onclick="clearStockCardDateFilter()">Clear Cutoff</button>
                                     </div>
                                 </div>
                                 <div class="location-filter-row" style="margin-top: 10px; align-items: center; gap: 10px;">
@@ -139,13 +135,12 @@
                             <div class="view-pr-actions">
                                 <div class="view-pr-actions-left">
                                     <span class="view-pr-filter-label">Filter By</span>
-                                    <select id="view-pr-status-filter" class="view-pr-filter-select">
-                                        <option value="ALL">ALL</option>
-                                        <option value="APPROVED">APPROVED</option>
-                                        <option value="CANCELLED">CANCELLED</option>
-                                        <option value="PENDING">PENDING</option>
-                                    </select>
-                                    <button type="button" class="view-pr-refresh-btn" onclick="applyViewStatusFilter()">Filter</button>
+                                    <div class="view-pr-filter-tabs" id="view-pr-filter-tabs">
+                                        <button type="button" class="view-pr-filter-tab is-active" data-status="ALL" onclick="setViewStatusFilter('ALL')">ALL</button>
+                                        <button type="button" class="view-pr-filter-tab" data-status="APPROVED" onclick="setViewStatusFilter('APPROVED')">APPROVED</button>
+                                        <button type="button" class="view-pr-filter-tab" data-status="CANCELLED" onclick="setViewStatusFilter('CANCELLED')">CANCELLED</button>
+                                        <button type="button" class="view-pr-filter-tab" data-status="PENDING" onclick="setViewStatusFilter('PENDING')">PENDING</button>
+                                    </div>
                                 </div>
                                 <div class="view-pr-actions-right">
                                     <button type="button" class="view-pr-refresh-btn" onclick="loadViewPurchaseRequests(true)">Refresh</button>
@@ -157,6 +152,66 @@
                                     <div class="view-pr-empty">Loading e-Purchase Request records...</div>
                                 </div>
                             </div>
+                            <div id="pr-edit-modal" class="pr-edit-modal" style="display:none;">
+                                <div class="pr-edit-modal-backdrop" onclick="closePurchaseRequestEdit()"></div>
+                                <div class="pr-edit-modal-dialog">
+                                    <div class="pr-edit-modal-header">
+                                        <h3 id="pr-edit-title">Edit Purchase Request</h3>
+                                        <button type="button" class="pr-edit-close" onclick="closePurchaseRequestEdit()">x</button>
+                                    </div>
+                                    <div class="pr-edit-modal-body">
+                                        <div class="pr-edit-grid">
+                                            <label class="pr-field">
+                                                <span>Request Number</span>
+                                                <input type="text" id="pr-edit-request-number" readonly class="pr-system-generated" />
+                                            </label>
+                                            <label class="pr-field">
+                                                <span>Required Date</span>
+                                                <input type="date" id="pr-edit-required-date" />
+                                            </label>
+                                            <label class="pr-field">
+                                                <span>Cost Center</span>
+                                                <input type="text" id="pr-edit-cost-center" />
+                                            </label>
+                                            <label class="pr-field">
+                                                <span>Currency</span>
+                                                <input type="text" id="pr-edit-currency" maxlength="8" />
+                                            </label>
+                                            <label class="pr-field pr-field-wide">
+                                                <span>Description</span>
+                                                <input type="text" id="pr-edit-description" />
+                                            </label>
+                                            <label class="pr-field pr-field-wide">
+                                                <span>Delivery Location</span>
+                                                <input type="text" id="pr-edit-delivery-location" />
+                                            </label>
+                                        </div>
+
+                                        <div class="pr-edit-lines-wrap">
+                                            <table class="pr-edit-lines-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Line</th>
+                                                        <th>Item</th>
+                                                        <th>Description</th>
+                                                        <th>Qty</th>
+                                                        <th>Unit Price</th>
+                                                        <th>Delivery Date</th>
+                                                        <th>Amount</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="pr-edit-lines-body"></tbody>
+                                            </table>
+                                        </div>
+                                        <div class="pr-edit-summary">Total Amount: <strong id="pr-edit-total-amount">0.00</strong></div>
+                                        <div id="pr-edit-message" class="pr-form-message" style="display:none;"></div>
+                                    </div>
+                                    <div class="pr-edit-modal-footer">
+                                        <button type="button" class="pr-secondary-btn" onclick="closePurchaseRequestEdit()">Cancel</button>
+                                        <button type="button" class="pr-primary-btn" id="pr-edit-save-btn" onclick="savePurchaseRequestEdit()">Save Changes</button>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                         <div id="panel-create" class="panel-content" style="display: none;">
                             <h2 style="margin-bottom: 12px;">Create e-Purchase Request</h2>
@@ -166,12 +221,6 @@
                                         <label class="pr-field">
                                             <span>Request Number</span>
                                             <input type="text" id="pr-request-number" readonly class="pr-system-generated" />
-                                        </label>
-                                        <label class="pr-field">
-                                            <span>Supplier</span>
-                                            <select id="pr-supplier-id">
-                                                <option value="">Select supplier</option>
-                                            </select>
                                         </label>
                                     </div>
                                     <div class="pr-form-row">
@@ -220,6 +269,117 @@
                                                 font-style: italic;
                                                 border: 1px solid #ddd;
                                             }
+                                            /* Supplier table */
+                                            .pr-supplier-section { margin-top: 18px; }
+                                            .pr-supplier-section h3 { margin-bottom: 10px; font-size: 15px; }
+                                            .pr-supplier-add-row {
+                                                display: flex; gap: 8px; align-items: center;
+                                                margin-bottom: 10px; position: relative;
+                                            }
+                                            .pr-supplier-add-row input {
+                                                flex: 1; padding: 6px 10px; border: 1px solid #ccc;
+                                                border-radius: 6px; font-size: 13px; outline: none;
+                                                color: #1f2937; background: #fff;
+                                            }
+                                            .pr-supplier-add-row input:focus { border-color: #1a56db; }
+                                            .supplier-dropdown {
+                                                position: absolute; top: 100%; left: 0;
+                                                min-width: 340px;
+                                                background: #fff; border: 1px solid #ccc;
+                                                border-top: none; border-radius: 0 0 6px 6px;
+                                                max-height: 220px; overflow-y: auto;
+                                                z-index: 999; box-shadow: 0 4px 12px rgba(0,0,0,.10);
+                                            }
+                                            .supplier-dropdown-item {
+                                                padding: 7px 12px; cursor: pointer; font-size: 13px;
+                                                display: flex; gap: 8px; align-items: baseline;
+                                                color: #1f2937;
+                                            }
+                                            .supplier-dropdown-item:hover { background: #f0f4ff; }
+                                            .supplier-dropdown-item.already-selected { opacity:.4; pointer-events:none; }
+                                            .pr-supplier-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+                                            .pr-supplier-table th { background: #f5f7fa; color: #334155; padding: 7px 10px; text-align: left; border-bottom: 2px solid #e2e8f0; font-weight: 600; }
+                                            .pr-supplier-table td { background: #fff; color: #1f2937; padding: 7px 10px; border-bottom: 1px solid #e2e8f0; vertical-align: middle; }
+                                            .pr-supplier-table tr:last-child td { border-bottom: none; }
+                                            .pr-supplier-remove-btn {
+                                                background: none; border: none; color: #e53e3e;
+                                                cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 6px;
+                                            }
+                                            .pr-supplier-empty { color: #aaa; font-style: italic; font-size: 13px; padding: 8px 0; }
+                                            .view-pr-filter-tabs { display: inline-flex; gap: 6px; align-items: center; }
+                                            .view-pr-filter-tab {
+                                                border: 1px solid #3c4e63;
+                                                background: #223349;
+                                                color: #d4deea;
+                                                border-radius: 999px;
+                                                padding: 4px 10px;
+                                                font-size: 12px;
+                                                cursor: pointer;
+                                            }
+                                            .view-pr-filter-tab.is-active {
+                                                background: #1a87d8;
+                                                border-color: #1a87d8;
+                                                color: #fff;
+                                                font-weight: 600;
+                                            }
+                                            .view-pr-status-badge {
+                                                display: inline-flex;
+                                                align-items: center;
+                                                padding: 2px 8px;
+                                                border-radius: 999px;
+                                                background: #24364f;
+                                                border: 1px solid #375173;
+                                                color: #c6d8eb;
+                                                font-size: 11px;
+                                                font-weight: 700;
+                                                letter-spacing: 0.3px;
+                                            }
+                                            .pr-edit-modal { position: fixed; inset: 0; z-index: 1200; }
+                                            .pr-edit-modal-backdrop { position: absolute; inset: 0; background: rgba(8, 15, 25, 0.58); }
+                                            .pr-edit-modal-dialog {
+                                                position: relative;
+                                                width: min(1080px, calc(100vw - 32px));
+                                                max-height: calc(100vh - 44px);
+                                                margin: 22px auto;
+                                                background: #182234;
+                                                color: #dce7f3;
+                                                border: 1px solid #30425e;
+                                                border-radius: 12px;
+                                                overflow: hidden;
+                                                display: flex;
+                                                flex-direction: column;
+                                            }
+                                            .pr-edit-modal-header {
+                                                display: flex;
+                                                align-items: center;
+                                                justify-content: space-between;
+                                                padding: 12px 14px;
+                                                border-bottom: 1px solid #2f405a;
+                                            }
+                                            .pr-edit-close {
+                                                background: transparent;
+                                                border: 1px solid #3c4f6d;
+                                                color: #c8d8ea;
+                                                border-radius: 8px;
+                                                width: 32px;
+                                                height: 28px;
+                                                cursor: pointer;
+                                            }
+                                            .pr-edit-modal-body { padding: 14px; overflow: auto; }
+                                            .pr-edit-grid { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+                                            .pr-edit-lines-wrap { overflow: auto; border: 1px solid #2c3f5c; border-radius: 8px; }
+                                            .pr-edit-lines-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+                                            .pr-edit-lines-table th { background: #21324a; color: #cfe0f2; padding: 8px; border-bottom: 1px solid #2f405a; text-align: left; }
+                                            .pr-edit-lines-table td { padding: 8px; border-bottom: 1px solid #2a3a53; }
+                                            .pr-edit-lines-table input { width: 100%; min-width: 100px; }
+                                            .pr-edit-summary { text-align: right; margin-top: 10px; font-size: 13px; }
+                                            .pr-edit-modal-footer {
+                                                padding: 12px 14px;
+                                                border-top: 1px solid #2f405a;
+                                                display: flex;
+                                                justify-content: flex-end;
+                                                gap: 10px;
+                                            }
                                         </style>
                                 </div>
 
@@ -236,7 +396,7 @@
                                                 <th>Description</th>
                                                 <th>Qty <em>*</em></th>
                                                 <th>Unit Price <em>*</em></th>
-                                                <th>Tax</th>
+                                                <th>Delivery Date</th>
                                                 <th>Amount</th>
                                                 <th></th>
                                             </tr>
@@ -251,9 +411,33 @@
                                     <div class="pr-summary-block">Total: <strong id="pr-grand-total">0.00</strong></div>
                                 </div>
 
+                                <!-- Supplier selection table -->
+                                <div class="pr-supplier-section">
+                                    <h3>Invite Suppliers to Bid</h3>
+                                    <div class="pr-supplier-add-row" style="position:relative;">
+                                        <input id="pr-supplier-search" type="text" placeholder="Search supplier by name or code…" autocomplete="off" />
+                                        <div id="pr-supplier-dropdown" class="supplier-dropdown" style="display:none;"></div>
+                                    </div>
+                                    <table class="pr-supplier-table">
+                                        <thead>
+                                            <tr>
+                                                <th>#</th>
+                                                <th>Code</th>
+                                                <th>Company Name</th>
+                                                <th>Email</th>
+                                                <th></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="pr-supplier-tbody">
+                                            <tr id="pr-supplier-empty-row">
+                                                <td colspan="5" class="pr-supplier-empty">No suppliers added. Search and select above.</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+
                                 <div class="pr-actions">
-                                    <button type="button" class="pr-secondary-btn" onclick="savePurchaseRequestDraft()">Save Draft</button>
-                                    <button type="button" class="pr-primary-btn" id="pr-submit-btn" onclick="submitPurchaseRequest()">Submit Purchase Request</button>
+                                    <button type="button" class="pr-primary-btn" id="pr-submit-btn" onclick="submitPurchaseRequest()">Save Purchase Request</button>
                                 </div>
 
                                 <div id="pr-form-message" class="pr-form-message" style="display:none;"></div>
@@ -307,6 +491,7 @@
         let viewHeaderStatusPendingChanges = new Map();
         let viewApprovalSaving = false;
         let viewStatusFilter = 'ALL';
+        let prEditState = null;
 
         const stockCardMetricGroups = [
             { key: 'avail_qty_by_location', label: 'Quantity on Hand' },
@@ -323,144 +508,86 @@
             return 1 + (stockCardMetricGroups.length * locationCount);
         }
 
-        function showTab(tab) {
-            document.getElementById('tab-report').classList.remove('active');
-            document.getElementById('tab-view').classList.remove('active');
-            document.getElementById('tab-create').classList.remove('active');
-            document.getElementById('panel-report').style.display = 'none';
-            document.getElementById('panel-view').style.display = 'none';
-            document.getElementById('panel-create').style.display = 'none';
-
-            if (tab === 'report') {
-                document.getElementById('tab-report').classList.add('active');
-                document.getElementById('panel-report').style.display = '';
-                if (!reportLoaded) {
-                    loadStockCardRows();
-                }
-            } else if (tab === 'view') {
-                document.getElementById('tab-view').classList.add('active');
-                document.getElementById('panel-view').style.display = '';
-                if (!viewPurchaseRequestsLoaded) {
-                    loadViewPurchaseRequests(false);
-                }
-            } else {
-                document.getElementById('tab-create').classList.add('active');
-                document.getElementById('panel-create').style.display = '';
-                if (typeof loadNextPurchaseRequestNumber === 'function') {
-                    loadNextPurchaseRequestNumber();
-                }
-            }
-        }
-
-        function formatPrDate(value) {
-            if (!value) return '-';
-            const d = new Date(value);
-            if (Number.isNaN(d.getTime())) {
-                return escapeHtml(String(value));
-            }
-            return d.toLocaleDateString();
-        }
-
-        function statusClass(status) {
-            const text = String(status || '').toUpperCase();
-            if (text === 'APPROVED') return 'approved';
-            if (text === 'REJECTED') return 'rejected';
-            if (text === 'CANCELLED') return 'cancelled';
-            if (text === 'SUBMITTED') return 'submitted';
-            return 'draft';
+        function normalizeUdfStatus(value) {
+            const text = String(value || '').trim().toUpperCase();
+            if (!text) return 'PENDING';
+            if (text === 'ACTIVE') return 'APPROVED';
+            if (text === 'INACTIVE') return 'CANCELLED';
+            return text;
         }
 
         function toApprovalBool(value) {
-            if (value === true || value === 1) return true;
-            const text = String(value || '').trim().toLowerCase();
-            return text === 'true' || text === '1' || text === 't' || text === 'y';
-        }
-
-        function normalizeUdfStatus(value) {
-            const text = String(value || '').trim().toUpperCase();
-            if (text === 'ACTIVE') {
-                return 'APPROVED';
-            }
-            if (text === 'INACTIVE') {
-                return 'CANCELLED';
-            }
-            if (text === 'APPROVED' || text === 'CANCELLED' || text === 'PENDING') {
-                return text;
-            }
-            return 'PENDING';
-        }
-
-        function getFilteredViewPurchaseRequests() {
-            if (viewStatusFilter === 'ALL') {
-                return viewPurchaseRequests;
-            }
-            return viewPurchaseRequests.filter((row) => normalizeUdfStatus(row.udfStatus) === viewStatusFilter);
-        }
-
-        function renderFilteredViewPurchaseRequests() {
-            renderViewPurchaseRequests(getFilteredViewPurchaseRequests());
-        }
-
-        function applyViewStatusFilter() {
-            const select = document.getElementById('view-pr-status-filter');
-            if (!select) {
-                return;
-            }
-            const selected = String(select.value || 'ALL').toUpperCase();
-            viewStatusFilter = (selected === 'APPROVED' || selected === 'CANCELLED' || selected === 'PENDING')
-                ? selected
-                : 'ALL';
-            renderFilteredViewPurchaseRequests();
-        }
-
-        function updateViewApprovalButtonState() {
-            const btn = document.getElementById('view-pr-update-btn');
-            if (!btn) return;
-            const count = viewApprovalPendingChanges.size + viewHeaderStatusPendingChanges.size;
-            btn.disabled = viewApprovalSaving || count === 0;
-            btn.textContent = viewApprovalSaving
-                ? 'Updating...'
-                : (count > 0 ? `Update Details (${count})` : 'Update Details');
+            const text = String(value ?? '').trim().toUpperCase();
+            if (text === '1' || text === 'TRUE' || text === 'Y' || text === 'YES' || text === 'T') return true;
+            if (text === '0' || text === 'FALSE' || text === 'N' || text === 'NO' || text === 'F') return false;
+            return Boolean(value);
         }
 
         function hasPendingApprovalChangesForHeader(headerId) {
+            const target = Number(headerId || 0);
+            if (!target) return false;
             for (const change of viewApprovalPendingChanges.values()) {
-                if (Number(change.requestId || 0) === Number(headerId || 0)) {
+                if (Number(change.requestId || 0) === target) {
                     return true;
                 }
             }
             return false;
         }
 
-        function clampTransferQuantity(value, maxQty) {
-            const numericMax = Number(maxQty || 0);
-            const parsed = Number(value);
-            if (!Number.isFinite(parsed) || parsed <= 0) {
-                return 0;
+        function hasPendingHeaderStatusChangesForHeader(headerId) {
+            return viewHeaderStatusPendingChanges.has(String(headerId));
+        }
+
+        function updateViewApprovalButtonState() {
+            const btn = document.getElementById('view-pr-update-btn');
+            if (!btn) return;
+            const hasChanges = viewApprovalPendingChanges.size > 0 || viewHeaderStatusPendingChanges.size > 0;
+            btn.disabled = viewApprovalSaving || !hasChanges;
+            btn.textContent = viewApprovalSaving ? 'Saving...' : 'Update Details';
+        }
+
+        function getFilteredViewPurchaseRequests() {
+            if (viewStatusFilter === 'ALL') {
+                return viewPurchaseRequests;
             }
-            if (!Number.isFinite(numericMax) || numericMax <= 0) {
-                return 0;
-            }
-            return Math.min(parsed, numericMax);
+            return (viewPurchaseRequests || []).filter((row) => normalizeUdfStatus(row.udfStatus) === viewStatusFilter);
+        }
+
+        function renderFilteredViewPurchaseRequests() {
+            renderViewPurchaseRequests(getFilteredViewPurchaseRequests());
+        }
+
+        function setViewStatusFilter(status) {
+            viewStatusFilter = String(status || 'ALL').toUpperCase();
+            const tabs = document.querySelectorAll('#view-pr-filter-tabs .view-pr-filter-tab');
+            tabs.forEach((tab) => {
+                const tabStatus = String(tab.getAttribute('data-status') || '').toUpperCase();
+                tab.classList.toggle('is-active', tabStatus === viewStatusFilter);
+            });
+            renderFilteredViewPurchaseRequests();
         }
 
         function getDetailMaxTransferQuantity(detail) {
-            if (!detail) {
-                return 0;
-            }
-            const remaining = Number(detail.remainingQty);
+            const remaining = Number(detail?.remainingQty);
+            const quantity = Number(detail?.quantity || 0);
             if (Number.isFinite(remaining)) {
                 return Math.max(0, remaining);
             }
-            const quantity = Number(detail.quantity);
-            return Number.isFinite(quantity) ? Math.max(0, quantity) : 0;
+            return Math.max(0, quantity);
+        }
+
+        function clampTransferQuantity(value, maxValue) {
+            const max = Math.max(0, Number(maxValue || 0));
+            const num = Number(value || 0);
+            if (!Number.isFinite(num) || num <= 0) {
+                return 0;
+            }
+            return Math.min(num, max);
         }
 
         function getDetailTransferQuantity(detail) {
-            if (!detail) {
-                return 0;
-            }
-            return clampTransferQuantity(detail.transferQty, getDetailMaxTransferQuantity(detail));
+            const max = getDetailMaxTransferQuantity(detail);
+            return clampTransferQuantity(detail?.transferQty, max);
         }
 
         function getSelectedTransferDetails(header) {
@@ -469,44 +596,24 @@
         }
 
         function getSelectedTransferQuantityTotal(header) {
-            return getSelectedTransferDetails(header)
-                .reduce((sum, detail) => sum + getDetailTransferQuantity(detail), 0);
+            return getSelectedTransferDetails(header).reduce((sum, detail) => sum + getDetailTransferQuantity(detail), 0);
         }
 
         function isPurchaseRequestTransferReady(header) {
-            if (!header || !header.transferable) {
-                return false;
-            }
-            if (normalizeUdfStatus(header.udfStatus) !== 'APPROVED') {
-                return false;
-            }
-            if (viewTransferSavingHeaderIds.has(Number(header.id || 0))) {
-                return false;
-            }
-            const details = Array.isArray(header.details) ? header.details : [];
-            if (!details.length || hasPendingApprovalChangesForHeader(header.id)) {
-                return false;
-            }
+            if (!header) return false;
+            if (hasPendingHeaderStatusChangesForHeader(header.id)) return false;
+            if (hasPendingApprovalChangesForHeader(header.id)) return false;
             const selectedDetails = getSelectedTransferDetails(header);
-            if (!selectedDetails.length) {
-                return false;
-            }
+            if (!selectedDetails.length) return false;
             return selectedDetails.every((detail) => toApprovalBool(detail._originalApproved));
         }
 
         function getPurchaseRequestTransferTitle(header) {
-            if (!header || !header.transferable) {
-                return 'This request is not marked transferable.';
+            if (!header) {
+                return 'Purchase request not found.';
             }
-            if (normalizeUdfStatus(header.udfStatus) !== 'APPROVED') {
-                return 'Transfer is allowed only when UDF status is APPROVED.';
-            }
-            if (viewTransferSavingHeaderIds.has(Number(header.id || 0))) {
-                return 'Transfer in progress...';
-            }
-            const details = Array.isArray(header.details) ? header.details : [];
-            if (!details.length) {
-                return 'Expand this request to load detail approval status before transfer.';
+            if (hasPendingHeaderStatusChangesForHeader(header.id)) {
+                return 'Save header status changes before transferring this request.';
             }
             if (hasPendingApprovalChangesForHeader(header.id)) {
                 return 'Save approval changes before transferring this request.';
@@ -720,6 +827,8 @@
             const htmlParts = [];
             rows.forEach((header) => {
                 const headerId = Number(header.id || 0);
+                const prStatus = String(header.status || 'DRAFT').toUpperCase();
+                const canEditDraft = prStatus === 'DRAFT';
                 const details = Array.isArray(header.details) ? header.details : [];
                 const isLoadingDetails = viewLoadingDetailIds.has(headerId);
                 const isExpanded = viewExpandedHeaderIds.has(headerId);
@@ -736,11 +845,20 @@
                                     <div class="view-pr-main-line">
                                         <span class="view-pr-toggle">${expander}</span>
                                         <span class="view-pr-docno">${escapeHtml(header.requestNumber || '-')}</span>
+                                        <span class="view-pr-status-badge">${escapeHtml(prStatus)}</span>
                                         <select class="view-pr-udf-status" onclick="event.stopPropagation()" onchange="onHeaderUdfStatusChange(${headerId}, this.value)">
                                             <option value="APPROVED" ${normalizeUdfStatus(header.udfStatus) === 'APPROVED' ? 'selected' : ''}>APPROVED</option>
                                             <option value="CANCELLED" ${normalizeUdfStatus(header.udfStatus) === 'CANCELLED' ? 'selected' : ''}>CANCELLED</option>
                                             <option value="PENDING" ${normalizeUdfStatus(header.udfStatus) === 'PENDING' ? 'selected' : ''}>PENDING</option>
                                         </select>
+                                        <button
+                                            type="button"
+                                            class="view-pr-refresh-btn"
+                                            style="padding:4px 8px;"
+                                            onclick="event.stopPropagation(); openPurchaseRequestEdit(${headerId});"
+                                            ${canEditDraft ? '' : 'disabled'}
+                                            title="${escapeHtml(canEditDraft ? 'Edit draft purchase request' : 'Only draft purchase requests can be edited')}"
+                                        >Edit</button>
                                     </div>
                                 </div>
                                 <div class="view-pr-meta-row" style="display: flex; gap: 4px; align-items: center; min-width: 0;">
@@ -749,6 +867,7 @@
                                 </div>
                                 <div class="view-pr-meta-row"><span>Request Date</span><strong>${formatPrDate(header.requestDate)}</strong></div>
                                 <div class="view-pr-meta-row"><span>Required Date</span><strong>${formatPrDate(header.requiredDate)}</strong></div>
+                                <div class="view-pr-meta-row"><span>Status</span><strong>${escapeHtml(prStatus)}</strong></div>
                                 <div class="view-pr-meta-row"><span>Currency</span><strong>${escapeHtml(header.currency || '-')}</strong></div>
                                 <div class="view-pr-meta-row"><span>Balance</span><strong>${formatStockCardNumber(header.balanceQty || 0)} / ${formatStockCardNumber(header.totalQty || 0)}</strong></div>
                                 <div class="view-pr-amount-col">
@@ -789,8 +908,7 @@
                         <td class="col-line">${escapeHtml(detail.seq || (idx + 1))}</td>
                         <td class="col-item-name">${escapeHtml(detail.itemName || '-')}</td>
                         <td class="col-location">${escapeHtml(detail.locationCode || '-')}</td>
-                        <td class="view-pr-num col-qty">${formatStockCardNumber(detail.quantity || 0)}</td>
-                        <td class="view-pr-num col-remaining-qty">${formatStockCardNumber(getDetailMaxTransferQuantity(detail))}</td>
+                        <td class="view-pr-num col-qty">${formatStockCardNumber(getDetailMaxTransferQuantity(detail))} / ${formatStockCardNumber(detail.quantity || 0)}</td>
                         <td class="col-transfer-qty">
                             <input
                                 type="number"
@@ -830,7 +948,6 @@
                                     <col class="col-item-name" />
                                     <col class="col-location" />
                                     <col class="col-qty" />
-                                    <col class="col-remaining-qty" />
                                     <col class="col-transfer-qty" />
                                     <col class="col-unit-price" />
                                     <col class="col-tax" />
@@ -842,8 +959,7 @@
                                         <th class="col-line">Line</th>
                                         <th class="col-item-name">Item Name</th>
                                         <th class="col-location">Location</th>
-                                        <th class="view-pr-num col-qty">Qty</th>
-                                        <th class="view-pr-num col-remaining-qty">Remaining Qty</th>
+                                        <th class="view-pr-num col-qty">Qty (Remaining/Total)</th>
                                         <th class="col-transfer-qty">Transfer Qty</th>
                                         <th class="view-pr-num col-unit-price">Unit Price</th>
                                         <th class="view-pr-num col-tax">Tax</th>
@@ -958,6 +1074,212 @@
                 });
         }
 
+        function _toInputDate(value) {
+            const text = String(value || '').trim();
+            if (!text) return '';
+            if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+            const d = new Date(text);
+            if (Number.isNaN(d.getTime())) return '';
+            return d.toISOString().slice(0, 10);
+        }
+
+        function _showPrEditMessage(message, kind) {
+            const el = document.getElementById('pr-edit-message');
+            if (!el) return;
+            el.style.display = '';
+            el.className = `pr-form-message ${kind || 'info'}`;
+            el.textContent = message || '';
+        }
+
+        function _clearPrEditMessage() {
+            const el = document.getElementById('pr-edit-message');
+            if (!el) return;
+            el.style.display = 'none';
+            el.textContent = '';
+        }
+
+        function renderPurchaseRequestEditLines() {
+            const body = document.getElementById('pr-edit-lines-body');
+            if (!body) return;
+            const lines = Array.isArray(prEditState?.lineItems) ? prEditState.lineItems : [];
+            if (!lines.length) {
+                body.innerHTML = '<tr><td colspan="7" class="view-pr-empty">No editable detail rows found.</td></tr>';
+                return;
+            }
+
+            body.innerHTML = lines.map((line, idx) => {
+                const amount = Number(line.quantity || 0) * Number(line.unitPrice || 0);
+                return `
+                    <tr>
+                        <td>${idx + 1}</td>
+                        <td>${escapeHtml(line.itemName || line.itemCode || '-')}</td>
+                        <td><input type="text" value="${escapeHtml(line.description || '')}" oninput="updatePurchaseRequestEditLine(${idx}, 'description', this.value)" /></td>
+                        <td><input type="number" min="0.0001" step="0.0001" value="${escapeHtml(line.quantity || 0)}" oninput="updatePurchaseRequestEditLine(${idx}, 'quantity', this.value)" /></td>
+                        <td><input type="number" min="0" step="0.01" value="${escapeHtml(line.unitPrice || 0)}" oninput="updatePurchaseRequestEditLine(${idx}, 'unitPrice', this.value)" /></td>
+                        <td><input type="date" value="${escapeHtml(line.deliveryDate || '')}" oninput="updatePurchaseRequestEditLine(${idx}, 'deliveryDate', this.value)" /></td>
+                        <td>${formatMoney(amount)}</td>
+                    </tr>
+                `;
+            }).join('');
+            recalcPurchaseRequestEditTotal();
+        }
+
+        function updatePurchaseRequestEditLine(index, key, value) {
+            if (!prEditState || !Array.isArray(prEditState.lineItems) || !prEditState.lineItems[index]) return;
+            if (key === 'quantity' || key === 'unitPrice') {
+                const num = Number(value);
+                prEditState.lineItems[index][key] = Number.isFinite(num) ? num : 0;
+            } else {
+                prEditState.lineItems[index][key] = value;
+            }
+            renderPurchaseRequestEditLines();
+        }
+
+        function recalcPurchaseRequestEditTotal() {
+            const total = (prEditState?.lineItems || []).reduce((sum, line) => {
+                return sum + (Number(line.quantity || 0) * Number(line.unitPrice || 0));
+            }, 0);
+            const el = document.getElementById('pr-edit-total-amount');
+            if (el) {
+                el.textContent = formatMoney(total);
+            }
+            return total;
+        }
+
+        async function openPurchaseRequestEdit(headerId) {
+            const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(headerId));
+            if (!header) {
+                return;
+            }
+            const prStatus = String(header.status || '').trim().toUpperCase();
+            if (prStatus !== 'DRAFT') {
+                alert('Only draft purchase requests can be edited.');
+                return;
+            }
+
+            _clearPrEditMessage();
+
+            let details = Array.isArray(header.details) ? header.details : null;
+            if (!details) {
+                const requestNo = encodeURIComponent(String(header.requestNumber || ''));
+                const res = await fetch(`/api/admin/procurement/purchase-requests/details?request_id=${headerId}&request_no=${requestNo}`);
+                const payload = await res.json();
+                if (!res.ok || !payload.success) {
+                    alert(payload.error || 'Failed to load PR details for edit');
+                    return;
+                }
+                details = Array.isArray(payload.details) ? payload.details : [];
+                header.details = details;
+            }
+
+            prEditState = {
+                requestId: Number(header.id || 0),
+                requestNumber: String(header.requestNumber || ''),
+                requiredDate: _toInputDate(header.requiredDate),
+                costCenter: String(header.departmentId || ''),
+                currency: String(header.currency || 'MYR'),
+                description: String(header.description || ''),
+                deliveryLocation: String(header.deliveryLocation || ''),
+                lineItems: (details || []).map((d) => ({
+                    detailId: Number(d.id || 0),
+                    itemCode: String(d.itemCode || ''),
+                    itemName: String(d.itemName || ''),
+                    description: String(d.description || ''),
+                    quantity: Number(d.quantity || 0),
+                    unitPrice: Number(d.unitPrice || 0),
+                    deliveryDate: _toInputDate(d.deliveryDate || header.requiredDate),
+                })).filter((d) => d.detailId > 0),
+            };
+
+            document.getElementById('pr-edit-title').textContent = `Edit Purchase Request ${prEditState.requestNumber || prEditState.requestId}`;
+            document.getElementById('pr-edit-request-number').value = prEditState.requestNumber;
+            document.getElementById('pr-edit-required-date').value = prEditState.requiredDate;
+            document.getElementById('pr-edit-cost-center').value = prEditState.costCenter;
+            document.getElementById('pr-edit-currency').value = prEditState.currency;
+            document.getElementById('pr-edit-description').value = prEditState.description;
+            document.getElementById('pr-edit-delivery-location').value = prEditState.deliveryLocation;
+
+            renderPurchaseRequestEditLines();
+            document.getElementById('pr-edit-modal').style.display = '';
+        }
+
+        function closePurchaseRequestEdit() {
+            prEditState = null;
+            _clearPrEditMessage();
+            const modal = document.getElementById('pr-edit-modal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
+        }
+
+        async function savePurchaseRequestEdit() {
+            if (!prEditState || !prEditState.requestId) {
+                return;
+            }
+
+            prEditState.requiredDate = String(document.getElementById('pr-edit-required-date').value || '').trim();
+            prEditState.costCenter = String(document.getElementById('pr-edit-cost-center').value || '').trim();
+            prEditState.currency = String(document.getElementById('pr-edit-currency').value || '').trim() || 'MYR';
+            prEditState.description = String(document.getElementById('pr-edit-description').value || '').trim();
+            prEditState.deliveryLocation = String(document.getElementById('pr-edit-delivery-location').value || '').trim();
+
+            if (!prEditState.requiredDate) {
+                _showPrEditMessage('Required Date is required.', 'error');
+                return;
+            }
+            if (!Array.isArray(prEditState.lineItems) || !prEditState.lineItems.length) {
+                _showPrEditMessage('At least one line item is required.', 'error');
+                return;
+            }
+
+            const badLine = prEditState.lineItems.find((l) => !(Number(l.quantity) > 0) || !(Number(l.unitPrice) >= 0));
+            if (badLine) {
+                _showPrEditMessage('Each line needs quantity > 0 and unit price >= 0.', 'error');
+                return;
+            }
+
+            const payload = {
+                requiredDate: prEditState.requiredDate,
+                costCenter: prEditState.costCenter,
+                currency: prEditState.currency,
+                description: prEditState.description,
+                deliveryLocation: prEditState.deliveryLocation,
+                lineItems: prEditState.lineItems.map((l) => ({
+                    detailId: Number(l.detailId || 0),
+                    description: String(l.description || '').trim(),
+                    quantity: Number(l.quantity || 0),
+                    unitPrice: Number(l.unitPrice || 0),
+                    deliveryDate: String(l.deliveryDate || '').trim(),
+                })),
+            };
+
+            const btn = document.getElementById('pr-edit-save-btn');
+            btn.disabled = true;
+            btn.textContent = 'Saving...';
+            _showPrEditMessage('Saving changes...', 'info');
+
+            try {
+                const res = await fetch(`/api/admin/procurement/purchase-requests/${prEditState.requestId}/edit`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    throw new Error(data.error || `Update failed (HTTP ${res.status})`);
+                }
+
+                _showPrEditMessage('Purchase request updated successfully.', 'success');
+                await loadViewPurchaseRequests(true);
+                closePurchaseRequestEdit();
+            } catch (error) {
+                _showPrEditMessage(error.message || 'Failed to update purchase request.', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Save Changes';
+            }
+        }
+
         function renderStockCardHeader(locations) {
             const locationColumns = Array.isArray(locations) ? locations : [];
             const thead = document.getElementById('stock-card-table-head');
@@ -1046,7 +1368,7 @@
 
             if (!selectedEntries.length) {
                 // No selection: go straight to create with a blank line item
-                window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: '', description: '', quantity: 1, unitPrice: 0, tax: 0 }];
+                window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: '', description: '', quantity: 1, unitPrice: 0, deliveryDate: '' }];
                 showTab('create');
                 renderPurchaseRequestLineItems();
                 showPurchaseRequestMessage('Starting a new e-Purchase Request.', 'info');
@@ -1057,13 +1379,9 @@
                 const code = String(entry.itemCode || '').trim();
                 const locationCode = String(entry.locationCode || '').trim();
                 const locationText = locationCode ? ` (${locationCode})` : '';
-                let unitPrice = 0;
                 let itemName = code;
                 const product = typeof findPrProductByCode === 'function' ? findPrProductByCode(code) : (window.prCatalogProducts || []).find((p) => String(p.CODE || '').trim() === code);
                 if (product) {
-                    if (Number.isFinite(Number(product.UDF_STDPRICE))) {
-                        unitPrice = Number(product.UDF_STDPRICE);
-                    }
                     if (product.DESCRIPTION) {
                         itemName = String(product.DESCRIPTION).trim();
                     }
@@ -1074,8 +1392,8 @@
                     locationCode,
                     description: `Auto-selected from Overall Report${locationText}`,
                     quantity: Number(entry.quantity || 0),
-                    unitPrice: unitPrice,
-                    tax: 0,
+                    unitPrice: 0,
+                    deliveryDate: String(document.getElementById('pr-required-date')?.value || '').trim(),
                 };
             });
 
@@ -1358,20 +1676,12 @@
             tbody.innerHTML = `<tr><td colspan="${loadingColumns}" class="stock-card-status">Loading stock items...</td></tr>`;
 
             const fromDateInput = document.getElementById('stock-card-from-date');
-            const toDateInput = document.getElementById('stock-card-to-date');
             const fromDate = fromDateInput ? String(fromDateInput.value || '').trim() : '';
-            const toDate = toDateInput ? String(toDateInput.value || '').trim() : '';
             const query = new URLSearchParams();
 
-            if (fromDate && toDate && fromDate > toDate) {
-                tbody.innerHTML = `<tr><td colspan="${loadingColumns}" class="stock-card-status">From Date cannot be after To Date.</td></tr>`;
-                return;
-            }
             if (fromDate) {
                 query.set('from_date', fromDate);
-            }
-            if (toDate) {
-                query.set('to_date', toDate);
+                query.set('to_date', prTodayIso());
             }
             if (stockCardQtyMode && stockCardQtyMode !== 'SQTY') {
                 query.set('qty_mode', stockCardQtyMode);
@@ -1428,12 +1738,8 @@
 
         function clearStockCardDateFilter() {
             const fromDateInput = document.getElementById('stock-card-from-date');
-            const toDateInput = document.getElementById('stock-card-to-date');
             if (fromDateInput) {
                 fromDateInput.value = '';
-            }
-            if (toDateInput) {
-                toDateInput.value = '';
             }
             loadStockCardRows();
         }
@@ -1506,10 +1812,9 @@
             if (!item) return;
             const qty = Number(item.quantity || 0);
             const unitPrice = Number(item.unitPrice || 0);
-            const tax = Number(item.tax || 0);
             const amountCell = document.getElementById(`pr-amount-${index}`);
             if (amountCell) {
-                amountCell.textContent = formatMoney((qty * unitPrice) + tax);
+                amountCell.textContent = formatMoney(qty * unitPrice);
             }
         }
 
@@ -1524,11 +1829,6 @@
             if (product) {
                 const description = String(product.DESCRIPTION || code).trim();
                 item.itemName = description;
-
-                const stdPrice = Number(product.UDF_STDPRICE);
-                if (Number.isFinite(stdPrice) && stdPrice >= 0) {
-                    item.unitPrice = stdPrice;
-                }
 
                 if (!String(item.description || '').trim()) {
                     item.description = description;
@@ -1558,7 +1858,7 @@
             if (!body) return;
 
             if (!window.purchaseRequestItems || !window.purchaseRequestItems.length) {
-                window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: '', description: '', quantity: 1, unitPrice: 0, tax: 0 }];
+                window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: '', description: '', quantity: 1, unitPrice: 0, deliveryDate: '' }];
             }
 
             body.innerHTML = window.purchaseRequestItems.map((item, idx) => {
@@ -1573,8 +1873,7 @@
 
                 const qty = Number(item.quantity || 0);
                 const unitPrice = Number(item.unitPrice || 0);
-                const tax = Number(item.tax || 0);
-                const amount = (qty * unitPrice) + tax;
+                const amount = qty * unitPrice;
                 return `
                     <tr data-pr-index="${idx}">
                         <td>
@@ -1586,7 +1885,7 @@
                         <td><input type="text" value="${escapeHtml(item.description || '')}" oninput="updatePurchaseRequestItem(${idx}, 'description', this.value)" /></td>
                         <td><input type="number" min="0.0001" step="0.0001" value="${escapeHtml(item.quantity || 0)}" oninput="updatePurchaseRequestItem(${idx}, 'quantity', this.value)" /></td>
                         <td><input type="number" min="0" step="0.01" value="${escapeHtml(item.unitPrice || 0)}" oninput="updatePurchaseRequestItem(${idx}, 'unitPrice', this.value)" /></td>
-                        <td><input type="number" min="0" step="0.01" value="${escapeHtml(item.tax || 0)}" oninput="updatePurchaseRequestItem(${idx}, 'tax', this.value)" /></td>
+                        <td><input type="date" value="${escapeHtml(item.deliveryDate || '')}" oninput="updatePurchaseRequestItem(${idx}, 'deliveryDate', this.value)" /></td>
                         <td class="pr-amount-cell" id="pr-amount-${idx}">${formatMoney(amount)}</td>
                         <td><button type="button" class="pr-row-remove" onclick="removePurchaseRequestLineItem(${idx})">x</button></td>
                     </tr>
@@ -1598,7 +1897,7 @@
 
         function updatePurchaseRequestItem(index, key, value) {
             if (!window.purchaseRequestItems || !window.purchaseRequestItems[index]) return;
-            if (key === 'quantity' || key === 'unitPrice' || key === 'tax') {
+            if (key === 'quantity' || key === 'unitPrice') {
                 const num = Number(value);
                 window.purchaseRequestItems[index][key] = Number.isFinite(num) ? num : 0;
             } else {
@@ -1610,7 +1909,7 @@
 
         function addPurchaseRequestLineItem() {
             if (!window.purchaseRequestItems) window.purchaseRequestItems = [];
-            window.purchaseRequestItems.push({ itemCode: '', itemName: '', locationCode: '', description: '', quantity: 1, unitPrice: 0, tax: 0 });
+            window.purchaseRequestItems.push({ itemCode: '', itemName: '', locationCode: '', description: '', quantity: 1, unitPrice: 0, deliveryDate: String(document.getElementById('pr-required-date')?.value || '').trim() });
             renderPurchaseRequestLineItems();
         }
 
@@ -1631,9 +1930,7 @@
             items.forEach((item) => {
                 const qty = Number(item.quantity || 0);
                 const unitPrice = Number(item.unitPrice || 0);
-                const tax = Number(item.tax || 0);
                 subtotal += qty * unitPrice;
-                taxTotal += tax;
             });
 
             const grand = subtotal + taxTotal;
@@ -1646,9 +1943,10 @@
         function buildPurchaseRequestPayload(status) {
             const totals = recalcPurchaseRequestTotals();
             const defaultProject = '----';
-            const supplierCode = document.getElementById('pr-supplier-id').value.trim();
-            const supplierObj = supplierList.find((s) => String(s.code || '').trim() === supplierCode) || null;
-            const supplierName = supplierObj ? String(supplierObj.companyname || '').trim() : '';
+            // Multi-supplier: use first selected as primary, pass all as array
+            const primarySupplier = selectedSuppliers[0] || null;
+            const supplierCode = primarySupplier ? primarySupplier.code : '';
+            const supplierName = primarySupplier ? primarySupplier.name : '';
             const lineItems = (window.purchaseRequestItems || []).map((item) => ({
                 itemCode: String(item.itemCode || '').trim(),
                 itemName: String(item.itemName || '').trim(),
@@ -1657,8 +1955,9 @@
                 project: String(item.project || defaultProject).trim() || defaultProject,
                 quantity: Number(item.quantity || 0),
                 unitPrice: Number(item.unitPrice || 0),
-                tax: Number(item.tax || 0),
-                amount: Number((Number(item.quantity || 0) * Number(item.unitPrice || 0) + Number(item.tax || 0)).toFixed(2)),
+                deliveryDate: String(item.deliveryDate || '').trim(),
+                tax: 0,
+                amount: Number((Number(item.quantity || 0) * Number(item.unitPrice || 0)).toFixed(2)),
             }));
 
             return {
@@ -1667,6 +1966,7 @@
                 project: defaultProject,
                 supplierId: supplierCode,
                 supplierName: supplierName,
+                suppliers: selectedSuppliers.map((s) => ({ code: s.code, name: s.name, email: s.email || '' })),
                 currency: document.getElementById('pr-currency').value.trim() || 'MYR',
                 requestDate: prTodayIso(),
                 requiredDate: document.getElementById('pr-required-date').value,
@@ -1690,7 +1990,6 @@
                 if (!item.itemName) return `line ${i + 1}: itemName is required`;
                 if (!(Number(item.quantity) > 0)) return `line ${i + 1}: quantity must be > 0`;
                 if (!(Number(item.unitPrice) >= 0)) return `line ${i + 1}: unitPrice must be >= 0`;
-                if (!(Number(item.tax) >= 0)) return `line ${i + 1}: tax must be >= 0`;
             }
 
             return '';
@@ -1707,9 +2006,9 @@
 
             try {
                 btn.disabled = true;
-                btn.textContent = status === 'DRAFT' ? 'Saving...' : 'Submitting...';
+                btn.textContent = 'Saving...';
 
-                showPurchaseRequestMessage(status === 'DRAFT' ? 'Saving draft...' : 'Submitting purchase request...', 'info');
+                showPurchaseRequestMessage('Saving draft purchase request...', 'info');
 
                 const response = await fetch('/api/admin/procurement/purchase-requests', {
                     method: 'POST',
@@ -1725,11 +2024,12 @@
                 }
 
                 const requestNumber = data.data && data.data.requestNumber ? data.data.requestNumber : 'N/A';
-                const msg = status === 'DRAFT'
-                    ? `Draft saved successfully. Request Number: ${requestNumber}`
-                    : `Purchase request submitted successfully. Request Number: ${requestNumber}`;
+                const msg = `Draft saved successfully. Request Number: ${requestNumber}`;
                 showPurchaseRequestMessage(msg, 'success');
                 document.getElementById('pr-request-number').value = requestNumber;
+                // Reset multi-supplier picker
+                selectedSuppliers = [];
+                _renderChips();
                 loadStockCardRows();
                 loadViewPurchaseRequests(true);
                 loadNextPurchaseRequestNumber();
@@ -1737,19 +2037,16 @@
                 showPurchaseRequestMessage(error.message || 'Failed to submit purchase request.', 'error');
             } finally {
                 btn.disabled = false;
-                btn.textContent = 'Submit Purchase Request';
+                btn.textContent = 'Save Purchase Request';
             }
         }
 
         function submitPurchaseRequest() {
-            submitPurchaseRequestInternal('SUBMITTED');
-        }
-
-        function savePurchaseRequestDraft() {
             submitPurchaseRequestInternal('DRAFT');
         }
 
         let supplierList = [];
+        let selectedSuppliers = []; // [{code, name, email}]
 
         function loadSuppliers() {
             fetch('/api/admin/procurement/suppliers')
@@ -1757,26 +2054,91 @@
                 .then((payload) => {
                     if (payload.success && Array.isArray(payload.data)) {
                         supplierList = payload.data;
-                        const supplierSelect = document.getElementById('pr-supplier-id');
-                        if (supplierSelect) {
-                            supplierSelect.innerHTML = '<option value="">Select supplier</option>';
-                            supplierList.forEach((s) => {
-                                const option = document.createElement('option');
-                                option.value = s.code || '';
-                                option.textContent = s.companyname
-                                    ? `${s.companyname} (${s.code || ''})`
-                                    : (s.code || 'Unknown supplier');
-                                supplierSelect.appendChild(option);
-                            });
-                        }
                         console.log('[Suppliers] Loaded', supplierList.length, 'suppliers');
                     } else {
                         console.warn('[Suppliers] Failed to load:', payload.error || payload);
                     }
+                    _initSupplierPicker();
                 })
-                .catch((err) => console.warn('[Suppliers] Fetch error:', err));
+                .catch((err) => { console.warn('[Suppliers] Fetch error:', err); _initSupplierPicker(); });
         }
 
+        function _initSupplierPicker() {
+            const search = document.getElementById('pr-supplier-search');
+            const dropdown = document.getElementById('pr-supplier-dropdown');
+            if (!search || !dropdown) return;
+            search.addEventListener('input', () => _renderDropdown(search.value.trim()));
+            search.addEventListener('focus', () => _renderDropdown(search.value.trim()));
+            search.addEventListener('keydown', (e) => { if (e.key === 'Escape') dropdown.style.display = 'none'; });
+            document.addEventListener('click', (e) => {
+                const addRow = document.querySelector('.pr-supplier-add-row');
+                if (addRow && !addRow.contains(e.target)) dropdown.style.display = 'none';
+            });
+        }
+
+        function _renderDropdown(query) {
+            const dropdown = document.getElementById('pr-supplier-dropdown');
+            const selectedCodes = new Set(selectedSuppliers.map((s) => s.code));
+            const q = query.toLowerCase();
+            const filtered = supplierList.filter((s) => {
+                const name = (s.companyname || '').toLowerCase();
+                const code = (s.code || '').toLowerCase();
+                return !q || name.includes(q) || code.includes(q);
+            });
+            if (!filtered.length) {
+                dropdown.innerHTML = '<div class="supplier-dropdown-item" style="color:#aaa;pointer-events:none;">No suppliers found</div>';
+                dropdown.style.display = 'block';
+                return;
+            }
+            dropdown.innerHTML = filtered.map((s) => {
+                const isSelected = selectedCodes.has(s.code);
+                const email = s.udf_email || '';
+                const safeName = (s.companyname || '').replace(/'/g, "\\'");
+                const safeEmail = email.replace(/'/g, "\\'");
+                return `<div class="supplier-dropdown-item${isSelected ? ' already-selected' : ''}" onclick="_addSupplier('${s.code}','${safeName}','${safeEmail}')">
+                    <span style="font-weight:600;min-width:80px;">${s.code}</span>
+                    <span style="flex:1;">${s.companyname || ''}</span>
+                    <span style="color:#9ba7b6;font-size:12px;">${email}</span>
+                    ${isSelected ? '<span style="color:#1a56db;margin-left:6px;">✓</span>' : ''}
+                </div>`;
+            }).join('');
+            dropdown.style.display = 'block';
+        }
+
+        function _addSupplier(code, name, email) {
+            if (selectedSuppliers.find((s) => s.code === code)) return;
+            selectedSuppliers.push({ code, name, email });
+            _renderSupplierTable();
+            const search = document.getElementById('pr-supplier-search');
+            search.value = '';
+            document.getElementById('pr-supplier-dropdown').style.display = 'none';
+        }
+
+        function _removeSupplier(code) {
+            selectedSuppliers = selectedSuppliers.filter((s) => s.code !== code);
+            _renderSupplierTable();
+        }
+
+        function _renderSupplierTable() {
+            const tbody = document.getElementById('pr-supplier-tbody');
+            if (!tbody) return;
+            const emptyRow = document.getElementById('pr-supplier-empty-row');
+            if (!selectedSuppliers.length) {
+                tbody.innerHTML = '<tr id="pr-supplier-empty-row"><td colspan="5" class="pr-supplier-empty">No suppliers added. Search and select above.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = selectedSuppliers.map((s, i) => `
+                <tr>
+                    <td>${i + 1}</td>
+                    <td><strong>${s.code}</strong></td>
+                    <td>${s.name || ''}</td>
+                    <td style="color:#555;">${s.email || '<span style="color:#bbb;">—</span>'}</td>
+                    <td><button type="button" class="pr-supplier-remove-btn" onclick="_removeSupplier('${s.code}')" title="Remove supplier">×</button></td>
+                </tr>`).join('');
+        }
+
+        // Keep legacy alias used by reset after submit
+        function _renderChips() { _renderSupplierTable(); }
         async function loadNextPurchaseRequestNumber() {
             const requestNumberInput = document.getElementById('pr-request-number');
             if (!requestNumberInput) {
@@ -1799,7 +2161,7 @@
         }
 
         function initPurchaseRequestForm() {
-            window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: '', description: '', quantity: 1, unitPrice: 0, tax: 0 }];
+            window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: '', description: '', quantity: 1, unitPrice: 0, deliveryDate: '' }];
             const requiredDateInput = document.getElementById('pr-required-date');
             if (requiredDateInput && !requiredDateInput.value) {
                 requiredDateInput.value = addDaysIso(prTodayIso(), 7);

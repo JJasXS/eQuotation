@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Supplier Bidding</title>
+    <link rel="stylesheet" href="/static/css/chat.css">
+    <link rel="stylesheet" href="/static/css/hamburger_menu.css">
+    <style>
+        body { background: linear-gradient(155deg, #f9f4ec 0%, #ece2d2 100%); color: #2a241b; }
+        .wrap { max-width: 1280px; margin: 16px auto; padding: 12px; }
+        .grid { display: grid; grid-template-columns: 340px 1fr; gap: 14px; }
+        .card { background: #fff; border: 1px solid #e2d8c5; border-radius: 12px; box-shadow: 0 8px 20px rgba(42, 36, 27, 0.08); }
+        .card-head { padding: 12px 14px; border-bottom: 1px solid #efe6d6; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+        .card-body { padding: 12px 14px; }
+        .muted { color: #6b6254; font-size: 12px; }
+        .pr-list { display: grid; gap: 8px; max-height: 72vh; overflow: auto; }
+        .pr-item { border: 1px solid #e9deca; border-radius: 9px; padding: 10px; background: #fcfaf6; cursor: pointer; }
+        .pr-item.active { border-color: #b6812f; background: #fff8ed; }
+        .pr-item .title { font-weight: 700; }
+        .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+        .btn { border: none; border-radius: 8px; padding: 7px 12px; cursor: pointer; background: #8b5a1f; color: #fff; }
+        .btn.secondary { background: #fff; color: #8b5a1f; border: 1px solid #8b5a1f; }
+        .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+        .split { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .supplier-list { max-height: 230px; overflow: auto; border: 1px solid #ecdfca; border-radius: 8px; }
+        .supplier-row { display: flex; gap: 8px; padding: 7px 8px; border-bottom: 1px solid #f2eadf; }
+        .supplier-row:last-child { border-bottom: none; }
+        .bid-card { border: 1px solid #eadfcf; border-radius: 9px; padding: 9px; margin-bottom: 10px; background: #fffdf8; }
+        .compare-card { border: 1px solid #d7c9ad; border-radius: 9px; padding: 10px; margin-bottom: 10px; background: #fff8ee; }
+        .compare-title { font-weight: 700; color: #5f4120; margin-bottom: 6px; }
+        .compare-note { font-size: 11px; color: #7a6a52; margin-bottom: 8px; }
+        .best-cost { color: #0f6d3f; font-weight: 700; }
+        .status { padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+        .status.APPROVED { background: #dff0ff; color: #115282; }
+        .status.SUBMITTED { background: #fff3d7; color: #8a6300; }
+        .status.REJECTED { background: #f6e2e2; color: #832525; }
+        .new-badge { display: inline-block; margin-left: 8px; padding: 2px 7px; border-radius: 999px; background: #dc2626; color: #fff; font-size: 10px; font-weight: 700; letter-spacing: 0.03em; }
+        table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+        th, td { border-bottom: 1px solid #f1e8da; padding: 6px; font-size: 12px; text-align: left; }
+        th { background: #faf4e8; }
+        @media (max-width: 960px) {
+            .grid { grid-template-columns: 1fr; }
+            .split { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container" style="min-height: 92vh;">
+        <div class="main-content">
+            <div class="header" style="display:flex;justify-content:space-between;align-items:center;gap:16px;">
+                <div style="display:flex;align-items:center;gap:16px;">
+                    {% include 'components/admin_hamburger_menu.html' %}
+                    <div>
+                        <h3 class="header-title" style="margin:0;">Supplier Bidding Management</h3>
+                        <div class="muted">Welcome, {{ user_name }}</div>
+                    </div>
+                </div>
+                <button class="btn" onclick="loadRequests()">Refresh PR</button>
+            </div>
+
+            <div class="wrap">
+                <div class="grid">
+                    <div class="card">
+                        <div class="card-head">
+                            <strong>Purchase Requests</strong>
+                            <span id="pr-count" class="muted"></span>
+                        </div>
+                        <div class="card-body">
+                            <div class="toolbar" style="margin-bottom:8px;">
+                                <label class="muted">Status</label>
+                                <select id="pr-status-filter" onchange="renderRequests()">
+                                    <option value="ALL">ALL</option>
+                                    <option value="APPROVED">APPROVED</option>
+                                    <option value="PENDING">PENDING</option>
+                                    <option value="CANCELLED">CANCELLED</option>
+                                </select>
+                            </div>
+                            <div id="pr-list" class="pr-list"></div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-head">
+                            <div>
+                                <strong id="current-pr-title">Select a PR</strong>
+                                <div id="current-pr-subtitle" class="muted"></div>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="split">
+                                <div>
+                                    <div class="toolbar" style="margin-bottom:8px;">
+                                        <strong>Invite Suppliers</strong>
+                                        <button class="btn secondary" type="button" onclick="loadSuppliers()">Load Suppliers</button>
+                                        <button class="btn" type="button" id="invite-btn" onclick="saveInvitations()" disabled>Save Invitations</button>
+                                    </div>
+                                    <div id="supplier-list" class="supplier-list"></div>
+                                </div>
+                                <div>
+                                    <div class="toolbar" style="margin-bottom:8px;">
+                                        <strong>Submitted Bids</strong>
+                                        <button class="btn secondary" type="button" id="load-bids-btn" onclick="loadBidsForActivePr()" disabled>Refresh Bids</button>
+                                    </div>
+                                    <div id="bids-wrap"></div>
+                                </div>
+                            </div>
+                            <div id="admin-bidding-message" class="muted" style="margin-top:10px;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/admin_hamburger_menu.js"></script>
+    <script>
+        let requestsCache = [];
+        let supplierCache = [];
+        let activePr = null;
+        let seenPrIds = new Set();
+        let seenLatestBidByPr = new Set();
+
+        function msg(text, isError) {
+            const el = document.getElementById('admin-bidding-message');
+            el.textContent = text || '';
+            el.style.color = isError ? '#8e2b2b' : '#4f5b49';
+        }
+
+        function esc(v) {
+            return String(v || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function money(v) {
+            const n = Number(v || 0);
+            return Number.isFinite(n) ? n.toFixed(2) : '0.00';
+        }
+
+        async function loadRequests() {
+            msg('Loading purchase requests...');
+            const res = await fetch('/api/admin/procurement/purchase-requests?offset=0&limit=100');
+            const body = await res.json();
+            if (!res.ok || !body.success) {
+                msg(body.error || 'Failed to load purchase requests', true);
+                return;
+            }
+            requestsCache = body.data || [];
+            renderRequests();
+            msg('Purchase requests loaded.');
+        }
+
+        function renderRequests() {
+            const filter = document.getElementById('pr-status-filter').value;
+            const list = document.getElementById('pr-list');
+            const rows = requestsCache.filter((row) => {
+                if (filter === 'ALL') return true;
+                return String(row.status || '').toUpperCase() === filter;
+            }).sort((a, b) => {
+                const da = Date.parse(a?.requestDate || '') || 0;
+                const db = Date.parse(b?.requestDate || '') || 0;
+                if (db !== da) return db - da;
+                return Number(b?.id || 0) - Number(a?.id || 0);
+            });
+            document.getElementById('pr-count').textContent = rows.length + ' rows';
+
+            if (!rows.length) {
+                list.innerHTML = '<div class="muted">No records</div>';
+                return;
+            }
+
+            list.innerHTML = rows.map((row, idx) => {
+                const active = activePr && Number(activePr.id) === Number(row.id) ? 'active' : '';
+                const isSeen = seenPrIds.has(Number(row.id));
+                const newBadge = (idx === 0 && !isSeen) ? '<span class="new-badge">New</span>' : '';
+                return `
+                    <div class="pr-item ${active}" onclick="selectPr(${Number(row.id)}, '${esc(row.requestNumber || '')}', '${esc(row.status || '')}', '${esc(row.supplierName || '')}')">
+                        <div class="title">${esc(row.requestNumber || ('PR-' + row.id))}${newBadge}</div>
+                        <div class="muted">Status: ${esc(row.status || '-')}</div>
+                        <div class="muted">Supplier: ${esc(row.supplierName || '-')}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function setSelectionUi() {
+            document.getElementById('invite-btn').disabled = !activePr;
+            document.getElementById('load-bids-btn').disabled = !activePr;
+            document.getElementById('current-pr-title').textContent = activePr ? ('PR ' + (activePr.requestNumber || activePr.id)) : 'Select a PR';
+            document.getElementById('current-pr-subtitle').textContent = activePr ? ('Current status: ' + (activePr.status || '-')) : '';
+        }
+
+        function selectPr(id, requestNumber, status, supplierName) {
+            activePr = { id, requestNumber, status, supplierName };
+            seenPrIds.add(Number(id));
+            renderRequests();
+            setSelectionUi();
+            msg('Selected PR ' + (requestNumber || id));
+            loadBidsForActivePr();
+        }
+
+        function markLatestBidSeen(requestId, bidId) {
+            const key = `${Number(requestId || 0)}:${Number(bidId || 0)}`;
+            if (!key) {
+                return;
+            }
+            seenLatestBidByPr.add(key);
+            loadBidsForActivePr();
+        }
+
+        async function loadSuppliers() {
+            msg('Loading suppliers...');
+            const res = await fetch('/api/admin/procurement/suppliers');
+            const body = await res.json();
+            if (!res.ok || !body.success) {
+                msg(body.error || 'Failed to load suppliers', true);
+                return;
+            }
+            supplierCache = Array.isArray(body.data) ? body.data : [];
+            renderSuppliers();
+            msg('Suppliers loaded.');
+        }
+
+        function renderSuppliers() {
+            const list = document.getElementById('supplier-list');
+            if (!supplierCache.length) {
+                list.innerHTML = '<div class="muted" style="padding:8px;">No suppliers loaded.</div>';
+                return;
+            }
+            list.innerHTML = supplierCache.map((row) => {
+                const code = esc(row.code || '');
+                const name = esc(row.companyname || row.companyName || '');
+                return `
+                    <label class="supplier-row">
+                        <input type="checkbox" class="supplier-checkbox" value="${code}" data-name="${name}">
+                        <span>${code} - ${name || '-'}</span>
+                    </label>
+                `;
+            }).join('');
+        }
+
+        function selectedSuppliers() {
+            const checks = Array.from(document.querySelectorAll('.supplier-checkbox:checked'));
+            return checks.map((box) => ({
+                code: String(box.value || '').trim(),
+                companyname: String(box.dataset.name || '').trim(),
+            })).filter((row) => row.code);
+        }
+
+        async function saveInvitations() {
+            if (!activePr) {
+                msg('Select a PR first.', true);
+                return;
+            }
+            const suppliers = selectedSuppliers();
+            if (!suppliers.length) {
+                msg('Select at least one supplier.', true);
+                return;
+            }
+
+            msg('Saving invitations...');
+            const res = await fetch('/api/admin/procurement/bidding/invitations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    requestId: activePr.id,
+                    requestNumber: activePr.requestNumber,
+                    suppliers,
+                }),
+            });
+            const body = await res.json();
+            if (!res.ok || !body.success) {
+                msg(body.error || 'Failed to save invitations', true);
+                return;
+            }
+            msg('Invitations saved. Suppliers can now submit bids.');
+            await loadBidsForActivePr();
+        }
+
+        async function loadBidsForActivePr() {
+            if (!activePr) return;
+            const wrap = document.getElementById('bids-wrap');
+            wrap.innerHTML = '<div class="muted">Loading bids...</div>';
+            const res = await fetch(`/api/admin/procurement/purchase-requests/${activePr.id}/bids`);
+            const body = await res.json();
+            if (!res.ok || !body.success) {
+                wrap.innerHTML = `<div class="muted" style="color:#8e2b2b;">${esc(body.error || 'Failed to load bids')}</div>`;
+                return;
+            }
+
+            const bids = (body.data || []).slice().sort((a, b) => {
+                const da = Date.parse(a?.createdAt || '') || 0;
+                const db = Date.parse(b?.createdAt || '') || 0;
+                if (db !== da) return db - da;
+                return Number(b?.bidId || 0) - Number(a?.bidId || 0);
+            });
+            if (!bids.length) {
+                wrap.innerHTML = '<div class="muted">No bids yet for this PR.</div>';
+                return;
+            }
+
+            const supplierTotals = bids.map((bid) => {
+                const totalAmount = (bid.lines || []).reduce((sum, line) => sum + Number(line.amount || 0), 0);
+                const lineCount = Array.isArray(bid.lines) ? bid.lines.length : 0;
+                return {
+                    bidId: Number(bid.bidId || 0),
+                    supplierCode: String(bid.supplierCode || '').trim(),
+                    supplierName: String(bid.supplierName || '').trim(),
+                    status: String(bid.status || '').trim(),
+                    totalAmount,
+                    lineCount,
+                };
+            });
+
+            const rankedTotals = supplierTotals.slice().sort((a, b) => a.totalAmount - b.totalAmount);
+            const cheapestBidId = rankedTotals.length ? rankedTotals[0].bidId : 0;
+
+            const itemRows = [];
+            const itemMap = new Map();
+            bids.forEach((bid) => {
+                (bid.lines || []).forEach((line) => {
+                    const key = String(line.itemCode || line.description || '').trim();
+                    if (!key) {
+                        return;
+                    }
+                    if (!itemMap.has(key)) {
+                        itemMap.set(key, []);
+                    }
+                    itemMap.get(key).push({
+                        supplierCode: String(bid.supplierCode || '').trim(),
+                        supplierName: String(bid.supplierName || '').trim(),
+                        unitPrice: Number(line.unitPrice || 0),
+                        amount: Number(line.amount || 0),
+                    });
+                });
+            });
+
+            itemMap.forEach((offers, itemCode) => {
+                const ranked = offers.slice().sort((a, b) => a.unitPrice - b.unitPrice);
+                const best = ranked[0] || null;
+                const offerText = offers.map((o) => `${esc(o.supplierCode)}: ${money(o.unitPrice)}`).join(' | ');
+                itemRows.push(`
+                    <tr>
+                        <td>${esc(itemCode)}</td>
+                        <td>${offerText || '-'}</td>
+                        <td class="best-cost">${best ? `${esc(best.supplierCode)} (${money(best.unitPrice)})` : '-'}</td>
+                    </tr>
+                `);
+            });
+
+            const compareHtml = `
+                <div class="compare-card">
+                    <div class="compare-title">Supplier Cost Comparison</div>
+                    <div class="compare-note">Use this to compare supplier total bid costing and lowest item prices before approval.</div>
+                    <table>
+                        <thead><tr><th>Supplier</th><th>Status</th><th>Lines</th><th>Total Cost</th><th>Ranking</th></tr></thead>
+                        <tbody>
+                            ${rankedTotals.map((s, idx) => `
+                                <tr>
+                                    <td>${esc(s.supplierCode)} - ${esc(s.supplierName)}</td>
+                                    <td>${esc(s.status || '-')}</td>
+                                    <td>${Number(s.lineCount || 0)}</td>
+                                    <td class="${s.bidId === cheapestBidId ? 'best-cost' : ''}">${money(s.totalAmount)}</td>
+                                    <td>${idx === 0 ? '<span class="best-cost">Lowest Total</span>' : '#' + (idx + 1)}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                    <div style="height:8px;"></div>
+                    <table>
+                        <thead><tr><th>Item</th><th>Supplier Unit Prices</th><th>Best Unit Price</th></tr></thead>
+                        <tbody>${itemRows.join('') || '<tr><td colspan="3" class="muted">No item comparison available.</td></tr>'}</tbody>
+                    </table>
+                </div>
+            `;
+
+            wrap.innerHTML = compareHtml + bids.map((bid, idx) => {
+                const status = esc(bid.status || '');
+                const bidKey = `${Number(activePr?.id || 0)}:${Number(bid.bidId || 0)}`;
+                const newBadge = (idx === 0 && !seenLatestBidByPr.has(bidKey)) ? '<span class="new-badge">New</span>' : '';
+                const rows = (bid.lines || []).map((line) => `
+                    <tr>
+                        <td>${esc(line.itemCode || '')}</td>
+                        <td>${Number(line.quantity || 0).toFixed(2)}</td>
+                        <td>${Number(line.unitPrice || 0).toFixed(2)}</td>
+                        <td>${Number(line.tax || 0).toFixed(2)}</td>
+                        <td>${Number(line.amount || 0).toFixed(2)}</td>
+                        <td>${Number(line.leadDays || 0)}</td>
+                    </tr>
+                `).join('');
+
+                return `
+                    <div class="bid-card" onclick="markLatestBidSeen(${Number(activePr?.id || 0)}, ${Number(bid.bidId || 0)})">
+                        <div class="toolbar">
+                            <strong>${esc(bid.supplierCode)} - ${esc(bid.supplierName)}${newBadge}</strong>
+                            <span class="status ${status}">${status || '-'}</span>
+                        </div>
+                        <div class="muted">Submitted by ${esc(bid.createdBy || '-')} | ${esc(bid.createdAt || '')}</div>
+                        <table>
+                            <thead><tr><th>Item</th><th>Qty</th><th>Unit Price</th><th>Tax</th><th>Amount</th><th>Lead Days</th></tr></thead>
+                            <tbody>${rows || '<tr><td colspan="6" class="muted">No lines</td></tr>'}</tbody>
+                        </table>
+                        <div class="toolbar" style="margin-top:8px;">
+                            <button class="btn" onclick="event.stopPropagation(); approveBid(${activePr.id}, ${bid.bidId})">Approve</button>
+                            <button class="btn secondary" onclick="event.stopPropagation(); rejectBid(${activePr.id}, ${bid.bidId})">Reject</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function approveBid(requestId, bidId) {
+            msg('Approving bid...');
+            const res = await fetch(`/api/admin/procurement/purchase-requests/${requestId}/bids/${bidId}/approve`, { method: 'POST' });
+            const body = await res.json();
+            if (!res.ok || !body.success) {
+                msg(body.error || 'Approve failed', true);
+                return;
+            }
+            msg('Bid approved. PR can now transfer to PO using selected supplier bid.');
+            await loadBidsForActivePr();
+        }
+
+        async function rejectBid(requestId, bidId) {
+            const remarks = window.prompt('Rejection remarks (optional):', '') || '';
+            msg('Rejecting bid...');
+            const res = await fetch(`/api/admin/procurement/purchase-requests/${requestId}/bids/${bidId}/reject`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ remarks }),
+            });
+            const body = await res.json();
+            if (!res.ok || !body.success) {
+                msg(body.error || 'Reject failed', true);
+                return;
+            }
+            msg('Bid rejected.');
+            await loadBidsForActivePr();
+        }
+
+        setSelectionUi();
+        loadRequests();
+        loadSuppliers();
+    </script>
+</body>
+</html>

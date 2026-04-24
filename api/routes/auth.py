@@ -5,6 +5,8 @@ import fdb
 from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException, Query
 
+from api.routes.suppliers import _external_supplier_url, _make_sigv4_get
+
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "../../.env"))
 
@@ -14,6 +16,57 @@ DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
+
+
+def _lookup_supplier_via_external_api(normalized_email: str):
+    """Fallback lookup against external supplier API by udf_email."""
+    if not normalized_email:
+        return None, None
+
+    target = normalized_email.strip().upper()
+    if not target:
+        return None, None
+
+    url = _external_supplier_url()
+    offset = 0
+    limit = 500
+    max_pages = 20
+
+    for _ in range(max_pages):
+        try:
+            resp = _make_sigv4_get(url, {"offset": offset, "limit": limit})
+            if not resp.ok:
+                print(f"[AUTH] external supplier fallback HTTP {resp.status_code} at offset={offset}", flush=True)
+                break
+            payload = resp.json()
+        except Exception as exc:
+            print(f"[AUTH] external supplier fallback failed: {exc}", flush=True)
+            break
+
+        rows = payload.get("data") if isinstance(payload, dict) else payload
+        if not isinstance(rows, list) or not rows:
+            break
+
+        for row in rows:
+            row_email = str((row or {}).get("udf_email") or "").strip()
+            if row_email and row_email.upper() == target:
+                code = str((row or {}).get("code") or "").strip() or None
+                name = str((row or {}).get("companyname") or "").strip() or code
+                return (
+                    {
+                        "code": code,
+                        "name": name,
+                        "email": row_email,
+                        "source": "external_supplier.udf_email",
+                    },
+                    code,
+                )
+
+        if len(rows) < limit:
+            break
+        offset += limit
+
+    return None, None
 
 
 def _connect_db():
@@ -37,7 +90,9 @@ def lookup_email_identity(email: str = Query(..., min_length=3, max_length=255))
 
         admin = None
         user = None
+        supplier = None
         customer_code = None
+        supplier_code = None
 
         # Admin lookup
         cur.execute(
@@ -56,6 +111,32 @@ def lookup_email_identity(email: str = Query(..., min_length=3, max_length=255))
                 "email": admin_row[2],
                 "isactive": admin_row[3],
             }
+
+        # Supplier lookup via AR_SUPPLIER.UDF_EMAIL
+        try:
+            cur.execute(
+                """
+                SELECT CODE, COMPANYNAME, UDF_EMAIL
+                FROM AR_SUPPLIER
+                WHERE UPPER(TRIM(UDF_EMAIL)) = UPPER(TRIM(?))
+                """,
+                [normalized_email],
+            )
+            supplier_row = cur.fetchone()
+            if supplier_row:
+                supplier = {
+                    "code": supplier_row[0],
+                    "name": supplier_row[1],
+                    "email": supplier_row[2],
+                    "source": "AR_SUPPLIER.UDF_EMAIL",
+                }
+                supplier_code = supplier_row[0]
+        except Exception as exc:
+            print(f"[AUTH] supplier Firebird lookup failed: {exc}", flush=True)
+
+        # Fallback to external supplier API source used by procurement pages.
+        if not supplier:
+            supplier, supplier_code = _lookup_supplier_via_external_api(normalized_email)
 
         # User lookup priority: AR_CUSTOMERBRANCH.EMAIL
         cur.execute(
@@ -121,17 +202,21 @@ def lookup_email_identity(email: str = Query(..., min_length=3, max_length=255))
 
         is_admin = bool(admin)
         is_user = bool(user)
+        is_supplier = bool(supplier) and not is_admin
 
         return {
             "success": True,
             "email": normalized_email,
-            "found": bool(is_admin or is_user),
+            "found": bool(is_admin or is_user or is_supplier),
             "is_admin": is_admin,
             "is_user": is_user,
             "is_customer": is_user,
+            "is_supplier": is_supplier,
             "customer_code": customer_code,
+            "supplier_code": supplier_code,
             "admin": admin,
             "user": user,
+            "supplier": supplier,
         }
     except HTTPException:
         raise

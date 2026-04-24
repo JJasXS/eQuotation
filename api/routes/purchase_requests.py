@@ -172,46 +172,27 @@ def _fetch_detail_rows(cur: Any, dockey: int, detail_cols: set[str]) -> list[dic
 
     st_item_cols = _get_table_columns(cur, "ST_ITEM")
     st_desc_col = _pick_existing(st_item_cols, "DESCRIPTION")
-    st_price_col = _pick_existing(st_item_cols, "UDF_STDPRICE")
 
-    def _lookup_st_item(item_code: str) -> tuple[str | None, float | None]:
+    def _lookup_st_item(item_code: str) -> str | None:
         if not item_code:
-            return (None, None)
-        if not st_desc_col and not st_price_col:
-            return (None, None)
-
-        select_parts = []
-        if st_desc_col:
-            select_parts.append(st_desc_col)
-        if st_price_col:
-            select_parts.append(st_price_col)
-        if not select_parts:
-            return (None, None)
+            return None
+        if not st_desc_col:
+            return None
 
         cur.execute(
-            f"SELECT FIRST 1 {', '.join(select_parts)} FROM ST_ITEM WHERE CODE = ?",
+            f"SELECT FIRST 1 {st_desc_col} FROM ST_ITEM WHERE CODE = ?",
             (item_code,),
         )
         row = cur.fetchone()
         if not row:
-            return (None, None)
-
-        idx = 0
-        st_name = None
-        st_price = None
-        if st_desc_col:
-            st_name = _to_text(row[idx])
-            idx += 1
-        if st_price_col:
-            st_price = _to_number(row[idx])
-        return (st_name, st_price)
+            return None
+        return _to_text(row[0])
 
     details: list[dict[str, Any]] = []
     for idx, r in enumerate(rows, start=1):
         item_code = _to_text(r[3])
-        st_item_name, st_item_price = _lookup_st_item(item_code or "")
+        st_item_name = _lookup_st_item(item_code or "")
         detail_unit_price = _to_number(r[9])
-        effective_unit_price = st_item_price if (st_item_price is not None and st_item_price > 0) else detail_unit_price
 
         details.append(
             {
@@ -225,7 +206,7 @@ def _fetch_detail_rows(cur: Any, dockey: int, detail_cols: set[str]) -> list[dic
                 "description3": _to_text(r[7]),
                 "itemname": st_item_name or _to_text(r[6]) or _to_text(r[5]),
                 "qty": str(_to_number(r[8])),
-                "unitprice": str(effective_unit_price),
+                "unitprice": str(detail_unit_price),
                 "taxamt": str(_to_number(r[10])),
                 "amount": str(_to_number(r[11])),
                 "udf_pqapproved": r[12],
