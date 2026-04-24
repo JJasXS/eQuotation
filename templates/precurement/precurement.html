@@ -960,7 +960,10 @@
                                 onchange="onTransferQuantityChange(${headerId}, ${Number(detail.id || 0)}, this.value)"
                             />
                         </td>
-                        <td class="view-pr-num col-unit-price">${formatMoney(detail.unitPrice || 0)}</td>
+                        <td class="view-pr-num col-unit-price">
+                            ${formatMoney(detail.unitPrice || 0)}
+                            ${detail.isFinalChosenPrice ? '<div style="font-size:11px;color:#14532d;font-weight:600;">Final (approved bid)</div>' : ''}
+                        </td>
                         <td class="view-pr-num col-tax">${formatMoney(detail.tax || 0)}</td>
                         <td class="col-approved view-pr-approved-cell"><input type="checkbox" ${detail.id ? '' : 'disabled'} ${toApprovalBool(detail.udfPqApproved) ? 'checked' : ''} onchange="onDetailApprovalChange(${headerId}, ${Number(detail.id || 0)}, this.checked)" /></td>
                         <td class="view-pr-num col-amount">${formatMoney(detail.amount || 0)}</td>
@@ -1051,6 +1054,15 @@
                         throw new Error(payload.error || 'Failed to load detail rows');
                     }
                     record.details = Array.isArray(payload.details) ? payload.details : [];
+                    const resolvedTotal = Number(payload.totalAmount);
+                    if (Number.isFinite(resolvedTotal)) {
+                        record.totalAmount = resolvedTotal;
+                    } else {
+                        record.totalAmount = record.details.reduce((sum, row) => {
+                            const amount = Number(row && row.amount);
+                            return sum + (Number.isFinite(amount) ? amount : 0);
+                        }, 0);
+                    }
                     record.details.forEach((detail) => {
                         detail._originalApproved = toApprovalBool(detail.udfPqApproved);
                         detail.transferQty = detail._originalApproved

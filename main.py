@@ -3972,16 +3972,59 @@ def api_admin_purchase_request_details_fallback():
                 'udfPqApproved': row.get('udf_pqapproved'),
                 'transferredQty': transferred_qty,
                 'remainingQty': remaining_qty,
+                'isFinalChosenPrice': False,
             })
         try:
             resolved_request_id = int(request_id)
         except Exception:
             resolved_request_id = int(raw_request_id) if raw_request_id.isdigit() else None
 
+        if resolved_request_id and details:
+            try:
+                gate = get_transfer_gate_state(resolved_request_id)
+                approved_bid = gate.get('approvedBid') if isinstance(gate, dict) else None
+                approved_lines = approved_bid.get('lines') if isinstance(approved_bid, dict) else []
+
+                approved_line_map = {}
+                for line in approved_lines if isinstance(approved_lines, list) else []:
+                    if not isinstance(line, dict):
+                        continue
+                    try:
+                        approved_line_map[int(line.get('detailId'))] = line
+                    except Exception:
+                        continue
+
+                for detail in details:
+                    try:
+                        detail_id = int(detail.get('id'))
+                    except Exception:
+                        continue
+                    hit = approved_line_map.get(detail_id)
+                    if not hit:
+                        continue
+
+                    qty = _num(detail.get('quantity'))
+                    approved_price = _num(hit.get('unitPrice'))
+                    approved_tax = _num(hit.get('tax'))
+                    detail['unitPrice'] = approved_price
+                    detail['tax'] = approved_tax
+                    detail['amount'] = _num(hit.get('amount')) or max(0.0, (qty * approved_price) + approved_tax)
+                    detail['isFinalChosenPrice'] = True
+                    detail['finalPriceSource'] = 'APPROVED_BID'
+            except Exception as exc:
+                print(f"[PROCUREMENT PR DETAIL] warning: failed to apply approved bid pricing: {exc}", flush=True)
+
+        total_amount = 0.0
+        for row in details:
+            if not isinstance(row, dict):
+                continue
+            total_amount += _num(row.get('amount'))
+
         return {
             'id': resolved_request_id,
             'requestNumber': request_number or None,
             'details': details,
+            'totalAmount': total_amount,
         }
 
     try:
@@ -4026,6 +4069,7 @@ def api_admin_purchase_request_details_fallback():
                 'id': extracted.get('id'),
                 'requestNumber': extracted.get('requestNumber'),
                 'details': extracted.get('details') or [],
+                'totalAmount': _num(extracted.get('totalAmount')),
                 'suppliers': selected_suppliers,
                 'count': len(extracted.get('details') or []),
             })
@@ -4115,8 +4159,27 @@ def _resolve_local_purchase_request_header(raw_request_id, request_no):
             header_row = cur.fetchone()
             header_cols = [str(col[0] or '').strip().lower() for col in (cur.description or [])]
 
+            if not header_row:
+                try:
+                    cur.execute('SELECT FIRST 1 * FROM PH_PQ WHERE PQKEY = ?', (request_id,))
+                    header_row = cur.fetchone()
+                    header_cols = [str(col[0] or '').strip().lower() for col in (cur.description or [])]
+                except Exception:
+                    pass
+
+            if not header_row:
+                try:
+                    cur.execute('SELECT FIRST 1 * FROM PH_PQ WHERE ID = ?', (request_id,))
+                    header_row = cur.fetchone()
+                    header_cols = [str(col[0] or '').strip().lower() for col in (cur.description or [])]
+                except Exception:
+                    pass
+
         if not header_row and request_no_clean:
-            cur.execute('SELECT FIRST 1 * FROM PH_PQ WHERE DOCNO = ?', (request_no_clean,))
+            cur.execute(
+                'SELECT FIRST 1 * FROM PH_PQ WHERE TRIM(UPPER(DOCNO)) = TRIM(UPPER(?))',
+                (request_no_clean,),
+            )
             header_row = cur.fetchone()
             header_cols = [str(col[0] or '').strip().lower() for col in (cur.description or [])]
 
@@ -4188,6 +4251,10 @@ def api_admin_create_bidding_invitations():
             request_header = _resolve_local_purchase_request_header(raw_request_id, request_no)
 
         if not request_header:
+            print(
+                f"[SUPPLIER BIDDING PR DETAIL] not found request_id={raw_request_id or '-'} request_no={request_no or '-'} last_status={last_status}",
+                flush=True,
+            )
             if last_status in (200, 404):
                 return jsonify({'success': False, 'error': 'Purchase request not found'}), 404
             return jsonify({'success': False, 'error': f'SQL API returned {last_status} while loading purchase request'}), 502
@@ -4241,7 +4308,10 @@ def api_supplier_bidding_request_details():
         headers = _build_sql_api_auth_headers()
         request_header, last_status = _resolve_purchase_request_header(raw_request_id, request_no, headers, timeout=12)
         if not request_header:
-            if last_status == 404:
+            request_header = _resolve_local_purchase_request_header(raw_request_id, request_no)
+
+        if not request_header:
+            if last_status in (200, 404):
                 return jsonify({'success': False, 'error': 'Purchase request not found'}), 404
             return jsonify({'success': False, 'error': f'SQL API returned {last_status} while loading purchase request'}), 502
 
@@ -4250,15 +4320,15 @@ def api_supplier_bidding_request_details():
             if not isinstance(row, dict):
                 continue
             details.append({
-                'id': row.get('dtlkey'),
+                'id': row.get('dtlkey') or row.get('id'),
                 'seq': row.get('seq') if row.get('seq') is not None else idx,
-                'itemCode': str(row.get('itemcode') or '').strip(),
-                'itemName': str(row.get('itemname') or row.get('description2') or row.get('description') or '').strip(),
+                'itemCode': str(row.get('itemcode') or row.get('itemCode') or '').strip(),
+                'itemName': str(row.get('itemname') or row.get('itemName') or row.get('description2') or row.get('description') or '').strip(),
                 'description': str(row.get('description3') or row.get('description') or '').strip(),
-                'locationCode': str(row.get('location') or '').strip(),
-                'quantity': float(row.get('qty') or 0),
-                'unitPrice': float(row.get('unitprice') or 0),
-                'tax': float(row.get('taxamt') or 0),
+                'locationCode': str(row.get('location') or row.get('locationCode') or '').strip(),
+                'quantity': float(row.get('qty') or row.get('quantity') or 0),
+                'unitPrice': float(row.get('unitprice') or row.get('unitPrice') or 0),
+                'tax': float(row.get('taxamt') or row.get('tax') or 0),
             })
 
         return jsonify({
@@ -4303,7 +4373,10 @@ def api_supplier_submit_bid():
         headers = _build_sql_api_auth_headers()
         request_header, last_status = _resolve_purchase_request_header(raw_request_id, request_no, headers, timeout=12)
         if not request_header:
-            if last_status == 404:
+            request_header = _resolve_local_purchase_request_header(raw_request_id, request_no)
+
+        if not request_header:
+            if last_status in (200, 404):
                 return jsonify({'success': False, 'error': 'Purchase request not found'}), 404
             return jsonify({'success': False, 'error': f'SQL API returned {last_status} while loading purchase request'}), 502
 
@@ -4400,7 +4473,10 @@ def api_admin_transfer_purchase_request_to_po():
         request_header, last_status = _resolve_purchase_request_header(raw_request_id, request_no, headers, timeout=12)
 
         if not request_header:
-            if last_status == 404:
+            request_header = _resolve_local_purchase_request_header(raw_request_id, request_no)
+
+        if not request_header:
+            if last_status in (200, 404):
                 return jsonify({'success': False, 'error': 'Purchase request not found'}), 404
             return jsonify({'success': False, 'error': f'SQL API returned {last_status} while loading purchase request'}), 502
 
