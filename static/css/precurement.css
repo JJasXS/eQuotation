@@ -1278,8 +1278,4 @@ body {
     color: #d3e3ff;
 }
 
-@media (max-width: 980px) {
-    .pr-grid {
-        grid-template-columns: 1fr;
-    }
-}
+/* Remove single-column override for .pr-grid on small screens to keep 2 columns per row */

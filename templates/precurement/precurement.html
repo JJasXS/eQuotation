@@ -84,11 +84,11 @@
                                     <thead id="stock-card-table-head">
                                         <tr>
                                             <th class="code-col">ST_ITEM.CODE</th>
+                                            <th class="qty-col">Quantity on Hand</th>
                                             <th class="qty-col">S.O Qty</th>
                                             <th class="qty-col">P.O Qty</th>
                                             <th class="qty-col">J.O Qty</th>
                                             <th class="qty-col">Avail.Qty</th>
-                                                                                        <th class="qty-col">Quantity on Hand</th>
                                             <th class="qty-col">Quantity Need to Buy</th>
                                         </tr>
                                     </thead>
@@ -309,11 +309,11 @@
         let viewStatusFilter = 'ALL';
 
         const stockCardMetricGroups = [
+            { key: 'avail_qty_by_location', label: 'Quantity on Hand' },
             { key: 'so_qty_by_location', label: 'S.O Qty' },
             { key: 'po_qty_by_location', label: 'P.O Qty' },
             { key: 'jo_qty_by_location', label: 'J.O Qty' },
             { key: 'qty_by_location', label: 'Avail.Qty' },
-            { key: 'avail_qty_by_location', label: 'Quantity on Hand' },
             { key: 'need_to_buy_by_location', label: 'Quantity Need to Buy' },
             { key: 'pending_pr_by_location', label: 'Pending PR' }
         ];
@@ -743,11 +743,14 @@
                                         </select>
                                     </div>
                                 </div>
-                                <div class="view-pr-meta-row"><span>Requester / Location</span><strong>${escapeHtml(header.requesterId || '-')} / ${escapeHtml(header.departmentId || '-')}</strong></div>
+                                <div class="view-pr-meta-row" style="display: flex; gap: 4px; align-items: center; min-width: 0;">
+                                    <span style="font-size: 12px; color: #b9c4d1; min-width: 60px;">Requester</span>
+                                    <strong style="font-size: 13px; max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(header.requesterId || '-')}</strong>
+                                </div>
                                 <div class="view-pr-meta-row"><span>Request Date</span><strong>${formatPrDate(header.requestDate)}</strong></div>
                                 <div class="view-pr-meta-row"><span>Required Date</span><strong>${formatPrDate(header.requiredDate)}</strong></div>
                                 <div class="view-pr-meta-row"><span>Currency</span><strong>${escapeHtml(header.currency || '-')}</strong></div>
-                                <div class="view-pr-meta-row"><span>Balance Qty</span><strong>${formatStockCardNumber(header.balanceQty || 0)}</strong></div>
+                                <div class="view-pr-meta-row"><span>Balance</span><strong>${formatStockCardNumber(header.balanceQty || 0)} / ${formatStockCardNumber(header.totalQty || 0)}</strong></div>
                                 <div class="view-pr-amount-col">
                                     <div class="view-pr-amount-label">Total Amount</div>
                                     <div class="view-pr-amount-value">${formatMoney(header.totalAmount || 0)}</div>
