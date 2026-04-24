@@ -1269,6 +1269,47 @@ def _ensure_procurement_bidding_tables(conn):
     )
 
 
+def _ensure_procurement_selected_supplier_table(conn):
+    """Create PR_SELECTED_SUPPLIER table for draft/edit supplier selections if missing."""
+    _execute_ddl(
+        conn,
+        """
+        CREATE TABLE PR_SELECTED_SUPPLIER (
+            ID INTEGER NOT NULL,
+            REQUEST_DOCKEY INTEGER NOT NULL,
+            REQUEST_NO VARCHAR(60),
+            SUPPLIER_CODE VARCHAR(30) NOT NULL,
+            SUPPLIER_NAME VARCHAR(160),
+            SUPPLIER_EMAIL VARCHAR(255),
+            CREATED_BY VARCHAR(120),
+            CREATED_AT TIMESTAMP,
+            UPDATED_AT TIMESTAMP,
+            PRIMARY KEY (ID)
+        )
+        """,
+        success_message='[DB INIT] PR_SELECTED_SUPPLIER table created.',
+        ignore_if_contains=['already exists', 'name in use', 'table unknown']
+    )
+    _execute_ddl(
+        conn,
+        'CREATE GENERATOR GEN_PR_SELECTED_SUPPLIER_ID',
+        success_message='[DB INIT] GEN_PR_SELECTED_SUPPLIER_ID generator created.',
+        ignore_if_contains=['already exists', 'name in use']
+    )
+    _execute_ddl(
+        conn,
+        'CREATE INDEX IX_PR_SELECTED_SUP_REQ ON PR_SELECTED_SUPPLIER (REQUEST_DOCKEY)',
+        success_message='[DB INIT] IX_PR_SELECTED_SUP_REQ index created.',
+        ignore_if_contains=['already exists', 'name in use']
+    )
+    _execute_ddl(
+        conn,
+        'CREATE INDEX IX_PR_SELECTED_SUP_REQ_SUP ON PR_SELECTED_SUPPLIER (REQUEST_DOCKEY, SUPPLIER_CODE)',
+        success_message='[DB INIT] IX_PR_SELECTED_SUP_REQ_SUP index created.',
+        ignore_if_contains=['already exists', 'name in use']
+    )
+
+
 def initialize_database(db_path, db_user, db_password):
     conn = None
     try:
@@ -1433,6 +1474,9 @@ def initialize_database(db_path, db_user, db_password):
 
         # Ensure supplier bidding tables exist
         _ensure_procurement_bidding_tables(conn)
+
+        # Ensure selected supplier persistence table exists for PR create/edit flows
+        _ensure_procurement_selected_supplier_table(conn)
 
     except Exception as e:
         print(f"[DB INIT ERROR] {e}")

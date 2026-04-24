@@ -214,7 +214,7 @@
                             </div>
                         </div>
                         <div id="panel-create" class="panel-content" style="display: none;">
-                            <h2 style="margin-bottom: 12px;">Create e-Purchase Request</h2>
+                            <h2 id="pr-form-title" style="margin-bottom: 12px;">Create e-Purchase Request</h2>
                             <form id="purchase-request-form" class="pr-form" novalidate>
                                 <div class="pr-grid">
                                     <div class="pr-form-row">
@@ -385,7 +385,7 @@
 
                                 <div class="pr-line-items-head">
                                     <h3>Line Items</h3>
-                                    <button type="button" class="pr-add-item-btn" onclick="addPurchaseRequestLineItem()">+ Add Item</button>
+                                    <button type="button" class="pr-add-item-btn" id="pr-add-item-btn" onclick="addPurchaseRequestLineItem()">+ Add Item</button>
                                 </div>
 
                                 <div class="pr-line-items-wrap">
@@ -437,7 +437,9 @@
                                 </div>
 
                                 <div class="pr-actions">
-                                    <button type="button" class="pr-primary-btn" id="pr-submit-btn" onclick="submitPurchaseRequest()">Save Purchase Request</button>
+                                    <button type="button" class="pr-secondary-btn" id="pr-cancel-edit-btn" onclick="cancelPurchaseRequestEditMode()" style="display:none;">Cancel Edit</button>
+                                    <button type="button" class="pr-secondary-btn" id="pr-save-draft-btn" onclick="saveDraftPurchaseRequest()">Save as Draft</button>
+                                    <button type="button" class="pr-primary-btn" id="pr-submit-btn" onclick="submitPurchaseRequest()">Submit Purchase Request</button>
                                 </div>
 
                                 <div id="pr-form-message" class="pr-form-message" style="display:none;"></div>
@@ -492,6 +494,42 @@
         let viewApprovalSaving = false;
         let viewStatusFilter = 'ALL';
         let prEditState = null;
+        let prFormEditState = null;
+
+        function showTab(tabName) {
+            const target = String(tabName || 'report').toLowerCase();
+            const tabs = ['report', 'view', 'create'];
+            const selected = tabs.includes(target) ? target : 'report';
+
+            tabs.forEach((name) => {
+                const tabButton = document.getElementById(`tab-${name}`);
+                if (tabButton) {
+                    tabButton.classList.toggle('active', name === selected);
+                }
+
+                const panel = document.getElementById(`panel-${name}`);
+                if (panel) {
+                    panel.style.display = name === selected ? '' : 'none';
+                }
+            });
+
+            if (selected === 'report') {
+                afterStockCardTableRender();
+                return;
+            }
+
+            if (selected === 'view') {
+                loadViewPurchaseRequests(false);
+                return;
+            }
+
+            if (selected === 'create') {
+                if (!Array.isArray(window.purchaseRequestItems) || !window.purchaseRequestItems.length) {
+                    initPurchaseRequestForm();
+                }
+                renderPurchaseRequestLineItems();
+            }
+        }
 
         const stockCardMetricGroups = [
             { key: 'avail_qty_by_location', label: 'Quantity on Hand' },
@@ -1032,7 +1070,7 @@
 
         function loadViewPurchaseRequests(forceReload) {
             if (viewPurchaseRequestsLoaded && !forceReload) {
-                return;
+                return Promise.resolve();
             }
 
             const list = document.getElementById('view-pr-list');
@@ -1040,7 +1078,7 @@
                 list.innerHTML = '<div class="view-pr-empty">Loading e-Purchase Request records...</div>';
             }
 
-            fetch('/api/admin/procurement/purchase-requests?offset=0&limit=50')
+            return fetch('/api/admin/procurement/purchase-requests?offset=0&limit=50')
                 .then((res) => res.json())
                 .then((payload) => {
                     if (!payload.success) {
@@ -1157,50 +1195,61 @@
                 return;
             }
 
-            _clearPrEditMessage();
-
-            let details = Array.isArray(header.details) ? header.details : null;
-            if (!details) {
-                const requestNo = encodeURIComponent(String(header.requestNumber || ''));
-                const res = await fetch(`/api/admin/procurement/purchase-requests/details?request_id=${headerId}&request_no=${requestNo}`);
-                const payload = await res.json();
-                if (!res.ok || !payload.success) {
-                    alert(payload.error || 'Failed to load PR details for edit');
-                    return;
-                }
-                details = Array.isArray(payload.details) ? payload.details : [];
-                header.details = details;
+            const requestNo = encodeURIComponent(String(header.requestNumber || ''));
+            const res = await fetch(`/api/admin/procurement/purchase-requests/details?request_id=${headerId}&request_no=${requestNo}`);
+            const payload = await res.json();
+            if (!res.ok || !payload.success) {
+                alert(payload.error || 'Failed to load PR details for edit');
+                return;
             }
 
-            prEditState = {
+            const details = Array.isArray(payload.details) ? payload.details : [];
+            header.details = details;
+
+            if (Array.isArray(payload.suppliers)) {
+                selectedSuppliers = payload.suppliers
+                    .map((s) => ({
+                        code: String(s.code || '').trim(),
+                        name: String(s.name || '').trim(),
+                        email: String(s.email || '').trim(),
+                    }))
+                    .filter((s) => s.code);
+                _renderChips();
+            }
+
+            const lineItems = (details || []).map((d) => ({
+                detailId: Number(d.id || 0),
+                itemCode: String(d.itemCode || ''),
+                itemName: String(d.itemName || ''),
+                locationCode: String(d.locationCode || ''),
+                description: String(d.description || ''),
+                quantity: Number(d.quantity || 0),
+                unitPrice: Number(d.unitPrice || 0),
+                deliveryDate: _toInputDate(d.deliveryDate || header.requiredDate),
+            })).filter((d) => d.detailId > 0);
+
+            if (!lineItems.length) {
+                alert('No editable line items found for this purchase request.');
+                return;
+            }
+
+            prFormEditState = {
                 requestId: Number(header.id || 0),
                 requestNumber: String(header.requestNumber || ''),
-                requiredDate: _toInputDate(header.requiredDate),
-                costCenter: String(header.departmentId || ''),
-                currency: String(header.currency || 'MYR'),
-                description: String(header.description || ''),
-                deliveryLocation: String(header.deliveryLocation || ''),
-                lineItems: (details || []).map((d) => ({
-                    detailId: Number(d.id || 0),
-                    itemCode: String(d.itemCode || ''),
-                    itemName: String(d.itemName || ''),
-                    description: String(d.description || ''),
-                    quantity: Number(d.quantity || 0),
-                    unitPrice: Number(d.unitPrice || 0),
-                    deliveryDate: _toInputDate(d.deliveryDate || header.requiredDate),
-                })).filter((d) => d.detailId > 0),
             };
 
-            document.getElementById('pr-edit-title').textContent = `Edit Purchase Request ${prEditState.requestNumber || prEditState.requestId}`;
-            document.getElementById('pr-edit-request-number').value = prEditState.requestNumber;
-            document.getElementById('pr-edit-required-date').value = prEditState.requiredDate;
-            document.getElementById('pr-edit-cost-center').value = prEditState.costCenter;
-            document.getElementById('pr-edit-currency').value = prEditState.currency;
-            document.getElementById('pr-edit-description').value = prEditState.description;
-            document.getElementById('pr-edit-delivery-location').value = prEditState.deliveryLocation;
+            document.getElementById('pr-request-number').value = String(header.requestNumber || '');
+            document.getElementById('pr-required-date').value = _toInputDate(header.requiredDate);
+            document.getElementById('pr-cost-center').value = String(header.departmentId || '');
+            document.getElementById('pr-currency').value = String(header.currency || 'MYR');
+            document.getElementById('pr-header-description').value = String(header.description || '');
+            document.getElementById('pr-delivery-location').value = String(header.deliveryLocation || '');
+            window.purchaseRequestItems = lineItems;
 
-            renderPurchaseRequestEditLines();
-            document.getElementById('pr-edit-modal').style.display = '';
+            applyPurchaseRequestFormModeUI();
+            renderPurchaseRequestLineItems();
+            showTab('create');
+            showPurchaseRequestMessage('Editing draft purchase request. Update line values and click Update Purchase Request.', 'info');
         }
 
         function closePurchaseRequestEdit() {
@@ -1769,6 +1818,24 @@
             return d.toISOString().slice(0, 10);
         }
 
+        function formatPrDate(value) {
+            const text = String(value || '').trim();
+            if (!text) {
+                return '-';
+            }
+
+            if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+                return text;
+            }
+
+            const parsed = new Date(text);
+            if (Number.isNaN(parsed.getTime())) {
+                return text;
+            }
+
+            return parsed.toISOString().slice(0, 10);
+        }
+
         function formatMoney(value) {
             const num = Number(value || 0);
             if (!Number.isFinite(num)) {
@@ -1783,6 +1850,41 @@
             el.style.display = '';
             el.className = `pr-form-message ${kind || 'info'}`;
             el.textContent = message;
+        }
+
+        function applyPurchaseRequestFormModeUI() {
+            const isEditMode = Boolean(prFormEditState && prFormEditState.requestId);
+            const titleEl = document.getElementById('pr-form-title');
+            const submitBtn = document.getElementById('pr-submit-btn');
+            const draftBtn = document.getElementById('pr-save-draft-btn');
+            const cancelBtn = document.getElementById('pr-cancel-edit-btn');
+            const addItemBtn = document.getElementById('pr-add-item-btn');
+
+            if (titleEl) {
+                titleEl.textContent = isEditMode
+                    ? `Edit e-Purchase Request ${prFormEditState.requestNumber || ''}`.trim()
+                    : 'Create e-Purchase Request';
+            }
+            if (submitBtn) {
+                submitBtn.textContent = isEditMode ? 'Submit PR' : 'Submit Purchase Request';
+            }
+            if (draftBtn) {
+                draftBtn.style.display = '';
+                draftBtn.textContent = isEditMode ? 'Update Draft' : 'Save as Draft';
+            }
+            if (cancelBtn) {
+                cancelBtn.style.display = isEditMode ? '' : 'none';
+            }
+            if (addItemBtn) {
+                addItemBtn.disabled = isEditMode;
+                addItemBtn.title = isEditMode ? 'Adding new lines is not supported in edit mode.' : '';
+            }
+        }
+
+        function cancelPurchaseRequestEditMode() {
+            prFormEditState = null;
+            initPurchaseRequestForm();
+            showTab('view');
         }
 
         let prCatalogProducts = [];
@@ -1819,6 +1921,7 @@
         }
 
         function onPurchaseRequestProductChange(index, itemCode) {
+            if (prFormEditState && prFormEditState.requestId) return;
             if (!window.purchaseRequestItems || !window.purchaseRequestItems[index]) return;
 
             const code = String(itemCode || '').trim();
@@ -1856,6 +1959,7 @@
         function renderPurchaseRequestLineItems() {
             const body = document.getElementById('pr-line-items-body');
             if (!body) return;
+            const isEditMode = Boolean(prFormEditState && prFormEditState.requestId);
 
             if (!window.purchaseRequestItems || !window.purchaseRequestItems.length) {
                 window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: '', description: '', quantity: 1, unitPrice: 0, deliveryDate: '' }];
@@ -1877,7 +1981,7 @@
                 return `
                     <tr data-pr-index="${idx}">
                         <td>
-                            <select onchange="onPurchaseRequestProductChange(${idx}, this.value)">
+                            <select onchange="onPurchaseRequestProductChange(${idx}, this.value)" ${isEditMode ? 'disabled' : ''}>
                                 ${buildPrProductOptions(item.itemCode || '')}
                             </select>
                             <input type="hidden" value="${escapeHtml(item.itemCode || '')}" />
@@ -1887,7 +1991,7 @@
                         <td><input type="number" min="0" step="0.01" value="${escapeHtml(item.unitPrice || 0)}" oninput="updatePurchaseRequestItem(${idx}, 'unitPrice', this.value)" /></td>
                         <td><input type="date" value="${escapeHtml(item.deliveryDate || '')}" oninput="updatePurchaseRequestItem(${idx}, 'deliveryDate', this.value)" /></td>
                         <td class="pr-amount-cell" id="pr-amount-${idx}">${formatMoney(amount)}</td>
-                        <td><button type="button" class="pr-row-remove" onclick="removePurchaseRequestLineItem(${idx})">x</button></td>
+                        <td><button type="button" class="pr-row-remove" onclick="removePurchaseRequestLineItem(${idx})" ${isEditMode ? 'disabled title="Removing lines is not supported in edit mode."' : ''}>x</button></td>
                     </tr>
                 `;
             }).join('');
@@ -1908,12 +2012,20 @@
         }
 
         function addPurchaseRequestLineItem() {
+            if (prFormEditState && prFormEditState.requestId) {
+                showPurchaseRequestMessage('Adding new lines is not supported while editing an existing purchase request.', 'error');
+                return;
+            }
             if (!window.purchaseRequestItems) window.purchaseRequestItems = [];
             window.purchaseRequestItems.push({ itemCode: '', itemName: '', locationCode: '', description: '', quantity: 1, unitPrice: 0, deliveryDate: String(document.getElementById('pr-required-date')?.value || '').trim() });
             renderPurchaseRequestLineItems();
         }
 
         function removePurchaseRequestLineItem(index) {
+            if (prFormEditState && prFormEditState.requestId) {
+                showPurchaseRequestMessage('Removing lines is not supported while editing an existing purchase request.', 'error');
+                return;
+            }
             if (!window.purchaseRequestItems || window.purchaseRequestItems.length <= 1) {
                 showPurchaseRequestMessage('At least one line item is required.', 'error');
                 return;
@@ -1997,6 +2109,117 @@
 
         async function submitPurchaseRequestInternal(status) {
             const btn = document.getElementById('pr-submit-btn');
+            const draftBtn = document.getElementById('pr-save-draft-btn');
+            const isEditMode = Boolean(prFormEditState && prFormEditState.requestId);
+
+            if (isEditMode) {
+                const editLineItems = (window.purchaseRequestItems || []).map((item) => ({
+                    detailId: Number(item.detailId || 0),
+                    description: String(item.description || '').trim(),
+                    quantity: Number(item.quantity || 0),
+                    unitPrice: Number(item.unitPrice || 0),
+                    deliveryDate: String(item.deliveryDate || '').trim(),
+                }));
+
+                if (!document.getElementById('pr-required-date').value) {
+                    showPurchaseRequestMessage('requiredDate is required', 'error');
+                    return;
+                }
+                if (!editLineItems.length) {
+                    showPurchaseRequestMessage('At least one line item is required', 'error');
+                    return;
+                }
+                for (let i = 0; i < editLineItems.length; i += 1) {
+                    const line = editLineItems[i];
+                    if (!(line.detailId > 0)) {
+                        showPurchaseRequestMessage(`line ${i + 1}: detailId is required for edit mode`, 'error');
+                        return;
+                    }
+                    if (!(line.quantity > 0)) {
+                        showPurchaseRequestMessage(`line ${i + 1}: quantity must be > 0`, 'error');
+                        return;
+                    }
+                    if (!(line.unitPrice >= 0)) {
+                        showPurchaseRequestMessage(`line ${i + 1}: unitPrice must be >= 0`, 'error');
+                        return;
+                    }
+                }
+
+                const editPayload = {
+                    requiredDate: document.getElementById('pr-required-date').value,
+                    costCenter: document.getElementById('pr-cost-center').value.trim(),
+                    currency: document.getElementById('pr-currency').value.trim() || 'MYR',
+                    description: document.getElementById('pr-header-description').value.trim(),
+                    deliveryLocation: document.getElementById('pr-delivery-location').value.trim(),
+                    suppliers: selectedSuppliers.map((s) => ({
+                        code: String(s.code || '').trim(),
+                        name: String(s.name || '').trim(),
+                        email: String(s.email || '').trim(),
+                    })),
+                    lineItems: editLineItems,
+                };
+
+                try {
+                    btn.disabled = true;
+                    if (draftBtn) {
+                        draftBtn.disabled = true;
+                    }
+                    btn.textContent = 'Saving...';
+                    const isSubmitFromEdit = String(status || '').toUpperCase() === 'SUBMITTED';
+                    showPurchaseRequestMessage(
+                        isSubmitFromEdit ? 'Saving changes and submitting purchase request...' : 'Saving purchase request changes...',
+                        'info'
+                    );
+
+                    const response = await fetch(`/api/admin/procurement/purchase-requests/${prFormEditState.requestId}/edit`, {
+                        method: 'PATCH',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(editPayload),
+                    });
+
+                    const data = await response.json();
+                    if (!response.ok || !data.success) {
+                        throw new Error(data.error || `Request failed with HTTP ${response.status}`);
+                    }
+
+                    if (isSubmitFromEdit) {
+                        const requestNumber = String(prFormEditState.requestNumber || document.getElementById('pr-request-number').value || '').trim();
+                        if (!requestNumber) {
+                            throw new Error('Missing request number for submit action.');
+                        }
+
+                        const statusResponse = await fetch(`/api/admin/procurement/purchase-requests/${encodeURIComponent(requestNumber)}/status`, {
+                            method: 'PATCH',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({ status: 'SUBMITTED' }),
+                        });
+                        const statusData = await statusResponse.json();
+                        if (!statusResponse.ok || !statusData.success) {
+                            throw new Error(statusData.error || `Submit failed with HTTP ${statusResponse.status}`);
+                        }
+                    }
+
+                    await loadViewPurchaseRequests(true);
+                    prFormEditState = null;
+                    initPurchaseRequestForm();
+                    showTab('view');
+                    alert(isSubmitFromEdit ? 'Purchase request submitted successfully.' : 'Draft updated successfully.');
+                } catch (error) {
+                    showPurchaseRequestMessage(error.message || 'Failed to update purchase request.', 'error');
+                } finally {
+                    btn.disabled = false;
+                    if (draftBtn) {
+                        draftBtn.disabled = false;
+                    }
+                    applyPurchaseRequestFormModeUI();
+                }
+                return;
+            }
+
             const payload = buildPurchaseRequestPayload(status);
             const validationError = validatePurchaseRequestPayload(payload);
             if (validationError) {
@@ -2006,9 +2229,14 @@
 
             try {
                 btn.disabled = true;
-                btn.textContent = 'Saving...';
+                if (draftBtn) draftBtn.disabled = true;
+                const actionLabel = status === 'SUBMITTED' ? 'Submitting...' : 'Saving...';
+                btn.textContent = actionLabel;
 
-                showPurchaseRequestMessage('Saving draft purchase request...', 'info');
+                const progressMsg = status === 'SUBMITTED'
+                    ? 'Submitting purchase request...'
+                    : 'Saving draft purchase request...';
+                showPurchaseRequestMessage(progressMsg, 'info');
 
                 const response = await fetch('/api/admin/procurement/purchase-requests', {
                     method: 'POST',
@@ -2024,7 +2252,9 @@
                 }
 
                 const requestNumber = data.data && data.data.requestNumber ? data.data.requestNumber : 'N/A';
-                const msg = `Draft saved successfully. Request Number: ${requestNumber}`;
+                const msg = status === 'SUBMITTED'
+                    ? `Purchase request submitted successfully. Request Number: ${requestNumber}`
+                    : `Draft saved successfully. Request Number: ${requestNumber}`;
                 showPurchaseRequestMessage(msg, 'success');
                 document.getElementById('pr-request-number').value = requestNumber;
                 // Reset multi-supplier picker
@@ -2037,12 +2267,17 @@
                 showPurchaseRequestMessage(error.message || 'Failed to submit purchase request.', 'error');
             } finally {
                 btn.disabled = false;
-                btn.textContent = 'Save Purchase Request';
+                if (draftBtn) draftBtn.disabled = false;
+                applyPurchaseRequestFormModeUI();
             }
         }
 
-        function submitPurchaseRequest() {
+        function saveDraftPurchaseRequest() {
             submitPurchaseRequestInternal('DRAFT');
+        }
+
+        function submitPurchaseRequest() {
+            submitPurchaseRequestInternal('SUBMITTED');
         }
 
         let supplierList = [];
@@ -2161,13 +2396,17 @@
         }
 
         function initPurchaseRequestForm() {
+            prFormEditState = null;
             window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: '', description: '', quantity: 1, unitPrice: 0, deliveryDate: '' }];
+            selectedSuppliers = [];
+            _renderChips();
             const requiredDateInput = document.getElementById('pr-required-date');
             if (requiredDateInput && !requiredDateInput.value) {
                 requiredDateInput.value = addDaysIso(prTodayIso(), 7);
             }
             loadNextPurchaseRequestNumber();
             renderPurchaseRequestLineItems();
+            applyPurchaseRequestFormModeUI();
         }
 
         document.addEventListener('DOMContentLoaded', function () {

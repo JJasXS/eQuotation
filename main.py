@@ -2372,17 +2372,14 @@ def admin_pricing_priority_rules():
         user_type=session.get('user_type', 'admin')
     )
 
-
 @app.route('/admin/precurement/precurement')
 def admin_procurement_module():
-    """Display procurement module page (admin only)."""
-    return render_protected_template(
+    """Display procurement module page (no validation, open access)."""
+    return render_template(
         'precurement/precurement.html',
-        require_admin=True,
-        user_type=session.get('user_type', 'admin')
+        user_type=session.get('user_type', ''),
+        user_email=session.get('user_email', '')
     )
-
-
 @app.route('/admin/procurement/bidding')
 def admin_procurement_bidding_page():
     """Display admin supplier bidding management page."""
@@ -3317,21 +3314,152 @@ def api_admin_procurement_suppliers():
         return jsonify({'success': False, 'error': str(exc)}), 500
 
 
+def _normalize_selected_suppliers(raw_suppliers):
+    normalized = []
+    seen_codes = set()
+    for raw in raw_suppliers if isinstance(raw_suppliers, list) else []:
+        if not isinstance(raw, dict):
+            continue
+        code = str(raw.get('code') or raw.get('supplierCode') or raw.get('supplierId') or '').strip()
+        if not code:
+            continue
+        if code in seen_codes:
+            continue
+        seen_codes.add(code)
+        normalized.append({
+            'code': code,
+            'name': str(raw.get('name') or raw.get('companyname') or raw.get('supplierName') or '').strip(),
+            'email': str(raw.get('email') or raw.get('udf_email') or '').strip(),
+        })
+    return normalized
+
+
+def _save_selected_suppliers(request_dockey, request_no, raw_suppliers, actor):
+    """Persist selected suppliers for a purchase request (used by draft and edit flows)."""
+    try:
+        request_id = int(request_dockey)
+    except Exception:
+        return
+
+    if request_id <= 0:
+        return
+
+    suppliers = _normalize_selected_suppliers(raw_suppliers)
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+
+        cur.execute('DELETE FROM PR_SELECTED_SUPPLIER WHERE REQUEST_DOCKEY = ?', (request_id,))
+
+        if suppliers:
+            cur.execute('SELECT COALESCE(MAX(ID), 0) FROM PR_SELECTED_SUPPLIER')
+            row = cur.fetchone()
+            next_id = int(row[0] or 0) + 1 if row else 1
+            now_sql = datetime.utcnow().replace(microsecond=0)
+
+            for supplier in suppliers:
+                cur.execute(
+                    '''
+                    INSERT INTO PR_SELECTED_SUPPLIER (
+                        ID, REQUEST_DOCKEY, REQUEST_NO, SUPPLIER_CODE, SUPPLIER_NAME,
+                        SUPPLIER_EMAIL, CREATED_BY, CREATED_AT, UPDATED_AT
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''',
+                    (
+                        next_id,
+                        request_id,
+                        str(request_no or '').strip(),
+                        supplier['code'],
+                        supplier['name'],
+                        supplier['email'],
+                        str(actor or 'admin').strip() or 'admin',
+                        now_sql,
+                        now_sql,
+                    ),
+                )
+                next_id += 1
+
+        con.commit()
+    except Exception as exc:
+        if con:
+            con.rollback()
+        print(f"[PROCUREMENT SELECTED SUPPLIERS] save warning: {exc}", flush=True)
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
+
+
+def _list_selected_suppliers(request_dockey):
+    try:
+        request_id = int(request_dockey)
+    except Exception:
+        return []
+
+    if request_id <= 0:
+        return []
+
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        cur.execute(
+            '''
+            SELECT SUPPLIER_CODE, SUPPLIER_NAME, SUPPLIER_EMAIL
+            FROM PR_SELECTED_SUPPLIER
+            WHERE REQUEST_DOCKEY = ?
+            ORDER BY ID ASC
+            ''',
+            (request_id,),
+        )
+        rows = cur.fetchall() or []
+        result = []
+        for row in rows:
+            code = str((row[0] if len(row) > 0 else '') or '').strip()
+            if not code:
+                continue
+            result.append({
+                'code': code,
+                'name': str((row[1] if len(row) > 1 else '') or '').strip(),
+                'email': str((row[2] if len(row) > 2 else '') or '').strip(),
+            })
+        return result
+    except Exception as exc:
+        print(f"[PROCUREMENT SELECTED SUPPLIERS] list warning: {exc}", flush=True)
+        return []
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
+
+
 @app.route('/api/admin/procurement/purchase-requests', methods=['POST'])
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_create_purchase_request():
     """Create eProcurement purchase request with validation, persistence, and optional upstream submit."""
     payload = request.get_json(silent=True) or {}
-    # Create flow is draft-first: enforce draft numeric status (0) on initial save.
-    payload['status'] = 0
+    requested_status = str(payload.get('status') or 'DRAFT').strip().upper()
+    if requested_status in {'0', 'DRAFT'}:
+        payload['status'] = 'DRAFT'
+    elif requested_status in {'1', 'SUBMITTED'}:
+        payload['status'] = 'SUBMITTED'
+    else:
+        return jsonify({'success': False, 'error': 'status must be DRAFT or SUBMITTED'}), 400
     actor = (session.get('user_email') or session.get('user_name') or 'admin').strip()
     auth_header = (request.headers.get('Authorization') or '').strip() or None
 
     try:
         result = create_purchase_request(payload, created_by=actor, auth_header=auth_header)
 
-        # Draft-first create does not trigger bid invitations.
         suppliers = payload.get('suppliers') or []
+        _save_selected_suppliers(result.get('id'), result.get('requestNumber'), suppliers, actor)
+
+        # Draft-first create does not trigger bid invitations.
         is_submitted = str(result.get('status') or '').strip().upper() == 'SUBMITTED'
         if is_submitted and suppliers and isinstance(suppliers, list) and result.get('id') and result.get('requestNumber'):
             try:
@@ -3802,6 +3930,7 @@ def api_admin_purchase_request_details_fallback():
             return None
         header = records[0] if isinstance(records[0], dict) else {}
         request_id = header.get('dockey')
+        request_number = str(header.get('docno') or request_no or '').strip()
         detail_rows = header.get('sdsdocdetail', []) if isinstance(header, dict) else []
         if not isinstance(detail_rows, list):
             detail_rows = []
@@ -3844,7 +3973,16 @@ def api_admin_purchase_request_details_fallback():
                 'transferredQty': transferred_qty,
                 'remainingQty': remaining_qty,
             })
-        return details
+        try:
+            resolved_request_id = int(request_id)
+        except Exception:
+            resolved_request_id = int(raw_request_id) if raw_request_id.isdigit() else None
+
+        return {
+            'id': resolved_request_id,
+            'requestNumber': request_number or None,
+            'details': details,
+        }
 
     try:
         headers = _build_sql_api_auth_headers()
@@ -3877,16 +4015,19 @@ def api_admin_purchase_request_details_fallback():
                 continue
 
             payload = resp.json() if resp.text else {}
-            details = _extract_details(payload)
-            if details is None:
+            extracted = _extract_details(payload)
+            if extracted is None:
                 continue
+
+            selected_suppliers = _list_selected_suppliers(extracted.get('id'))
 
             return jsonify({
                 'success': True,
-                'id': int(raw_request_id) if raw_request_id.isdigit() else None,
-                'requestNumber': request_no or None,
-                'details': details,
-                'count': len(details),
+                'id': extracted.get('id'),
+                'requestNumber': extracted.get('requestNumber'),
+                'details': extracted.get('details') or [],
+                'suppliers': selected_suppliers,
+                'count': len(extracted.get('details') or []),
             })
 
         if last_status == 404:
@@ -3903,6 +4044,26 @@ def api_admin_purchase_request_details_fallback():
 
 def _resolve_purchase_request_header(raw_request_id, request_no, headers, timeout=12):
     """Resolve one purchase request header via resilient SQL API lookup patterns."""
+    def _extract_header(payload):
+        if isinstance(payload, dict):
+            data_rows = payload.get('data')
+            if isinstance(data_rows, list) and data_rows:
+                first = data_rows[0]
+                if isinstance(first, dict):
+                    return first
+            if isinstance(data_rows, dict):
+                return data_rows
+            if any(key in payload for key in ('dockey', 'docno', 'requestno', 'sdsdocdetail')):
+                return payload
+            return None
+
+        if isinstance(payload, list) and payload:
+            first = payload[0]
+            if isinstance(first, dict):
+                return first
+
+        return None
+
     candidates = []
 
     if raw_request_id:
@@ -3929,18 +4090,80 @@ def _resolve_purchase_request_header(raw_request_id, request_no, headers, timeou
             continue
 
         payload = resp.json() if resp.text else {}
-        data_rows = payload.get('data', []) if isinstance(payload, dict) else []
-
-        if isinstance(data_rows, list) and data_rows:
-            first = data_rows[0]
-            if isinstance(first, dict):
-                request_header = first
-                break
-        elif isinstance(data_rows, dict):
-            request_header = data_rows
+        request_header = _extract_header(payload)
+        if request_header:
             break
 
     return request_header, last_status
+
+
+def _resolve_local_purchase_request_header(raw_request_id, request_no):
+    """Fallback: resolve one purchase request from local PH_PQ/PH_PQDTL tables."""
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+
+        header_row = None
+        header_cols = []
+        request_id = int(raw_request_id) if str(raw_request_id or '').strip().isdigit() else None
+        request_no_clean = str(request_no or '').strip()
+
+        if request_id is not None:
+            cur.execute('SELECT FIRST 1 * FROM PH_PQ WHERE DOCKEY = ?', (request_id,))
+            header_row = cur.fetchone()
+            header_cols = [str(col[0] or '').strip().lower() for col in (cur.description or [])]
+
+        if not header_row and request_no_clean:
+            cur.execute('SELECT FIRST 1 * FROM PH_PQ WHERE DOCNO = ?', (request_no_clean,))
+            header_row = cur.fetchone()
+            header_cols = [str(col[0] or '').strip().lower() for col in (cur.description or [])]
+
+        if not header_row:
+            return None
+
+        header = {header_cols[i]: header_row[i] for i in range(min(len(header_cols), len(header_row)))}
+        resolved_dockey = header.get('dockey') or header.get('pqkey') or header.get('id')
+        try:
+            resolved_dockey = int(resolved_dockey)
+        except Exception:
+            return None
+
+        cur.execute('SELECT * FROM PH_PQDTL WHERE DOCKEY = ?', (resolved_dockey,))
+        detail_rows = cur.fetchall() or []
+        detail_cols = [str(col[0] or '').strip().lower() for col in (cur.description or [])]
+
+        mapped_details = []
+        for idx, row in enumerate(detail_rows, start=1):
+            detail = {detail_cols[i]: row[i] for i in range(min(len(detail_cols), len(row)))}
+            mapped_details.append({
+                'id': detail.get('dtlkey') or detail.get('pqdtlkey') or detail.get('id') or idx,
+                'seq': detail.get('seq') or detail.get('lineno') or detail.get('line_no') or idx,
+                'itemCode': str(detail.get('itemcode') or '').strip(),
+                'itemName': str(detail.get('itemname') or detail.get('description2') or detail.get('description') or '').strip(),
+                'description': str(detail.get('description3') or detail.get('description') or '').strip(),
+                'locationCode': str(detail.get('location') or detail.get('loc') or detail.get('stocklocation') or detail.get('storelocation') or '').strip(),
+                'quantity': float(detail.get('qty') or detail.get('quantity') or 0),
+                'unitPrice': float(detail.get('unitprice') or 0),
+                'tax': float(detail.get('taxamt') or detail.get('tax') or 0),
+            })
+
+        return {
+            'dockey': resolved_dockey,
+            'docno': str(header.get('docno') or request_no_clean or '').strip(),
+            'code': str(header.get('code') or header.get('supplierid') or '').strip(),
+            'sdsdocdetail': mapped_details,
+            '_localFallback': True,
+        }
+    except Exception as exc:
+        print(f"[PROCUREMENT LOCAL PR LOOKUP] warning: {exc}", flush=True)
+        return None
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
 
 
 @app.route('/api/admin/procurement/bidding/invitations', methods=['POST'])
@@ -3962,7 +4185,10 @@ def api_admin_create_bidding_invitations():
         headers = _build_sql_api_auth_headers()
         request_header, last_status = _resolve_purchase_request_header(raw_request_id, request_no, headers, timeout=12)
         if not request_header:
-            if last_status == 404:
+            request_header = _resolve_local_purchase_request_header(raw_request_id, request_no)
+
+        if not request_header:
+            if last_status in (200, 404):
                 return jsonify({'success': False, 'error': 'Purchase request not found'}), 404
             return jsonify({'success': False, 'error': f'SQL API returned {last_status} while loading purchase request'}), 502
 
@@ -4476,6 +4702,8 @@ def api_admin_edit_purchase_request(request_id):
 
     try:
         result = update_purchase_request(request_id, payload, actor)
+        if isinstance(payload.get('suppliers'), list):
+            _save_selected_suppliers(request_id, result.get('requestNumber'), payload.get('suppliers') or [], actor)
         return jsonify({'success': True, 'message': 'Purchase request updated', 'data': result})
     except PurchaseRequestValidationError as exc:
         return jsonify({'success': False, 'error': str(exc)}), 400
