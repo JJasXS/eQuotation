@@ -131,7 +131,8 @@
 }
 
 .submenu.active {
-    max-height: 200px;
+    /* Allow nested menus to expand fully (previously clipped at 200px). */
+    max-height: 1000px;
 }
 
 .submenu a {
