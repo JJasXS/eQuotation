@@ -161,8 +161,8 @@
                                                 <input type="text" id="pr-edit-request-number" readonly class="pr-system-generated" />
                                             </label>
                                             <label class="pr-field">
-                                                <span>Required Date</span>
-                                                <input type="date" id="pr-edit-required-date" />
+                                                <span>Requested Date</span>
+                                                <input type="date" id="pr-edit-request-date" readonly class="pr-system-generated" />
                                             </label>
                                             <label class="pr-field">
                                                 <span>Project</span>
@@ -220,14 +220,12 @@
                                     </div>
                                     <div class="pr-form-row">
                                         <label class="pr-field">
-                                            <span>Required Date <em>*</em></span>
-                                            <input type="date" id="pr-required-date" required />
+                                            <span>Requested Date <em>*</em></span>
+                                            <input type="date" id="pr-request-date" required readonly class="pr-system-generated" />
                                         </label>
                                         <label class="pr-field">
                                             <span>Project</span>
-                                            <select id="pr-project-code">
-                                                <option value="">Loading...</option>
-                                            </select>
+                                            <select id="pr-project-code"></select>
                                         </label>
                                         <label class="pr-field">
                                             <span>Currency</span>
@@ -898,11 +896,10 @@
                                     </div>
                                 </div>
                                 <div class="view-pr-meta-row" style="display: flex; gap: 4px; align-items: center; min-width: 0;">
-                                    <span style="font-size: 12px; color: #b9c4d1; min-width: 60px;">Requester</span>
-                                    <strong style="font-size: 13px; max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(header.requesterId || '-')}</strong>
+                                    <span style="font-size: 12px; color: #b9c4d1; min-width: 60px;">Supplier</span>
+                                    <strong style="font-size: 13px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(header.supplierName || header.supplierId || '-')}</strong>
                                 </div>
-                                <div class="view-pr-meta-row"><span>Request Date</span><strong>${formatPrDate(header.requestDate)}</strong></div>
-                                <div class="view-pr-meta-row"><span>Required Date</span><strong>${formatPrDate(header.requiredDate)}</strong></div>
+                                <div class="view-pr-meta-row"><span>Requested Date</span><strong>${formatPrDate(header.requestDate)}</strong></div>
                                 <div class="view-pr-meta-row"><span>Status</span><strong>${escapeHtml(prStatus)}</strong></div>
                                 <div class="view-pr-meta-row"><span>Currency</span><strong>${escapeHtml(header.currency || '-')}</strong></div>
                                 <div class="view-pr-meta-row"><span>Balance</span><strong>${formatStockCardNumber(header.balanceQty || 0)} / ${formatStockCardNumber(header.totalQty || 0)}</strong></div>
@@ -1234,7 +1231,7 @@
                 project: String(d.project || header.project || ''),
                 quantity: Number(d.quantity || 0),
                 unitPrice: Number(d.unitPrice || 0),
-                deliveryDate: _toInputDate(d.deliveryDate || header.requiredDate),
+                deliveryDate: _toInputDate(d.deliveryDate || header.requestDate),
             })).filter((d) => d.detailId > 0);
 
             if (!lineItems.length) {
@@ -1248,7 +1245,10 @@
             };
 
             document.getElementById('pr-request-number').value = String(header.requestNumber || '');
-            document.getElementById('pr-required-date').value = _toInputDate(header.requiredDate);
+            const requestDateEl = document.getElementById('pr-request-date');
+            if (requestDateEl) {
+                requestDateEl.value = _toInputDate(header.requestDate);
+            }
             renderProjectOptions(String(header.project || ''));
             document.getElementById('pr-currency').value = String(header.currency || 'MYR');
             document.getElementById('pr-header-description').value = String(header.description || '');
@@ -1275,16 +1275,14 @@
                 return;
             }
 
-            prEditState.requiredDate = String(document.getElementById('pr-edit-required-date').value || '').trim();
+            // Requested Date is system-controlled (DOCDATE). Keep existing value.
+            prEditState.requestDate = String(document.getElementById('pr-edit-request-date').value || '').trim();
             prEditState.costCenter = String(document.getElementById('pr-edit-cost-center').value || '').trim();
             prEditState.currency = String(document.getElementById('pr-edit-currency').value || '').trim() || 'MYR';
             prEditState.description = String(document.getElementById('pr-edit-description').value || '').trim();
             prEditState.deliveryLocation = String(document.getElementById('pr-edit-delivery-location').value || '').trim();
 
-            if (!prEditState.requiredDate) {
-                _showPrEditMessage('Required Date is required.', 'error');
-                return;
-            }
+            // requested date is read-only; do not validate user input here.
             if (!Array.isArray(prEditState.lineItems) || !prEditState.lineItems.length) {
                 _showPrEditMessage('At least one line item is required.', 'error');
                 return;
@@ -1297,7 +1295,7 @@
             }
 
             const payload = {
-                requiredDate: prEditState.requiredDate,
+                // requiredDate is not user-facing; backend defaults it to requestDate when omitted.
                 costCenter: prEditState.costCenter,
                 project: getSelectedProjectCode(),
                 currency: prEditState.currency,
@@ -1457,7 +1455,7 @@
                     project: getSelectedProjectCode(),
                     quantity: Number(entry.quantity || 0),
                     unitPrice: 0,
-                    deliveryDate: String(document.getElementById('pr-required-date')?.value || '').trim(),
+                    deliveryDate: String(document.getElementById('pr-request-date')?.value || '').trim(),
                 };
             });
 
@@ -2035,7 +2033,7 @@
             }
             if (!window.purchaseRequestItems) window.purchaseRequestItems = [];
             const selectedProjectCode = getSelectedProjectCode();
-            window.purchaseRequestItems.push({ itemCode: '', itemName: '', locationCode: '', description: '', udfReason: '', project: selectedProjectCode, quantity: 1, unitPrice: 0, deliveryDate: String(document.getElementById('pr-required-date')?.value || '').trim() });
+            window.purchaseRequestItems.push({ itemCode: '', itemName: '', locationCode: '', description: '', udfReason: '', project: selectedProjectCode, quantity: 1, unitPrice: 0, deliveryDate: String(document.getElementById('pr-request-date')?.value || '').trim() });
             renderPurchaseRequestLineItems();
         }
 
@@ -2099,8 +2097,7 @@
                 supplierName: supplierName,
                 suppliers: selectedSuppliers.map((s) => ({ code: s.code, name: s.name, email: s.email || '' })),
                 currency: document.getElementById('pr-currency').value.trim() || 'MYR',
-                requestDate: prTodayIso(),
-                requiredDate: document.getElementById('pr-required-date').value,
+                requestDate: String(document.getElementById('pr-request-date')?.value || '').trim() || prTodayIso(),
                 description: document.getElementById('pr-header-description').value.trim(),
                 deliveryLocation: document.getElementById('pr-delivery-location').value.trim(),
                 totalAmount: Number(totals.grand.toFixed(2)),
@@ -2111,8 +2108,6 @@
 
         function validatePurchaseRequestPayload(payload) {
             if (!payload.requestDate) return 'requestDate is required';
-            if (!payload.requiredDate) return 'requiredDate is required';
-            if (new Date(payload.requiredDate) < new Date(payload.requestDate)) return 'requiredDate cannot be before requestDate';
             if (!Array.isArray(payload.lineItems) || !payload.lineItems.length) return 'At least one line item is required';
 
             for (let i = 0; i < payload.lineItems.length; i += 1) {
@@ -2143,10 +2138,6 @@
                     deliveryDate: String(item.deliveryDate || '').trim(),
                 }));
 
-                if (!document.getElementById('pr-required-date').value) {
-                    showPurchaseRequestMessage('requiredDate is required', 'error');
-                    return;
-                }
                 if (!editLineItems.length) {
                     showPurchaseRequestMessage('At least one line item is required', 'error');
                     return;
@@ -2168,7 +2159,7 @@
                 }
 
                 const editPayload = {
-                    requiredDate: document.getElementById('pr-required-date').value,
+                    // requiredDate is not user-facing; backend defaults it to requestDate when omitted.
                     costCenter: selectedProjectCode,
                     project: selectedProjectCode,
                     currency: document.getElementById('pr-currency').value.trim() || 'MYR',
@@ -2493,9 +2484,9 @@
             window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: '', description: '', udfReason: '', project: getSelectedProjectCode(), quantity: 1, unitPrice: 0, deliveryDate: '' }];
             selectedSuppliers = [];
             _renderChips();
-            const requiredDateInput = document.getElementById('pr-required-date');
-            if (requiredDateInput && !requiredDateInput.value) {
-                requiredDateInput.value = addDaysIso(prTodayIso(), 7);
+            const requestDateEl = document.getElementById('pr-request-date');
+            if (requestDateEl && !requestDateEl.value) {
+                requestDateEl.value = prTodayIso();
             }
             loadNextPurchaseRequestNumber();
             renderPurchaseRequestLineItems();

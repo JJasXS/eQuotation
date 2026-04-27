@@ -3760,7 +3760,8 @@ def api_admin_create_purchase_request():
 
                     if targets:
                         request_number = str(result.get('requestNumber') or '').strip()
-                        required_date = str(payload.get('requiredDate') or '').strip()
+                        # Supplier-facing: treat required date as requested date (DOCDATE).
+                        required_date = str(payload.get('requestDate') or payload.get('requiredDate') or '').strip()
                         line_items = payload.get('lineItems') if isinstance(payload.get('lineItems'), list) else []
 
                         def _send_quote_invites_async(invite_targets, req_no, req_required_date, req_lines):
@@ -3810,7 +3811,7 @@ def api_admin_create_purchase_request():
                                             <div style='padding: 18px;'>
                                                 <p>Dear {supplier_name},</p>
                                                 <p>You are invited to quote for Purchase Request <strong>{_safe(req_no)}</strong>.</p>
-                                                <p><strong>Required Date:</strong> {_safe(req_required_date or '-')}</p>
+                                                 <p><strong>Requested Date:</strong> {_safe(req_required_date or '-')}</p>
                                                 <table style='width:100%;border-collapse:collapse;margin-top:14px;'>
                                                     <thead>
                                                         <tr style='background:#f8fafc;'>

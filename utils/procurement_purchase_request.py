@@ -383,16 +383,26 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
     currency = _clean_text(payload.get("currency")) or "MYR"
 
     request_date_raw = _clean_text(payload.get("requestDate"))
+
+    # requiredDate is not user-facing; default it to requestDate when missing.
     required_date_raw = _clean_text(payload.get("requiredDate"))
 
     request_date = _as_date(request_date_raw)
     required_date = _as_date(required_date_raw)
 
+    # If requestDate is omitted (UI auto-sets), default to today's date.
+    if request_date_raw and not request_date:
+        errors.append("requestDate must be YYYY-MM-DD")
     if not request_date:
-        errors.append("requestDate is required and must be YYYY-MM-DD")
+        request_date = datetime.utcnow().date()
+
+    # If requiredDate is omitted (expected), default to requestDate.
+    if required_date_raw and not required_date:
+        errors.append("requiredDate must be YYYY-MM-DD")
     if not required_date:
-        errors.append("requiredDate is required and must be YYYY-MM-DD")
-    if request_date and required_date and required_date < request_date:
+        required_date = request_date
+
+    if required_date < request_date:
         errors.append("requiredDate cannot be before requestDate")
 
     items = payload.get("lineItems")
