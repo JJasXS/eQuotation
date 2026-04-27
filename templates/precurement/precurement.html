@@ -42,39 +42,40 @@
                             <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
                                 <h2 style="margin: 0;">Overall Report</h2>
                             </div>
-                            <div class="location-filter-shell" style="margin-bottom: 12px;">
-                                <div class="location-filter-row" style="align-items: end; gap: 12px; flex-wrap: wrap;">
-                                    <label class="pr-field" style="max-width: 180px; margin-bottom: 0;">
-                                        <span>Last Cutoff Date</span>
-                                        <input type="date" id="stock-card-from-date" />
-                                    </label>
-                                    <div class="location-filter-actions" style="gap: 8px;">
-                                        <button type="button" class="view-pr-refresh-btn" onclick="applyStockCardDateFilter()">Apply Cutoff</button>
-                                        <button type="button" class="view-pr-refresh-btn" onclick="clearStockCardDateFilter()">Clear Cutoff</button>
-                                    </div>
-                                </div>
-                                <div class="location-filter-row" style="margin-top: 10px; align-items: center; gap: 10px;">
-                                    <span class="location-filter-label">Qty Mode</span>
-                                    <div class="qty-mode-toggle" id="qty-mode-toggle">
-                                        <button type="button" class="qty-mode-btn qty-mode-active" id="qty-mode-sqty" onclick="setQtyMode('SQTY')">SQTY</button>
-                                        <button type="button" class="qty-mode-btn" id="qty-mode-suomqty" onclick="setQtyMode('SUOMQTY')">SUOMQTY</button>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="location-filter-shell">
-                                <div class="location-filter-actions">
-                                    <button type="button" class="location-buy-btn" onclick="goToCreateProcurement()">New e-Purchase Request</button>
-                                </div>
-                                <div class="location-filter-row">
-                                    <span class="location-filter-label">Selected Locations</span>
-                                    <div id="selected-location-list" class="location-pill-list"></div>
-                                </div>
-                                <div class="location-filter-row">
-                                    <span class="location-filter-label">Add Location</span>
-                                    <div id="available-location-list" class="location-pill-list"></div>
-                                </div>
-                                <div id="report-summary-cards" class="report-summary-cards"></div>
-                            </div>
+                           <div class="location-filter-shell" style="margin-bottom: 12px;">
+    <div class="location-filter-row" style="align-items: end; gap: 12px; flex-wrap: wrap;">
+        <label class="pr-field" style="max-width: 180px; margin-bottom: 0;">
+            <span>Last Cutoff Date</span>
+            <input type="date" id="stock-card-from-date" />
+        </label>
+
+        <div class="location-filter-actions" style="gap: 8px;">
+            <button type="button" class="view-pr-refresh-btn" onclick="applyStockCardDateFilter()">Apply Cutoff</button>
+            <button type="button" class="view-pr-refresh-btn" onclick="clearStockCardDateFilter()">Clear Cutoff</button>
+            <button type="button" class="location-buy-btn" onclick="goToCreateProcurement()">New e-Purchase Request</button>
+        </div>
+    </div>
+
+    <div class="location-filter-row" style="margin-top: 10px; align-items: center; gap: 10px;">
+        <span class="location-filter-label">Qty Mode</span>
+        <div class="qty-mode-toggle" id="qty-mode-toggle">
+            <button type="button" class="qty-mode-btn qty-mode-active" id="qty-mode-sqty" onclick="setQtyMode('SQTY')">SQTY</button>
+            <button type="button" class="qty-mode-btn" id="qty-mode-suomqty" onclick="setQtyMode('SUOMQTY')">SUOMQTY</button>
+        </div>
+    </div>
+
+    <div class="location-filter-row">
+        <span class="location-filter-label">Selected Locations</span>
+        <div id="selected-location-list" class="location-pill-list"></div>
+    </div>
+
+    <div class="location-filter-row">
+        <span class="location-filter-label">Add Location</span>
+        <div id="available-location-list" class="location-pill-list"></div>
+    </div>
+
+    <div id="report-summary-cards" class="report-summary-cards"></div>
+</div>
                             <div class="stock-card-table-wrap" id="stock-card-table-wrap">
                                 <table class="stock-card-table" id="stock-card-table">
                                     <thead id="stock-card-table-head">
