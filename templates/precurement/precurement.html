@@ -964,7 +964,6 @@
                             ${formatMoney(detail.unitPrice || 0)}
                             ${detail.isFinalChosenPrice ? '<div style="font-size:11px;color:#14532d;font-weight:600;">Final (approved bid)</div>' : ''}
                         </td>
-                        <td class="view-pr-num col-tax">${formatMoney(detail.tax || 0)}</td>
                         <td class="col-approved view-pr-approved-cell"><input type="checkbox" ${detail.id ? '' : 'disabled'} ${toApprovalBool(detail.udfPqApproved) ? 'checked' : ''} onchange="onDetailApprovalChange(${headerId}, ${Number(detail.id || 0)}, this.checked)" /></td>
                         <td class="view-pr-num col-amount">${formatMoney(detail.amount || 0)}</td>
                     </tr>
@@ -991,7 +990,6 @@
                                     <col class="col-qty" />
                                     <col class="col-transfer-qty" />
                                     <col class="col-unit-price" />
-                                    <col class="col-tax" />
                                     <col class="col-approved" />
                                     <col class="col-amount" />
                                 </colgroup>
@@ -1003,7 +1001,6 @@
                                         <th class="view-pr-num col-qty">Qty (Remaining/Total)</th>
                                         <th class="col-transfer-qty">Transfer Qty</th>
                                         <th class="view-pr-num col-unit-price">Unit Price</th>
-                                        <th class="view-pr-num col-tax">Tax</th>
                                         <th class="col-approved">Approved</th>
                                         <th class="view-pr-num col-amount">Amount</th>
                                     </tr>
