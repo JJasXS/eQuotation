@@ -4493,6 +4493,7 @@ def _resolve_local_purchase_request_header(raw_request_id, request_no):
                 'itemName': str(detail.get('itemname') or detail.get('description2') or detail.get('description') or '').strip(),
                 'description': str(detail.get('description3') or detail.get('description') or '').strip(),
                 'locationCode': str(detail.get('location') or detail.get('loc') or detail.get('stocklocation') or detail.get('storelocation') or '').strip(),
+                'deliverydate': detail.get('deliverydate') or detail.get('delivery_date'),
                 'quantity': float(detail.get('qty') or detail.get('quantity') or 0),
                 'unitPrice': float(detail.get('unitprice') or 0),
                 'tax': float(detail.get('taxamt') or detail.get('tax') or 0),
@@ -4591,6 +4592,45 @@ def api_supplier_bidding_request_details():
         return jsonify({'success': False, 'error': 'request_id or request_no is required'}), 400
 
     try:
+        def _lookup_detail_delivery_dates(request_dockey: int, detail_ids: list[int]) -> dict[int, str]:
+            if not request_dockey or not detail_ids:
+                return {}
+            con = None
+            cur = None
+            try:
+                con = get_db_connection()
+                cur = con.cursor()
+                placeholders = ', '.join(['?'] * len(detail_ids))
+                cur.execute(
+                    f"""
+                    SELECT DTLKEY, DELIVERYDATE, DELIVERY_DATE
+                    FROM PH_PQDTL
+                    WHERE DOCKEY = ?
+                      AND DTLKEY IN ({placeholders})
+                    """,
+                    tuple([int(request_dockey), *[int(x) for x in detail_ids]]),
+                )
+                result = {}
+                for row in (cur.fetchall() or []):
+                    if not row:
+                        continue
+                    try:
+                        key = int(row[0])
+                    except Exception:
+                        continue
+                    value = row[1] if len(row) > 1 and row[1] is not None else (row[2] if len(row) > 2 else None)
+                    if value is None:
+                        continue
+                    result[key] = str(value)
+                return result
+            except Exception:
+                return {}
+            finally:
+                if cur:
+                    cur.close()
+                if con:
+                    con.close()
+
         headers = _build_sql_api_auth_headers()
         request_header, last_status = _resolve_purchase_request_header(raw_request_id, request_no, headers, timeout=12)
         if not request_header:
@@ -4602,9 +4642,55 @@ def api_supplier_bidding_request_details():
             return jsonify({'success': False, 'error': f'SQL API returned {last_status} while loading purchase request'}), 502
 
         details = []
-        for idx, row in enumerate(request_header.get('sdsdocdetail') or [], start=1):
+        header_delivery_fallback = (
+            request_header.get('postdate')
+            or request_header.get('requiredDate')
+            or request_header.get('requestdate')
+            or request_header.get('docdate')
+        )
+        request_dockey_value = request_header.get('dockey')
+        try:
+            request_dockey_int = int(request_dockey_value)
+        except Exception:
+            request_dockey_int = 0
+
+        raw_rows = request_header.get('sdsdocdetail') or []
+        detail_ids_for_lookup: list[int] = []
+        for row in raw_rows:
             if not isinstance(row, dict):
                 continue
+            if row.get('deliverydate') or row.get('deliveryDate'):
+                continue
+            try:
+                detail_ids_for_lookup.append(int(row.get('dtlkey') or row.get('id')))
+            except Exception:
+                continue
+        delivery_lookup = _lookup_detail_delivery_dates(request_dockey_int, detail_ids_for_lookup)
+        for idx, row in enumerate(raw_rows, start=1):
+            if not isinstance(row, dict):
+                continue
+            detail_id_raw = row.get('dtlkey') or row.get('id')
+            try:
+                detail_id_int = int(detail_id_raw)
+            except Exception:
+                detail_id_int = 0
+            row_delivery = row.get('deliverydate') or row.get('deliveryDate')
+            lookup_delivery = delivery_lookup.get(detail_id_int)
+            resolved_delivery = (
+                row_delivery
+                or lookup_delivery
+                or header_delivery_fallback
+            )
+            delivery_source = (
+                'row'
+                if row_delivery
+                else ('db_lookup' if lookup_delivery else ('header_fallback' if header_delivery_fallback else 'missing'))
+            )
+            print(
+                f"[SUPPLIER BIDDING DELIVERYDATE] request={request_header.get('dockey')} "
+                f"detail={detail_id_int or detail_id_raw} source={delivery_source} value={resolved_delivery}",
+                flush=True,
+            )
             details.append({
                 'id': row.get('dtlkey') or row.get('id'),
                 'seq': row.get('seq') if row.get('seq') is not None else idx,
@@ -4612,6 +4698,7 @@ def api_supplier_bidding_request_details():
                 'itemName': str(row.get('itemname') or row.get('itemName') or row.get('description2') or row.get('description') or '').strip(),
                 'description': str(row.get('description3') or row.get('description') or '').strip(),
                 'locationCode': str(row.get('location') or row.get('locationCode') or '').strip(),
+                'deliveryDate': resolved_delivery,
                 'quantity': float(row.get('qty') or row.get('quantity') or 0),
                 'unitPrice': float(row.get('unitprice') or row.get('unitPrice') or 0),
                 'tax': float(row.get('taxamt') or row.get('tax') or 0),

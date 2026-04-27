@@ -838,7 +838,7 @@
                 viewApprovalPendingChanges.clear();
                 viewHeaderStatusPendingChanges.clear();
                 updateViewApprovalButtonState();
-                renderFilteredViewPurchaseRequests();
+                await loadViewPurchaseRequests(true);
             } catch (error) {
                 alert(error.message || 'Failed to update approval details.');
             } finally {
