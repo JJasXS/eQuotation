@@ -100,9 +100,16 @@
         function chipClass(status) {
             const normalized = String(status || '').toUpperCase();
             if (normalized === 'OPEN') return 'status-open';
-            if (normalized === 'RESPONDED') return 'status-responded';
-            if (normalized === 'AWARDED') return 'status-awarded';
+            if (normalized === 'RESPONDED' || normalized === 'SUBMITTED') return 'status-responded';
+            // Supplier-facing wording: show APPROVED as ACCEPTED.
+            if (normalized === 'AWARDED' || normalized === 'APPROVED' || normalized === 'ACCEPTED') return 'status-awarded';
             return 'status-closed';
+        }
+
+        function displayBidStatus(status) {
+            const normalized = String(status || '').toUpperCase();
+            if (normalized === 'APPROVED') return 'ACCEPTED';
+            return String(status || '').trim() || 'OPEN';
         }
 
         function escapeHtml(text) {
@@ -137,12 +144,13 @@
 
             list.innerHTML = rows.map((row) => {
                 const bidStatus = row.bidStatus || row.inviteStatus || 'OPEN';
+                const bidStatusLabel = displayBidStatus(bidStatus);
                 const disabled = String(row.inviteStatus || '').toUpperCase() === 'CLOSED';
                 return `
                     <div class="invite-row">
                         <div>
                             <div><strong>${escapeHtml(row.requestNumber || ('PR-' + row.requestDockey))}</strong></div>
-                            <div class="muted">Supplier: ${escapeHtml(row.supplierCode)} | Bid Status: <span class="status-chip ${chipClass(bidStatus)}">${escapeHtml(bidStatus || 'OPEN')}</span></div>
+                            <div class="muted">Supplier: ${escapeHtml(row.supplierCode)} | Bid Status: <span class="status-chip ${chipClass(bidStatusLabel)}">${escapeHtml(bidStatusLabel)}</span></div>
                         </div>
                         <button type="button" onclick="openInvite(${row.requestDockey}, '${escapeHtml(row.requestNumber || '')}')" ${disabled ? 'disabled' : ''}>Open</button>
                     </div>
@@ -175,7 +183,7 @@
             }
             activeRequest = body;
             document.getElementById('active-request-title').textContent = 'Bid for ' + (body.requestNumber || ('PR-' + body.requestId));
-            document.getElementById('active-request-subtitle').textContent = 'Fill in your quote and submit to admin for approval.';
+            document.getElementById('active-request-subtitle').textContent = 'Fill in your quote and submit to admin for review.';
 
             const rows = (body.details || []).map((line) => {
                 return `
