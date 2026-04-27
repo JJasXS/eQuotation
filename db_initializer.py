@@ -833,6 +833,153 @@ def _ensure_sl_qtdtl_localamount_sync_trigger(conn):
         cur.close()
 
 
+def _get_relation_field_names(conn, relation_name):
+    """Return existing field names for a Firebird table/relation in uppercase."""
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            '''
+            SELECT TRIM(f.RDB$FIELD_NAME)
+            FROM RDB$RELATION_FIELDS f
+            WHERE f.RDB$RELATION_NAME = ?
+            ''',
+            (relation_name.upper(),)
+        )
+        return {str(row[0]).strip().upper() for row in cur.fetchall() if row and row[0]}
+    except Exception as e:
+        print(f"[DB INIT WARNING] Could not inspect fields for {relation_name}: {e}")
+        return set()
+    finally:
+        cur.close()
+
+
+def _ensure_st_xtrans_suomqty_column(conn):
+    """Ensure ST_XTRANS table has SUOMQTY column for stock/UOM quantity tracking."""
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            '''
+            SELECT f.RDB$FIELD_NAME
+            FROM RDB$RELATION_FIELDS f
+            WHERE f.RDB$RELATION_NAME = 'ST_XTRANS' AND f.RDB$FIELD_NAME = 'SUOMQTY'
+            '''
+        )
+        result = cur.fetchone()
+        if result:
+            print("[DB INIT] SUOMQTY column already exists in ST_XTRANS")
+            return True
+
+        conn.commit()
+        cur.execute('ALTER TABLE ST_XTRANS ADD SUOMQTY DECIMAL(18,4)')
+        conn.commit()
+        print("[DB INIT] SUOMQTY column added to ST_XTRANS")
+        return True
+    except Exception as e:
+        error_msg = str(e).lower()
+        if 'already exists' in error_msg or 'duplicate' in error_msg:
+            print("[DB INIT] SUOMQTY column already exists in ST_XTRANS")
+            return True
+        print(f"[DB INIT WARNING] Could not add SUOMQTY to ST_XTRANS: {e}")
+        return False
+    finally:
+        cur.close()
+
+
+def _backfill_st_xtrans_suomqty(conn):
+    """Backfill ST_XTRANS.SUOMQTY using SQTY when available, otherwise QTY * RATE if possible."""
+    fields = _get_relation_field_names(conn, 'ST_XTRANS')
+    if 'SUOMQTY' not in fields:
+        print("[DB INIT WARNING] ST_XTRANS.SUOMQTY is missing; backfill skipped")
+        return False
+
+    if 'SQTY' in fields:
+        expression = 'SQTY'
+    elif {'QTY', 'RATE'}.issubset(fields):
+        expression = 'COALESCE(QTY, 0) * COALESCE(RATE, 1)'
+    elif 'QTY' in fields:
+        expression = 'QTY'
+    else:
+        print("[DB INIT WARNING] No suitable source column found to backfill ST_XTRANS.SUOMQTY")
+        return False
+
+    cur = conn.cursor()
+    try:
+        cur.execute(f'''
+            UPDATE ST_XTRANS
+            SET SUOMQTY = {expression}
+            WHERE SUOMQTY IS NULL
+        ''')
+        conn.commit()
+        print(f"[DB INIT] Backfilled ST_XTRANS.SUOMQTY from {expression}")
+        return True
+    except Exception as e:
+        conn.rollback()
+        print(f"[DB INIT WARNING] Could not backfill ST_XTRANS.SUOMQTY: {e}")
+        return False
+    finally:
+        cur.close()
+
+
+def _ensure_st_xtrans_suomqty_sync_trigger(conn):
+    """
+    Ensure ST_XTRANS.SUOMQTY is populated automatically.
+
+    Safe rule:
+    - Do not overwrite SUOMQTY if your app already provides it.
+    - If SUOMQTY is empty, use SQTY first.
+    - If SQTY is unavailable/empty, fallback to QTY * RATE when those columns exist.
+    """
+    fields = _get_relation_field_names(conn, 'ST_XTRANS')
+    if 'SUOMQTY' not in fields:
+        print("[DB INIT WARNING] ST_XTRANS.SUOMQTY is missing; trigger skipped")
+        return False
+
+    fallback_parts = []
+    if 'SQTY' in fields:
+        fallback_parts.append('NEW.SQTY')
+    if {'QTY', 'RATE'}.issubset(fields):
+        fallback_parts.append('COALESCE(NEW.QTY, 0) * COALESCE(NEW.RATE, 1)')
+    elif 'QTY' in fields:
+        fallback_parts.append('NEW.QTY')
+
+    if not fallback_parts:
+        print("[DB INIT WARNING] No suitable source column found for ST_XTRANS.SUOMQTY trigger")
+        return False
+
+    fallback_expr = 'COALESCE(' + ', '.join(fallback_parts + ['0']) + ')'
+
+    cur = conn.cursor()
+    try:
+        try:
+            cur.execute("DROP TRIGGER TRG_ST_XTRANS_SUOMQTY_SYNC")
+            conn.commit()
+        except Exception:
+            pass
+
+        trigger_sql = f'''
+        CREATE TRIGGER TRG_ST_XTRANS_SUOMQTY_SYNC FOR ST_XTRANS
+        ACTIVE BEFORE INSERT OR UPDATE POSITION 0
+        AS
+        BEGIN
+          IF (NEW.SUOMQTY IS NULL) THEN
+            NEW.SUOMQTY = {fallback_expr};
+        END
+        '''
+        cur.execute(trigger_sql)
+        conn.commit()
+        print(f"[DB INIT] Trigger TRG_ST_XTRANS_SUOMQTY_SYNC created: SUOMQTY defaults from {fallback_expr}")
+        return True
+    except Exception as e:
+        error_msg = str(e).lower()
+        if 'already exists' in error_msg or 'name in use' in error_msg:
+            print("[DB INIT] Trigger TRG_ST_XTRANS_SUOMQTY_SYNC already exists")
+            return True
+        print(f"[DB INIT WARNING] Could not create TRG_ST_XTRANS_SUOMQTY_SYNC: {e}")
+        return False
+    finally:
+        cur.close()
+
+
 def _ensure_pricing_priority_rule_table(conn):
     """Ensure PricingPriorityRule table exists for configurable price evaluation."""
     _execute_ddl(
@@ -1463,6 +1610,11 @@ def initialize_database(db_path, db_user, db_password):
 
         # Keep SL_QTDTL.LOCALAMOUNT in sync with AMOUNT * SL_QT.CURRENCYRATE
         _ensure_sl_qtdtl_localamount_sync_trigger(conn)
+
+        # Ensure ST_XTRANS has SUOMQTY and can populate it safely from SQTY / QTY * RATE
+        _ensure_st_xtrans_suomqty_column(conn)
+        _backfill_st_xtrans_suomqty(conn)
+        _ensure_st_xtrans_suomqty_sync_trigger(conn)
 
         # Ensure pricing priority rule settings table exists and is seeded
         _ensure_pricing_priority_rule_table(conn)
