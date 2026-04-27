@@ -1,5 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
+
+<style>
+    
+</style>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -42,7 +46,11 @@
         @media (max-width: 960px) {
             .grid { grid-template-columns: 1fr; }
             .split { grid-template-columns: 1fr; }
+
+
         }
+
+      
     </style>
 </head>
 <body>
@@ -370,11 +378,11 @@
                             `).join('')}
                         </tbody>
                     </table>
-                    <div style="height:8px;"></div>
-                    <table>
-                        <thead><tr><th>Item</th><th>Supplier Unit Prices</th><th>Best Unit Price</th></tr></thead>
-                        <tbody>${itemRows.join('') || '<tr><td colspan="3" class="muted">No item comparison available.</td></tr>'}</tbody>
-                    </table>
+                    <div style="height:8px; display:none;"></div>
+<table style="display:none;">
+    <thead><tr><th>Item</th><th>Supplier Unit Prices</th><th>Best Unit Price</th></tr></thead>
+    <tbody>${itemRows.join('') || '<tr><td colspan="3" class="muted">No item comparison available.</td></tr>'}</tbody>
+</table>
                 </div>
             `;
 
