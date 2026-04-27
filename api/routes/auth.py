@@ -75,6 +75,18 @@ def _connect_db():
     return fdb.connect(dsn=f"{DB_HOST}:{DB_PATH}", user=DB_USER, password=DB_PASSWORD, charset="UTF8")
 
 
+def _table_has_column(cur, table_name: str, column_name: str) -> bool:
+    cur.execute(
+        """
+        SELECT 1
+        FROM RDB$RELATION_FIELDS
+        WHERE RDB$RELATION_NAME = ? AND RDB$FIELD_NAME = ?
+        """,
+        [table_name.upper(), column_name.upper()],
+    )
+    return cur.fetchone() is not None
+
+
 @router.get("/email-lookup")
 def lookup_email_identity(email: str = Query(..., min_length=3, max_length=255)):
     """Check whether an email exists as admin/customer and return identity details."""
@@ -112,27 +124,42 @@ def lookup_email_identity(email: str = Query(..., min_length=3, max_length=255))
                 "isactive": admin_row[3],
             }
 
-        # Supplier lookup via AR_SUPPLIER.UDF_EMAIL
-        try:
-            cur.execute(
-                """
-                SELECT CODE, COMPANYNAME, UDF_EMAIL
-                FROM AR_SUPPLIER
-                WHERE UPPER(TRIM(UDF_EMAIL)) = UPPER(TRIM(?))
-                """,
-                [normalized_email],
-            )
-            supplier_row = cur.fetchone()
-            if supplier_row:
-                supplier = {
-                    "code": supplier_row[0],
-                    "name": supplier_row[1],
-                    "email": supplier_row[2],
-                    "source": "AR_SUPPLIER.UDF_EMAIL",
-                }
-                supplier_code = supplier_row[0]
-        except Exception as exc:
-            print(f"[AUTH] supplier Firebird lookup failed: {exc}", flush=True)
+        # Supplier lookup via whichever supplier table exists in this Firebird schema.
+        supplier_lookup_sources = [
+            ("AR_SUPPLIER", "UDF_EMAIL", "COMPANYNAME"),
+            ("AP_SUPPLIER", "UDF_EMAIL", "COMPANYNAME"),
+            ("AR_SUPPLIER", "EMAIL", "COMPANYNAME"),
+            ("AP_SUPPLIER", "EMAIL", "COMPANYNAME"),
+        ]
+        for table_name, email_col, name_col in supplier_lookup_sources:
+            try:
+                if not _table_has_column(cur, table_name, "CODE"):
+                    continue
+                if not _table_has_column(cur, table_name, email_col):
+                    continue
+                if not _table_has_column(cur, table_name, name_col):
+                    name_col = "CODE"
+
+                cur.execute(
+                    f"""
+                    SELECT CODE, {name_col}, {email_col}
+                    FROM {table_name}
+                    WHERE UPPER(TRIM({email_col})) = UPPER(TRIM(?))
+                    """,
+                    [normalized_email],
+                )
+                supplier_row = cur.fetchone()
+                if supplier_row:
+                    supplier = {
+                        "code": supplier_row[0],
+                        "name": supplier_row[1],
+                        "email": supplier_row[2],
+                        "source": f"{table_name}.{email_col}",
+                    }
+                    supplier_code = supplier_row[0]
+                    break
+            except Exception as exc:
+                print(f"[AUTH] supplier lookup failed on {table_name}.{email_col}: {exc}", flush=True)
 
         # Fallback to external supplier API source used by procurement pages.
         if not supplier:

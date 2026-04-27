@@ -1051,6 +1051,7 @@ def update_purchase_request(
                 "detailId": detail_id,
                 "description": _clean_text(line.get("description")),
                 "udfReason": _clean_text(line.get("udfReason") or line.get("udf_reason")),
+                "project": _clean_text(line.get("project") or payload.get("project")) or "----",
                 "quantity": float(quantity),
                 "unitPrice": float(unit_price),
                 "tax": 0.0,
@@ -1149,6 +1150,7 @@ def update_purchase_request(
         detail_amount_col = _pick_existing(detail_cols, "AMOUNT", "TOTAL")
         detail_delivery_col = _pick_existing(detail_cols, "DELIVERYDATE", "DELIVERY_DATE")
         detail_udf_reason_col = _pick_existing(detail_cols, "UDF_REASON")
+        detail_project_col = _pick_existing(detail_cols, "PROJECT")
 
         updated_lines = 0
         for line in normalized_lines:
@@ -1176,6 +1178,9 @@ def update_purchase_request(
             if detail_udf_reason_col:
                 line_updates.append(f"{detail_udf_reason_col} = ?")
                 line_values.append(line["udfReason"])
+            if detail_project_col:
+                line_updates.append(f"{detail_project_col} = ?")
+                line_values.append(line["project"])
 
             if not line_updates:
                 continue

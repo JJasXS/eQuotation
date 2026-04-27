@@ -110,6 +110,7 @@ from config.otp_config import generate_otp, OTP_LENGTH, OTP_EXPIRY_SECONDS
 # ============================================
 BASE_API_URL = os.getenv('BASE_API_URL', 'http://localhost:8080').rstrip('/')
 FASTAPI_BASE_URL = os.getenv('API_BASE_URL', 'http://localhost:8000').rstrip('/')
+PROJECT_API_BASE_URL = os.getenv('PROJECT_API_BASE_URL', '').strip().rstrip('/')
 FASTAPI_ACCESS_KEY = (os.getenv('API_ACCESS_KEY') or '').strip()
 FASTAPI_SECRET_KEY = (os.getenv('API_SECRET_KEY') or '').strip()
 GUEST_SIGNIN_ALLOW_LOCAL_FALLBACK = (os.getenv('GUEST_SIGNIN_ALLOW_LOCAL_FALLBACK', 'true').strip().lower() in ('1', 'true', 'yes', 'on'))
@@ -3314,6 +3315,276 @@ def api_admin_procurement_suppliers():
         return jsonify({'success': False, 'error': str(exc)}), 500
 
 
+def _load_projects_from_firebird_fallback():
+    """Load project list directly from Firebird when upstream project API is unavailable."""
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+
+        cur.execute(
+            """
+            SELECT DISTINCT TRIM(RF.RDB$RELATION_NAME)
+            FROM RDB$RELATION_FIELDS RF
+            WHERE RF.RDB$FIELD_NAME = 'CODE'
+              AND RF.RDB$RELATION_NAME CONTAINING 'PROJECT'
+            ORDER BY 1
+            """
+        )
+        candidate_tables = [str(row[0]).strip() for row in (cur.fetchall() or []) if row and row[0]]
+
+        # Add common names even if metadata query misses them.
+        for table_name in ["PROJECT", "ST_PROJECT", "AR_PROJECT", "PJ_PROJECT"]:
+            if table_name not in candidate_tables:
+                candidate_tables.append(table_name)
+
+        projects = []
+        seen_codes = set()
+
+        for table_name in candidate_tables:
+            try:
+                cur.execute(
+                    """
+                    SELECT TRIM(RF.RDB$FIELD_NAME)
+                    FROM RDB$RELATION_FIELDS RF
+                    WHERE RF.RDB$RELATION_NAME = ?
+                    """,
+                    [table_name],
+                )
+                cols = {str(row[0]).strip().upper() for row in (cur.fetchall() or []) if row and row[0]}
+                if "CODE" not in cols:
+                    continue
+
+                desc_col = "DESCRIPTION" if "DESCRIPTION" in cols else ("DESCRIPTION2" if "DESCRIPTION2" in cols else "")
+                isactive_col = "ISACTIVE" if "ISACTIVE" in cols else ""
+
+                select_cols = ["CODE"]
+                select_cols.append(desc_col if desc_col else "NULL")
+                select_cols.append(isactive_col if isactive_col else "NULL")
+                cur.execute(f"SELECT {', '.join(select_cols)} FROM {table_name} ORDER BY CODE")
+                rows = cur.fetchall() or []
+
+                for row in rows:
+                    code = str((row[0] if len(row) > 0 else "") or "").strip()
+                    if not code or code in seen_codes:
+                        continue
+                    seen_codes.add(code)
+                    description = str((row[1] if len(row) > 1 else "") or "").strip()
+                    isactive_val = row[2] if len(row) > 2 else True
+                    projects.append({
+                        "code": code,
+                        "description": description,
+                        "isactive": bool(isactive_val if isactive_val is not None else True),
+                    })
+            except Exception:
+                continue
+
+        # Last-resort fallback from existing transactional records.
+        if not projects:
+            for table_name, col_name in [("PH_PQDTL", "PROJECT"), ("PH_PQ", "PROJECT")]:
+                try:
+                    cur.execute(f"SELECT DISTINCT {col_name} FROM {table_name} WHERE {col_name} IS NOT NULL ORDER BY {col_name}")
+                    for row in (cur.fetchall() or []):
+                        code = str((row[0] if row else "") or "").strip()
+                        if not code or code in seen_codes:
+                            continue
+                        seen_codes.add(code)
+                        projects.append({"code": code, "description": code, "isactive": True})
+                except Exception:
+                    continue
+
+        return projects
+    except Exception as exc:
+        print(f"[PROCUREMENT PROJECTS] Firebird fallback error: {exc}", flush=True)
+        return []
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
+
+
+def _load_projects_from_env_fallback():
+    """Fast fallback project list to avoid blocking UI when upstream project API is unavailable."""
+    raw = (os.getenv('PROJECT_CODE_FALLBACK') or '').strip()
+    if not raw:
+        raw = "----,P1,P2,P3,P4,P5"
+    codes = []
+    seen = set()
+    for part in raw.split(','):
+        code = str(part or '').strip()
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        codes.append(code)
+    return [{'code': code, 'description': code, 'isactive': True} for code in codes]
+
+
+@app.route('/api/admin/procurement/projects')
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_procurement_projects():
+    """Proxy active project codes from SQL API /project for PR dropdown."""
+    try:
+        # Deterministic fast fallback so dropdown is always populated.
+        # Configure PROJECT_CODE_FALLBACK in .env if needed (e.g. "----,P1,P2,P3,P4,P5").
+        fallback_rows = _load_projects_from_env_fallback()
+        if fallback_rows:
+            return jsonify({'success': True, 'data': fallback_rows, 'source': 'env-fallback'})
+
+        headers = _build_sql_api_auth_headers()
+        rows: list[dict] = []
+        seen_codes = set()
+        page_limit = 50
+        max_pages = 100
+        endpoint_candidates = ["/project", "/project/*", "/projects"]
+        last_status = None
+        base_candidates = []
+        # Restrict to SQL API hosts; BASE_API_URL is PHP service and can hang for these paths.
+        for base in [PROJECT_API_BASE_URL, FASTAPI_BASE_URL]:
+            base_text = (base or '').strip().rstrip('/')
+            if base_text and base_text not in base_candidates:
+                base_candidates.append(base_text)
+
+        def _safe_get(url, params=None, use_headers=False):
+            try:
+                return requests.get(
+                    url,
+                    params=params,
+                    headers=(headers or None) if use_headers else None,
+                    timeout=(2, 4),
+                )
+            except requests.exceptions.RequestException:
+                return None
+
+        # Avoid spending too long on unreachable base URLs.
+        selected_endpoint = None
+        selected_base = None
+        for base_url in base_candidates:
+            base_has_network_error = False
+            for endpoint in endpoint_candidates:
+                probe_params = {'offset': 0} if endpoint != "/project/*" else None
+                probe = _safe_get(f"{base_url}{endpoint}", params=probe_params, use_headers=True)
+                if not probe or not probe.ok:
+                    probe = _safe_get(f"{base_url}{endpoint}", params=probe_params, use_headers=False)
+                if probe is None:
+                    base_has_network_error = True
+                    break
+                if probe is not None:
+                    last_status = probe.status_code
+                if probe and probe.ok:
+                    selected_base = base_url
+                    selected_endpoint = endpoint
+                    break
+            if base_has_network_error and selected_endpoint is None:
+                continue
+            if selected_endpoint:
+                break
+
+        if not selected_endpoint:
+            fallback_rows = _load_projects_from_env_fallback()
+            return jsonify({'success': True, 'data': fallback_rows, 'source': 'firebird-fallback'})
+
+        # Non-paginated wildcard endpoint.
+        if selected_endpoint == "/project/*":
+            resp = _safe_get(f"{selected_base}{selected_endpoint}", use_headers=True)
+            if not resp or not resp.ok:
+                resp = _safe_get(f"{selected_base}{selected_endpoint}", use_headers=False)
+            if resp and resp.ok:
+                payload = resp.json() if resp.text else {}
+                page_rows = payload.get('data', []) if isinstance(payload, dict) else []
+                if isinstance(page_rows, list):
+                    for row in page_rows:
+                        if not isinstance(row, dict):
+                            continue
+                        code = str(row.get('code') or '').strip()
+                        if not code or code in seen_codes:
+                            continue
+                        seen_codes.add(code)
+                        rows.append(row)
+        else:
+            offset = 0
+            for _ in range(max_pages):
+                params = {'offset': offset}
+                resp = _safe_get(f"{selected_base}{selected_endpoint}", params=params, use_headers=True)
+                # Some environments reject custom SQL headers; retry once without headers.
+                if not resp or not resp.ok:
+                    resp = _safe_get(f"{selected_base}{selected_endpoint}", params=params, use_headers=False)
+                if not resp or not resp.ok:
+                    if resp is not None:
+                        last_status = resp.status_code
+                    break
+
+                payload = resp.json() if resp.text else {}
+                page_rows = payload.get('data', []) if isinstance(payload, dict) else []
+                if not isinstance(page_rows, list):
+                    break
+                if not page_rows:
+                    break
+
+                added_this_page = 0
+                for row in page_rows:
+                    if not isinstance(row, dict):
+                        continue
+                    code = str(row.get('code') or '').strip()
+                    if not code or code in seen_codes:
+                        continue
+                    seen_codes.add(code)
+                    rows.append(row)
+                    added_this_page += 1
+
+                pagination = payload.get('pagination', {}) if isinstance(payload, dict) else {}
+                total_count = 0
+                reported_limit = page_limit
+                if isinstance(pagination, dict):
+                    try:
+                        total_count = int(pagination.get('count') or 0)
+                    except Exception:
+                        total_count = 0
+                    try:
+                        reported_limit = int(pagination.get('limit') or page_limit)
+                    except Exception:
+                        reported_limit = page_limit
+                    if reported_limit <= 0:
+                        reported_limit = page_limit
+
+                # Stop when we've reached the reported total.
+                if total_count > 0 and len(seen_codes) >= total_count:
+                    break
+
+                # If no new code appeared, avoid infinite loops.
+                if added_this_page == 0:
+                    break
+
+                # Advance by reported page size (or current payload size fallback).
+                step = reported_limit if reported_limit > 0 else len(page_rows)
+                offset += max(1, step)
+
+        normalized = []
+        seen = set()
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            code = str(row.get('code') or '').strip()
+            if not code or code in seen:
+                continue
+            seen.add(code)
+            normalized.append({
+                'code': code,
+                'description': str(row.get('description') or '').strip(),
+                'isactive': bool(row.get('isactive') if row.get('isactive') is not None else True),
+            })
+
+        active_rows = [row for row in normalized if row.get('isactive')]
+        if not active_rows:
+            fallback_rows = _load_projects_from_env_fallback()
+            return jsonify({'success': True, 'data': fallback_rows, 'source': 'firebird-fallback'})
+        return jsonify({'success': True, 'data': active_rows})
+    except Exception as exc:
+        print(f"[PROCUREMENT PROJECTS] Error: {exc}", flush=True)
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
 def _normalize_selected_suppliers(raw_suppliers):
     normalized = []
     seen_codes = set()
@@ -3774,6 +4045,7 @@ def api_admin_list_purchase_requests():
                 'requesterId': str(row.get('code') or row.get('companyname') or '').strip(),
                 'departmentId': str(row.get('businessunit') or row.get('area') or '').strip(),
                 'costCenter': str(row.get('businessunit') or '').strip(),
+                'project': str(row.get('project') or '').strip() or '----',
                 'supplierId': str(row.get('agent') or '').strip(),
                 'currency': str(row.get('currencycode') or '').strip(),
                 'description': str(row.get('description') or '').strip(),
@@ -3964,6 +4236,7 @@ def api_admin_purchase_request_details_fallback():
                 'itemCode': str(row.get('itemcode') or '').strip(),
                 'itemName': str(row.get('itemname') or row.get('description2') or row.get('description') or '').strip(),
                 'description': str(row.get('description3') or row.get('description') or '').strip(),
+                'project': str(row.get('project') or '').strip() or '----',
                 'locationCode': str(row.get('location') or '').strip(),
                 'quantity': quantity,
                 'unitPrice': _num(row.get('unitprice')),
