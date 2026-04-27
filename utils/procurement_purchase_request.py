@@ -323,6 +323,7 @@ def _normalize_sql_api_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 "itemName": item_name,
                 "locationCode": location_code,
                 "description": description,
+                "udfReason": _clean_text(item.get("udfReason") or item.get("udf_reason")),
                 "project": line_project,
                 "quantity": float(quantity),
                 "unitPrice": float(_money(unit_price)),
@@ -447,6 +448,7 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
                 "itemName": item_name,
                 "locationCode": location_code,
                 "description": description,
+                "udfReason": _clean_text(item.get("udfReason") or item.get("udf_reason")),
                 "project": line_project,
                 "quantity": float(quantity),
                 "unitPrice": float(_money(unit_price)),
@@ -668,6 +670,7 @@ def create_purchase_request(
                 "STORELOCATION": line_location,
                 "PROJECT": item.get("project") or validated.get("project", ""),
                 "DESCRIPTION": item["description"] or item["itemName"],
+                "UDF_REASON": item.get("udfReason") or "",
                 "QTY": item["quantity"],
                 "QUANTITY": item["quantity"],
                 "UNITPRICE": item["unitPrice"],
@@ -784,6 +787,7 @@ def list_purchase_requests(limit: int = 200) -> list[dict[str, Any]]:
         currency_col = _pick_existing(header_cols, "CURRENCYCODE", "CURRENCY")
         total_col = _pick_existing(header_cols, "TOTAL_AMOUNT", "TOTALAMT", "DOCAMT")
         status_col = _pick_existing(header_cols, "STATUS")
+        udf_reason_col = _pick_existing(header_cols, "UDF_REASON")
 
         detail_seq_col = _pick_existing(detail_cols, "SEQ", "LINE_NO", "LINENO")
         item_code_col = _pick_existing(detail_cols, "ITEMCODE")
@@ -816,6 +820,7 @@ def list_purchase_requests(limit: int = 200) -> list[dict[str, Any]]:
                 {_h(currency_col)} AS CURRENCY,
                 {_h(total_col)} AS TOTAL_AMOUNT,
                 {_h(status_col)} AS STATUS,
+                {_h(udf_reason_col)} AS UDF_REASON,
                 {_d(detail_key_col)} AS DETAIL_ID,
                 {_d(order_seq_col)} AS DETAIL_SEQ,
                 {_d(item_code_col)} AS ITEM_CODE,
@@ -858,27 +863,28 @@ def list_purchase_requests(limit: int = 200) -> list[dict[str, Any]]:
                     "currency": _clean_text(row[7]),
                     "totalAmount": _num(row[8]),
                     "status": _decode_status(row[9]),
+                    "udfReason": _clean_text(row[10]),
                     "details": [],
                 }
                 grouped[header_id] = header
                 ordered_headers.append(header)
 
-            detail_id = row[10]
-            if detail_id is None and not _clean_text(row[12]):
+            detail_id = row[11]
+            if detail_id is None and not _clean_text(row[13]):
                 continue
 
             header["details"].append(
                 {
                     "id": int(detail_id) if detail_id is not None else None,
-                    "seq": int(row[11]) if row[11] is not None else len(header["details"]) + 1,
-                    "itemCode": _clean_text(row[12]),
-                    "itemName": _clean_text(row[13]),
-                    "description": _clean_text(row[14]),
-                    "locationCode": _clean_text(row[15]),
-                    "quantity": _num(row[16]),
-                    "unitPrice": _num(row[17]),
-                    "tax": _num(row[18]),
-                    "amount": _num(row[19]),
+                    "seq": int(row[12]) if row[12] is not None else len(header["details"]) + 1,
+                    "itemCode": _clean_text(row[13]),
+                    "itemName": _clean_text(row[14]),
+                    "description": _clean_text(row[15]),
+                    "locationCode": _clean_text(row[16]),
+                    "quantity": _num(row[17]),
+                    "unitPrice": _num(row[18]),
+                    "tax": _num(row[19]),
+                    "amount": _num(row[20]),
                 }
             )
 
@@ -1044,6 +1050,7 @@ def update_purchase_request(
             {
                 "detailId": detail_id,
                 "description": _clean_text(line.get("description")),
+                "udfReason": _clean_text(line.get("udfReason") or line.get("udf_reason")),
                 "quantity": float(quantity),
                 "unitPrice": float(unit_price),
                 "tax": 0.0,
@@ -1141,6 +1148,7 @@ def update_purchase_request(
         detail_tax_col = _pick_existing(detail_cols, "TAX", "TAXAMT")
         detail_amount_col = _pick_existing(detail_cols, "AMOUNT", "TOTAL")
         detail_delivery_col = _pick_existing(detail_cols, "DELIVERYDATE", "DELIVERY_DATE")
+        detail_udf_reason_col = _pick_existing(detail_cols, "UDF_REASON")
 
         updated_lines = 0
         for line in normalized_lines:
@@ -1165,6 +1173,9 @@ def update_purchase_request(
             if detail_delivery_col and line["deliveryDate"]:
                 line_updates.append(f"{detail_delivery_col} = ?")
                 line_values.append(line["deliveryDate"])
+            if detail_udf_reason_col:
+                line_updates.append(f"{detail_udf_reason_col} = ?")
+                line_values.append(line["udfReason"])
 
             if not line_updates:
                 continue

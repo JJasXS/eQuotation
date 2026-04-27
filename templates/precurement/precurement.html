@@ -395,6 +395,7 @@
                                             <tr>
                                                 <th>Item Name <em>*</em></th>
                                                 <th>Description</th>
+                                                <th>UDF Reason</th>
                                                 <th>Qty <em>*</em></th>
                                                 <th>Unit Price <em>*</em></th>
                                                 <th>Delivery Date</th>
@@ -1233,6 +1234,7 @@
                 itemName: String(d.itemName || ''),
                 locationCode: String(d.locationCode || ''),
                 description: String(d.description || ''),
+                udfReason: String(d.udfReason || ''),
                 quantity: Number(d.quantity || 0),
                 unitPrice: Number(d.unitPrice || 0),
                 deliveryDate: _toInputDate(d.deliveryDate || header.requiredDate),
@@ -1450,6 +1452,7 @@
                     itemName: itemName,
                     locationCode,
                     description: `Auto-selected from Overall Report${locationText}`,
+                    udfReason: '',
                     quantity: Number(entry.quantity || 0),
                     unitPrice: 0,
                     deliveryDate: String(document.getElementById('pr-required-date')?.value || '').trim(),
@@ -1972,7 +1975,7 @@
             const isEditMode = Boolean(prFormEditState && prFormEditState.requestId);
 
             if (!window.purchaseRequestItems || !window.purchaseRequestItems.length) {
-                window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: '', description: '', quantity: 1, unitPrice: 0, deliveryDate: '' }];
+                window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: '', description: '', udfReason: '', quantity: 1, unitPrice: 0, deliveryDate: '' }];
             }
 
             body.innerHTML = window.purchaseRequestItems.map((item, idx) => {
@@ -1997,6 +2000,7 @@
                             <input type="hidden" value="${escapeHtml(item.itemCode || '')}" />
                         </td>
                         <td><input type="text" value="${escapeHtml(item.description || '')}" oninput="updatePurchaseRequestItem(${idx}, 'description', this.value)" /></td>
+                        <td><input type="text" value="${escapeHtml(item.udfReason || '')}" oninput="updatePurchaseRequestItem(${idx}, 'udfReason', this.value)" /></td>
                         <td><input type="number" min="0.0001" step="0.0001" value="${escapeHtml(item.quantity || 0)}" oninput="updatePurchaseRequestItem(${idx}, 'quantity', this.value)" /></td>
                         <td><input type="number" min="0" step="0.01" value="${escapeHtml(item.unitPrice || 0)}" oninput="updatePurchaseRequestItem(${idx}, 'unitPrice', this.value)" /></td>
                         <td><input type="date" value="${escapeHtml(item.deliveryDate || '')}" oninput="updatePurchaseRequestItem(${idx}, 'deliveryDate', this.value)" /></td>
@@ -2027,7 +2031,7 @@
                 return;
             }
             if (!window.purchaseRequestItems) window.purchaseRequestItems = [];
-            window.purchaseRequestItems.push({ itemCode: '', itemName: '', locationCode: '', description: '', quantity: 1, unitPrice: 0, deliveryDate: String(document.getElementById('pr-required-date')?.value || '').trim() });
+            window.purchaseRequestItems.push({ itemCode: '', itemName: '', locationCode: '', description: '', udfReason: '', quantity: 1, unitPrice: 0, deliveryDate: String(document.getElementById('pr-required-date')?.value || '').trim() });
             renderPurchaseRequestLineItems();
         }
 
@@ -2074,6 +2078,7 @@
                 itemName: String(item.itemName || '').trim(),
                 locationCode: String(item.locationCode || '').trim(),
                 description: String(item.description || '').trim(),
+                udfReason: String(item.udfReason || '').trim(),
                 project: String(item.project || defaultProject).trim() || defaultProject,
                 quantity: Number(item.quantity || 0),
                 unitPrice: Number(item.unitPrice || 0),
@@ -2126,6 +2131,7 @@
                 const editLineItems = (window.purchaseRequestItems || []).map((item) => ({
                     detailId: Number(item.detailId || 0),
                     description: String(item.description || '').trim(),
+                    udfReason: String(item.udfReason || '').trim(),
                     quantity: Number(item.quantity || 0),
                     unitPrice: Number(item.unitPrice || 0),
                     deliveryDate: String(item.deliveryDate || '').trim(),
@@ -2407,7 +2413,7 @@
 
         function initPurchaseRequestForm() {
             prFormEditState = null;
-            window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: '', description: '', quantity: 1, unitPrice: 0, deliveryDate: '' }];
+            window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: '', description: '', udfReason: '', quantity: 1, unitPrice: 0, deliveryDate: '' }];
             selectedSuppliers = [];
             _renderChips();
             const requiredDateInput = document.getElementById('pr-required-date');

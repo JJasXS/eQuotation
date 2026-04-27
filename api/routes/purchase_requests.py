@@ -125,6 +125,7 @@ def _header_to_payload(row: dict[str, Any]) -> dict[str, Any]:
         "lastmodified": row.get("LASTMODIFIED"),
         "udf_status": _to_text(row.get("UDF_STATUS")),
         "udf_pqapproved": row.get("UDF_PQAPPROVED"),
+        "udf_reason": _to_text(row.get("UDF_REASON")),
     }
 
 
@@ -142,6 +143,7 @@ def _fetch_detail_rows(cur: Any, dockey: int, detail_cols: set[str]) -> list[dic
     tax_amt_col = _pick_existing(detail_cols, "TAXAMT", "TAX")
     amount_col = _pick_existing(detail_cols, "AMOUNT", "TOTAL")
     approved_col = _pick_existing(detail_cols, "UDF_PQAPPROVED")
+    reason_col = _pick_existing(detail_cols, "UDF_REASON")
 
     if not detail_fk_col:
         return []
@@ -160,6 +162,7 @@ def _fetch_detail_rows(cur: Any, dockey: int, detail_cols: set[str]) -> list[dic
         f"D.{tax_amt_col} AS TAXAMT" if tax_amt_col else "NULL AS TAXAMT",
         f"D.{amount_col} AS AMOUNT" if amount_col else "NULL AS AMOUNT",
         f"D.{approved_col} AS UDF_PQAPPROVED" if approved_col else "NULL AS UDF_PQAPPROVED",
+        f"D.{reason_col} AS UDF_REASON" if reason_col else "NULL AS UDF_REASON",
     ]
 
     order_col = seq_col or detail_key_col or detail_fk_col
@@ -210,6 +213,7 @@ def _fetch_detail_rows(cur: Any, dockey: int, detail_cols: set[str]) -> list[dic
                 "taxamt": str(_to_number(r[10])),
                 "amount": str(_to_number(r[11])),
                 "udf_pqapproved": r[12],
+                "udf_reason": _to_text(r[13]),
             }
         )
     return details
@@ -259,6 +263,7 @@ def list_purchase_requests(
         lastmodified_col = _pick_existing(header_cols, "LASTMODIFIED")
         udf_status_col = _pick_existing(header_cols, "UDF_STATUS")
         udf_approved_col = _pick_existing(header_cols, "UDF_PQAPPROVED")
+        udf_reason_col = _pick_existing(header_cols, "UDF_REASON")
 
         if not key_col:
             raise HTTPException(status_code=500, detail="PH_PQ key column not found")
@@ -287,6 +292,7 @@ def list_purchase_requests(
             f"H.{lastmodified_col} AS LASTMODIFIED" if lastmodified_col else "NULL AS LASTMODIFIED",
             f"H.{udf_status_col} AS UDF_STATUS" if udf_status_col else "NULL AS UDF_STATUS",
             f"H.{udf_approved_col} AS UDF_PQAPPROVED" if udf_approved_col else "NULL AS UDF_PQAPPROVED",
+            f"H.{udf_reason_col} AS UDF_REASON" if udf_reason_col else "NULL AS UDF_REASON",
         ]
 
         filters = []
@@ -347,6 +353,7 @@ def list_purchase_requests(
                 "LASTMODIFIED": r[20],
                 "UDF_STATUS": r[21],
                 "UDF_PQAPPROVED": r[22],
+                "UDF_REASON": r[23],
             }
             data.append(_header_to_payload(row_map))
 
@@ -413,6 +420,7 @@ def get_purchase_request_detail(
             f"H.{_pick_existing(header_cols, 'LASTMODIFIED')} AS LASTMODIFIED" if _pick_existing(header_cols, 'LASTMODIFIED') else "NULL AS LASTMODIFIED",
             f"H.{_pick_existing(header_cols, 'UDF_STATUS')} AS UDF_STATUS" if _pick_existing(header_cols, 'UDF_STATUS') else "NULL AS UDF_STATUS",
             f"H.{_pick_existing(header_cols, 'UDF_PQAPPROVED')} AS UDF_PQAPPROVED" if _pick_existing(header_cols, 'UDF_PQAPPROVED') else "NULL AS UDF_PQAPPROVED",
+            f"H.{_pick_existing(header_cols, 'UDF_REASON')} AS UDF_REASON" if _pick_existing(header_cols, 'UDF_REASON') else "NULL AS UDF_REASON",
         ]
 
         sql = f"SELECT FIRST 1 {', '.join(select_cols)} FROM PH_PQ H WHERE "
@@ -455,6 +463,7 @@ def get_purchase_request_detail(
             "LASTMODIFIED": r[20],
             "UDF_STATUS": r[21],
             "UDF_PQAPPROVED": r[22],
+            "UDF_REASON": r[23],
         }
 
         payload = _header_to_payload(row_map)

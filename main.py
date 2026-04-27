@@ -3777,6 +3777,7 @@ def api_admin_list_purchase_requests():
                 'supplierId': str(row.get('agent') or '').strip(),
                 'currency': str(row.get('currencycode') or '').strip(),
                 'description': str(row.get('description') or '').strip(),
+                'udfReason': str(row.get('udf_reason') or '').strip(),
                 'deliveryLocation': str(row.get('deliverylocation') or row.get('daddress1') or '').strip(),
                 'totalAmount': _num(row.get('docamt')),
                 'status': _status_text(row.get('status')),
@@ -3970,6 +3971,7 @@ def api_admin_purchase_request_details_fallback():
                 'amount': _num(row.get('amount')),
                 'deliveryDate': row.get('deliverydate'),
                 'udfPqApproved': row.get('udf_pqapproved'),
+                'udfReason': str(row.get('udf_reason') or '').strip(),
                 'transferredQty': transferred_qty,
                 'remainingQty': remaining_qty,
                 'isFinalChosenPrice': False,
@@ -4023,6 +4025,7 @@ def api_admin_purchase_request_details_fallback():
         return {
             'id': resolved_request_id,
             'requestNumber': request_number or None,
+            'udfReason': str(header.get('udf_reason') or '').strip(),
             'details': details,
             'totalAmount': total_amount,
         }
@@ -4068,6 +4071,7 @@ def api_admin_purchase_request_details_fallback():
                 'success': True,
                 'id': extracted.get('id'),
                 'requestNumber': extracted.get('requestNumber'),
+                'udfReason': extracted.get('udfReason'),
                 'details': extracted.get('details') or [],
                 'totalAmount': _num(extracted.get('totalAmount')),
                 'suppliers': selected_suppliers,
