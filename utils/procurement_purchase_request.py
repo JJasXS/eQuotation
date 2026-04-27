@@ -382,7 +382,8 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
 
     currency = _clean_text(payload.get("currency")) or "MYR"
 
-    request_date_raw = _clean_text(payload.get("requestDate"))
+    # requestDate is the user-facing field; keep requestedDate as a compatibility alias.
+    request_date_raw = _clean_text(payload.get("requestDate") or payload.get("requestedDate"))
 
     # requiredDate is not user-facing; default it to requestDate when missing.
     required_date_raw = _clean_text(payload.get("requiredDate"))
@@ -396,9 +397,9 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
     if not request_date:
         request_date = datetime.utcnow().date()
 
-    # If requiredDate is omitted (expected), default to requestDate.
+    # requiredDate is an internal downstream field; ignore malformed legacy values.
     if required_date_raw and not required_date:
-        errors.append("requiredDate must be YYYY-MM-DD")
+        required_date = request_date
     if not required_date:
         required_date = request_date
 
@@ -518,10 +519,27 @@ def _build_upstream_payload(validated: dict[str, Any]) -> dict[str, Any]:
     if isinstance(source_sql_payload, dict):
         payload = dict(source_sql_payload)
         payload["sdsdocdetail"] = [dict(row) for row in (source_sql_payload.get("sdsdocdetail") or [])]
+        request_date = _clean_text(payload.get("requestDate") or payload.get("requestedDate") or payload.get("docdate"))
+        if request_date:
+            payload["requestDate"] = request_date
+            payload["requestedDate"] = request_date
+            payload["docdate"] = request_date
+            payload["postdate"] = request_date
+            # Upstream still validates requiredDate; mirror it from requested date.
+            payload["requiredDate"] = request_date
         return payload
 
     payload = dict(validated)
     payload["lineItems"] = [dict(item) for item in validated.get("lineItems", [])]
+    request_date = _clean_text(payload.get("requestDate") or payload.get("requestedDate"))
+    if request_date:
+        payload["requestDate"] = request_date
+        payload["requestedDate"] = request_date
+        # Keep legacy SQL-style aliases aligned with requested date.
+        payload["docdate"] = request_date
+        payload["postdate"] = request_date
+        # Upstream still validates requiredDate; mirror it from requested date.
+        payload["requiredDate"] = request_date
     return payload
 
 

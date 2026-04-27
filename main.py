@@ -3714,6 +3714,13 @@ def _list_selected_suppliers(request_dockey):
 def api_admin_create_purchase_request():
     """Create eProcurement purchase request with validation, persistence, and optional upstream submit."""
     payload = request.get_json(silent=True) or {}
+    # requiredDate is no longer user-facing; canonicalize to requestDate/requestedDate.
+    requested_date = str(payload.get('requestedDate') or payload.get('requestDate') or '').strip()
+    if requested_date:
+        payload['requestDate'] = requested_date
+        payload['requestedDate'] = requested_date
+    payload.pop('requiredDate', None)
+
     requested_status = str(payload.get('status') or 'DRAFT').strip().upper()
     if requested_status in {'0', 'DRAFT'}:
         payload['status'] = 'DRAFT'
@@ -3857,6 +3864,7 @@ def api_admin_create_purchase_request():
             'data': result,
         }), 201
     except PurchaseRequestValidationError as exc:
+        print(f"[PROCUREMENT CREATE PR] validation error: {exc}", flush=True)
         return jsonify({'success': False, 'error': str(exc)}), 400
     except Exception as exc:
         print(f"[PROCUREMENT CREATE PR] error: {exc}", flush=True)
