@@ -790,7 +790,6 @@ def list_purchase_requests(limit: int = 200) -> list[dict[str, Any]]:
     """Return purchase request headers with nested detail lines for the eProcurement view."""
     ensure_purchase_request_schema()
     safe_limit = max(1, min(int(limit or 200), 1000))
-
     con = _connect_db()
     try:
         cur = con.cursor()
@@ -826,6 +825,7 @@ def list_purchase_requests(limit: int = 200) -> list[dict[str, Any]]:
         detail_unit_price_col = _pick_existing(detail_cols, "UNITPRICE")
         detail_tax_col = _pick_existing(detail_cols, "TAX")
         detail_amount_col = _pick_existing(detail_cols, "AMOUNT", "TOTAL")
+        detail_delivery_col = _pick_existing(detail_cols, "DELIVERYDATE", "DELIVERY_DATE", "REQUIREDDATE")
 
         def _h(col: str) -> str:
             return f"H.{col}" if col else "NULL"
@@ -858,7 +858,8 @@ def list_purchase_requests(limit: int = 200) -> list[dict[str, Any]]:
                 {_d(detail_qty_col)} AS DETAIL_QTY,
                 {_d(detail_unit_price_col)} AS DETAIL_UNIT_PRICE,
                 {_d(detail_tax_col)} AS DETAIL_TAX,
-                {_d(detail_amount_col)} AS DETAIL_AMOUNT
+                {_d(detail_amount_col)} AS DETAIL_AMOUNT,
+                {_d(detail_delivery_col)} AS DETAIL_DELIVERY_DATE
             FROM PH_PQ H
             LEFT JOIN PH_PQDTL D ON D.{detail_fk_col} = H.{header_key_col}
             ORDER BY H.{order_date_col} DESC, H.{header_key_col} DESC, D.{order_seq_col} ASC
@@ -913,6 +914,7 @@ def list_purchase_requests(limit: int = 200) -> list[dict[str, Any]]:
                     "unitPrice": _num(row[18]),
                     "tax": _num(row[19]),
                     "amount": _num(row[20]),
+                    "deliveryDate": row[21].isoformat() if hasattr(row[21], "isoformat") and row[21] is not None else _clean_text(row[21]),
                 }
             )
 

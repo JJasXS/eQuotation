@@ -848,170 +848,196 @@
         }
 
         function renderViewPurchaseRequests(rows) {
-            const list = document.getElementById('view-pr-list');
-            if (!list) {
-                return;
-            }
+    const list = document.getElementById('view-pr-list');
+    if (!list) {
+        return;
+    }
 
-            if (!Array.isArray(rows) || !rows.length) {
-                list.innerHTML = '<div class="view-pr-empty">No e-Purchase Request records found.</div>';
-                return;
-            }
+    if (!Array.isArray(rows) || !rows.length) {
+        list.innerHTML = '<div class="view-pr-empty">No e-Purchase Request records found.</div>';
+        return;
+    }
 
-            const htmlParts = [];
-            rows.forEach((header) => {
-                const headerId = Number(header.id || 0);
-                const prStatus = String(header.status || 'DRAFT').toUpperCase();
-                const canEditDraft = prStatus === 'DRAFT';
-                const details = Array.isArray(header.details) ? header.details : [];
-                const isLoadingDetails = viewLoadingDetailIds.has(headerId);
-                const isExpanded = viewExpandedHeaderIds.has(headerId);
-                const isTransferring = viewTransferSavingHeaderIds.has(headerId);
-                const canTransfer = isPurchaseRequestTransferReady(header);
-                const transferTitle = getPurchaseRequestTransferTitle(header);
-                const expander = isLoadingDetails ? '...' : (isExpanded ? 'v' : '>');
+    const htmlParts = [];
 
-                htmlParts.push(`
-                    <div class="view-pr-card">
-                        <div class="view-pr-card-header">
-                            <div class="view-pr-card-grid" onclick="toggleViewPurchaseRequest(${headerId})" style="cursor: pointer;">
-                                <div class="view-pr-main-col">
-                                    <div class="view-pr-main-line">
-                                        <span class="view-pr-toggle">${expander}</span>
-                                        <span class="view-pr-docno">${escapeHtml(header.requestNumber || '-')}</span>
-                                        <span class="view-pr-status-badge">${escapeHtml(prStatus)}</span>
-                                        <select class="view-pr-udf-status" onclick="event.stopPropagation()" onchange="onHeaderUdfStatusChange(${headerId}, this.value)">
-                                            <option value="APPROVED" ${normalizeUdfStatus(header.udfStatus) === 'APPROVED' ? 'selected' : ''}>APPROVED</option>
-                                            <option value="CANCELLED" ${normalizeUdfStatus(header.udfStatus) === 'CANCELLED' ? 'selected' : ''}>CANCELLED</option>
-                                            <option value="PENDING" ${normalizeUdfStatus(header.udfStatus) === 'PENDING' ? 'selected' : ''}>PENDING</option>
-                                        </select>
-                                        <button
-                                            type="button"
-                                            class="view-pr-refresh-btn"
-                                            style="padding:4px 8px;"
-                                            onclick="event.stopPropagation(); openPurchaseRequestEdit(${headerId});"
-                                            ${canEditDraft ? '' : 'disabled'}
-                                            title="${escapeHtml(canEditDraft ? 'Edit draft purchase request' : 'Only draft purchase requests can be edited')}"
-                                        >Edit</button>
-                                    </div>
-                                </div>
-                                <div class="view-pr-meta-row" style="display: flex; gap: 4px; align-items: center; min-width: 0;">
-                                    <span style="font-size: 12px; color: #b9c4d1; min-width: 60px;">Supplier</span>
-                                    <strong style="font-size: 13px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(header.supplierName || header.supplierId || '-')}</strong>
-                                </div>
-                                <div class="view-pr-meta-row"><span>Requested Date</span><strong>${formatPrDate(header.requestDate)}</strong></div>
-                                <div class="view-pr-meta-row"><span>Status</span><strong>${escapeHtml(prStatus)}</strong></div>
-                                <div class="view-pr-meta-row"><span>Currency</span><strong>${escapeHtml(header.currency || '-')}</strong></div>
-                                <div class="view-pr-meta-row"><span>Balance</span><strong>${formatStockCardNumber(header.balanceQty || 0)} / ${formatStockCardNumber(header.totalQty || 0)}</strong></div>
-                                <div class="view-pr-amount-col">
-                                    <div class="view-pr-amount-label">Total Amount</div>
-                                    <div class="view-pr-amount-value">${formatMoney(header.totalAmount || 0)}</div>
-                                </div>
+    rows.forEach((header) => {
+        const headerId = Number(header.id || 0);
+        const prStatus = String(header.status || 'DRAFT').toUpperCase();
+        const canEditDraft = prStatus === 'DRAFT';
+        const details = Array.isArray(header.details) ? header.details : [];
+        const isLoadingDetails = viewLoadingDetailIds.has(headerId);
+        const isExpanded = viewExpandedHeaderIds.has(headerId);
+        const isTransferring = viewTransferSavingHeaderIds.has(headerId);
+        const canTransfer = isPurchaseRequestTransferReady(header);
+        const transferTitle = getPurchaseRequestTransferTitle(header);
+        const expander = isLoadingDetails ? '...' : (isExpanded ? 'v' : '>');
+
+        htmlParts.push(`
+            <div class="view-pr-card">
+                <div class="view-pr-card-header">
+                    <div class="view-pr-card-grid" onclick="toggleViewPurchaseRequest(${headerId})" style="cursor: pointer;">
+                        <div class="view-pr-main-col">
+                            <div class="view-pr-main-line">
+                                <span class="view-pr-toggle">${expander}</span>
+                                <span class="view-pr-docno">${escapeHtml(header.requestNumber || '-')}</span>
+                                <span class="view-pr-status-badge">${escapeHtml(prStatus)}</span>
+
+                                <select class="view-pr-udf-status" onclick="event.stopPropagation()" onchange="onHeaderUdfStatusChange(${headerId}, this.value)">
+                                    <option value="APPROVED" ${normalizeUdfStatus(header.udfStatus) === 'APPROVED' ? 'selected' : ''}>APPROVED</option>
+                                    <option value="CANCELLED" ${normalizeUdfStatus(header.udfStatus) === 'CANCELLED' ? 'selected' : ''}>CANCELLED</option>
+                                    <option value="PENDING" ${normalizeUdfStatus(header.udfStatus) === 'PENDING' ? 'selected' : ''}>PENDING</option>
+                                </select>
+
+                                <button
+                                    type="button"
+                                    class="view-pr-refresh-btn"
+                                    style="padding:4px 8px;"
+                                    onclick="event.stopPropagation(); openPurchaseRequestEdit(${headerId});"
+                                    ${canEditDraft ? '' : 'disabled'}
+                                    title="${escapeHtml(canEditDraft ? 'Edit draft purchase request' : 'Only draft purchase requests can be edited')}"
+                                >Edit</button>
                             </div>
                         </div>
-                `);
 
-                if (!isExpanded) {
-                    htmlParts.push('</div>');
-                    return;
-                }
-
-                if (isLoadingDetails) {
-                    htmlParts.push(`
-                        <div class="view-pr-detail-host">
-                            <div class="view-pr-detail-empty">Loading detail rows...</div>
+                        <div class="view-pr-meta-row" style="display: flex; gap: 4px; align-items: center; min-width: 0;">
+                            <span style="font-size: 12px; color: #b9c4d1; min-width: 60px;">Supplier</span>
+                            <strong style="font-size: 13px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(header.supplierName || header.supplierId || '-')}</strong>
                         </div>
-                    `);
-                    htmlParts.push('</div>');
-                    return;
-                }
 
-                if (!details.length) {
-                    htmlParts.push(`
-                        <div class="view-pr-detail-host">
-                            <div class="view-pr-detail-empty">No detail rows found for this request.</div>
-                        </div>
-                    `);
-                    htmlParts.push('</div>');
-                    return;
-                }
+                        <div class="view-pr-meta-row"><span>Requested Date</span><strong>${formatPrDate(header.requestDate)}</strong></div>
+                        <div class="view-pr-meta-row"><span>Status</span><strong>${escapeHtml(prStatus)}</strong></div>
+                        <div class="view-pr-meta-row"><span>Currency</span><strong>${escapeHtml(header.currency || '-')}</strong></div>
 
-                const detailRows = details.map((detail, idx) => `
-                    <tr>
-                        <td class="col-line">${escapeHtml(detail.seq || (idx + 1))}</td>
-                        <td class="col-item-name">${escapeHtml(detail.itemName || '-')}</td>
-                        <td class="col-location">${escapeHtml(detail.locationCode || '-')}</td>
-                        <td class="view-pr-num col-qty">${formatStockCardNumber(getDetailMaxTransferQuantity(detail))} / ${formatStockCardNumber(detail.quantity || 0)}</td>
-                        <td class="col-transfer-qty">
-                            <input
-                                type="number"
-                                class="view-pr-transfer-qty-input"
-                                min="0"
-                                max="${escapeHtml(String(getDetailMaxTransferQuantity(detail)))}"
-                                step="0.01"
-                                value="${escapeHtml(String(getDetailTransferQuantity(detail)))}"
-                                ${toApprovalBool(detail._originalApproved) && detail.id ? '' : 'disabled'}
-                                title="${escapeHtml(toApprovalBool(detail._originalApproved) ? 'Enter transfer quantity up to remaining quantity for this line.' : 'Save approval first before setting transfer quantity.')}"
-                                onchange="onTransferQuantityChange(${headerId}, ${Number(detail.id || 0)}, this.value)"
-                            />
-                        </td>
-                        <td class="view-pr-num col-unit-price">
-                            ${formatMoney(detail.unitPrice || 0)}
-                            ${detail.isFinalChosenPrice ? '<div style="font-size:11px;color:#14532d;font-weight:600;">Final (approved bid)</div>' : ''}
-                        </td>
-                        <td class="col-approved view-pr-approved-cell"><input type="checkbox" ${detail.id ? '' : 'disabled'} ${toApprovalBool(detail.udfPqApproved) ? 'checked' : ''} onchange="onDetailApprovalChange(${headerId}, ${Number(detail.id || 0)}, this.checked)" /></td>
-                        <td class="view-pr-num col-amount">${formatMoney(detail.amount || 0)}</td>
-                    </tr>
-                `).join('');
-
-                htmlParts.push(`
-                    <div class="view-pr-detail-host">
-                        <div class="view-pr-detail-actions">
-                            <div class="view-pr-detail-summary">Selected transfer qty: <strong>${formatStockCardNumber(getSelectedTransferQuantityTotal(header))}</strong></div>
-                            <button
-                                type="button"
-                                class="view-pr-transfer-btn ${(canTransfer && !isTransferring) ? '' : 'is-disabled'}"
-                                onclick="event.stopPropagation(); onTransferPurchaseRequest(${headerId})"
-                                ${canTransfer ? '' : 'disabled'}
-                                title="${escapeHtml(transferTitle)}"
-                            >${isTransferring ? 'Transferring...' : (canTransfer ? 'Transfer to Purchase Order' : 'Awaiting Approval')}</button>
-                        </div>
-                        <div class="view-pr-detail-wrap">
-                            <table class="view-pr-detail-table">
-                                <colgroup>
-                                    <col class="col-line" />
-                                    <col class="col-item-name" />
-                                    <col class="col-location" />
-                                    <col class="col-qty" />
-                                    <col class="col-transfer-qty" />
-                                    <col class="col-unit-price" />
-                                    <col class="col-approved" />
-                                    <col class="col-amount" />
-                                </colgroup>
-                                <thead>
-                                    <tr>
-                                        <th class="col-line">Line</th>
-                                        <th class="col-item-name">Item Name</th>
-                                        <th class="col-location">Location</th>
-                                        <th class="view-pr-num col-qty">Qty (Remaining/Total)</th>
-                                        <th class="col-transfer-qty">Transfer Qty</th>
-                                        <th class="view-pr-num col-unit-price">Unit Price</th>
-                                        <th class="col-approved">Approved</th>
-                                        <th class="view-pr-num col-amount">Amount</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${detailRows}
-                                </tbody>
-                            </table>
+                        <div class="view-pr-amount-col">
+                            <div class="view-pr-amount-label">Total Amount</div>
+                            <div class="view-pr-amount-value">${formatMoney(header.totalAmount || 0)}</div>
                         </div>
                     </div>
-                `);
-                htmlParts.push('</div>');
-            });
+                </div>
+        `);
 
-            list.innerHTML = htmlParts.join('');
+        if (!isExpanded) {
+            htmlParts.push('</div>');
+            return;
         }
+
+        if (isLoadingDetails) {
+            htmlParts.push(`
+                <div class="view-pr-detail-host">
+                    <div class="view-pr-detail-empty">Loading detail rows...</div>
+                </div>
+            `);
+            htmlParts.push('</div>');
+            return;
+        }
+
+        if (!details.length) {
+            htmlParts.push(`
+                <div class="view-pr-detail-host">
+                    <div class="view-pr-detail-empty">No detail rows found for this request.</div>
+                </div>
+            `);
+            htmlParts.push('</div>');
+            return;
+        }
+
+        const detailRows = details.map((detail, idx) => `
+            <tr>
+                <td class="col-line">${escapeHtml(detail.seq || (idx + 1))}</td>
+                <td class="col-item-name">${escapeHtml(detail.itemName || '-')}</td>
+                <td class="col-location">${escapeHtml(detail.locationCode || '-')}</td>
+                <td class="col-delivery-date">${formatPrDate(detail.deliveryDate || detail.requiredDate || '-')}</td>
+                <td class="view-pr-num col-qty">${formatStockCardNumber(getDetailMaxTransferQuantity(detail))} / ${formatStockCardNumber(detail.quantity || 0)}</td>
+
+                <td class="col-transfer-qty">
+                    <input
+                        type="number"
+                        class="view-pr-transfer-qty-input"
+                        min="0"
+                        max="${escapeHtml(String(getDetailMaxTransferQuantity(detail)))}"
+                        step="0.01"
+                        value="${escapeHtml(String(getDetailTransferQuantity(detail)))}"
+                        ${toApprovalBool(detail._originalApproved) && detail.id ? '' : 'disabled'}
+                        title="${escapeHtml(toApprovalBool(detail._originalApproved) ? 'Enter transfer quantity up to remaining quantity for this line.' : 'Save approval first before setting transfer quantity.')}"
+                        onchange="onTransferQuantityChange(${headerId}, ${Number(detail.id || 0)}, this.value)"
+                    />
+                </td>
+
+                <td class="view-pr-num col-unit-price">
+                    ${formatMoney(detail.unitPrice || 0)}
+                    ${detail.isFinalChosenPrice ? '<div style="font-size:11px;color:#14532d;font-weight:600;">Final (approved bid)</div>' : ''}
+                </td>
+
+                <td class="col-approved view-pr-approved-cell">
+                    <input
+                        type="checkbox"
+                        ${detail.id ? '' : 'disabled'}
+                        ${toApprovalBool(detail.udfPqApproved) ? 'checked' : ''}
+                        onchange="onDetailApprovalChange(${headerId}, ${Number(detail.id || 0)}, this.checked)"
+                    />
+                </td>
+
+                <td class="view-pr-num col-amount">${formatMoney(detail.amount || 0)}</td>
+            </tr>
+        `).join('');
+
+        htmlParts.push(`
+            <div class="view-pr-detail-host">
+                <div class="view-pr-detail-actions">
+                    <div class="view-pr-detail-summary">
+                        Selected transfer qty: <strong>${formatStockCardNumber(getSelectedTransferQuantityTotal(header))}</strong>
+                    </div>
+
+                    <button
+                        type="button"
+                        class="view-pr-transfer-btn ${(canTransfer && !isTransferring) ? '' : 'is-disabled'}"
+                        onclick="event.stopPropagation(); onTransferPurchaseRequest(${headerId})"
+                        ${canTransfer ? '' : 'disabled'}
+                        title="${escapeHtml(transferTitle)}"
+                    >${isTransferring ? 'Transferring...' : (canTransfer ? 'Transfer to Purchase Order' : 'Awaiting Approval')}</button>
+                </div>
+
+                <div class="view-pr-detail-wrap">
+                    <table class="view-pr-detail-table">
+                        <colgroup>
+                            <col class="col-line" />
+                            <col class="col-item-name" />
+                            <col class="col-location" />
+                            <col class="col-delivery-date" />
+                            <col class="col-qty" />
+                            <col class="col-transfer-qty" />
+                            <col class="col-unit-price" />
+                            <col class="col-approved" />
+                            <col class="col-amount" />
+                        </colgroup>
+
+                        <thead>
+                            <tr>
+                                <th class="col-line">Line</th>
+                                <th class="col-item-name">Item Name</th>
+                                <th class="col-location">Location</th>
+                                <th class="col-delivery-date">Delivery Date</th>
+                                <th class="view-pr-num col-qty">Qty (Remaining/Total)</th>
+                                <th class="col-transfer-qty">Transfer Qty</th>
+                                <th class="view-pr-num col-unit-price">Unit Price</th>
+                                <th class="col-approved">Approved</th>
+                                <th class="view-pr-num col-amount">Amount</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            ${detailRows}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `);
+
+        htmlParts.push('</div>');
+    });
+
+    list.innerHTML = htmlParts.join('');
+}
 
         function toggleViewPurchaseRequest(headerId) {
             if (!headerId) {

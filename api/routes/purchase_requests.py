@@ -144,6 +144,7 @@ def _fetch_detail_rows(cur: Any, dockey: int, detail_cols: set[str]) -> list[dic
     amount_col = _pick_existing(detail_cols, "AMOUNT", "TOTAL")
     approved_col = _pick_existing(detail_cols, "UDF_PQAPPROVED")
     reason_col = _pick_existing(detail_cols, "UDF_REASON")
+    delivery_date_col = _pick_existing(detail_cols, "DELIVERYDATE", "DELIVERY_DATE")
 
     if not detail_fk_col:
         return []
@@ -161,6 +162,7 @@ def _fetch_detail_rows(cur: Any, dockey: int, detail_cols: set[str]) -> list[dic
         f"D.{unit_price_col} AS UNITPRICE" if unit_price_col else "NULL AS UNITPRICE",
         f"D.{tax_amt_col} AS TAXAMT" if tax_amt_col else "NULL AS TAXAMT",
         f"D.{amount_col} AS AMOUNT" if amount_col else "NULL AS AMOUNT",
+        f"D.{delivery_date_col} AS DELIVERYDATE" if delivery_date_col else "NULL AS DELIVERYDATE",
         f"D.{approved_col} AS UDF_PQAPPROVED" if approved_col else "NULL AS UDF_PQAPPROVED",
         f"D.{reason_col} AS UDF_REASON" if reason_col else "NULL AS UDF_REASON",
     ]
@@ -212,8 +214,9 @@ def _fetch_detail_rows(cur: Any, dockey: int, detail_cols: set[str]) -> list[dic
                 "unitprice": str(detail_unit_price),
                 "taxamt": str(_to_number(r[10])),
                 "amount": str(_to_number(r[11])),
-                "udf_pqapproved": r[12],
-                "udf_reason": _to_text(r[13]),
+                "deliverydate": _to_text(r[12]),
+                "udf_pqapproved": r[13],
+                "udf_reason": _to_text(r[14]),
             }
         )
     return details
