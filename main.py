@@ -79,17 +79,17 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 try:
     from ai_models import IntentClassifier
     LOCAL_AI_ENABLED = True
-    print("✅ Local AI intent classifier enabled")
+    print("Local AI intent classifier enabled")
 except (ImportError, Exception) as e:
     LOCAL_AI_ENABLED = False
-    print("⚠️  Local AI not available - using OpenAI only")
+    print("Local AI not available - using OpenAI only")
     if isinstance(e, ImportError):
         print("   Run: python training/train_intent_model.py to enable local AI")
     else:
         print(f"   Error loading AI models: {type(e).__name__}")
 except KeyboardInterrupt:
     LOCAL_AI_ENABLED = False
-    print("⚠️  AI model import interrupted - using OpenAI only")
+    print("AI model import interrupted - using OpenAI only")
     print("   To disable AI models, rename/move the ai_models folder")
 
 # Import validation functions
