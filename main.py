@@ -4,6 +4,7 @@ import csv
 import json
 import os
 import math
+import time
 from functools import wraps
 from datetime import datetime, timedelta
 import threading
@@ -4116,11 +4117,14 @@ def api_admin_next_purchase_request_number():
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_list_purchase_requests():
     """List eProcurement purchase request headers from SQL API."""
+    started_total = time.perf_counter()
     raw_offset = (request.args.get('offset') or '').strip()
     raw_limit = (request.args.get('limit') or '').strip()
     raw_fast = request.args.get('fast')
+    raw_include_qty = request.args.get('include_qty')
     raw_debug_suppliers = request.args.get('debug_suppliers')
     debug_suppliers = str(raw_debug_suppliers or '').strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
+    include_qty = str(raw_include_qty or '').strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
     if raw_fast is None:
         # Default to fast mode for better UI responsiveness.
         fast_mode = True
@@ -4238,6 +4242,7 @@ def api_admin_list_purchase_requests():
         last_status = None
         tried = []
 
+        upstream_started = time.perf_counter()
         for url in candidates:
             resp = requests.get(
                 url,
@@ -4252,6 +4257,7 @@ def api_admin_list_purchase_requests():
             payload = resp.json() if resp.text else {}
             PURCHASE_REQUEST_LIST_ENDPOINT_HINT = url
             break
+        upstream_ms = round((time.perf_counter() - upstream_started) * 1000, 1)
 
         if not payload:
             detail = '; '.join(tried) if tried else 'No upstream attempts were made'
@@ -4270,7 +4276,10 @@ def api_admin_list_purchase_requests():
                 header_ids.append(int(row.get('dockey')))
             except Exception:
                 continue
-        balance_qty_map = _fetch_pr_balance_qty_map(header_ids)
+        qty_started = time.perf_counter()
+        should_load_qty = (not fast_mode) or include_qty
+        balance_qty_map = _fetch_pr_balance_qty_map(header_ids) if should_load_qty else {}
+        qty_ms = round((time.perf_counter() - qty_started) * 1000, 1)
 
         records = []
         for row in rows:
@@ -4311,6 +4320,7 @@ def api_admin_list_purchase_requests():
                 'details': None,
             })
 
+        supplier_started = time.perf_counter()
         try:
             awarded_suppliers = map_awarded_suppliers_by_request_ids([int(r['id']) for r in records if r.get('id')])
         except Exception as awarded_exc:
@@ -4342,6 +4352,7 @@ def api_admin_list_purchase_requests():
                     'awardedSupplierCode': rec['supplierId'],
                     'awardedSupplierName': rec['supplierName'],
                 })
+        supplier_ms = round((time.perf_counter() - supplier_started) * 1000, 1)
 
         if not fast_mode:
             try:
@@ -4405,6 +4416,13 @@ def api_admin_list_purchase_requests():
                 print(f"[PROCUREMENT LIST PR DEBUG] supplier mapping preview: {preview}", flush=True)
             except Exception:
                 pass
+
+        total_ms = round((time.perf_counter() - started_total) * 1000, 1)
+        print(
+            f"[PROCUREMENT LIST PR PERF] total_ms={total_ms} upstream_ms={upstream_ms} qty_ms={qty_ms} supplier_ms={supplier_ms} "
+            f"rows={len(records)} fast_mode={int(fast_mode)} include_qty={int(should_load_qty)}",
+            flush=True
+        )
 
         response_payload = {
             'success': True,
@@ -4494,6 +4512,7 @@ def api_admin_purchase_request_details(request_id):
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_purchase_request_details_fallback():
     """Get eProcurement purchase request detail rows using resilient SQL API lookup patterns."""
+    started_total = time.perf_counter()
     raw_request_id = (request.args.get('request_id') or '').strip()
     request_no = (request.args.get('request_no') or '').strip()
 
@@ -4606,8 +4625,10 @@ def api_admin_purchase_request_details_fallback():
         except Exception:
             resolved_request_id = int(raw_request_id) if raw_request_id.isdigit() else None
 
+        gate_ms = 0.0
         if resolved_request_id and details:
             try:
+                gate_started = time.perf_counter()
                 gate = get_transfer_gate_state(resolved_request_id)
                 approved_line_map = {}
 
@@ -4661,6 +4682,8 @@ def api_admin_purchase_request_details_fallback():
                     detail['finalPriceSource'] = 'APPROVED_BID'
             except Exception as exc:
                 print(f"[PROCUREMENT PR DETAIL] warning: failed to apply awarded pricing: {exc}", flush=True)
+            finally:
+                gate_ms = round((time.perf_counter() - gate_started) * 1000, 1)
 
         total_amount = 0.0
         for row in details:
@@ -4674,6 +4697,7 @@ def api_admin_purchase_request_details_fallback():
             'udfReason': str(header.get('udf_reason') or '').strip(),
             'details': details,
             'totalAmount': total_amount,
+            '_perfGateMs': gate_ms,
         }
 
     try:
@@ -4701,6 +4725,7 @@ def api_admin_purchase_request_details_fallback():
             candidates = hinted + others
 
         last_status = 404
+        upstream_started = time.perf_counter()
         for url, params in candidates:
             resp = requests.get(
                 url,
@@ -4719,6 +4744,14 @@ def api_admin_purchase_request_details_fallback():
             PURCHASE_REQUEST_DETAIL_ENDPOINT_HINT = url
 
             selected_suppliers = _list_selected_suppliers(extracted.get('id'))
+            total_ms = round((time.perf_counter() - started_total) * 1000, 1)
+            upstream_ms = round((time.perf_counter() - upstream_started) * 1000, 1)
+            detail_count = len(extracted.get('details') or [])
+            print(
+                f"[PROCUREMENT PR DETAIL PERF] request_id={extracted.get('id')} total_ms={total_ms} upstream_ms={upstream_ms} "
+                f"gate_ms={_num(extracted.get('_perfGateMs')):.1f} detail_count={detail_count}",
+                flush=True
+            )
 
             return jsonify({
                 'success': True,

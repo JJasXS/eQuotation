@@ -447,6 +447,10 @@
         let viewPurchaseRequests = [];
         let viewSelectedHeaderId = null;
         let viewLoadingDetailIds = new Set();
+        let viewDetailFetchControllers = new Map();
+        let viewDetailFetchPromises = new Map();
+        let viewDetailCache = new Map();
+        const VIEW_DETAIL_CACHE_TTL_MS = 2 * 60 * 1000;
         let viewTransferSavingHeaderIds = new Set();
         let viewApprovalPendingChanges = new Map();
         let viewHeaderStatusPendingChanges = new Map();
@@ -1076,7 +1080,15 @@
 
             viewSelectedHeaderId = id;
 
-            if (Array.isArray(record.details)) {
+            const cached = viewDetailCache.get(id);
+            if ((!Array.isArray(record.details) || !record.details.length) && cached && (Date.now() - cached.at <= VIEW_DETAIL_CACHE_TTL_MS)) {
+                record.details = Array.isArray(cached.details) ? cached.details : [];
+                if (Number.isFinite(Number(cached.totalAmount))) {
+                    record.totalAmount = Number(cached.totalAmount);
+                }
+            }
+
+            if (Array.isArray(record.details) && record.details.length) {
                 renderFilteredViewPurchaseRequests();
                 return;
             }
@@ -1084,30 +1096,7 @@
             viewLoadingDetailIds.add(id);
             renderFilteredViewPurchaseRequests();
 
-            const requestNo = encodeURIComponent(String(record.requestNumber || ''));
-            fetch(`/api/admin/procurement/purchase-requests/details?request_id=${id}&request_no=${requestNo}`)
-                .then((res) => res.json())
-                .then((payload) => {
-                    if (!payload.success) {
-                        throw new Error(payload.error || 'Failed to load detail rows');
-                    }
-                    record.details = Array.isArray(payload.details) ? payload.details : [];
-                    const resolvedTotal = Number(payload.totalAmount);
-                    if (Number.isFinite(resolvedTotal)) {
-                        record.totalAmount = resolvedTotal;
-                    } else {
-                        record.totalAmount = record.details.reduce((sum, row) => {
-                            const amount = Number(row && row.amount);
-                            return sum + (Number.isFinite(amount) ? amount : 0);
-                        }, 0);
-                    }
-                    record.details.forEach((detail) => {
-                        detail._originalApproved = toApprovalBool(detail.udfPqApproved);
-                        detail.transferQty = detail._originalApproved
-                            ? clampTransferQuantity(detail.remainingQty, getDetailMaxTransferQuantity(detail))
-                            : 0;
-                    });
-                })
+            fetchViewPurchaseRequestDetail(record)
                 .catch((error) => {
                     console.error('Failed to load request detail:', error);
                     record.details = [];
@@ -1116,6 +1105,85 @@
                     viewLoadingDetailIds.delete(id);
                     renderFilteredViewPurchaseRequests();
                 });
+        }
+
+        function hydrateViewPurchaseRequestDetails(record, payload) {
+            record.details = Array.isArray(payload.details) ? payload.details : [];
+            record._suppliers = Array.isArray(payload.suppliers) ? payload.suppliers : [];
+            const resolvedTotal = Number(payload.totalAmount);
+            if (Number.isFinite(resolvedTotal)) {
+                record.totalAmount = resolvedTotal;
+            } else {
+                record.totalAmount = record.details.reduce((sum, row) => {
+                    const amount = Number(row && row.amount);
+                    return sum + (Number.isFinite(amount) ? amount : 0);
+                }, 0);
+            }
+            record.details.forEach((detail) => {
+                detail._originalApproved = toApprovalBool(detail.udfPqApproved);
+                detail.transferQty = detail._originalApproved
+                    ? clampTransferQuantity(detail.remainingQty, getDetailMaxTransferQuantity(detail))
+                    : 0;
+            });
+            viewDetailCache.set(Number(record.id || 0), {
+                at: Date.now(),
+                details: record.details,
+                totalAmount: record.totalAmount,
+                suppliers: record._suppliers,
+            });
+            return record;
+        }
+
+        function fetchViewPurchaseRequestDetail(record, forceRefresh) {
+            const id = Number(record && record.id);
+            if (!id) {
+                return Promise.reject(new Error('Invalid purchase request id'));
+            }
+
+            const cached = viewDetailCache.get(id);
+            if (!forceRefresh && cached && (Date.now() - cached.at <= VIEW_DETAIL_CACHE_TTL_MS)) {
+                return Promise.resolve(hydrateViewPurchaseRequestDetails(record, cached));
+            }
+
+            if (!forceRefresh && viewDetailFetchPromises.has(id)) {
+                return viewDetailFetchPromises.get(id);
+            }
+
+            try {
+                const prevController = viewDetailFetchControllers.get(id);
+                if (prevController) prevController.abort();
+            } catch (e) {
+                // no-op
+            }
+
+            const requestNo = encodeURIComponent(String(record.requestNumber || ''));
+            const controller = new AbortController();
+            viewDetailFetchControllers.set(id, controller);
+            const startedAt = performance.now();
+
+            const fetchPromise = fetch(`/api/admin/procurement/purchase-requests/details?request_id=${id}&request_no=${requestNo}`, {
+                signal: controller.signal,
+            })
+                .then((res) => res.json())
+                .then((payload) => {
+                    if (!payload.success) {
+                        throw new Error(payload.error || 'Failed to load detail rows');
+                    }
+                    const elapsed = Math.round(performance.now() - startedAt);
+                    console.log(`[VIEW PR PERF] detail request_id=${id} loaded in ${elapsed}ms`);
+                    return hydrateViewPurchaseRequestDetails(record, payload);
+                })
+                .finally(() => {
+                    if (viewDetailFetchControllers.get(id) === controller) {
+                        viewDetailFetchControllers.delete(id);
+                    }
+                    if (viewDetailFetchPromises.get(id) === fetchPromise) {
+                        viewDetailFetchPromises.delete(id);
+                    }
+                });
+
+            viewDetailFetchPromises.set(id, fetchPromise);
+            return fetchPromise;
         }
 
         function loadViewPurchaseRequests(forceReload) {
@@ -1128,19 +1196,14 @@
                 list.innerHTML = '<div class="view-pr-empty">Loading e-Purchase Request records...</div>';
             }
 
-            return fetch('/api/admin/procurement/purchase-requests?offset=0&limit=50&fast=1&debug_suppliers=1')
+            const startedAt = performance.now();
+            return fetch('/api/admin/procurement/purchase-requests?offset=0&limit=50&fast=1')
                 .then((res) => res.json())
                 .then((payload) => {
                     if (!payload.success) {
                         throw new Error(payload.error || 'Failed to load e-Purchase Request records');
                     }
-                    if (payload.debugSuppliers) {
-                        try {
-                            console.log('[VIEW PR DEBUG suppliers]', payload.debugSuppliers);
-                        } catch (e) {
-                            // no-op
-                        }
-                    }
+                    console.log(`[VIEW PR PERF] list loaded in ${Math.round(performance.now() - startedAt)}ms`);
                     viewPurchaseRequests = Array.isArray(payload.data) ? payload.data : [];
                     viewPurchaseRequests.forEach((row) => {
                         row.udfStatus = normalizeUdfStatus(row.udfStatus);
@@ -1149,11 +1212,26 @@
                     viewSelectedHeaderId = null;
                     viewStatusFilters = new Set(['PENDING']);
                     viewLoadingDetailIds = new Set();
+                    viewDetailFetchControllers.forEach((controller) => {
+                        try {
+                            controller.abort();
+                        } catch (e) {
+                            // no-op
+                        }
+                    });
+                    viewDetailFetchControllers = new Map();
+                    viewDetailFetchPromises = new Map();
                     viewTransferSavingHeaderIds = new Set();
                     viewApprovalPendingChanges = new Map();
                     viewHeaderStatusPendingChanges = new Map();
                     viewApprovalSaving = false;
                     viewPurchaseRequestsLoaded = true;
+                    const currentIds = new Set(viewPurchaseRequests.map((row) => Number(row.id || 0)).filter(Boolean));
+                    viewDetailCache.forEach((_value, key) => {
+                        if (!currentIds.has(Number(key))) {
+                            viewDetailCache.delete(key);
+                        }
+                    });
                     updateViewApprovalButtonState();
                     renderFilteredViewPurchaseRequests();
                 })
@@ -1253,11 +1331,16 @@
                 return;
             }
 
-            const requestNo = encodeURIComponent(String(header.requestNumber || ''));
-            const res = await fetch(`/api/admin/procurement/purchase-requests/details?request_id=${headerId}&request_no=${requestNo}`);
-            const payload = await res.json();
-            if (!res.ok || !payload.success) {
-                alert(payload.error || 'Failed to load PR details for edit');
+            let payload = null;
+            try {
+                await fetchViewPurchaseRequestDetail(header, true);
+                payload = {
+                    success: true,
+                    details: Array.isArray(header.details) ? header.details : [],
+                    suppliers: Array.isArray(header._suppliers) ? header._suppliers : [],
+                };
+            } catch (error) {
+                alert(error.message || 'Failed to load PR details for edit');
                 return;
             }
 
