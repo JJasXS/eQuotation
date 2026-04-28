@@ -3873,6 +3873,66 @@ def api_admin_create_purchase_request():
         return jsonify({'success': False, 'error': str(exc)}), 500
 
 
+def _fetch_supplier_master_from_sql_api(codes: list[str]) -> dict[str, dict[str, str]]:
+    """Map supplier CODE (upper) -> companyname, udf_email from GET {FASTAPI_BASE_URL}/supplier list."""
+    remaining = {str(c).strip().upper() for c in codes if str(c).strip()}
+    if not remaining:
+        return {}
+
+    out: dict[str, dict[str, str]] = {}
+    headers = _build_sql_api_auth_headers()
+    offset = 0
+    limit = 100
+    try:
+        while remaining:
+            resp = requests.get(
+                f"{FASTAPI_BASE_URL}/supplier",
+                params={'offset': offset, 'limit': limit},
+                headers=headers or None,
+                timeout=12,
+            )
+            if not resp.ok:
+                print(f"[PROCUREMENT LIST PR] SQL API supplier list HTTP {resp.status_code}", flush=True)
+                break
+
+            payload = resp.json() if resp.text else {}
+            rows = payload.get('data', []) if isinstance(payload, dict) else []
+            if not isinstance(rows, list) or not rows:
+                break
+
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                code = str(row.get('code') or '').strip()
+                if not code:
+                    continue
+                key_u = code.upper()
+                if key_u not in remaining:
+                    continue
+                out[key_u] = {
+                    'companyname': str(row.get('companyname') or row.get('companyName') or '').strip(),
+                    'udf_email': str(
+                        row.get('udf_email')
+                        or row.get('udfEmail')
+                        or row.get('UDF_EMAIL')
+                        or ''
+                    ).strip(),
+                }
+                remaining.discard(key_u)
+                if not remaining:
+                    return out
+
+            pagination = payload.get('pagination', {}) if isinstance(payload, dict) else {}
+            total_count = pagination.get('count', len(rows)) if isinstance(pagination, dict) else len(rows)
+            offset += limit
+            if offset >= total_count:
+                break
+    except Exception as exc:
+        print(f"[PROCUREMENT LIST PR] SQL API supplier master lookup warning: {exc}", flush=True)
+
+    return out
+
+
 def _fetch_supplier_emails_by_codes(codes: list[str]) -> dict[str, str]:
     """Return supplier CODE.upper() -> email using AR_SUPPLIER / AP_SUPPLIER (UDF_EMAIL, then EMAIL)."""
     uniq: list[str] = []
@@ -4179,7 +4239,23 @@ def api_admin_list_purchase_requests():
                 rec['supplierName'] = code
 
         try:
-            supplier_codes = [str(r.get('supplierId') or '').strip() for r in records if r.get('supplierId')]
+            supplier_codes = list(
+                {str(r.get('supplierId') or '').strip() for r in records if str(r.get('supplierId') or '').strip()}
+            )
+            api_master = _fetch_supplier_master_from_sql_api(supplier_codes)
+            for rec in records:
+                cid = str(rec.get('supplierId') or '').strip()
+                if not cid:
+                    continue
+                master = api_master.get(cid.upper())
+                if isinstance(master, dict):
+                    cn = str(master.get('companyname') or '').strip()
+                    em = str(master.get('udf_email') or '').strip()
+                    if cn:
+                        rec['supplierName'] = cn
+                    if em:
+                        rec['supplierEmail'] = em
+
             email_by_code = _fetch_supplier_emails_by_codes(supplier_codes)
             for rec in records:
                 cid = str(rec.get('supplierId') or '').strip()
@@ -4189,7 +4265,7 @@ def api_admin_list_purchase_requests():
                 elif not existing:
                     rec['supplierEmail'] = ''
         except Exception as em_exc:
-            print(f"[PROCUREMENT LIST PR] supplier email enrichment warning: {em_exc}", flush=True)
+            print(f"[PROCUREMENT LIST PR] supplier master/email enrichment warning: {em_exc}", flush=True)
 
         return jsonify({
             'success': True,
