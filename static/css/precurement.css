@@ -1826,6 +1826,57 @@ body.procurement-warm-ui .header-title {
     color: #4f3a1f !important;
 }
 
+/* Match hamburger menu with warm procurement palette */
+body.procurement-warm-ui .hamburger-btn span {
+    background: #8b5a1f;
+}
+
+body.procurement-warm-ui .hamburger-btn:hover span {
+    background: #b6812f;
+}
+
+body.procurement-warm-ui .hamburger-overlay {
+    background: rgba(42, 36, 27, 0.32);
+}
+
+body.procurement-warm-ui .hamburger-dropdown {
+    background: #fffef9;
+    border-right: 1px solid #dccfb8;
+    box-shadow: 3px 0 16px rgba(42, 36, 27, 0.16);
+}
+
+body.procurement-warm-ui .hamburger-dropdown a {
+    color: #5c4a32;
+    border-bottom-color: #efe6d8;
+}
+
+body.procurement-warm-ui .hamburger-dropdown a:hover {
+    background: #fff8ed;
+    color: #2a241b;
+}
+
+body.procurement-warm-ui .hamburger-dropdown a.logout-link {
+    border-top-color: #efe6d8;
+    color: #b42318;
+}
+
+body.procurement-warm-ui .hamburger-dropdown a.logout-link:hover {
+    background: #fdecef;
+    color: #8a1c1c;
+}
+
+body.procurement-warm-ui .hamburger-dropdown .submenu {
+    background: #faf6ee;
+}
+
+body.procurement-warm-ui .hamburger-dropdown .submenu a {
+    border-bottom-color: #efe6d8;
+}
+
+body.procurement-warm-ui .hamburger-dropdown .submenu a:hover {
+    background: #fff8ed;
+}
+
 body.procurement-warm-ui .procurement-warm-welcome {
     font-size: 12px;
     margin-top: 4px;

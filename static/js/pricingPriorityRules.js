@@ -1,6 +1,8 @@
 let pricingRules = [];
 let draggedRuleId = null;
 let isSaving = false;
+let loadController = null;
+const RULES_CACHE_KEY = 'admin_pricing_priority_rules_cache_v1';
 
 const messageEl = document.getElementById('priority-message');
 const listEl = document.getElementById('pricing-rule-list');
@@ -41,6 +43,25 @@ function normalizeRules(rules) {
         PriorityNo: index + 1,
         IsEnabled: Number(rule.IsEnabled) === 1 ? 1 : 0,
     }));
+}
+
+function readRulesCache() {
+    try {
+        const raw = sessionStorage.getItem(RULES_CACHE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? normalizeRules(parsed) : null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function writeRulesCache(rules) {
+    try {
+        sessionStorage.setItem(RULES_CACHE_KEY, JSON.stringify(normalizeRules(rules)));
+    } catch (_) {
+        // Best-effort cache only.
+    }
 }
 
 function updatePriorityNumbers() {
@@ -144,28 +165,44 @@ function renderRules() {
 
 async function loadRules(showLoadingMessage = true) {
     setBusyState(false);
-    if (showLoadingMessage) {
+    const cached = readRulesCache();
+    if (cached && cached.length) {
+        pricingRules = cached;
+        renderRules();
+    } else if (showLoadingMessage) {
         setMessage('info', 'Loading pricing priority rules...');
+        listEl.innerHTML = '<div class="priority-loading">Loading pricing priority rules...</div>';
     }
-    listEl.innerHTML = '<div class="priority-loading">Loading pricing priority rules...</div>';
 
     try {
-        const response = await fetch('/api/admin/pricing-priority-rules');
+        if (loadController) {
+            loadController.abort();
+        }
+        loadController = new AbortController();
+        const response = await fetch('/api/admin/pricing-priority-rules', { signal: loadController.signal });
         const result = await response.json();
         if (!response.ok || !result.success) {
             throw new Error(result.error || result.message || 'Failed to load pricing priority rules');
         }
 
         pricingRules = normalizeRules(result.data);
+        writeRulesCache(pricingRules);
         renderRules();
         if (showLoadingMessage) {
             setMessage('', '');
         }
     } catch (error) {
+        if (error && error.name === 'AbortError') {
+            return;
+        }
         console.error('Failed to load pricing priority rules:', error);
-        pricingRules = [];
-        renderRules();
+        if (!pricingRules.length) {
+            pricingRules = [];
+            renderRules();
+        }
         setMessage('error', error.message || 'Failed to load pricing priority rules');
+    } finally {
+        loadController = null;
     }
 }
 
@@ -199,7 +236,10 @@ async function saveRules() {
             throw new Error(result.error || result.message || 'Failed to save pricing priority rules');
         }
 
-        await loadRules(false);
+        // Keep current UI order/toggles (already up to date) and avoid an extra round-trip reload.
+        pricingRules = normalizeRules(pricingRules);
+        writeRulesCache(pricingRules);
+        renderRules();
         setMessage('success', result.message || 'Pricing priority rules saved successfully');
     } catch (error) {
         console.error('Failed to save pricing priority rules:', error);

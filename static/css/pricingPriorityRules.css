@@ -1,10 +1,18 @@
 body {
     overflow: auto;
+    background: linear-gradient(160deg, #f4f0e8 0%, #e8dfd0 45%, #ddd2c4 100%);
+    color: #2a241b;
 }
 
-/* One background for main column, card, list rows, and empty/loading — avoids layered tints */
+/* Bright warm palette (aligned with procurement/bidding pages) */
 .pricing-priority-page {
-    --priority-surface: #1a1f2e;
+    --priority-surface: #fffef9;
+    --priority-surface-soft: #faf6ee;
+    --priority-border: #dccfb8;
+    --priority-text: #2a241b;
+    --priority-muted: #7a6a52;
+    --priority-accent: #8b5a1f;
+    --priority-accent-2: #b6812f;
 }
 
 /* .container is display:flex; row (chat.css). Without flex:1, .main-content only
@@ -14,13 +22,83 @@ body {
     min-width: 0;
     width: 100%;
     min-height: 100vh;
-    background: var(--priority-surface);
+    background: transparent;
+}
+
+/* Bright header (override dark default from chat.css) */
+.pricing-priority-page .header {
+    height: auto;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 12px;
+    margin: 10px 10px 0;
+    background: linear-gradient(180deg, #fff9f1 0%, #f7efdf 100%);
+    border: 1px solid #dccfb8;
+    border-radius: 12px;
+    box-shadow: 0 2px 10px rgba(42, 36, 27, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.pricing-priority-page .header-title {
+    color: #4f3a1f !important;
 }
 
 .header-subtitle {
     font-size: 12px;
-    color: #9ba7b6;
+    color: var(--priority-muted);
     margin-top: 4px;
+}
+
+/* Keep hamburger menu colors aligned with this page palette */
+.pricing-priority-page .hamburger-btn span {
+    background: #8b5a1f;
+}
+
+.pricing-priority-page .hamburger-btn:hover span {
+    background: #b6812f;
+}
+
+.pricing-priority-page .hamburger-overlay {
+    background: rgba(42, 36, 27, 0.32);
+}
+
+.pricing-priority-page .hamburger-dropdown {
+    background: #fffef9;
+    border-right: 1px solid #dccfb8;
+    box-shadow: 3px 0 16px rgba(42, 36, 27, 0.16);
+}
+
+.pricing-priority-page .hamburger-dropdown a {
+    color: #5c4a32;
+    border-bottom-color: #efe6d8;
+}
+
+.pricing-priority-page .hamburger-dropdown a:hover {
+    background: #fff8ed;
+    color: #2a241b;
+}
+
+.pricing-priority-page .hamburger-dropdown .submenu {
+    background: #faf6ee;
+}
+
+.pricing-priority-page .hamburger-dropdown .submenu a {
+    border-bottom-color: #efe6d8;
+}
+
+.pricing-priority-page .hamburger-dropdown .submenu a:hover {
+    background: #fff8ed;
+}
+
+.pricing-priority-page .hamburger-dropdown a.logout-link {
+    border-top-color: #efe6d8;
+    color: #b42318;
+}
+
+.pricing-priority-page .hamburger-dropdown a.logout-link:hover {
+    background: #fdecef;
+    color: #8a1c1c;
 }
 
 .priority-shell {
@@ -28,9 +106,9 @@ body {
     margin: 24px auto;
     padding: 24px;
     background: var(--priority-surface);
-    border: 1px solid #343b46;
+    border: 1px solid var(--priority-border);
     border-radius: 14px;
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+    box-shadow: 0 2px 14px rgba(42, 36, 27, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 
 .priority-shell__header {
@@ -44,11 +122,11 @@ body {
 .priority-shell__header h2 {
     font-size: 24px;
     margin-bottom: 6px;
-    color: #e4e9f1;
+    color: #5c4a32;
 }
 
 .priority-shell__header p {
-    color: #9ba7b6;
+    color: var(--priority-muted);
     font-size: 14px;
     max-width: 560px;
 }
@@ -70,22 +148,22 @@ body {
 }
 
 .primary-btn {
-    background: #4b6e9e;
+    background: var(--priority-accent);
     color: #fff;
 }
 
 .primary-btn:hover {
-    background: #5c80b3;
+    background: var(--priority-accent-2);
 }
 
 .secondary-btn {
-    background: #2d3440;
-    color: #e4e9f1;
-    border-color: #3d4654;
+    background: #fff;
+    color: var(--priority-accent);
+    border-color: #c9a86a;
 }
 
 .secondary-btn:hover {
-    background: #36404d;
+    background: #fff8ed;
 }
 
 .primary-btn:disabled,
@@ -108,21 +186,21 @@ body {
 }
 
 .priority-message.is-success {
-    background: rgba(75, 158, 110, 0.16);
-    border: 1px solid rgba(75, 158, 110, 0.45);
-    color: #b9f3d0;
+    background: #e8f5ec;
+    border: 1px solid #6d9b7a;
+    color: #1d4a2c;
 }
 
 .priority-message.is-error {
-    background: rgba(192, 70, 70, 0.18);
-    border: 1px solid rgba(192, 70, 70, 0.45);
-    color: #ffb7b7;
+    background: #fdecef;
+    border: 1px solid #d4a0a8;
+    color: #6b1f1f;
 }
 
 .priority-message.is-info {
-    background: rgba(75, 110, 158, 0.16);
-    border: 1px solid rgba(75, 110, 158, 0.45);
-    color: #c6d8f5;
+    background: #e8f0fb;
+    border: 1px solid #b8c9e0;
+    color: #2a3d5c;
 }
 
 .priority-list-header,
@@ -135,7 +213,7 @@ body {
 
 .priority-list-header {
     padding: 0 14px 10px;
-    color: #9ba7b6;
+    color: var(--priority-muted);
     font-size: 12px;
     font-weight: 700;
     text-transform: uppercase;
@@ -160,7 +238,7 @@ body {
 
 .priority-rule-row {
     background: var(--priority-surface);
-    border: 1px solid #343d4b;
+    border: 1px solid #e9deca;
     border-radius: 12px;
     padding: 14px;
 }
@@ -170,8 +248,8 @@ body {
 }
 
 .priority-rule-row.drag-target {
-    border-color: #6a8fc7;
-    box-shadow: 0 0 0 1px rgba(106, 143, 199, 0.5);
+    border-color: #c9a86a;
+    box-shadow: 0 0 0 1px rgba(201, 168, 106, 0.35);
 }
 
 .priority-number {
@@ -183,7 +261,7 @@ body {
     text-align: center;
     gap: 12px;
     font-weight: 700;
-    color: #e4e9f1;
+    color: var(--priority-text);
 }
 
 .drag-handle {
@@ -193,9 +271,9 @@ body {
     width: 34px;
     height: 34px;
     border-radius: 8px;
-    border: 1px solid #3d4654;
-    background: var(--priority-surface);
-    color: #9ba7b6;
+    border: 1px solid #dccfb8;
+    background: #fff;
+    color: var(--priority-muted);
     cursor: grab;
     user-select: none;
     font-size: 18px;
@@ -211,14 +289,14 @@ body {
 }
 
 .rule-name {
-    color: #e4e9f1;
+    color: var(--priority-text);
     font-size: 15px;
     font-weight: 600;
     margin-bottom: 4px;
 }
 
 .rule-code {
-    color: #8d99aa;
+    color: var(--priority-muted);
     font-size: 12px;
     word-break: break-word;
 }
@@ -228,7 +306,7 @@ body {
     align-items: center;
     gap: 10px;
     justify-self: end;
-    color: #e4e9f1;
+    color: var(--priority-text);
     font-size: 14px;
     font-weight: 600;
 }
@@ -236,17 +314,17 @@ body {
 .rule-toggle input {
     width: 18px;
     height: 18px;
-    accent-color: #4b6e9e;
+    accent-color: var(--priority-accent);
 }
 
 .priority-loading,
 .priority-empty {
     padding: 30px 16px;
-    border: 1px dashed #343d4b;
+    border: 1px dashed #dccfb8;
     border-radius: 12px;
     text-align: center;
-    color: #9ba7b6;
-    background: var(--priority-surface);
+    color: var(--priority-muted);
+    background: var(--priority-surface-soft);
 }
 
 @media (max-width: 720px) {

@@ -9,12 +9,12 @@
     <link rel="stylesheet" href="/static/css/hamburger_menu.css">
     <link rel="stylesheet" href="/static/css/orderQuotation.css">
     <link rel="stylesheet" href="/static/css/adminViewQuotations.css">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr21">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr22">
 </head>
 <body class="procurement-warm-ui">
 
 
-    <div class="container procurement-warm-container" style="min-height: 80vh;">
+    <div class="container procurement-warm-container">
         <div class="main-content">
 
             <div class="header procurement-warm-topbar" style="display: flex; align-items: center; justify-content: space-between; gap: 18px;">
@@ -1119,7 +1119,7 @@
                 list.innerHTML = '<div class="view-pr-empty">Loading e-Purchase Request records...</div>';
             }
 
-            return fetch('/api/admin/procurement/purchase-requests?offset=0&limit=50')
+            return fetch('/api/admin/procurement/purchase-requests?offset=0&limit=50&fast=1')
                 .then((res) => res.json())
                 .then((payload) => {
                     if (!payload.success) {

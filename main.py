@@ -118,6 +118,10 @@ FASTAPI_ACCESS_KEY = (os.getenv('API_ACCESS_KEY') or '').strip()
 FASTAPI_SECRET_KEY = (os.getenv('API_SECRET_KEY') or '').strip()
 GUEST_SIGNIN_ALLOW_LOCAL_FALLBACK = (os.getenv('GUEST_SIGNIN_ALLOW_LOCAL_FALLBACK', 'true').strip().lower() in ('1', 'true', 'yes', 'on'))
 DB_PATH = os.getenv('DB_PATH')
+
+# Runtime hints to avoid re-trying slow/invalid upstream variants on every request.
+PURCHASE_REQUEST_LIST_ENDPOINT_HINT = None
+PURCHASE_REQUEST_DETAIL_ENDPOINT_HINT = None
 DB_HOST = os.getenv('DB_HOST')
 DB_USER = os.getenv('DB_USER', 'sysdba')
 DB_PASSWORD = os.getenv('DB_PASSWORD', 'masterkey')
@@ -4112,6 +4116,12 @@ def api_admin_list_purchase_requests():
     """List eProcurement purchase request headers from SQL API."""
     raw_offset = (request.args.get('offset') or '').strip()
     raw_limit = (request.args.get('limit') or '').strip()
+    raw_fast = request.args.get('fast')
+    if raw_fast is None:
+        # Default to fast mode for better UI responsiveness.
+        fast_mode = True
+    else:
+        fast_mode = str(raw_fast).strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
     try:
         offset = int(raw_offset) if raw_offset else 0
         limit = int(raw_limit) if raw_limit else 200
@@ -4210,12 +4220,16 @@ def api_admin_list_purchase_requests():
 
     try:
         headers = _build_sql_api_auth_headers()
+        global PURCHASE_REQUEST_LIST_ENDPOINT_HINT
         candidates = [
             f"{FASTAPI_BASE_URL}/purchaserequest",
             f"{FASTAPI_BASE_URL}/purchase-request",
             f"{FASTAPI_BASE_URL}/purchaserequests",
             f"{FASTAPI_BASE_URL}/purchase-requests",
         ]
+        if PURCHASE_REQUEST_LIST_ENDPOINT_HINT in candidates:
+            candidates.remove(PURCHASE_REQUEST_LIST_ENDPOINT_HINT)
+            candidates.insert(0, PURCHASE_REQUEST_LIST_ENDPOINT_HINT)
         payload = {}
         last_status = None
         tried = []
@@ -4225,13 +4239,14 @@ def api_admin_list_purchase_requests():
                 url,
                 params={'offset': offset, 'limit': limit},
                 headers=headers or None,
-                timeout=12,
+                timeout=8,
             )
             last_status = resp.status_code
             tried.append(f"{url} -> {resp.status_code}")
             if not resp.ok:
                 continue
             payload = resp.json() if resp.text else {}
+            PURCHASE_REQUEST_LIST_ENDPOINT_HINT = url
             break
 
         if not payload:
@@ -4297,60 +4312,61 @@ def api_admin_list_purchase_requests():
                 'details': None,
             })
 
-        try:
-            bid_suppliers = map_approved_bid_suppliers_by_request_ids([int(r['id']) for r in records if r.get('id')])
-        except Exception as bid_exc:
-            print(f"[PROCUREMENT LIST PR] approved bid supplier lookup warning: {bid_exc}", flush=True)
-            bid_suppliers = {}
-
-        for rec in records:
-            rid = rec.get('id')
-            if not rid:
-                continue
+        if not fast_mode:
             try:
-                key = int(rid)
-            except Exception:
-                continue
-            info = bid_suppliers.get(key)
-            if not isinstance(info, dict):
-                continue
-            code = str(info.get('supplierCode') or '').strip()
-            name = str(info.get('supplierName') or '').strip()
-            if code:
-                rec['supplierId'] = code
-            if name:
-                rec['supplierName'] = name
-            elif code:
-                rec['supplierName'] = code
+                bid_suppliers = map_approved_bid_suppliers_by_request_ids([int(r['id']) for r in records if r.get('id')])
+            except Exception as bid_exc:
+                print(f"[PROCUREMENT LIST PR] approved bid supplier lookup warning: {bid_exc}", flush=True)
+                bid_suppliers = {}
 
-        try:
-            supplier_codes = list(
-                {str(r.get('supplierId') or '').strip() for r in records if str(r.get('supplierId') or '').strip()}
-            )
-            api_master = _fetch_supplier_master_from_sql_api(supplier_codes)
             for rec in records:
-                cid = str(rec.get('supplierId') or '').strip()
-                if not cid:
+                rid = rec.get('id')
+                if not rid:
                     continue
-                master = api_master.get(cid.upper())
-                if isinstance(master, dict):
-                    cn = str(master.get('companyname') or '').strip()
-                    em = str(master.get('udf_email') or '').strip()
-                    if cn:
-                        rec['supplierName'] = cn
-                    if em:
-                        rec['supplierEmail'] = em
+                try:
+                    key = int(rid)
+                except Exception:
+                    continue
+                info = bid_suppliers.get(key)
+                if not isinstance(info, dict):
+                    continue
+                code = str(info.get('supplierCode') or '').strip()
+                name = str(info.get('supplierName') or '').strip()
+                if code:
+                    rec['supplierId'] = code
+                if name:
+                    rec['supplierName'] = name
+                elif code:
+                    rec['supplierName'] = code
 
-            email_by_code = _fetch_supplier_emails_by_codes(supplier_codes)
-            for rec in records:
-                cid = str(rec.get('supplierId') or '').strip()
-                existing = str(rec.get('supplierEmail') or '').strip()
-                if cid and not existing:
-                    rec['supplierEmail'] = email_by_code.get(cid.upper()) or ''
-                elif not existing:
-                    rec['supplierEmail'] = ''
-        except Exception as em_exc:
-            print(f"[PROCUREMENT LIST PR] supplier master/email enrichment warning: {em_exc}", flush=True)
+            try:
+                supplier_codes = list(
+                    {str(r.get('supplierId') or '').strip() for r in records if str(r.get('supplierId') or '').strip()}
+                )
+                api_master = _fetch_supplier_master_from_sql_api(supplier_codes)
+                for rec in records:
+                    cid = str(rec.get('supplierId') or '').strip()
+                    if not cid:
+                        continue
+                    master = api_master.get(cid.upper())
+                    if isinstance(master, dict):
+                        cn = str(master.get('companyname') or '').strip()
+                        em = str(master.get('udf_email') or '').strip()
+                        if cn:
+                            rec['supplierName'] = cn
+                        if em:
+                            rec['supplierEmail'] = em
+
+                email_by_code = _fetch_supplier_emails_by_codes(supplier_codes)
+                for rec in records:
+                    cid = str(rec.get('supplierId') or '').strip()
+                    existing = str(rec.get('supplierEmail') or '').strip()
+                    if cid and not existing:
+                        rec['supplierEmail'] = email_by_code.get(cid.upper()) or ''
+                    elif not existing:
+                        rec['supplierEmail'] = ''
+            except Exception as em_exc:
+                print(f"[PROCUREMENT LIST PR] supplier master/email enrichment warning: {em_exc}", flush=True)
 
         return jsonify({
             'success': True,
@@ -4596,6 +4612,7 @@ def api_admin_purchase_request_details_fallback():
 
     try:
         headers = _build_sql_api_auth_headers()
+        global PURCHASE_REQUEST_DETAIL_ENDPOINT_HINT
         candidates = []
 
         if raw_request_id:
@@ -4612,13 +4629,18 @@ def api_admin_purchase_request_details_fallback():
             candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest", {'docno': request_no}))
             candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest", {'requestno': request_no}))
 
+        if PURCHASE_REQUEST_DETAIL_ENDPOINT_HINT and PURCHASE_REQUEST_DETAIL_ENDPOINT_HINT in [u for u, _ in candidates]:
+            hinted = [pair for pair in candidates if pair[0] == PURCHASE_REQUEST_DETAIL_ENDPOINT_HINT]
+            others = [pair for pair in candidates if pair[0] != PURCHASE_REQUEST_DETAIL_ENDPOINT_HINT]
+            candidates = hinted + others
+
         last_status = 404
         for url, params in candidates:
             resp = requests.get(
                 url,
                 params=params,
                 headers=headers or None,
-                timeout=12,
+                timeout=8,
             )
             last_status = resp.status_code
             if not resp.ok:
@@ -4628,6 +4650,7 @@ def api_admin_purchase_request_details_fallback():
             extracted = _extract_details(payload)
             if extracted is None:
                 continue
+            PURCHASE_REQUEST_DETAIL_ENDPOINT_HINT = url
 
             selected_suppliers = _list_selected_suppliers(extracted.get('id'))
 
@@ -4692,6 +4715,12 @@ def _resolve_purchase_request_header(raw_request_id, request_no, headers, timeou
         candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest", {'docno': request_no}))
         candidates.append((f"{FASTAPI_BASE_URL}/purchaserequest", {'requestno': request_no}))
 
+    global PURCHASE_REQUEST_DETAIL_ENDPOINT_HINT
+    if PURCHASE_REQUEST_DETAIL_ENDPOINT_HINT and PURCHASE_REQUEST_DETAIL_ENDPOINT_HINT in [u for u, _ in candidates]:
+        hinted = [pair for pair in candidates if pair[0] == PURCHASE_REQUEST_DETAIL_ENDPOINT_HINT]
+        others = [pair for pair in candidates if pair[0] != PURCHASE_REQUEST_DETAIL_ENDPOINT_HINT]
+        candidates = hinted + others
+
     request_header = None
     last_status = 404
 
@@ -4704,6 +4733,7 @@ def _resolve_purchase_request_header(raw_request_id, request_no, headers, timeou
         payload = resp.json() if resp.text else {}
         request_header = _extract_header(payload)
         if request_header:
+            PURCHASE_REQUEST_DETAIL_ENDPOINT_HINT = url
             break
 
     return request_header, last_status
