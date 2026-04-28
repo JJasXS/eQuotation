@@ -1,9 +1,5 @@
 <!DOCTYPE html>
 <html lang="en">
-
-<style>
-    
-</style>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -11,111 +7,212 @@
     <link rel="stylesheet" href="/static/css/chat.css">
     <link rel="stylesheet" href="/static/css/hamburger_menu.css">
     <style>
-        body { background: linear-gradient(155deg, #f9f4ec 0%, #ece2d2 100%); color: #2a241b; }
-        .wrap { max-width: 1280px; margin: 16px auto; padding: 12px; }
-        .grid { display: grid; grid-template-columns: 340px 1fr; gap: 14px; }
-        .card { background: #fff; border: 1px solid #e2d8c5; border-radius: 12px; box-shadow: 0 8px 20px rgba(42, 36, 27, 0.08); }
-        .card-head { padding: 12px 14px; border-bottom: 1px solid #efe6d6; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-        .card-body { padding: 12px 14px; }
+        html, body { height: 100%; margin: 0; }
+        body {
+            background: linear-gradient(160deg, #f4f0e8 0%, #e8dfd0 45%, #ddd2c4 100%);
+            color: #2a241b;
+        }
+        .bidding-page { min-height: 100vh; display: flex; flex-direction: column; box-sizing: border-box; }
+        .bidding-page .main-content { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 0 12px 12px; max-width: none; width: 100%; }
+        .bidding-topbar {
+            display: flex; justify-content: space-between; align-items: center; gap: 16px;
+            padding: 12px 4px 10px; flex-shrink: 0;
+            border-bottom: 1px solid rgba(139, 90, 31, 0.15);
+        }
+        .bidding-topbar h3 { margin: 0; font-size: 1.25rem; letter-spacing: -0.02em; }
+        #admin-bidding-message {
+            font-size: 12px; padding: 6px 4px 10px; min-height: 1.25em;
+            color: #4f5b49;
+        }
+        .bidding-grid {
+            display: grid;
+            grid-template-columns: minmax(200px, 0.9fr) minmax(260px, 1.25fr) minmax(280px, 1.15fr);
+            gap: 12px;
+            flex: 1;
+            min-height: 0;
+            align-items: stretch;
+        }
+        .bidding-col-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            min-height: 0;
+            min-width: 0;
+            align-self: stretch;
+        }
+        .bidding-col-stack .bidding-col {
+            flex: 1 1 0;
+            min-height: 0;
+        }
+        @media (max-width: 1400px) {
+            .bidding-grid { grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr); grid-template-rows: auto minmax(240px, 1fr); }
+            .bidding-col-stack { grid-column: 1 / -1; flex-direction: row; align-items: stretch; }
+            .bidding-col-stack .bidding-col { flex: 1 1 0; min-width: 0; }
+        }
+        @media (max-width: 720px) {
+            .bidding-grid { grid-template-columns: 1fr; grid-template-rows: auto; }
+            .bidding-col-stack { grid-column: auto; flex-direction: column; }
+        }
+        .bidding-col {
+            background: #fffef9;
+            border: 1px solid #dccfb8;
+            border-radius: 14px;
+            box-shadow: 0 4px 24px rgba(42, 36, 27, 0.07), inset 0 1px 0 rgba(255,255,255,0.85);
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            overflow: hidden;
+        }
+        .bidding-col-head {
+            padding: 12px 14px;
+            border-bottom: 1px solid #ebe3d4;
+            background: linear-gradient(180deg, #fffbf5 0%, #faf6ee 100%);
+            flex-shrink: 0;
+        }
+        .bidding-col-head h2 {
+            margin: 0;
+            font-size: 13px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: #5c4a32;
+        }
+        .bidding-col-head .toolbar { margin-top: 8px; }
+        .bidding-col-sub {
+            padding: 8px 14px;
+            font-size: 12px;
+            color: #6b6254;
+            border-bottom: 1px solid #f0eadf;
+            flex-shrink: 0;
+        }
+        .bidding-col-body {
+            padding: 10px 12px;
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
         .muted { color: #6b6254; font-size: 12px; }
-        .pr-list { display: grid; gap: 8px; max-height: 72vh; overflow: auto; }
-        .pr-item { border: 1px solid #e9deca; border-radius: 9px; padding: 10px; background: #fcfaf6; cursor: pointer; }
-        .pr-item.active { border-color: #b6812f; background: #fff8ed; }
-        .pr-item .title { font-weight: 700; }
+        .pr-list { display: grid; gap: 8px; }
+        .pr-item { border: 1px solid #e9deca; border-radius: 10px; padding: 10px 12px; background: #fff; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
+        .pr-item:hover { border-color: #c9a86a; box-shadow: 0 2px 8px rgba(139, 90, 31, 0.08); }
+        .pr-item.active { border-color: #b6812f; background: linear-gradient(180deg, #fffdfa 0%, #fff8ed 100%); box-shadow: inset 0 0 0 1px rgba(182, 129, 47, 0.2); }
+        .pr-item .title { font-weight: 700; font-size: 13px; }
         .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-        .btn { border: none; border-radius: 8px; padding: 7px 12px; cursor: pointer; background: #8b5a1f; color: #fff; }
-        .btn.secondary { background: #fff; color: #8b5a1f; border: 1px solid #8b5a1f; }
+        .btn { border: none; border-radius: 8px; padding: 7px 12px; cursor: pointer; background: #8b5a1f; color: #fff; font-size: 12px; font-weight: 600; }
+        .btn.secondary { background: #fff; color: #8b5a1f; border: 1px solid #c9a86a; }
         .btn:disabled { opacity: 0.55; cursor: not-allowed; }
-        .split { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .supplier-list { max-height: 230px; overflow: auto; border: 1px solid #ecdfca; border-radius: 8px; }
-        .supplier-row { display: flex; gap: 8px; padding: 7px 8px; border-bottom: 1px solid #f2eadf; }
+        .invite-help { font-size: 11px; line-height: 1.45; color: #6b6254; margin: 0 0 10px; }
+        .supplier-invite-tools {
+            display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+            margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #efe6d8;
+        }
+        .supplier-invite-tools label { font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 6px; user-select: none; }
+        .invite-extra-emails {
+            width: 100%; box-sizing: border-box; min-height: 52px;
+            padding: 8px 10px; border: 1px solid #ecdfca; border-radius: 10px;
+            font-size: 12px; font-family: inherit; resize: vertical;
+            background: #fff; color: #2a241b;
+        }
+        .invite-extra-emails:focus { outline: none; border-color: #c9a86a; box-shadow: 0 0 0 2px rgba(201, 168, 106, 0.2); }
+        .supplier-list { border: 1px solid #ecdfca; border-radius: 10px; background: #fff; }
+        .supplier-row { display: flex; gap: 8px; padding: 8px 10px; border-bottom: 1px solid #f2eadf; font-size: 12px; }
+        .supplier-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
         .supplier-row:last-child { border-bottom: none; }
-        .bid-card { border: 1px solid #eadfcf; border-radius: 9px; padding: 9px; margin-bottom: 10px; background: #fffdf8; }
-        .compare-card { border: 1px solid #d7c9ad; border-radius: 9px; padding: 10px; margin-bottom: 10px; background: #fff8ee; }
-        .compare-title { font-weight: 700; color: #5f4120; margin-bottom: 6px; }
-        .compare-note { font-size: 11px; color: #7a6a52; margin-bottom: 8px; }
+        .bid-card { border: 1px solid #e5dcc8; border-radius: 11px; padding: 11px; margin-bottom: 12px; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
+        .compare-card { border: none; border-radius: 0; padding: 0; margin-bottom: 16px; background: transparent; }
+        .compare-title { font-weight: 700; color: #5f4120; margin-bottom: 6px; font-size: 13px; }
+        .compare-note { font-size: 11px; color: #7a6a52; margin-bottom: 10px; line-height: 1.4; }
         .best-cost { color: #0f6d3f; font-weight: 700; }
         .status { padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
         .status.APPROVED { background: #dff0ff; color: #115282; }
         .status.SUBMITTED { background: #fff3d7; color: #8a6300; }
         .status.REJECTED { background: #f6e2e2; color: #832525; }
         .new-badge { display: inline-block; margin-left: 8px; padding: 2px 7px; border-radius: 999px; background: #dc2626; color: #fff; font-size: 10px; font-weight: 700; letter-spacing: 0.03em; }
-        table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-        th, td { border-bottom: 1px solid #f1e8da; padding: 6px; font-size: 12px; text-align: left; }
-        th { background: #faf4e8; }
-        @media (max-width: 960px) {
-            .grid { grid-template-columns: 1fr; }
-            .split { grid-template-columns: 1fr; }
-
-
-        }
-
-      
+        .bidding-col-body table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 11px; }
+        .bidding-col-body th, .bidding-col-body td { border-bottom: 1px solid #efe6d8; padding: 6px 5px; text-align: left; }
+        .bidding-col-body th { background: #faf6ee; color: #5c4a32; font-weight: 600; }
+        .bidding-placeholder { color: #9a8f7e; font-size: 12px; padding: 16px 8px; text-align: center; line-height: 1.5; }
     </style>
 </head>
 <body>
-    <div class="container" style="min-height: 92vh;">
+    <div class="container bidding-page" style="min-height: 100vh; max-width: none;">
         <div class="main-content">
-            <div class="header" style="display:flex;justify-content:space-between;align-items:center;gap:16px;">
+            <div class="bidding-topbar header">
                 <div style="display:flex;align-items:center;gap:16px;">
                     {% include 'components/admin_hamburger_menu.html' %}
                     <div>
-                        <h3 class="header-title" style="margin:0;">Supplier Bidding Management</h3>
+                        <h3 class="header-title">Supplier Bidding Management</h3>
                         <div class="muted">Welcome, {{ user_name }}</div>
                     </div>
                 </div>
-                <button class="btn" onclick="loadRequests()">Refresh PR</button>
+                <button class="btn" type="button" onclick="loadRequests()">Refresh PR</button>
             </div>
+            <div id="admin-bidding-message"></div>
 
-            <div class="wrap">
-                <div class="grid">
-                    <div class="card">
-                        <div class="card-head">
-                            <strong>Purchase Requests</strong>
-                            <span id="pr-count" class="muted"></span>
-                        </div>
-                        <div class="card-body">
-                            <div class="toolbar" style="margin-bottom:8px;">
-                                <label class="muted">Status</label>
-                                <select id="pr-status-filter" onchange="renderRequests()">
-                                    <option value="ALL">ALL</option>
-                                    <option value="APPROVED">APPROVED</option>
-                                    <option value="PENDING">PENDING</option>
-                                    <option value="CANCELLED">CANCELLED</option>
-                                </select>
-                            </div>
-                            <div id="pr-list" class="pr-list"></div>
+            <div class="bidding-grid">
+                <section class="bidding-col" aria-label="Purchase requests">
+                    <div class="bidding-col-head">
+                        <h2>Purchase Requests</h2>
+                        <span id="pr-count" class="muted"></span>
+                        <div class="toolbar" style="margin-top:10px;">
+                            <label class="muted">Status</label>
+                            <select id="pr-status-filter" onchange="renderRequests()">
+                                <option value="ALL">ALL</option>
+                                <option value="APPROVED">APPROVED</option>
+                                <option value="PENDING">PENDING</option>
+                                <option value="CANCELLED">CANCELLED</option>
+                            </select>
                         </div>
                     </div>
+                    <div class="bidding-col-body pr-list" id="pr-list"></div>
+                </section>
 
-                    <div class="card">
-                        <div class="card-head">
-                            <div>
-                                <strong id="current-pr-title">Select a PR</strong>
-                                <div id="current-pr-subtitle" class="muted"></div>
-                            </div>
-                        </div>
-                        <div class="card-body">
-                            <div class="split">
-                                <div>
-                                    <div class="toolbar" style="margin-bottom:8px;">
-                                        <strong>Invite Suppliers</strong>
-                                        <button class="btn secondary" type="button" onclick="loadSuppliers()">Load Suppliers</button>
-                                        <button class="btn" type="button" id="invite-btn" onclick="saveInvitations()" disabled>Save Invitations</button>
-                                    </div>
-                                    <div id="supplier-list" class="supplier-list"></div>
-                                </div>
-                                <div>
-                                    <div class="toolbar" style="margin-bottom:8px;">
-                                        <strong>Submitted Bids</strong>
-                                        <button class="btn secondary" type="button" id="load-bids-btn" onclick="loadBidsForActivePr()" disabled>Refresh Bids</button>
-                                    </div>
-                                    <div id="bids-wrap"></div>
-                                </div>
-                            </div>
-                            <div id="admin-bidding-message" class="muted" style="margin-top:10px;"></div>
+                <section class="bidding-col" aria-label="Submitted bids">
+                    <div class="bidding-col-head">
+                        <h2>Submitted bids</h2>
+                        <div class="toolbar">
+                            <button class="btn secondary" type="button" id="load-bids-btn" onclick="loadBidsForActivePr()" disabled>Refresh bids</button>
                         </div>
                     </div>
+                    <div class="bidding-col-sub" id="current-pr-subtitle">Select a purchase request to load bids.</div>
+                    <div class="bidding-col-body" id="bids-cards-wrap"></div>
+                </section>
+
+                <div class="bidding-col-stack" aria-label="Comparison and invitations">
+                    <section class="bidding-col" aria-label="Supplier cost comparison">
+                        <div class="bidding-col-head">
+                            <h2>Supplier cost comparison</h2>
+                        </div>
+                        <div class="bidding-col-body" id="compare-wrap">
+                            <div class="bidding-placeholder">Select a purchase request to compare supplier totals.</div>
+                        </div>
+                    </section>
+
+                    <section class="bidding-col" aria-label="Invited suppliers">
+                        <div class="bidding-col-head">
+                            <h2>Invited suppliers</h2>
+                            <div class="toolbar">
+                                <button class="btn secondary" type="button" onclick="loadSuppliers()">Load suppliers</button>
+                                <button class="btn" type="button" id="invite-btn" onclick="saveInvitations()" disabled>Save invitations</button>
+                            </div>
+                        </div>
+                        <div class="bidding-col-body supplier-list-wrap">
+                            <p class="invite-help">
+                                Saving invitations records who may bid on this PR in the system.
+                                RFQ emails are sent to supplier emails shown below (when available) plus any additional notify emails.
+                            </p>
+                            <label class="muted" for="additional-invite-emails" style="display:block;font-size:11px;margin-bottom:4px;">Additional notify emails (optional)</label>
+                            <textarea id="additional-invite-emails" class="invite-extra-emails" rows="2" placeholder="You can separate by comma, semicolon, space, or new line." autocomplete="off"></textarea>
+                            <div class="supplier-invite-tools">
+                                <label>
+                                    <input type="checkbox" id="supplier-select-all" />
+                                    Select all suppliers
+                                </label>
+                            </div>
+                            <div id="supplier-list" class="supplier-list"></div>
+                        </div>
+                    </section>
                 </div>
             </div>
         </div>
@@ -194,11 +291,29 @@
             }).join('');
         }
 
+        function clearBiddingPanels() {
+            const bidsEl = document.getElementById('bids-cards-wrap');
+            const cmpEl = document.getElementById('compare-wrap');
+            if (bidsEl) {
+                bidsEl.innerHTML = '<div class="bidding-placeholder">Select a purchase request to view submitted bids.</div>';
+            }
+            if (cmpEl) {
+                cmpEl.innerHTML = '<div class="bidding-placeholder">Select a purchase request to compare supplier totals.</div>';
+            }
+        }
+
         function setSelectionUi() {
             document.getElementById('invite-btn').disabled = !activePr;
             document.getElementById('load-bids-btn').disabled = !activePr;
-            document.getElementById('current-pr-title').textContent = activePr ? ('PR ' + (activePr.requestNumber || activePr.id)) : 'Select a PR';
-            document.getElementById('current-pr-subtitle').textContent = activePr ? ('Current status: ' + (activePr.status || '-')) : '';
+            const sub = document.getElementById('current-pr-subtitle');
+            if (sub) {
+                sub.textContent = activePr
+                    ? (`PR ${activePr.requestNumber || activePr.id} — Status: ${activePr.status || '-'}`)
+                    : 'Select a purchase request to load bids.';
+            }
+            if (!activePr) {
+                clearBiddingPanels();
+            }
         }
 
         function selectPr(id, requestNumber, status, supplierName) {
@@ -225,6 +340,8 @@
 
         function renderSuppliers() {
             const list = document.getElementById('supplier-list');
+            const master = document.getElementById('supplier-select-all');
+            if (master) master.checked = false;
             if (!supplierCache.length) {
                 list.innerHTML = '<div class="muted" style="padding:8px;">No suppliers loaded.</div>';
                 return;
@@ -232,14 +349,23 @@
             list.innerHTML = supplierCache.map((row) => {
                 const code = esc(row.code || '');
                 const name = esc(row.companyname || row.companyName || '');
+                const email = esc(row.udf_email || row.udfEmail || row.email || '-');
                 return `
                     <label class="supplier-row">
                         <input type="checkbox" class="supplier-checkbox" value="${code}" data-name="${name}">
-                        <span>${code} - ${name || '-'}</span>
+                        <span class="supplier-meta">
+                            <strong>${code} - ${name || '-'}</strong>
+                            <span class="muted">${email}</span>
+                        </span>
                     </label>
                 `;
             }).join('');
         }
+
+        document.getElementById('supplier-select-all')?.addEventListener('change', function () {
+            const on = this.checked;
+            document.querySelectorAll('.supplier-checkbox').forEach((cb) => { cb.checked = on; });
+        });
 
         function selectedSuppliers() {
             const checks = Array.from(document.querySelectorAll('.supplier-checkbox:checked'));
@@ -255,8 +381,10 @@
                 return;
             }
             const suppliers = selectedSuppliers();
-            if (!suppliers.length) {
-                msg('Select at least one supplier.', true);
+            const extraEl = document.getElementById('additional-invite-emails');
+            const extraEmails = extraEl ? String(extraEl.value || '').trim() : '';
+            if (!suppliers.length && !extraEmails) {
+                msg('Select supplier(s) or enter additional notify email(s).', true);
                 return;
             }
 
@@ -268,6 +396,7 @@
                     requestId: activePr.id,
                     requestNumber: activePr.requestNumber,
                     suppliers,
+                    additionalEmails: extraEmails,
                 }),
             });
             const body = await res.json();
@@ -275,18 +404,36 @@
                 msg(body.error || 'Failed to save invitations', true);
                 return;
             }
-            msg('Invitations saved. Suppliers can now submit bids.');
+            const d = body.data || {};
+            let note = 'Invitations saved. Suppliers with portal access may submit bids.';
+            if (Number(d.rfqEmailsQueued) > 0) {
+                note = `Invitations saved. RFQ email queued for ${d.rfqEmailsQueued} address(es).`;
+            } else if (d.rfqEmailNote) {
+                note = 'Invitations saved. ' + d.rfqEmailNote;
+            }
+            if (d.rfqEmailWarning) {
+                note += ' (' + d.rfqEmailWarning + ')';
+            }
+            msg(note);
             await loadBidsForActivePr();
         }
 
         async function loadBidsForActivePr() {
-            if (!activePr) return;
-            const wrap = document.getElementById('bids-wrap');
-            wrap.innerHTML = '<div class="muted">Loading bids...</div>';
+            const bidsWrap = document.getElementById('bids-cards-wrap');
+            const compareWrap = document.getElementById('compare-wrap');
+            if (!activePr) {
+                clearBiddingPanels();
+                return;
+            }
+            const loading = '<div class="muted" style="padding:12px;">Loading…</div>';
+            if (bidsWrap) bidsWrap.innerHTML = loading;
+            if (compareWrap) compareWrap.innerHTML = loading;
             const res = await fetch(`/api/admin/procurement/purchase-requests/${activePr.id}/bids`);
             const body = await res.json();
             if (!res.ok || !body.success) {
-                wrap.innerHTML = `<div class="muted" style="color:#8e2b2b;">${esc(body.error || 'Failed to load bids')}</div>`;
+                const err = `<div class="bidding-placeholder" style="color:#8e2b2b;">${esc(body.error || 'Failed to load bids')}</div>`;
+                if (bidsWrap) bidsWrap.innerHTML = err;
+                if (compareWrap) compareWrap.innerHTML = err;
                 return;
             }
 
@@ -297,7 +444,11 @@
                 return Number(b?.bidId || 0) - Number(a?.bidId || 0);
             });
             if (!bids.length) {
-                wrap.innerHTML = '<div class="muted">No bids yet for this PR.</div>';
+                const empty = '<div class="bidding-placeholder">No bids yet for this purchase request.</div>';
+                if (bidsWrap) bidsWrap.innerHTML = empty;
+                if (compareWrap) {
+                    compareWrap.innerHTML = '<div class="bidding-placeholder">No bids to compare yet.</div>';
+                }
                 return;
             }
 
@@ -352,10 +503,10 @@
 
             const compareHtml = `
                 <div class="compare-card">
-                    <div class="compare-title">Supplier Cost Comparison</div>
-                    <div class="compare-note">Use this to compare supplier total bid costing and lowest item prices before approval.</div>
+                    <div class="compare-title">Totals by supplier</div>
+                    <div class="compare-note">Compare total bid value and ranking before approve/reject. Lowest total is highlighted.</div>
                     <table>
-                        <thead><tr><th>Supplier</th><th>Status</th><th>Lines</th><th>Total Cost</th><th>Ranking</th></tr></thead>
+                        <thead><tr><th>Supplier</th><th>Status</th><th>Lines</th><th>Total</th><th>Rank</th></tr></thead>
                         <tbody>
                             ${rankedTotals.map((s, idx) => `
                                 <tr>
@@ -363,20 +514,22 @@
                                     <td>${esc(s.status || '-')}</td>
                                     <td>${Number(s.lineCount || 0)}</td>
                                     <td class="${s.bidId === cheapestBidId ? 'best-cost' : ''}">${money(s.totalAmount)}</td>
-                                    <td>${idx === 0 ? '<span class="best-cost">Lowest Total</span>' : '#' + (idx + 1)}</td>
+                                    <td>${idx === 0 ? '<span class="best-cost">Lowest</span>' : '#' + (idx + 1)}</td>
                                 </tr>
                             `).join('')}
                         </tbody>
                     </table>
-                    <div style="height:8px; display:none;"></div>
-<table style="display:none;">
-    <thead><tr><th>Item</th><th>Supplier Unit Prices</th><th>Best Unit Price</th></tr></thead>
-    <tbody>${itemRows.join('') || '<tr><td colspan="3" class="muted">No item comparison available.</td></tr>'}</tbody>
-</table>
+                    <div class="compare-title" style="margin-top:14px;">By item (unit price)</div>
+                    <table>
+                        <thead><tr><th>Item</th><th>Offers</th><th>Best</th></tr></thead>
+                        <tbody>${itemRows.join('') || '<tr><td colspan="3" class="muted">No item comparison available.</td></tr>'}</tbody>
+                    </table>
                 </div>
             `;
 
-            wrap.innerHTML = compareHtml + bids.map((bid, idx) => {
+            if (compareWrap) compareWrap.innerHTML = compareHtml;
+
+            const bidsHtml = bids.map((bid, idx) => {
                 const status = esc(bid.status || '');
                 const newBadge = idx === 0 ? '<span class="new-badge">New</span>' : '';
                 const rows = (bid.lines || []).map((line) => `
@@ -402,8 +555,8 @@
                             <thead><tr><th>Item</th><th>Qty</th><th>Unit Price</th><th>Tax</th><th>Amount</th><th>Lead Days</th></tr></thead>
                             <tbody>${rows || '<tr><td colspan="6" class="muted">No lines</td></tr>'}</tbody>
                         </table>
-                        <label class="muted" style="display:block;margin-top:10px;font-size:12px;">Reason (optional, stored as UDF_REASON)</label>
-                        <textarea id="bid-reason-${bidIdNum}" class="bid-reason-input" rows="2" style="width:100%;box-sizing:border-box;border:1px solid #ecdfca;border-radius:8px;padding:8px;font-size:12px;" onclick="event.stopPropagation();" placeholder="Shown to supplier when bid is accepted or rejected">${esc(bid.udfReason || '')}</textarea>
+                        <label class="muted" style="display:block;margin-top:10px;font-size:12px;">Reason</label>
+                        <textarea id="bid-reason-${bidIdNum}" class="bid-reason-input" rows="2" style="width:100%;box-sizing:border-box;border:1px solid #ecdfca;border-radius:8px;padding:8px;font-size:12px;" onclick="event.stopPropagation();" placeholder="">${esc(bid.udfReason || '')}</textarea>
                         <div class="toolbar" style="margin-top:8px;">
                             <button class="btn" type="button" onclick="approveBid(${activePr.id}, ${bid.bidId})">Approve</button>
                             <button class="btn secondary" type="button" onclick="rejectBid(${activePr.id}, ${bid.bidId})">Reject</button>
@@ -411,6 +564,8 @@
                     </div>
                 `;
             }).join('');
+
+            if (bidsWrap) bidsWrap.innerHTML = bidsHtml;
         }
 
         async function approveBid(requestId, bidId) {

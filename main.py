@@ -52,6 +52,7 @@ from utils.procurement_purchase_order_transfer import (
 )
 from utils.procurement_bidding import (
     BiddingValidationError,
+    _normalize_supplier_rows,
     apply_approved_bid_to_request,
     approve_bid,
     create_bid_invitations,
@@ -3773,82 +3774,8 @@ def api_admin_create_purchase_request():
                         required_date = str(payload.get('requestDate') or payload.get('requiredDate') or '').strip()
                         line_items = payload.get('lineItems') if isinstance(payload.get('lineItems'), list) else []
 
-                        def _send_quote_invites_async(invite_targets, req_no, req_required_date, req_lines):
-                            def _safe(value):
-                                return (
-                                    str(value or '')
-                                    .replace('&', '&amp;')
-                                    .replace('<', '&lt;')
-                                    .replace('>', '&gt;')
-                                    .replace('"', '&quot;')
-                                    .replace("'", '&#39;')
-                                )
-
-                            item_rows = ''
-                            for idx, line in enumerate(req_lines, start=1):
-                                if not isinstance(line, dict):
-                                    continue
-                                item_name = _safe(line.get('itemName') or line.get('description') or line.get('itemCode') or f'Item {idx}')
-                                qty = _safe(line.get('quantity') or 0)
-                                item_rows += (
-                                    f"<tr>"
-                                    f"<td style='padding:8px;border:1px solid #dbe4ee;'>{idx}</td>"
-                                    f"<td style='padding:8px;border:1px solid #dbe4ee;'>{item_name}</td>"
-                                    f"<td style='padding:8px;border:1px solid #dbe4ee;text-align:right;'>{qty}</td>"
-                                    f"</tr>"
-                                )
-
-                            if not item_rows:
-                                item_rows = (
-                                    "<tr><td colspan='3' style='padding:8px;border:1px solid #dbe4ee;color:#64748b;'>"
-                                    "No line items were included in this notification."
-                                    "</td></tr>"
-                                )
-
-                            for target in invite_targets:
-                                to_email = str(target.get('email') or '').strip()
-                                if not to_email:
-                                    continue
-
-                                supplier_name = _safe(target.get('name') or target.get('code') or 'Supplier')
-                                subject = f"RFQ Invitation - Purchase Request {req_no}"
-                                body = f"""
-                                <html>
-                                    <body style='font-family: Arial, sans-serif; color: #1f2937;'>
-                                        <div style='max-width: 700px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;'>
-                                            <div style='background: #1a1f2e; color: #fff; padding: 14px 18px; font-size: 18px; font-weight: 600;'>Request for Quotation Invitation</div>
-                                            <div style='padding: 18px;'>
-                                                <p>Dear {supplier_name},</p>
-                                                <p>You are invited to quote for Purchase Request <strong>{_safe(req_no)}</strong>.</p>
-                                                 <p><strong>Requested Date:</strong> {_safe(req_required_date or '-')}</p>
-                                                <table style='width:100%;border-collapse:collapse;margin-top:14px;'>
-                                                    <thead>
-                                                        <tr style='background:#f8fafc;'>
-                                                            <th style='padding:8px;border:1px solid #dbe4ee;text-align:left;'>#</th>
-                                                            <th style='padding:8px;border:1px solid #dbe4ee;text-align:left;'>Item</th>
-                                                            <th style='padding:8px;border:1px solid #dbe4ee;text-align:right;'>Qty</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>{item_rows}</tbody>
-                                                </table>
-                                                <p style='margin-top:14px;'>Please submit your quotation in the supplier bidding portal.</p>
-                                            </div>
-                                        </div>
-                                    </body>
-                                </html>
-                                """
-
-                                try:
-                                    ok = send_email(to_email, subject, body)
-                                    if ok:
-                                        print(f"[PROCUREMENT] RFQ invite email sent to {to_email} for PR {req_no}", flush=True)
-                                    else:
-                                        print(f"[PROCUREMENT] RFQ invite email failed to {to_email} for PR {req_no}", flush=True)
-                                except Exception as mail_exc:
-                                    print(f"[PROCUREMENT] RFQ invite email exception for {to_email}: {mail_exc}", flush=True)
-
                         threading.Thread(
-                            target=_send_quote_invites_async,
+                            target=_send_rfq_invitation_emails_background,
                             args=(targets, request_number, required_date, line_items),
                             daemon=True,
                         ).start()
@@ -4003,6 +3930,164 @@ def _fetch_supplier_emails_by_codes(codes: list[str]) -> dict[str, str]:
                 con.close()
         except Exception:
             pass
+
+
+def _parse_additional_email_recipients(raw) -> list[str]:
+    """Split optional textarea input into validated-looking email addresses."""
+    if raw is None:
+        return []
+    s = str(raw).strip()
+    if not s:
+        return []
+    parts = re.split(r'[\s,;]+', s)
+    out: list[str] = []
+    for p in parts:
+        em = p.strip()
+        if not em or '@' not in em:
+            continue
+        domain = em.split('@', 1)[-1]
+        if '.' not in domain:
+            continue
+        out.append(em)
+    return out
+
+
+def _rfq_invite_safe_html(value) -> str:
+    return (
+        str(value or '')
+        .replace('&', '&amp;')
+        .replace('<', '&lt;')
+        .replace('>', '&gt;')
+        .replace('"', '&quot;')
+        .replace("'", '&#39;')
+    )
+
+
+def _send_rfq_invitation_emails_background(invite_targets, req_no, req_required_date, req_lines):
+    """Send RFQ HTML emails (async worker). invite_targets: list of dict with email, name, code."""
+    item_rows = ''
+    for idx, line in enumerate(req_lines or [], start=1):
+        if not isinstance(line, dict):
+            continue
+        item_name = _rfq_invite_safe_html(
+            line.get('itemName') or line.get('description') or line.get('itemCode') or f'Item {idx}'
+        )
+        qty = _rfq_invite_safe_html(line.get('quantity') or 0)
+        item_rows += (
+            f"<tr>"
+            f"<td style='padding:8px;border:1px solid #dbe4ee;'>{idx}</td>"
+            f"<td style='padding:8px;border:1px solid #dbe4ee;'>{item_name}</td>"
+            f"<td style='padding:8px;border:1px solid #dbe4ee;text-align:right;'>{qty}</td>"
+            f"</tr>"
+        )
+
+    if not item_rows:
+        item_rows = (
+            "<tr><td colspan='3' style='padding:8px;border:1px solid #dbe4ee;color:#64748b;'>"
+            "No line items were included in this notification."
+            "</td></tr>"
+        )
+
+    for target in invite_targets:
+        to_email = str(target.get('email') or '').strip()
+        if not to_email:
+            continue
+
+        supplier_name = _rfq_invite_safe_html(target.get('name') or target.get('code') or 'Supplier')
+        subject = f"RFQ Invitation - Purchase Request {req_no}"
+        body = f"""
+        <html>
+            <body style='font-family: Arial, sans-serif; color: #1f2937;'>
+                <div style='max-width: 700px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;'>
+                    <div style='background: #1a1f2e; color: #fff; padding: 14px 18px; font-size: 18px; font-weight: 600;'>Request for Quotation Invitation</div>
+                    <div style='padding: 18px;'>
+                        <p>Dear {supplier_name},</p>
+                        <p>You are invited to quote for Purchase Request <strong>{_rfq_invite_safe_html(req_no)}</strong>.</p>
+                        <p><strong>Requested Date:</strong> {_rfq_invite_safe_html(req_required_date or '-')}</p>
+                        <table style='width:100%;border-collapse:collapse;margin-top:14px;'>
+                            <thead>
+                                <tr style='background:#f8fafc;'>
+                                    <th style='padding:8px;border:1px solid #dbe4ee;text-align:left;'>#</th>
+                                    <th style='padding:8px;border:1px solid #dbe4ee;text-align:left;'>Item</th>
+                                    <th style='padding:8px;border:1px solid #dbe4ee;text-align:right;'>Qty</th>
+                                </tr>
+                            </thead>
+                            <tbody>{item_rows}</tbody>
+                        </table>
+                        <p style='margin-top:14px;'>Please submit your quotation in the supplier bidding portal.</p>
+                    </div>
+                </div>
+            </body>
+        </html>
+        """
+
+        try:
+            ok = send_email(to_email, subject, body)
+            if ok:
+                print(f"[PROCUREMENT] RFQ invite email sent to {to_email} for PR {req_no}", flush=True)
+            else:
+                print(f"[PROCUREMENT] RFQ invite email failed to {to_email} for PR {req_no}", flush=True)
+        except Exception as mail_exc:
+            print(f"[PROCUREMENT] RFQ invite email exception for {to_email}: {mail_exc}", flush=True)
+
+
+def _resolve_invitation_email_targets(normalized_suppliers: list[dict]) -> list[dict]:
+    """Resolve udf_email / Firebird email for each supplier row."""
+    if not normalized_suppliers:
+        return []
+    codes = [s.get('code') or '' for s in normalized_suppliers]
+    master = _fetch_supplier_master_from_sql_api(codes)
+    fb_map = _fetch_supplier_emails_by_codes(codes)
+    targets: list[dict] = []
+    for s in normalized_suppliers:
+        code = str(s.get('code') or '').strip()
+        if not code:
+            continue
+        key_u = code.upper()
+        email = ''
+        m = master.get(key_u)
+        if m:
+            email = str(m.get('udf_email') or '').strip()
+        if not email:
+            email = str(fb_map.get(key_u) or '').strip()
+        if email:
+            targets.append({
+                'email': email,
+                'code': code,
+                'name': str(s.get('name') or '').strip(),
+            })
+    return targets
+
+
+def _local_pr_lines_for_rfq_email(request_dockey: int, request_no: str) -> tuple[list[dict], str]:
+    """Load PR lines + doc date from local PH_PQ/PH_PQDTL for RFQ email body."""
+    local = _resolve_local_purchase_request_header(str(request_dockey), str(request_no or '').strip())
+    if not local:
+        return [], '-'
+    req_date = str(local.get('docDate') or '-').strip() or '-'
+    lines: list[dict] = []
+    for idx, row in enumerate(local.get('sdsdocdetail') or [], start=1):
+        if not isinstance(row, dict):
+            continue
+        lines.append({
+            'itemName': row.get('itemName') or row.get('description') or row.get('itemCode') or f'Item {idx}',
+            'description': row.get('description'),
+            'itemCode': row.get('itemCode'),
+            'quantity': row.get('quantity'),
+        })
+    return lines, req_date
+
+
+def _dedupe_invitation_targets_by_email(targets: list[dict]) -> list[dict]:
+    seen: set[str] = set()
+    out: list[dict] = []
+    for t in targets:
+        em = str(t.get('email') or '').strip().lower()
+        if not em or em in seen:
+            continue
+        seen.add(em)
+        out.append(t)
+    return out
 
 
 @app.route('/api/admin/procurement/purchase-requests/next-number', methods=['GET'])
@@ -4696,10 +4781,24 @@ def _resolve_local_purchase_request_header(raw_request_id, request_no):
                 'tax': float(detail.get('taxamt') or detail.get('tax') or 0),
             })
 
+        doc_date_raw = header.get('docdate') or header.get('requestdate')
+        doc_date_str = '-'
+        if doc_date_raw is not None:
+            try:
+                if hasattr(doc_date_raw, 'strftime'):
+                    doc_date_str = doc_date_raw.strftime('%Y-%m-%d')
+                elif hasattr(doc_date_raw, 'isoformat'):
+                    doc_date_str = str(doc_date_raw.isoformat())[:10]
+                else:
+                    doc_date_str = str(doc_date_raw).strip() or '-'
+            except Exception:
+                doc_date_str = str(doc_date_raw).strip() or '-'
+
         return {
             'dockey': resolved_dockey,
             'docno': str(header.get('docno') or request_no_clean or '').strip(),
             'code': str(header.get('code') or header.get('supplierid') or '').strip(),
+            'docDate': doc_date_str,
             'sdsdocdetail': mapped_details,
             '_localFallback': True,
         }
@@ -4721,12 +4820,13 @@ def api_admin_create_bidding_invitations():
     raw_request_id = str(payload.get('requestId') or '').strip()
     request_no = str(payload.get('requestNumber') or '').strip()
     suppliers = payload.get('suppliers') if isinstance(payload.get('suppliers'), list) else []
+    extra_raw = str(payload.get('additionalEmails') or payload.get('extraEmails') or '').strip()
     actor = (session.get('user_email') or session.get('user_name') or 'admin').strip()
 
     if not raw_request_id and not request_no:
         return jsonify({'success': False, 'error': 'requestId or requestNumber is required'}), 400
-    if not suppliers:
-        return jsonify({'success': False, 'error': 'suppliers[] is required'}), 400
+    if not suppliers and not extra_raw:
+        return jsonify({'success': False, 'error': 'Select supplier(s) or provide additionalEmails'}), 400
 
     try:
         headers = _build_sql_api_auth_headers()
@@ -4745,7 +4845,41 @@ def api_admin_create_bidding_invitations():
 
         request_dockey = int(request_header.get('dockey'))
         request_docno = str(request_header.get('docno') or request_no or '').strip()
-        result = create_bid_invitations(request_dockey, request_docno, suppliers, actor)
+        if suppliers:
+            result = create_bid_invitations(request_dockey, request_docno, suppliers, actor)
+        else:
+            result = {
+                'requestDockey': request_dockey,
+                'requestNumber': request_docno,
+                'invitedCount': 0,
+                'inserted': 0,
+                'updated': 0,
+            }
+        try:
+            normalized = _normalize_supplier_rows(suppliers) if suppliers else []
+            email_targets = _resolve_invitation_email_targets(normalized)
+            for em in _parse_additional_email_recipients(extra_raw):
+                email_targets.append({'email': em, 'code': '', 'name': 'Colleague'})
+            email_targets = _dedupe_invitation_targets_by_email(email_targets)
+            lines, req_date = _local_pr_lines_for_rfq_email(request_dockey, request_docno)
+            if email_targets:
+                threading.Thread(
+                    target=_send_rfq_invitation_emails_background,
+                    args=(email_targets, request_docno, req_date, lines),
+                    daemon=True,
+                ).start()
+                result['rfqEmailsQueued'] = len(email_targets)
+            else:
+                result['rfqEmailsQueued'] = 0
+                result['rfqEmailNote'] = (
+                    'No supplier emails on file; invitations are saved for portal access. '
+                    'Add UDF email in accounting or use “Additional notify emails” below.'
+                )
+        except Exception as mail_exc:
+            print(f"[PROCUREMENT BIDDING INVITE] RFQ email queue error: {mail_exc}", flush=True)
+            result['rfqEmailsQueued'] = 0
+            result['rfqEmailWarning'] = str(mail_exc)
+
         gate = get_transfer_gate_state(request_dockey)
         return jsonify({'success': True, 'message': 'Bidding invitations saved', 'data': result, 'gate': gate})
     except BiddingValidationError as exc:
