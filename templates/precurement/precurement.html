@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="/static/css/hamburger_menu.css">
     <link rel="stylesheet" href="/static/css/orderQuotation.css">
     <link rel="stylesheet" href="/static/css/adminViewQuotations.css">
-    <link rel="stylesheet" href="/static/css/precurement.css">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr14">
 </head>
 <body class="procurement-warm-ui">
 
@@ -133,20 +133,22 @@
                                 </div>
                             </div>
                             <div class="view-pr-list-wrap">
-                                <div class="view-pr-split">
-                                    <div class="view-pr-split-left">
+                                <div class="view-pr-header-panel" aria-label="Purchase request list">
+                                    <div class="view-pr-list-column">
                                         <div class="view-pr-list-toolbar">
                                             <div class="view-pr-filter-tabs view-pr-filter-tabs--bar" id="view-pr-filter-tabs" role="group" aria-label="Filter by UDF status">
                                                 <button type="button" class="view-pr-filter-tab" data-status="APPROVED" onclick="toggleViewStatusFilter('APPROVED')">APPROVED</button>
-                                                <button type="button" class="view-pr-filter-tab" data-status="CANCELLED" onclick="toggleViewStatusFilter('CANCELLED')">CANCELLED</button>
                                                 <button type="button" class="view-pr-filter-tab is-active" data-status="PENDING" onclick="toggleViewStatusFilter('PENDING')">PENDING</button>
+                                                <button type="button" class="view-pr-filter-tab" data-status="CANCELLED" onclick="toggleViewStatusFilter('CANCELLED')">CANCELLED</button>
                                             </div>
                                         </div>
                                         <div id="view-pr-list" class="view-pr-list">
                                             <div class="view-pr-empty">Loading e-Purchase Request records...</div>
                                         </div>
                                     </div>
-                                    <div class="view-pr-split-right" id="view-pr-detail-panel">
+                                </div>
+                                <div class="view-pr-items-panel" id="view-pr-items-panel" aria-label="Line items for selected request">
+                                    <div id="view-pr-detail-panel" class="view-pr-detail-panel-inner">
                                         <div class="view-pr-detail-panel-empty">Select a purchase request to view its line items.</div>
                                     </div>
                                 </div>
@@ -476,7 +478,7 @@
         let viewApprovalPendingChanges = new Map();
         let viewHeaderStatusPendingChanges = new Map();
         let viewApprovalSaving = false;
-        const VIEW_UDF_STATUS_OPTIONS = ['APPROVED', 'CANCELLED', 'PENDING'];
+        const VIEW_UDF_STATUS_OPTIONS = ['APPROVED', 'PENDING', 'CANCELLED'];
         let viewStatusFilters = new Set(['PENDING']);
         let prEditState = null;
         let prFormEditState = null;
@@ -940,15 +942,15 @@
 
                         <thead>
                             <tr>
-                                <th class="col-line">Line</th>
-                                <th class="col-item-name">Item Name</th>
-                                <th class="col-location">Location</th>
-                                <th class="col-delivery-date">Delivery Date</th>
-                                <th class="view-pr-num col-qty">Qty (Remaining/Total)</th>
-                                <th class="col-transfer-qty">Transfer Qty</th>
-                                <th class="view-pr-num col-unit-price">Unit Price</th>
-                                <th class="col-approved">Approved</th>
-                                <th class="view-pr-num col-amount">Amount</th>
+                                <th class="col-line">#</th>
+                                <th class="col-item-name">Item</th>
+                                <th class="col-location">Loc</th>
+                                <th class="col-delivery-date">Deliv.</th>
+                                <th class="view-pr-num col-qty">Qty rem / tot</th>
+                                <th class="col-transfer-qty">Xfer qty</th>
+                                <th class="view-pr-num col-unit-price">Unit</th>
+                                <th class="col-approved">Appr.</th>
+                                <th class="view-pr-num col-amount">Amt</th>
                             </tr>
                         </thead>
 
@@ -1007,6 +1009,7 @@
             if (!list) {
                 return;
             }
+            list.style.maxHeight = '';
 
             if (!Array.isArray(rows) || !rows.length) {
                 list.innerHTML = '<div class="view-pr-empty">No e-Purchase Request records found.</div>';
@@ -1014,48 +1017,63 @@
             }
 
             const htmlParts = [];
+            const colheadHtml = `
+            <div class="view-pr-list-colhead view-pr-cgrid" role="row" aria-label="Column headers">
+                <span class="view-pr-ch">PR</span>
+                <span class="view-pr-ch">Name</span>
+                <span class="view-pr-ch">Date</span>
+                <span class="view-pr-ch">Email</span>
+                <span class="view-pr-ch">Status</span>
+                <span class="view-pr-ch view-pr-ch--end" aria-hidden="true"></span>
+            </div>
+            `;
 
             rows.forEach((header) => {
                 const headerId = Number(header.id || 0);
                 const prStatus = String(header.status || 'DRAFT').toUpperCase();
                 const canEditDraft = prStatus === 'DRAFT';
                 const isSelected = viewSelectedHeaderId != null && Number(viewSelectedHeaderId) === headerId;
-                const supplierEmail = (header.supplierEmail && String(header.supplierEmail).trim()) ? String(header.supplierEmail).trim() : '-';
+                const rawEmail = (header.supplierEmail && String(header.supplierEmail).trim()) ? String(header.supplierEmail).trim() : '';
+                const emailCell = rawEmail
+                    ? `<span class="view-pr-text view-pr-text--muted view-pr-card-email-text" title="${escapeHtml(rawEmail)}">${escapeHtml(rawEmail)}</span>`
+                    : '<span class="view-pr-text view-pr-text--muted view-pr-card-email-empty">—</span>';
                 htmlParts.push(`
-            <div class="view-pr-card${isSelected ? ' is-selected' : ''}">
-                <div class="view-pr-card-grid view-pr-card-summary" onclick="selectViewPurchaseRequest(${headerId})" style="cursor: pointer;">
-                    <div class="view-pr-main-col">
-                        <span class="view-pr-docno">${escapeHtml(header.requestNumber || '-')}</span>
-                        <span class="view-pr-status-badge">${escapeHtml(prStatus)}</span>
-                        <select class="view-pr-udf-status" onclick="event.stopPropagation()" onchange="onHeaderUdfStatusChange(${headerId}, this.value)">
-                            <option value="APPROVED" ${normalizeUdfStatus(header.udfStatus) === 'APPROVED' ? 'selected' : ''}>APPROVED</option>
-                            <option value="CANCELLED" ${normalizeUdfStatus(header.udfStatus) === 'CANCELLED' ? 'selected' : ''}>CANCELLED</option>
-                            <option value="PENDING" ${normalizeUdfStatus(header.udfStatus) === 'PENDING' ? 'selected' : ''}>PENDING</option>
-                        </select>
-                        <button type="button" class="view-pr-refresh-btn view-pr-edit-inline-btn" onclick="event.stopPropagation(); openPurchaseRequestEdit(${headerId});" ${canEditDraft ? '' : 'disabled'} title="${escapeHtml(canEditDraft ? 'Edit draft purchase request' : 'Only draft purchase requests can be edited')}">Edit</button>
-                    </div>
-
-                    <div class="view-pr-col view-pr-col--supplier">
-                        <span class="view-pr-field-label">Supplier</span>
-                        <span class="view-pr-text" title="${escapeHtml(header.supplierName || header.supplierId || '-')}">${escapeHtml(header.supplierName || header.supplierId || '-')}</span>
-                        <span class="view-pr-text view-pr-text--muted">${escapeHtml(supplierEmail)}</span>
-                    </div>
-
-                    <div class="view-pr-col">
-                        <span class="view-pr-field-label">Date</span>
-                        <span class="view-pr-text">${formatPrDate(header.requestDate)}</span>
-                    </div>
-
-                    <div class="view-pr-col view-pr-amount-col">
-                        <span class="view-pr-field-label">Total</span>
-                        <span class="view-pr-text view-pr-text--amount">${formatMoney(header.totalAmount || 0)}</span>
+            <div class="view-pr-card${isSelected ? ' is-selected' : ''}" data-header-id="${headerId}">
+                <div class="view-pr-card-body view-pr-card-summary" onclick="selectViewPurchaseRequest(${headerId})" style="cursor: pointer;">
+                    <div class="view-pr-card-main-row view-pr-cgrid">
+                        <div class="view-pr-cgrid-cell view-pr-cgrid-cell--pr">
+                            <span class="view-pr-docno">${escapeHtml(header.requestNumber || '-')}</span>
+                        </div>
+                        <div class="view-pr-cgrid-cell view-pr-cgrid-cell--name">
+                            <span class="view-pr-text view-pr-card-supplier-name" title="${escapeHtml(header.supplierName || header.supplierId || '-')}">${escapeHtml(header.supplierName || header.supplierId || '-')}</span>
+                        </div>
+                        <div class="view-pr-cgrid-cell view-pr-cgrid-cell--date">
+                            <span class="view-pr-text">${formatPrDate(header.requestDate)}</span>
+                        </div>
+                        <div class="view-pr-cgrid-cell view-pr-cgrid-cell--email">
+                            ${emailCell}
+                        </div>
+                        <div class="view-pr-cgrid-cell view-pr-cgrid-cell--actions">
+                            <div class="view-pr-card-top-actions">
+                                <span class="view-pr-status-badge">${escapeHtml(prStatus)}</span>
+                                <select class="view-pr-udf-status" onclick="event.stopPropagation()" onchange="onHeaderUdfStatusChange(${headerId}, this.value)">
+                                    <option value="APPROVED" ${normalizeUdfStatus(header.udfStatus) === 'APPROVED' ? 'selected' : ''}>APPROVED</option>
+                                    <option value="CANCELLED" ${normalizeUdfStatus(header.udfStatus) === 'CANCELLED' ? 'selected' : ''}>CANCELLED</option>
+                                    <option value="PENDING" ${normalizeUdfStatus(header.udfStatus) === 'PENDING' ? 'selected' : ''}>PENDING</option>
+                                </select>
+                                <button type="button" class="view-pr-refresh-btn view-pr-edit-inline-btn" onclick="event.stopPropagation(); openPurchaseRequestEdit(${headerId});" ${canEditDraft ? '' : 'disabled'} title="${escapeHtml(canEditDraft ? 'Edit draft purchase request' : 'Only draft purchase requests can be edited')}">Edit</button>
+                            </div>
+                        </div>
+                        <div class="view-pr-cgrid-cell view-pr-cgrid-cell--amount">
+                            <span class="view-pr-text view-pr-text--amount">${formatMoney(header.totalAmount || 0)}</span>
+                        </div>
                     </div>
                 </div>
             </div>
         `);
             });
 
-            list.innerHTML = htmlParts.join('');
+            list.innerHTML = colheadHtml + htmlParts.join('');
         }
 
         function selectViewPurchaseRequest(headerId) {

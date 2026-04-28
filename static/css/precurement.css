@@ -996,38 +996,67 @@ body {
     border-color: #465164;
 }
 
+/* Left column = filter + PR headers (scrolls). Right column = line items for selection. */
 .view-pr-list-wrap {
     background: #1f2533;
     border: 1px solid #343b46;
     border-radius: 8px;
     padding: 0;
-    max-height: 68vh;
+    max-height: min(72vh, calc(100vh - 200px));
+    min-height: 280px;
+    min-width: 0;
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: minmax(300px, 40%) minmax(0, 1fr);
+    align-items: stretch;
+}
+
+.view-pr-header-panel {
+    min-width: 0;
+    min-height: 0;
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    border-right: 1px solid #343b46;
 }
 
-.view-pr-split {
-    display: grid;
-    grid-template-columns: minmax(260px, 36%) minmax(0, 1fr);
-    flex: 1;
+.view-pr-header-panel .view-pr-list-column {
+    flex: 1 1 auto;
     min-height: 0;
     max-height: 100%;
-    min-height: 280px;
-}
-
-.view-pr-split-left {
+    display: flex;
+    flex-direction: column;
     overflow: hidden;
     padding: 10px;
-    border-right: 1px solid #343b46;
+    min-width: 0;
+}
+
+.view-pr-items-panel {
+    min-width: 0;
     min-height: 0;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
+    background: #1a1f2a;
+}
+
+.view-pr-detail-panel-inner {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+    padding: 10px 12px 14px 12px;
+    -webkit-overflow-scrolling: touch;
+}
+
+.view-pr-items-panel #view-pr-detail-panel:has(> .view-pr-detail-panel-empty) {
+    justify-content: center;
 }
 
 .view-pr-list-toolbar {
     flex-shrink: 0;
-    margin-bottom: 8px;
+    margin-bottom: 12px;
 }
 
 .view-pr-filter-tabs--bar {
@@ -1068,14 +1097,6 @@ body {
     color: #fff;
 }
 
-.view-pr-split-right {
-    overflow: auto;
-    padding: 10px;
-    background: #1a1f2a;
-    min-height: 0;
-    min-width: 0;
-}
-
 .view-pr-detail-panel-empty {
     color: #9ba7b6;
     font-size: 13px;
@@ -1090,6 +1111,7 @@ body {
     gap: 10px;
     flex-wrap: wrap;
     margin-bottom: 10px;
+    flex-shrink: 0;
 }
 
 .view-pr-detail-panel-title {
@@ -1109,6 +1131,22 @@ body {
 .view-pr-detail-host--panel {
     border-top: none;
     border-radius: 6px;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.view-pr-detail-panel-inner .view-pr-detail-wrap {
+    overflow-x: auto;
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+}
+
+.view-pr-detail-panel-inner .view-pr-detail-table {
+    min-width: 0;
+    width: max(100%, 640px);
 }
 
 .view-pr-card.is-selected {
@@ -1120,16 +1158,48 @@ body {
     background: #343d52;
 }
 
-.view-pr-split-left .view-pr-list {
+.view-pr-list-column .view-pr-list {
     flex: 1;
     min-height: 0;
     overflow-x: hidden;
     overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: #6b7a90 rgba(0, 0, 0, 0.12);
 }
 
+.view-pr-list-column .view-pr-list::-webkit-scrollbar {
+    width: 8px;
+}
+
+.view-pr-list-column .view-pr-list::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.12);
+    border-radius: 4px;
+}
+
+.view-pr-list-column .view-pr-list::-webkit-scrollbar-thumb {
+    background: #6b7a90;
+    border-radius: 4px;
+}
+
+.view-pr-list-column .view-pr-list::-webkit-scrollbar-thumb:hover {
+    background: #8a9ab0;
+}
+
+/* Flex column is more reliable than grid for a scrolling list of variable-height cards */
 .view-pr-list {
-    display: grid;
-    gap: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 2px 4px 8px 2px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.view-pr-list > .view-pr-list-colhead,
+.view-pr-list > .view-pr-card {
+    flex-shrink: 0;
 }
 
 .view-pr-empty {
@@ -1143,12 +1213,12 @@ body {
     background: #2d3440;
     border: 1px solid #3d4654;
     border-left: 3px solid #4b6e9e;
-    border-radius: 6px;
+    border-radius: 8px;
     overflow: hidden;
 }
 
 .view-pr-card-summary {
-    padding: 8px 12px;
+    padding: 6px 8px;
     cursor: pointer;
 }
 
@@ -1156,45 +1226,108 @@ body {
     background: #313948;
 }
 
-.view-pr-card-grid {
-    display: grid;
-    grid-template-columns:
-        minmax(160px, 1.2fr)
-        minmax(100px, 1fr)
-        minmax(72px, 0.42fr)
-        minmax(76px, 0.48fr);
-    gap: 6px 10px;
-    align-items: center;
+/* PR list: column grid (header + each card share .view-pr-cgrid) */
+.view-pr-card-body {
+    display: block;
 }
 
-.view-pr-col {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
+.view-pr-cgrid {
+    display: grid;
+    grid-template-columns:
+        minmax(4.5rem, 0.65fr)
+        minmax(0, 1.2fr)
+        minmax(4rem, 0.55fr)
+        minmax(0, 1.05fr)
+        auto
+        minmax(3.25rem, 0.48fr);
+    column-gap: 8px;
+    row-gap: 2px;
+    align-items: center;
+    width: 100%;
+    min-width: 560px;
+}
+
+.view-pr-list-colhead {
+    padding: 2px 6px 8px 6px;
+    margin-bottom: 2px;
+    border-bottom: 1px solid #3d4654;
+}
+
+.view-pr-ch {
+    font-size: 8px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #8a95a5;
+    line-height: 1.2;
     min-width: 0;
 }
 
-.view-pr-field-label {
+.view-pr-ch--end {
+    text-align: right;
+}
+
+.view-pr-cgrid-cell {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+}
+
+.view-pr-cgrid-cell--actions {
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 4px 5px;
+}
+
+.view-pr-cgrid-cell--amount {
+    justify-content: flex-end;
+    text-align: right;
+}
+
+.view-pr-card-top-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px 5px;
+}
+
+.view-pr-card-email-text {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: 9px;
+}
+
+.view-pr-card-email-empty {
+    font-size: 9px;
+    opacity: 0.7;
+}
+
+.view-pr-field-label {
+    font-size: 8px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: #9ba7b6;
-    line-height: 1.15;
+    line-height: 1.1;
 }
 
 .view-pr-text {
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 600;
     color: #e4e9f1;
-    line-height: 1.3;
+    line-height: 1.25;
     word-break: break-word;
     align-self: flex-start;
     max-width: 100%;
 }
 
 .view-pr-text--muted {
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 500;
     color: #b0bac9;
 }
@@ -1204,49 +1337,54 @@ body {
     font-variant-numeric: tabular-nums;
 }
 
-.view-pr-col--supplier {
-    gap: 3px;
-}
-
-.view-pr-col--supplier > .view-pr-text:not(.view-pr-text--muted) {
+.view-pr-card-supplier-name {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    display: block;
-    width: 100%;
-}
-
-.view-pr-main-col {
-    display: flex;
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 5px 7px;
-    min-width: 0;
+    max-width: 100%;
 }
 
 .view-pr-docno {
     color: #e4e9f1;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.02em;
-    line-height: 1.3;
+    line-height: 1.2;
+}
+
+.view-pr-cgrid-cell--pr .view-pr-docno {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+}
+
+.view-pr-card-top-actions .view-pr-status-badge {
+    flex-shrink: 0;
+}
+
+.view-pr-card-top-actions .view-pr-udf-status,
+.view-pr-card-top-actions .view-pr-edit-inline-btn {
+    flex-shrink: 0;
 }
 
 .view-pr-edit-inline-btn {
-    padding: 2px 8px;
-    font-size: 10px;
+    padding: 1px 5px;
+    font-size: 9px;
+    line-height: 1.2;
 }
 
 .view-pr-udf-status {
     border: 1px solid #4a556b;
     background: #1b2433;
     color: #dbe6f7;
-    border-radius: 5px;
-    padding: 1px 6px;
-    font-size: 10px;
+    border-radius: 4px;
+    padding: 0 4px;
+    font-size: 9px;
     font-weight: 700;
     letter-spacing: 0.02em;
+    line-height: 1.3;
+    max-width: 7.5rem;
 }
 
 .view-pr-udf-status:focus {
@@ -1319,72 +1457,57 @@ body {
     box-shadow: none;
 }
 
-@media (max-width: 1320px) {
-    .view-pr-card-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 8px 10px;
-    }
-
-    .view-pr-main-col {
-        grid-column: 1 / -1;
-    }
-
-    .view-pr-col--supplier {
-        grid-column: 1 / -1;
-    }
-
-    .view-pr-amount-col {
-        text-align: left;
-        align-items: flex-start;
-    }
-
-    .view-pr-amount-col .view-pr-field-label {
-        align-self: flex-start;
+@media (max-width: 960px) {
+    .view-pr-list-wrap {
+        max-height: min(80vh, calc(100vh - 160px));
     }
 }
 
-@media (max-width: 960px) {
-    .view-pr-split {
+/* Stack list above details on small screens */
+@media (max-width: 900px) {
+    .view-pr-list-wrap {
         grid-template-columns: 1fr;
-        grid-template-rows: minmax(200px, 42vh) minmax(260px, 50vh);
-        max-height: none;
+        grid-template-rows: minmax(200px, 45vh) minmax(220px, 50vh);
     }
 
-    .view-pr-split-left {
+    .view-pr-header-panel {
         border-right: none;
         border-bottom: 1px solid #343b46;
     }
 
-    body.procurement-warm-ui .view-pr-split-left {
+    body.procurement-warm-ui .view-pr-header-panel {
         border-bottom-color: #dccfb8;
     }
 }
 
 .view-pr-detail-table {
-    width: 100%;
+    width: max(100%, 960px);
     border-collapse: separate;
     border-spacing: 0;
-    min-width: 820px;
     border: 1px solid #465164;
     border-radius: 8px;
-    overflow: clip;
-    table-layout: fixed;
+    table-layout: auto;
     background: #1d2431;
 }
 
 .view-pr-detail-table th,
 .view-pr-detail-table td {
-    padding: 10px 12px;
+    padding: 8px 10px;
     border-bottom: 1px solid #333d4e;
     font-size: 12px;
     color: #e4e9f1;
     text-align: left;
-    white-space: nowrap;
     vertical-align: middle;
     line-height: 1.35;
+    box-sizing: border-box;
+}
+
+.view-pr-detail-table td {
+    white-space: nowrap;
 }
 
 .view-pr-detail-table th {
+    white-space: nowrap;
     position: sticky;
     top: 0;
     z-index: 1;
@@ -1406,48 +1529,70 @@ body {
     background: #273247;
 }
 
+.view-pr-detail-table tbody tr:nth-child(odd) td {
+    background: #1f2735;
+}
+
+.view-pr-detail-table tbody tr:nth-child(even) td {
+    background: #1b2230;
+}
+
+.view-pr-detail-table tbody tr:hover td {
+    background: #273247;
+}
+
+.view-pr-detail-table td.col-item-name {
+    white-space: normal;
+}
+
 .view-pr-detail-table tbody tr:last-child td {
     border-bottom: none;
 }
 
 .view-pr-detail-table .col-line {
-    width: 58px;
+    width: 1%;
+    min-width: 36px;
     font-weight: 600;
     color: #c6d5ec;
 }
 
 .view-pr-detail-table .col-item-name {
-    width: 50%;
-    white-space: normal;
+    min-width: 140px;
+    max-width: 320px;
+    white-space: normal !important;
     word-break: break-word;
 }
 
 .view-pr-detail-table .col-location {
-    width: 95px;
+    min-width: 64px;
     color: #c4d2e6;
 }
 
+.view-pr-detail-table .col-delivery-date {
+    min-width: 100px;
+}
+
 .view-pr-detail-table .col-qty {
-    width: 90px;
+    min-width: 118px;
 }
 
 .view-pr-detail-table .col-remaining-qty {
-    width: 110px;
+    min-width: 110px;
 }
 
 .view-pr-detail-table .col-transfer-qty {
-    width: 120px;
+    min-width: 88px;
     text-align: center;
 }
 
 .view-pr-detail-table .col-unit-price,
 .view-pr-detail-table .col-tax,
 .view-pr-detail-table .col-amount {
-    width: 115px;
+    min-width: 84px;
 }
 
 .view-pr-detail-table .col-approved {
-    width: 90px;
+    min-width: 56px;
     text-align: center;
 }
 
@@ -1496,6 +1641,7 @@ body {
     justify-content: space-between;
     gap: 12px;
     padding: 12px 12px 0;
+    flex-shrink: 0;
 }
 
 .view-pr-detail-summary {
@@ -1556,13 +1702,12 @@ body {
     font-variant-numeric: tabular-nums;
 }
 
-.view-pr-detail-host td {
-    background: #171d29;
-    padding: 0;
-}
-
 .view-pr-detail-wrap {
-    padding: 0 12px 12px;
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 0 0 10px;
+    -webkit-overflow-scrolling: touch;
 }
 
 .view-pr-detail-empty {
@@ -1583,23 +1728,8 @@ body {
         justify-content: flex-start;
     }
 
-    .view-pr-card-grid {
-        grid-template-columns: 1fr;
-    }
-
     .view-pr-meta-col {
         grid-template-columns: 1fr;
-    }
-
-    .view-pr-amount-col {
-        text-align: left;
-        justify-self: start;
-        grid-column: auto;
-        align-items: flex-start;
-    }
-
-    .view-pr-amount-col .view-pr-field-label {
-        align-self: flex-start;
     }
 }
 
@@ -2093,11 +2223,11 @@ body.procurement-warm-ui .view-pr-list-wrap {
     box-shadow: 0 2px 14px rgba(42, 36, 27, 0.06);
 }
 
-body.procurement-warm-ui .view-pr-split-left {
+body.procurement-warm-ui .view-pr-header-panel {
     border-right-color: #dccfb8;
 }
 
-body.procurement-warm-ui .view-pr-split-right {
+body.procurement-warm-ui .view-pr-items-panel {
     background: #faf8f4;
 }
 
@@ -2127,13 +2257,39 @@ body.procurement-warm-ui .view-pr-empty {
 }
 
 body.procurement-warm-ui .view-pr-card {
-    background: #fff;
-    border: 1px solid #e9deca;
-    border-left: 3px solid #b6812f;
+    background: #fffef9;
+    border: 1px solid #e4d8c4;
+    border-left: 2px solid #b6812f;
+    border-radius: 8px;
+    box-shadow: none;
 }
 
 body.procurement-warm-ui .view-pr-card-summary {
     color: #2a241b;
+}
+
+/* Force readable text on light cards (beats mismatched base colors from load order) */
+body.procurement-warm-ui #panel-view .view-pr-card .view-pr-card-body {
+    min-height: 0;
+}
+
+body.procurement-warm-ui #panel-view .view-pr-card .view-pr-docno,
+body.procurement-warm-ui #panel-view .view-pr-card .view-pr-text,
+body.procurement-warm-ui #panel-view .view-pr-card .view-pr-field-label,
+body.procurement-warm-ui #panel-view .view-pr-card .view-pr-text--amount {
+    color: #2a241b;
+}
+
+body.procurement-warm-ui #panel-view .view-pr-card .view-pr-field-label {
+    color: #7a6a52;
+}
+
+body.procurement-warm-ui #panel-view .view-pr-card .view-pr-text--muted {
+    color: #7a6a52;
+}
+
+body.procurement-warm-ui #panel-view .view-pr-card .view-pr-text--amount {
+    color: #5c4a32;
 }
 
 body.procurement-warm-ui .view-pr-detail-summary strong {
@@ -2167,10 +2323,6 @@ body.procurement-warm-ui .view-pr-status.cancelled {
     color: #832525;
     background: #f6e2e2;
     border-color: #e0b4b4;
-}
-
-body.procurement-warm-ui .view-pr-detail-host td {
-    background: #fffef9;
 }
 
 body.procurement-warm-ui .view-pr-detail-empty {
@@ -2224,6 +2376,22 @@ body.procurement-warm-ui #panel-view .view-pr-filter-tabs--bar .view-pr-filter-t
     color: #fff;
 }
 
+body.procurement-warm-ui .view-pr-list-column .view-pr-list::-webkit-scrollbar-track {
+    background: rgba(139, 90, 31, 0.08);
+}
+
+body.procurement-warm-ui .view-pr-list-column .view-pr-list::-webkit-scrollbar-thumb {
+    background: #c9a86a;
+}
+
+body.procurement-warm-ui .view-pr-list-column .view-pr-list::-webkit-scrollbar-thumb:hover {
+    background: #b3864a;
+}
+
+body.procurement-warm-ui .view-pr-list-column .view-pr-list {
+    scrollbar-color: #c9a86a rgba(139, 90, 31, 0.08);
+}
+
 body.procurement-warm-ui #panel-view .view-pr-status-badge {
     background: #e8f0fb;
     border: 1px solid #b8cce8;
@@ -2234,6 +2402,24 @@ body.procurement-warm-ui .view-pr-udf-status {
     border: 1px solid #dccfb8;
     background: #fff;
     color: #2a241b;
+    min-height: 28px;
+    min-width: 6.5rem;
+}
+
+/* Compact UDF + badge on list cards (left column) */
+body.procurement-warm-ui #panel-view .view-pr-card .view-pr-udf-status {
+    min-height: 20px;
+    min-width: 4.8rem;
+    max-width: 6.5rem;
+    padding: 0 3px;
+    font-size: 9px;
+}
+
+#panel-view .view-pr-card .view-pr-status-badge {
+    padding: 0 5px;
+    font-size: 8px;
+    line-height: 1.2;
+    letter-spacing: 0.02em;
 }
 
 body.procurement-warm-ui .view-pr-meta-row {
@@ -2298,6 +2484,18 @@ body.procurement-warm-ui .view-pr-detail-table tbody tr:hover {
     background: #fff8ed;
 }
 
+body.procurement-warm-ui .view-pr-detail-table tbody tr:nth-child(odd) td {
+    background: #fffef9;
+}
+
+body.procurement-warm-ui .view-pr-detail-table tbody tr:nth-child(even) td {
+    background: #faf6ee;
+}
+
+body.procurement-warm-ui .view-pr-detail-table tbody tr:hover td {
+    background: #fff8ed;
+}
+
 body.procurement-warm-ui .view-pr-detail-table .col-line {
     color: #5c4a32;
 }
@@ -2328,4 +2526,97 @@ body.procurement-warm-ui .view-pr-transfer-qty-input:focus {
 
 body.procurement-warm-ui .view-pr-approved-cell input[type="checkbox"] {
     accent-color: #8b5a1f;
+}
+
+/* =============================================================================
+   View tab: reference layout — spaced cards + guaranteed scroll region + no
+   flex-shrink collapse on rows (fixes “thin empty stripes” in some browsers).
+   ============================================================================= */
+body.procurement-warm-ui #panel-view {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: 100%;
+}
+
+body.procurement-warm-ui #panel-view .view-pr-list-wrap {
+    /* Explicit height so #view-pr-list can scroll even when parent chain isn’t flex-sized */
+    height: clamp(300px, calc(100vh - 200px), 78vh);
+    max-height: 78vh;
+    min-height: 300px;
+    flex: 1 1 auto;
+}
+
+body.procurement-warm-ui #panel-view .view-pr-header-panel .view-pr-list-column {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+body.procurement-warm-ui #panel-view .view-pr-list {
+    gap: 8px;
+    flex: 1 1 auto;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+body.procurement-warm-ui #panel-view .view-pr-list > .view-pr-card {
+    flex-shrink: 0;
+}
+
+body.procurement-warm-ui #panel-view .view-pr-card {
+    box-shadow: 0 1px 4px rgba(42, 36, 27, 0.07);
+}
+
+body.procurement-warm-ui #panel-view .view-pr-card-summary {
+    min-height: 0;
+    padding: 4px 6px;
+}
+
+body.procurement-warm-ui #panel-view .view-pr-list-colhead {
+    border-bottom-color: #dccfb8;
+}
+
+body.procurement-warm-ui #panel-view .view-pr-ch {
+    color: #7a6a52;
+}
+
+body.procurement-warm-ui #panel-view .view-pr-cgrid {
+    column-gap: 6px;
+}
+
+body.procurement-warm-ui #panel-view .view-pr-card .view-pr-docno {
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    line-height: 1.25 !important;
+    color: #2a241b !important;
+}
+
+body.procurement-warm-ui #panel-view .view-pr-card .view-pr-text {
+    font-size: 10px !important;
+    line-height: 1.25 !important;
+}
+
+body.procurement-warm-ui #panel-view .view-pr-card .view-pr-text--amount {
+    font-size: 10px !important;
+}
+
+body.procurement-warm-ui #panel-view .view-pr-card .view-pr-field-label {
+    font-size: 8px !important;
+    letter-spacing: 0.05em !important;
+}
+
+body.procurement-warm-ui #panel-view .view-pr-card .view-pr-edit-inline-btn {
+    padding: 0 4px;
+    font-size: 8px;
+    line-height: 1.15;
+}
+
+body.procurement-warm-ui #panel-view .view-pr-card .view-pr-card-email-text,
+body.procurement-warm-ui #panel-view .view-pr-card .view-pr-card-email-empty {
+    color: #7a6a52;
 }
