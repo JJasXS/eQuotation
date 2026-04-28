@@ -59,6 +59,7 @@ from utils.procurement_bidding import (
     get_transfer_gate_state,
     list_bids_for_request,
     list_supplier_invitations,
+    map_approved_bid_suppliers_by_request_ids,
     reject_bid,
     submit_supplier_bid,
     validate_transfer_against_approved_bid,
@@ -3872,6 +3873,78 @@ def api_admin_create_purchase_request():
         return jsonify({'success': False, 'error': str(exc)}), 500
 
 
+def _fetch_supplier_emails_by_codes(codes: list[str]) -> dict[str, str]:
+    """Return supplier CODE.upper() -> email using AR_SUPPLIER / AP_SUPPLIER (UDF_EMAIL, then EMAIL)."""
+    uniq: list[str] = []
+    seen: set[str] = set()
+    for c in codes:
+        t = str(c or '').strip()
+        if not t:
+            continue
+        k = t.upper()
+        if k in seen:
+            continue
+        seen.add(k)
+        uniq.append(t)
+    if not uniq:
+        return {}
+
+    out: dict[str, str] = {}
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        placeholders = ', '.join(['?'] * len(uniq))
+        params = tuple(uniq)
+        for table in ('AR_SUPPLIER', 'AP_SUPPLIER'):
+            try:
+                cur.execute(
+                    'SELECT COUNT(*) FROM RDB$RELATIONS WHERE RDB$RELATION_NAME = ?',
+                    (table.upper(),),
+                )
+                chk = cur.fetchone()
+                if not chk or int(chk[0] or 0) <= 0:
+                    continue
+            except Exception:
+                continue
+            for email_col in ('UDF_EMAIL', 'EMAIL'):
+                try:
+                    cur.execute(
+                        f"""
+                        SELECT TRIM(CODE), TRIM({email_col})
+                        FROM {table}
+                        WHERE TRIM(CODE) IN ({placeholders})
+                        """,
+                        params,
+                    )
+                    for row in cur.fetchall() or []:
+                        if not row:
+                            continue
+                        code_raw = str(row[0] or '').strip()
+                        em = str(row[1] or '').strip()
+                        key_u = code_raw.upper()
+                        if em and key_u and key_u not in out:
+                            out[key_u] = em
+                except Exception:
+                    continue
+        return out
+    except Exception as exc:
+        print(f"[PROCUREMENT LIST PR] supplier email lookup error: {exc}", flush=True)
+        return {}
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if con:
+                con.close()
+        except Exception:
+            pass
+
+
 @app.route('/api/admin/procurement/purchase-requests/next-number', methods=['GET'])
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_next_purchase_request_number():
@@ -4057,6 +4130,14 @@ def api_admin_list_purchase_requests():
                 'costCenter': str(row.get('businessunit') or '').strip(),
                 'project': str(row.get('project') or '').strip() or '----',
                 'supplierId': str(row.get('agent') or '').strip(),
+                'supplierName': str(row.get('companyname') or row.get('companyName') or '').strip(),
+                'supplierEmail': str(
+                    row.get('udf_email')
+                    or row.get('UDF_EMAIL')
+                    or row.get('email')
+                    or row.get('EMAIL')
+                    or ''
+                ).strip(),
                 'currency': str(row.get('currencycode') or '').strip(),
                 'description': str(row.get('description') or '').strip(),
                 'udfReason': str(row.get('udf_reason') or '').strip(),
@@ -4070,6 +4151,45 @@ def api_admin_list_purchase_requests():
                 'balanceQty': _num(qty_summary.get('balanceQty')),
                 'details': None,
             })
+
+        try:
+            bid_suppliers = map_approved_bid_suppliers_by_request_ids([int(r['id']) for r in records if r.get('id')])
+        except Exception as bid_exc:
+            print(f"[PROCUREMENT LIST PR] approved bid supplier lookup warning: {bid_exc}", flush=True)
+            bid_suppliers = {}
+
+        for rec in records:
+            rid = rec.get('id')
+            if not rid:
+                continue
+            try:
+                key = int(rid)
+            except Exception:
+                continue
+            info = bid_suppliers.get(key)
+            if not isinstance(info, dict):
+                continue
+            code = str(info.get('supplierCode') or '').strip()
+            name = str(info.get('supplierName') or '').strip()
+            if code:
+                rec['supplierId'] = code
+            if name:
+                rec['supplierName'] = name
+            elif code:
+                rec['supplierName'] = code
+
+        try:
+            supplier_codes = [str(r.get('supplierId') or '').strip() for r in records if r.get('supplierId')]
+            email_by_code = _fetch_supplier_emails_by_codes(supplier_codes)
+            for rec in records:
+                cid = str(rec.get('supplierId') or '').strip()
+                existing = str(rec.get('supplierEmail') or '').strip()
+                if cid and not existing:
+                    rec['supplierEmail'] = email_by_code.get(cid.upper()) or ''
+                elif not existing:
+                    rec['supplierEmail'] = ''
+        except Exception as em_exc:
+            print(f"[PROCUREMENT LIST PR] supplier email enrichment warning: {em_exc}", flush=True)
 
         return jsonify({
             'success': True,

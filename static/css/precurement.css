@@ -79,6 +79,33 @@
 }
 /* ─────────────────────────────────────────────────── */
 
+.need-buy-editor {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.need-buy-editor input[type='checkbox'] {
+    cursor: pointer;
+}
+
+.need-buy-qty-input {
+    width: 96px;
+    min-width: 72px;
+    padding: 4px 6px;
+    border-radius: 6px;
+    border: 1px solid #5a6d82;
+    background: #fff;
+    color: #111;
+}
+
+.stock-card-table tbody tr:hover .need-buy-qty-input {
+    border-color: #fff;
+    color: #111;
+}
+
 .stock-card-table tbody tr {
     border: 2px solid transparent;
     transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;

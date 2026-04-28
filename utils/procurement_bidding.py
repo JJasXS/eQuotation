@@ -655,6 +655,44 @@ def get_approved_bid_for_request(request_dockey: int) -> dict[str, Any] | None:
     return None
 
 
+def map_approved_bid_suppliers_by_request_ids(request_ids: list[int]) -> dict[int, dict[str, str]]:
+    """Batch-load APPROVED bid supplier code/name per purchase request dockey."""
+    cleaned = sorted({int(x) for x in request_ids if x and int(x) > 0})
+    if not cleaned:
+        return {}
+
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        if not _table_exists(cur, "PR_BID_HDR"):
+            return {}
+        placeholders = ", ".join(["?"] * len(cleaned))
+        cur.execute(
+            f"""
+            SELECT REQUEST_DOCKEY, SUPPLIER_CODE, SUPPLIER_NAME
+            FROM PR_BID_HDR
+            WHERE STATUS = 'APPROVED'
+              AND REQUEST_DOCKEY IN ({placeholders})
+            """,
+            cleaned,
+        )
+        out: dict[int, dict[str, str]] = {}
+        for row in cur.fetchall() or []:
+            if not row:
+                continue
+            try:
+                dk = int(row[0])
+            except Exception:
+                continue
+            out[dk] = {
+                "supplierCode": _clean_text(row[1]),
+                "supplierName": _clean_text(row[2]),
+            }
+        return out
+    finally:
+        con.close()
+
+
 def approve_bid(request_dockey: int, bid_id: int, actor: str, udf_reason: str = "") -> dict[str, Any]:
     now = _utc_now()
     reason = _clean_text(udf_reason)

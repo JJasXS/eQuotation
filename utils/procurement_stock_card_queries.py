@@ -752,6 +752,9 @@ def fetch_procurement_stock_card_data(
         normalized_to,
     )
 
+    # When a cutoff date range is applied, ignore physical quantity on hand (ST_TR) for this report.
+    ignore_qty_on_hand = normalized_from is not None
+
     data: list[dict[str, Any]] = []
     for code in item_codes:
         so_qty_by_location = {location_code: 0 for location_code in locations}
@@ -779,7 +782,8 @@ def fetch_procurement_stock_card_data(
             so_qty_by_location[location_code] = so_outstanding if so_outstanding > 0 else 0
             po_qty_by_location[location_code] = po_outstanding if po_outstanding > 0 else 0
             jo_qty_by_location[location_code] = jo_outstanding if jo_outstanding > 0 else 0
-            avail_qty_by_location[location_code] = item_avail.get(location_code, 0)
+            raw_avail = item_avail.get(location_code, 0)
+            avail_qty_by_location[location_code] = 0.0 if ignore_qty_on_hand else raw_avail
             qty_by_location[location_code] = (
                 avail_qty_by_location[location_code]
                 + so_qty_by_location[location_code]

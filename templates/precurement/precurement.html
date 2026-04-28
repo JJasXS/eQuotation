@@ -387,8 +387,8 @@
                                     <table class="pr-line-items-table" id="pr-line-items-table">
                                         <thead>
                                             <tr>
-                                                <th>Item Name <em>*</em></th>
-                                                <th>Description</th>
+                                                <th>Location</th>
+                                                <th>Description <em>*</em></th>
                                                 <th>UDF Reason</th>
                                                 <th>Qty <em>*</em></th>
                                                 <th>Unit Price <em>*</em></th>
@@ -899,9 +899,12 @@
                             </div>
                         </div>
 
-                        <div class="view-pr-meta-row" style="display: flex; gap: 4px; align-items: center; min-width: 0;">
-                            <span style="font-size: 12px; color: #b9c4d1; min-width: 60px;">Supplier</span>
-                            <strong style="font-size: 13px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(header.supplierName || header.supplierId || '-')}</strong>
+                        <div class="view-pr-meta-row view-pr-supplier-col" style="display: flex; gap: 8px; align-items: flex-start; min-width: 0;">
+                            <span style="font-size: 12px; color: #b9c4d1; min-width: 60px; padding-top: 2px;">Supplier</span>
+                            <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0; max-width: 240px;">
+                                <strong style="font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(header.supplierName || header.supplierId || '-')}</strong>
+                                <span style="font-size: 11px; color: #8b98a8; word-break: break-all; line-height: 1.25;">${escapeHtml((header.supplierEmail && String(header.supplierEmail).trim()) ? String(header.supplierEmail).trim() : '-')}</span>
+                            </div>
                         </div>
 
                         <div class="view-pr-meta-row"><span>Requested Date</span><strong>${formatPrDate(header.requestDate)}</strong></div>
@@ -1494,40 +1497,37 @@
             return `${itemCode}||${locationCode || ''}`;
         }
 
-        function toggleBuySelection(itemCode, locationCode, defaultQty, tdEl) {
+        function stockCardSetBuyCheckbox(itemCode, locationCode, defaultQty, checkboxEl) {
             const key = buySelectionKey(itemCode, locationCode);
+            const td = checkboxEl && checkboxEl.closest ? checkboxEl.closest('td') : null;
             const current = stockCardBuySelections[key] || {
                 itemCode,
-                locationCode,
+                locationCode: locationCode || '',
                 selected: false,
                 quantity: Number(defaultQty || 0),
             };
-            current.selected = !current.selected;
+            current.selected = !!checkboxEl.checked;
+            current.itemCode = itemCode;
+            current.locationCode = locationCode || '';
             if (!(Number(current.quantity) > 0)) {
                 current.quantity = Number(defaultQty || 0);
             }
             stockCardBuySelections[key] = current;
-            if (tdEl) {
-                if (current.selected) {
-                    tdEl.classList.add('need-buy-selected');
-                } else {
-                    tdEl.classList.remove('need-buy-selected');
-                }
+            if (td) {
+                td.classList.toggle('need-buy-selected', current.selected);
             }
         }
 
-        function setBuySelection(itemCode, locationCode, isSelected, defaultQty) {
+        function stockCardSetBuyQty(itemCode, locationCode, defaultQty, inputEl) {
             const key = buySelectionKey(itemCode, locationCode);
             const current = stockCardBuySelections[key] || {
                 itemCode,
-                locationCode,
+                locationCode: locationCode || '',
                 selected: false,
                 quantity: Number(defaultQty || 0),
             };
-            current.selected = Boolean(isSelected);
-            if (!(Number(current.quantity) > 0) && Number(defaultQty || 0) > 0) {
-                current.quantity = Number(defaultQty || 0);
-            }
+            const v = parseFloat(String(inputEl.value || '').replace(/,/g, ''));
+            current.quantity = Number.isFinite(v) && v >= 0 ? v : 0;
             stockCardBuySelections[key] = current;
         }
 
@@ -1692,44 +1692,43 @@
                 }
 
                 if (metricKey === 'need_to_buy_by_location') {
+                    const renderNeedBuyCell = (itemCode, locationCode, shortage, bgClass) => {
+                        const shortageNum = Math.max(0, Number(shortage || 0));
+                        if (shortageNum <= 0) {
+                            return `<td class="${bgClass}">0</td>`;
+                        }
+                        const key = buySelectionKey(itemCode, locationCode);
+                        const selection = stockCardBuySelections[key] || {
+                            itemCode,
+                            locationCode: locationCode || '',
+                            selected: false,
+                            quantity: shortageNum,
+                        };
+                        const qtyVal = Number(selection.quantity != null ? selection.quantity : shortageNum);
+                        const qtyStr = Number.isFinite(qtyVal) ? String(qtyVal) : String(shortageNum);
+                        const selectedClass = selection.selected ? ' need-buy-selected' : '';
+                        const jc = escapeJs(itemCode || '');
+                        const jl = escapeJs(locationCode || '');
+                        return `
+                            <td class="${bgClass} need-buy-td${selectedClass}" onclick="event.stopPropagation();" title="Select line and edit qty before New e-Purchase Request">
+                                <div class="need-buy-editor" onclick="event.stopPropagation();">
+                                    <input type="checkbox" title="Select for PR" ${selection.selected ? 'checked' : ''}
+                                        onclick="event.stopPropagation(); stockCardSetBuyCheckbox('${jc}', '${jl}', ${shortageNum}, this)" />
+                                    <input type="number" class="need-buy-qty-input" min="0" step="any" value="${escapeHtml(qtyStr)}"
+                                        onclick="event.stopPropagation();" onkeydown="event.stopPropagation();"
+                                        oninput="event.stopPropagation(); stockCardSetBuyQty('${jc}', '${jl}', ${shortageNum}, this)" />
+                                </div>
+                            </td>`;
+                    };
+
                     if (!locationColumns.length) {
                         const shortage = Math.max(0, Number(row.need_to_buy || 0));
-                        if (shortage <= 0) {
-                            return `<td class="qty-col stock-card-expand">0</td>`;
-                        }
-                        const key = buySelectionKey(row.code || '', '');
-                        const selection = stockCardBuySelections[key] || {
-                            itemCode: row.code || '',
-                            locationCode: '',
-                            selected: false,
-                            quantity: shortage,
-                        };
-                        const selectedClass = selection.selected ? ' need-buy-selected' : '';
-                        return `
-                            <td class="qty-col stock-card-expand need-buy-td${selectedClass}"
-                                onclick="toggleBuySelection('${escapeJs(row.code || '')}', '', ${shortage}, this)"
-                                title="Click to select/deselect">${formatStockCardNumber(shortage)}</td>
-                        `;
+                        return renderNeedBuyCell(row.code || '', '', shortage, 'qty-col stock-card-expand');
                     }
                     const needMap = row.need_to_buy_by_location || {};
                     return locationColumns.map((locationCode, idx) => {
                         const shortage = Math.max(0, Number(needMap[locationCode] || 0));
-                        if (shortage <= 0) {
-                            return `<td class="qty-col location-bg-${(idx % 10) + 1}">0</td>`;
-                        }
-                        const key = buySelectionKey(row.code || '', locationCode || '');
-                        const selection = stockCardBuySelections[key] || {
-                            itemCode: row.code || '',
-                            locationCode: locationCode || '',
-                            selected: false,
-                            quantity: shortage,
-                        };
-                        const selectedClass = selection.selected ? ' need-buy-selected' : '';
-                        return `
-                            <td class="qty-col location-bg-${(idx % 10) + 1} need-buy-td${selectedClass}"
-                                onclick="toggleBuySelection('${escapeJs(row.code || '')}', '${escapeJs(locationCode)}', ${shortage}, this)"
-                                title="Click to select/deselect">${formatStockCardNumber(shortage)}</td>
-                        `;
+                        return renderNeedBuyCell(row.code || '', locationCode || '', shortage, `qty-col location-bg-${(idx % 10) + 1}`);
                     }).join('');
                 }
 
@@ -1971,10 +1970,7 @@
             if (product) {
                 const description = String(product.DESCRIPTION || code).trim();
                 item.itemName = description;
-
-                if (!String(item.description || '').trim()) {
-                    item.description = description;
-                }
+                item.description = description;
             }
 
             renderPurchaseRequestLineItems();
@@ -2007,12 +2003,10 @@
 
             body.innerHTML = window.purchaseRequestItems.map((item, idx) => {
                 const product = findPrProductByCode(item.itemCode);
-                const displayName = product
-                    ? String(product.DESCRIPTION || item.itemName || item.itemCode || '').trim()
-                    : String(item.itemName || item.itemCode || '').trim();
-
-                if (displayName) {
-                    item.itemName = displayName;
+                if (product) {
+                    const dn = String(product.DESCRIPTION || item.itemName || '').trim();
+                    if (dn) item.itemName = dn;
+                    if (!String(item.description || '').trim()) item.description = dn;
                 }
 
                 const qty = Number(item.quantity || 0);
@@ -2020,13 +2014,12 @@
                 const amount = qty * unitPrice;
                 return `
                     <tr data-pr-index="${idx}">
+                        <td><input type="text" placeholder="Loc." style="min-width:72px;width:100%;max-width:120px;" value="${escapeHtml(item.locationCode || '')}" oninput="updatePurchaseRequestItem(${idx}, 'locationCode', this.value)" /></td>
                         <td>
-                            <select onchange="onPurchaseRequestProductChange(${idx}, this.value)" ${isEditMode ? 'disabled' : ''}>
+                            <select onchange="onPurchaseRequestProductChange(${idx}, this.value)" ${isEditMode ? 'disabled' : ''} style="min-width:200px;width:100%;max-width:420px;">
                                 ${buildPrProductOptions(item.itemCode || '')}
                             </select>
-                            <input type="hidden" value="${escapeHtml(item.itemCode || '')}" />
                         </td>
-                        <td><input type="text" value="${escapeHtml(item.description || '')}" oninput="updatePurchaseRequestItem(${idx}, 'description', this.value)" /></td>
                         <td><input type="text" value="${escapeHtml(item.udfReason || '')}" oninput="updatePurchaseRequestItem(${idx}, 'udfReason', this.value)" /></td>
                         <td><input type="number" min="0.0001" step="0.0001" value="${escapeHtml(item.quantity || 0)}" oninput="updatePurchaseRequestItem(${idx}, 'quantity', this.value)" /></td>
                         <td><input type="number" min="0" step="0.01" value="${escapeHtml(item.unitPrice || 0)}" oninput="updatePurchaseRequestItem(${idx}, 'unitPrice', this.value)" /></td>
