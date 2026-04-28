@@ -49,13 +49,6 @@
                     <button type="button" class="location-buy-btn" onclick="goToCreateProcurement()">New e-Purchase Request</button>
                 </div>
             </div>
-            <div class="location-filter-row location-filter-row--qty">
-                <span class="location-filter-label">Qty Mode</span>
-                <div class="qty-mode-toggle" id="qty-mode-toggle">
-                    <button type="button" class="qty-mode-btn qty-mode-active" id="qty-mode-sqty" onclick="setQtyMode('SQTY')">SQTY</button>
-                    <button type="button" class="qty-mode-btn" id="qty-mode-suomqty" onclick="setQtyMode('SUOMQTY')">SUOMQTY</button>
-                </div>
-            </div>
         </div>
         <div class="location-filter-locations">
             <div class="location-filter-row location-filter-row--stack">
@@ -440,7 +433,6 @@
         let stockCardRows = [];
         let stockCardLocations = [];
         let selectedStockCardLocations = [];
-        let stockCardQtyMode = 'SQTY';
         let stockCardBreakdownRequestId = 0;
         let stockCardBuySelections = {};
         let viewPurchaseRequestsLoaded = false;
@@ -497,11 +489,12 @@
 
         const stockCardMetricGroups = [
             { key: 'avail_qty_by_location', label: 'Quantity on Hand' },
-            { key: 'so_qty_by_location', label: 'S.O Qty' },
             { key: 'po_qty_by_location', label: 'P.O Qty' },
+            { key: 'so_qty_by_location', label: 'S.O Qty' },
             { key: 'jo_qty_by_location', label: 'J.O Qty' },
             { key: 'qty_by_location', label: 'Avail.Qty' },
             { key: 'need_to_buy_by_location', label: 'Quantity Need to Buy' },
+            { key: 'suom_qty_by_location', label: 'SUOMQTY' },
             { key: 'pending_pr_by_location', label: 'Pending PR' }
         ];
 
@@ -1737,7 +1730,7 @@
             if (!rows || !rows.length) { el.innerHTML = ''; return; }
             const locationColumns = Array.isArray(locations) ? locations : [];
             const hasLocations = locationColumns.length > 0;
-            const totals = { so_qty: 0, po_qty: 0, jo_qty: 0, qty: 0, avail_qty: 0, need_to_buy: 0, pending_pr: 0 };
+            const totals = { so_qty: 0, po_qty: 0, jo_qty: 0, qty: 0, avail_qty: 0, need_to_buy: 0, suom_qty: 0, pending_pr: 0 };
             for (const row of rows) {
                 if (hasLocations) {
                     for (const loc of locationColumns) {
@@ -1747,6 +1740,7 @@
                         totals.qty        += Number((row.qty_by_location        || {})[loc] || 0);
                         totals.avail_qty  += Number((row.avail_qty_by_location  || {})[loc] || 0);
                         totals.need_to_buy+= Number((row.need_to_buy_by_location|| {})[loc] || 0);
+                        totals.suom_qty   += Number((row.qty_by_location        || {})[loc] || 0);
                         totals.pending_pr += Number((row.pending_pr_by_location || {})[loc] || 0);
                     }
                 } else {
@@ -1756,16 +1750,18 @@
                     totals.qty         += Number(row.qty         || 0);
                     totals.avail_qty   += Number(row.avail_qty   || 0);
                     totals.need_to_buy += Number(row.need_to_buy || 0);
+                    totals.suom_qty    += Number(row.qty         || 0);
                     totals.pending_pr  += Number(row.pending_pr  || 0);
                 }
             }
             const cards = [
-                { label: 'S.O Qty',      key: 'so_qty',      bg: '#e3eef9', color: '#153d66' },
+                { label: 'Qty on Hand',  key: 'avail_qty',   bg: '#dff2f6', color: '#124a5c' },
                 { label: 'P.O Qty',      key: 'po_qty',      bg: '#faf0d8', color: '#6b4e0f' },
+                { label: 'S.O Qty',      key: 'so_qty',      bg: '#e3eef9', color: '#153d66' },
                 { label: 'J.O Qty',      key: 'jo_qty',      bg: '#dff3e6', color: '#14532a' },
                 { label: 'Avail. Qty',   key: 'qty',         bg: '#ede6f7', color: '#4a3168' },
-                { label: 'Qty on Hand',  key: 'avail_qty',   bg: '#dff2f6', color: '#124a5c' },
                 { label: 'Need to Buy',  key: 'need_to_buy', bg: '#fce4e8', color: '#7a2222' },
+                { label: 'SUOMQTY',      key: 'suom_qty',    bg: '#e7f3ee', color: '#17573c' },
                 { label: 'Pending PR',   key: 'pending_pr',  bg: '#fff2d6', color: '#6d5200' },
             ].map((c) => ({ ...c, label: String(c.label || '').toUpperCase() }));
             el.innerHTML = cards.map(c => `
@@ -1840,6 +1836,16 @@
                     }).join('');
                 }
 
+                if (metricKey === 'suom_qty_by_location') {
+                    if (!locationColumns.length) {
+                        return `<td class="qty-col stock-card-expand">${formatStockCardNumber(row.qty || 0)}</td>`;
+                    }
+                    const suomMap = row.qty_by_location || {};
+                    return locationColumns.map((locationCode, idx) => `
+                        <td class="qty-col location-bg-${(idx % 10) + 1}">${formatStockCardNumber(suomMap[locationCode] || 0)}</td>
+                    `).join('');
+                }
+
                 if (!locationColumns.length) {
                     return `<td class="qty-col stock-card-expand">${formatStockCardNumber(row[fallbackKey] || 0)}</td>`;
                 }
@@ -1854,12 +1860,13 @@
             tbody.innerHTML = rows.map((row) => `
                 <tr>
                     <td class="code-col${noLocations ? ' stock-card-expand' : ''}">${escapeHtml(row.code || '')}</td>
-                    ${renderMetricColumns(row, 'so_qty_by_location', 'so_qty')}
+                    ${renderMetricColumns(row, 'avail_qty_by_location', 'avail_qty')}
                     ${renderMetricColumns(row, 'po_qty_by_location', 'po_qty')}
+                    ${renderMetricColumns(row, 'so_qty_by_location', 'so_qty')}
                     ${renderMetricColumns(row, 'jo_qty_by_location', 'jo_qty')}
                     ${renderMetricColumns(row, 'qty_by_location', 'qty')}
-                    ${renderMetricColumns(row, 'avail_qty_by_location', 'avail_qty')}
                     ${renderMetricColumns(row, 'need_to_buy_by_location', 'need_to_buy')}
+                    ${renderMetricColumns(row, 'suom_qty_by_location', 'qty')}
                     ${renderMetricColumns(row, 'pending_pr_by_location', 'pending_pr')}
                 </tr>
             `).join('');
@@ -1878,9 +1885,7 @@
                 query.set('from_date', fromDate);
                 query.set('to_date', prTodayIso());
             }
-            if (stockCardQtyMode && stockCardQtyMode !== 'SQTY') {
-                query.set('qty_mode', stockCardQtyMode);
-            }
+            query.set('qty_mode', 'SUOMQTY');
 
             const requestUrl = query.toString()
                 ? `/api/admin/procurement/stock-card?${query.toString()}`
@@ -1918,13 +1923,6 @@
                     const totalColumns = getStockCardTotalColumns(selectedStockCardLocations);
                     tbody.innerHTML = `<tr><td colspan="${totalColumns}" class="stock-card-status">${escapeHtml(error.message || 'Failed to load stock items.')}</td></tr>`;
                 });
-        }
-
-        function setQtyMode(mode) {
-            stockCardQtyMode = mode;
-            document.getElementById('qty-mode-sqty').classList.toggle('qty-mode-active', mode === 'SQTY');
-            document.getElementById('qty-mode-suomqty').classList.toggle('qty-mode-active', mode === 'SUOMQTY');
-            loadStockCardRows();
         }
 
         function applyStockCardDateFilter() {
