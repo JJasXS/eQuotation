@@ -1353,6 +1353,7 @@ def _ensure_procurement_bidding_tables(conn):
             SUPPLIER_NAME VARCHAR(160),
             STATUS VARCHAR(20),
             REMARKS VARCHAR(500),
+            UDF_REASON VARCHAR(500),
             CREATED_BY VARCHAR(120),
             CREATED_AT TIMESTAMP,
             APPROVED_BY VARCHAR(120),
@@ -1413,6 +1414,12 @@ def _ensure_procurement_bidding_tables(conn):
         'CREATE INDEX IX_PR_BID_DTL_BID ON PR_BID_DTL (BID_ID)',
         success_message='[DB INIT] IX_PR_BID_DTL_BID index created.',
         ignore_if_contains=['already exists', 'name in use']
+    )
+    _execute_ddl(
+        conn,
+        'ALTER TABLE PR_BID_HDR ADD UDF_REASON VARCHAR(500)',
+        success_message='[DB INIT] PR_BID_HDR.UDF_REASON column added.',
+        ignore_if_contains=['already exists', 'duplicate', 'column', 'unsuccessful']
     )
 
 

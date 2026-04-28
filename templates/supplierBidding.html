@@ -27,9 +27,11 @@
         th, td { border-bottom: 1px solid #e8efe1; padding: 8px; font-size: 13px; text-align: left; }
         th { background: #f4f9ee; color: #2f422d; }
         input[type='number'], input[type='text'] { width: 100%; padding: 6px 8px; border: 1px solid #cbd8bf; border-radius: 6px; }
-        .footer-actions { padding: 16px; border-top: 1px solid #e4ecd9; display: flex; justify-content: flex-end; gap: 10px; }
+        .footer-actions { padding: 16px; border-top: 1px solid #e4ecd9; display: flex; justify-content: flex-end; gap: 10px; align-items: center; flex-wrap: wrap; }
         .secondary-btn { background: #ffffff; color: #245c2e; border: 1px solid #245c2e; border-radius: 8px; padding: 8px 14px; cursor: pointer; }
         #supplier-bid-message { padding: 12px 16px; font-size: 13px; display: none; }
+        .bid-readonly-cell { background: #f5f8f1; color: #1f2a1f; }
+        #bid-decision-panel { padding: 12px 16px; border-top: 1px solid #e4ecd9; background: #f8fbf5; font-size: 13px; }
     </style>
 </head>
 <body>
@@ -68,19 +70,16 @@
                     </div>
                     <div class="table-wrap">
                         <table>
-                            <thead>
-                                <tr>
-                                    <th>Item</th>
-                                    <th>Delivery Date</th>
-                                    <th>Requested Qty</th>
-                                    <th>Bid Qty</th>
-                                    <th>Bid Unit Price</th>
-                                    <th>Lead Days</th>
-                                    <th>Remarks</th>
-                                </tr>
-                            </thead>
+                            <thead id="bid-lines-thead"></thead>
                             <tbody id="bid-lines-body"></tbody>
                         </table>
+                    </div>
+                    <div id="bid-decision-panel" style="display: none;">
+                        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+                            <button type="button" class="secondary-btn" id="view-reason-btn">View admin decision reason</button>
+                            <span id="bid-status-hint" class="muted"></span>
+                        </div>
+                        <pre id="bid-reason-text" style="display:none;white-space:pre-wrap;margin:10px 0 0;font-family:inherit;font-size:13px;"></pre>
                     </div>
                     <div id="supplier-bid-message"></div>
                     <div class="footer-actions">
@@ -96,6 +95,7 @@
     <script>
         let activeInvite = null;
         let activeRequest = null;
+        let workbenchReadOnly = false;
         const supplierCode = '{{ supplier_code }}'.trim();
 
         function chipClass(status) {
@@ -168,17 +168,29 @@
             list.innerHTML = rows.map((row) => {
                 const bidStatus = row.bidStatus || row.inviteStatus || 'OPEN';
                 const bidStatusLabel = displayBidStatus(bidStatus);
-                const disabled = String(row.inviteStatus || '').toUpperCase() === 'CLOSED';
+                const inviteClosed = String(row.inviteStatus || '').toUpperCase() === 'CLOSED';
+                const inviteAwarded = String(row.inviteStatus || '').toUpperCase() === 'AWARDED';
+                const reqDel = formatDateText(row.requestDeliveryDate);
+                const btnLabel = (inviteClosed || inviteAwarded) ? 'View bid' : 'Open';
+                // Do not embed request_no in onclick — JSON quotes break the HTML attribute and clicks stop working.
                 return `
                     <div class="invite-row">
                         <div>
                             <div><strong>${escapeHtml(row.requestNumber || ('PR-' + row.requestDockey))}</strong></div>
-                            <div class="muted">Supplier: ${escapeHtml(row.supplierCode)} | Bid Status: <span class="status-chip ${chipClass(bidStatusLabel)}">${escapeHtml(bidStatusLabel)}</span></div>
+                            <div class="muted">Req. delivery: ${escapeHtml(reqDel)} | Bid Status: <span class="status-chip ${chipClass(bidStatusLabel)}">${escapeHtml(bidStatusLabel)}</span></div>
                         </div>
-                        <button type="button" onclick="openInvite(${row.requestDockey}, '${escapeHtml(row.requestNumber || '')}')" ${disabled ? 'disabled' : ''}>Open</button>
+                        <button type="button" class="invite-open-btn" data-request-id="${Number(row.requestDockey)}" data-invite-closed="${inviteClosed ? '1' : '0'}">${btnLabel}</button>
                     </div>
                 `;
             }).join('');
+
+            list.querySelectorAll('.invite-open-btn').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    const rid = Number(btn.getAttribute('data-request-id') || 0);
+                    const closed = btn.getAttribute('data-invite-closed') === '1';
+                    openInvite(rid, '', closed);
+                });
+            });
         }
 
         async function loadInvitations() {
@@ -195,34 +207,136 @@
             renderInvitations(body.data || []);
         }
 
-        async function openInvite(requestId, requestNo) {
+        function setDecisionPanel(myBid, readOnly) {
+            const panel = document.getElementById('bid-decision-panel');
+            const btn = document.getElementById('view-reason-btn');
+            const pre = document.getElementById('bid-reason-text');
+            const hint = document.getElementById('bid-status-hint');
+            pre.style.display = 'none';
+            pre.textContent = '';
+            btn.disabled = false;
+            btn.textContent = 'View admin decision reason';
+            if (!myBid || !readOnly) {
+                panel.style.display = 'none';
+                return;
+            }
+            const st = String(myBid.status || '').toUpperCase();
+            const terminal = st === 'APPROVED' || st === 'REJECTED';
+            if (!terminal) {
+                panel.style.display = 'none';
+                return;
+            }
+            panel.style.display = 'block';
+            hint.textContent = st === 'APPROVED' ? '(Accepted — pricing below is read-only)' : '(Rejected — pricing below is read-only)';
+            const reason = String(myBid.udfReason || '').trim();
+            btn.onclick = () => {
+                if (!reason) {
+                    alert('No decision reason was recorded by admin.');
+                    return;
+                }
+                const open = pre.style.display !== 'block';
+                pre.style.display = open ? 'block' : 'none';
+                pre.textContent = reason;
+            };
+        }
+
+        function bidLineMap(myBid) {
+            const map = {};
+            if (!myBid || !Array.isArray(myBid.lines)) return map;
+            myBid.lines.forEach((l) => {
+                map[Number(l.detailId)] = l;
+            });
+            return map;
+        }
+
+        async function openInvite(requestId, requestNo, inviteClosed) {
             clearBidMessage();
             activeInvite = { requestId, requestNo };
-            const res = await fetch(`/api/procurement/bidding/purchase-request-details?request_id=${encodeURIComponent(requestId)}&request_no=${encodeURIComponent(requestNo || '')}`);
+            const qs = new URLSearchParams({
+                request_id: String(requestId),
+                request_no: requestNo || '',
+            });
+            if (supplierCode) qs.set('supplierCode', supplierCode);
+            const res = await fetch('/api/procurement/bidding/purchase-request-details?' + qs.toString());
             const body = await res.json();
             if (!res.ok || !body.success) {
                 alert(body.error || 'Failed to load request details');
                 return;
             }
             activeRequest = body;
-            document.getElementById('active-request-title').textContent = 'Bid for ' + (body.requestNumber || ('PR-' + body.requestId));
-            document.getElementById('active-request-subtitle').textContent = 'Fill in your quote and submit to admin for review.';
 
-            const rows = (body.details || []).map((line) => {
+            let readOnly = !!inviteClosed;
+            const mb = body.myBid;
+            if (mb) {
+                const st = String(mb.status || '').toUpperCase();
+                if (st === 'APPROVED' || st === 'REJECTED') readOnly = true;
+            }
+            workbenchReadOnly = readOnly;
+
+            document.getElementById('active-request-title').textContent = 'Bid for ' + (body.requestNumber || ('PR-' + body.requestId));
+            const reqDel = formatDateText(body.requiredDeliveryDate);
+            document.getElementById('active-request-subtitle').innerHTML =
+                'Purchase request delivery / required date: <strong>' + escapeHtml(reqDel) + '</strong>. ' +
+                (readOnly ? 'Your submitted pricing is shown below (read-only).' : 'Fill in your quote and submit to admin for review.');
+
+            const details = body.details || [];
+            const blMap = bidLineMap(mb);
+
+            const thead = document.getElementById('bid-lines-thead');
+            if (readOnly) {
+                thead.innerHTML = '<tr><th>Item</th><th>Delivery Date</th><th>Requested Qty</th><th>Bid Qty</th><th>Bid Unit Price</th><th>Tax</th><th>Amount</th><th>Lead Days</th><th>Remarks</th></tr>';
+            } else {
+                thead.innerHTML = '<tr><th>Item</th><th>Delivery Date</th><th>Requested Qty</th><th>Bid Qty</th><th>Bid Unit Price</th><th>Lead Days</th><th>Remarks</th></tr>';
+            }
+
+            const rows = details.map((line) => {
+                const lid = Number(line.id);
+                const bl = blMap[lid] || {};
+                const dq = Number(bl.quantity != null ? bl.quantity : line.quantity || 0).toFixed(2);
+                const dup = (bl.unitPrice != null && bl.unitPrice !== '')
+                    ? Number(bl.unitPrice).toFixed(2)
+                    : Number(0).toFixed(2);
+                const tax = Number(bl.tax != null ? bl.tax : 0).toFixed(2);
+                const amt = Number(bl.amount != null ? bl.amount : 0).toFixed(2);
+                const ld = Number(bl.leadDays != null ? bl.leadDays : 0);
+                const rm = String(bl.remarks || '').trim();
+
+                if (readOnly) {
+                    return `
+                        <tr data-detail-id="${lid}">
+                            <td>${escapeHtml(line.itemCode)} - ${escapeHtml(line.itemName || line.description)}</td>
+                            <td class="bid-readonly-cell">${escapeHtml(formatDateText(line.deliveryDate))}</td>
+                            <td class="bid-readonly-cell">${Number(line.quantity || 0).toFixed(2)}</td>
+                            <td class="bid-readonly-cell">${dq}</td>
+                            <td class="bid-readonly-cell">${dup}</td>
+                            <td class="bid-readonly-cell">${tax}</td>
+                            <td class="bid-readonly-cell">${amt}</td>
+                            <td class="bid-readonly-cell">${ld}</td>
+                            <td class="bid-readonly-cell">${escapeHtml(rm) || '-'}</td>
+                        </tr>`;
+                }
+
+                const qtyVal = bl.quantity != null ? dq : Number(line.quantity || 0).toFixed(2);
+                const priceVal = (bl.unitPrice != null && bl.unitPrice !== '') ? Number(bl.unitPrice).toFixed(2) : '';
+                const ldVal = bl.leadDays != null ? String(ld) : '0';
+                const remarksAttr = String(rm).replace(/"/g, '&quot;');
                 return `
-                    <tr data-detail-id="${line.id}">
+                    <tr data-detail-id="${lid}">
                         <td>${escapeHtml(line.itemCode)} - ${escapeHtml(line.itemName || line.description)}</td>
                         <td>${escapeHtml(formatDateText(line.deliveryDate))}</td>
                         <td>${Number(line.quantity || 0).toFixed(2)}</td>
-                        <td><input type="number" step="0.01" min="0" class="bid-qty" value="${Number(line.quantity || 0).toFixed(2)}"></td>
-                        <td><input type="number" step="0.01" min="0" class="bid-unit-price" value="" placeholder="Enter quote unit price"></td>
-                        <td><input type="number" step="1" min="0" class="bid-lead-days" value="0"></td>
-                        <td><input type="text" class="bid-remarks" placeholder="Optional"></td>
-                    </tr>
-                `;
+                        <td><input type="number" step="0.01" min="0" class="bid-qty" value="${qtyVal}"></td>
+                        <td><input type="number" step="0.01" min="0" class="bid-unit-price" value="${priceVal}" placeholder="Enter quote unit price"></td>
+                        <td><input type="number" step="1" min="0" class="bid-lead-days" value="${ldVal}"></td>
+                        <td><input type="text" class="bid-remarks" placeholder="Optional" value="${remarksAttr}"></td>
+                    </tr>`;
             }).join('');
 
-            document.getElementById('bid-lines-body').innerHTML = rows || '<tr><td colspan="7" class="muted">No lines available</td></tr>';
+            const colEmpty = readOnly ? 9 : 7;
+            document.getElementById('bid-lines-body').innerHTML = rows || ('<tr><td colspan="' + colEmpty + '" class="muted">No lines available</td></tr>');
+            document.getElementById('submit-bid-btn').style.display = readOnly ? 'none' : 'inline-block';
+            setDecisionPanel(mb, readOnly);
+
             document.getElementById('bidding-workbench').style.display = 'block';
             window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
         }
@@ -241,6 +355,10 @@
         }
 
         async function submitBid() {
+            if (workbenchReadOnly) {
+                showBidMessage('This bid is read-only.', true);
+                return;
+            }
             if (!activeInvite || !activeRequest) {
                 alert('Please open an invitation first.');
                 return;
@@ -283,9 +401,13 @@
         function resetWorkbench() {
             activeInvite = null;
             activeRequest = null;
+            workbenchReadOnly = false;
             clearBidMessage();
+            document.getElementById('bid-decision-panel').style.display = 'none';
             document.getElementById('bidding-workbench').style.display = 'none';
             document.getElementById('bid-lines-body').innerHTML = '';
+            document.getElementById('bid-lines-thead').innerHTML = '';
+            document.getElementById('submit-bid-btn').style.display = 'inline-block';
         }
 
         loadInvitations();

@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Any
 
 from utils.db_utils import get_db_connection
-from utils.procurement_purchase_request import _as_decimal, _clean_text, _money
+from utils.procurement_purchase_request import _as_decimal, _clean_text, _get_table_columns, _money, _pick_existing
 
 
 class BiddingValidationError(ValueError):
@@ -46,6 +46,33 @@ def _index_exists(cur: Any, index_name: str) -> bool:
     )
     row = cur.fetchone()
     return bool(row and int(row[0] or 0) > 0)
+
+
+def _pr_bid_hdr_columns(cur: Any) -> set[str]:
+    cur.execute(
+        """
+        SELECT TRIM(RF.RDB$FIELD_NAME)
+        FROM RDB$RELATION_FIELDS RF
+        WHERE RF.RDB$RELATION_NAME = 'PR_BID_HDR'
+        """,
+    )
+    return {str(row[0]).strip().upper() for row in (cur.fetchall() or []) if row and row[0]}
+
+
+def _ensure_pr_bid_hdr_udf_reason(con: Any) -> None:
+    """Add PR_BID_HDR.UDF_REASON when missing (admin accept/reject explanation)."""
+    cur = con.cursor()
+    try:
+        cols = _pr_bid_hdr_columns(cur)
+        if "UDF_REASON" in cols:
+            return
+        cur.execute("ALTER TABLE PR_BID_HDR ADD UDF_REASON VARCHAR(500)")
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        cur.close()
 
 
 def _next_key(cur: Any, table_name: str, key_column: str, generator_name: str) -> int:
@@ -96,6 +123,7 @@ def ensure_bidding_schema() -> None:
                     SUPPLIER_NAME VARCHAR(160),
                     STATUS VARCHAR(20),
                     REMARKS VARCHAR(500),
+                    UDF_REASON VARCHAR(500),
                     CREATED_BY VARCHAR(120),
                     CREATED_AT TIMESTAMP,
                     APPROVED_BY VARCHAR(120),
@@ -135,6 +163,11 @@ def ensure_bidding_schema() -> None:
             cur.execute("CREATE INDEX IX_PR_BID_HDR_REQ ON PR_BID_HDR (REQUEST_DOCKEY)")
         if not _index_exists(cur, "IX_PR_BID_DTL_BID"):
             cur.execute("CREATE INDEX IX_PR_BID_DTL_BID ON PR_BID_DTL (BID_ID)")
+
+        if _table_exists(cur, "PR_BID_HDR"):
+            cols = _pr_bid_hdr_columns(cur)
+            if "UDF_REASON" not in cols:
+                cur.execute("ALTER TABLE PR_BID_HDR ADD UDF_REASON VARCHAR(500)")
 
         con.commit()
     finally:
@@ -233,6 +266,46 @@ def create_bid_invitations(  # noqa: too-many-locals
         con.close()
 
 
+def _fetch_pr_delivery_dates_by_dockey(dockeys: list[int]) -> dict[int, str | None]:
+    uniq = sorted({int(d) for d in dockeys if d})
+    if not uniq:
+        return {}
+
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        if not _table_exists(cur, "PH_PQ"):
+            return {}
+        cols = _get_table_columns(cur, "PH_PQ")
+        key_col = _pick_existing(cols, "DOCKEY", "PQKEY", "ID")
+        date_col = _pick_existing(cols, "REQUIREDDATE", "DELIVERYDATE", "POSTDATE", "DOCDATE")
+        if not key_col or not date_col:
+            return {}
+        placeholders = ", ".join(["?"] * len(uniq))
+        cur.execute(
+            f"SELECT {key_col}, {date_col} FROM PH_PQ WHERE {key_col} IN ({placeholders})",
+            uniq,
+        )
+        out: dict[int, str | None] = {}
+        for row in cur.fetchall() or []:
+            if not row:
+                continue
+            try:
+                key = int(row[0])
+            except Exception:
+                continue
+            val = row[1]
+            if val is None:
+                out[key] = None
+            elif hasattr(val, "isoformat"):
+                out[key] = val.isoformat()
+            else:
+                out[key] = str(val).strip() or None
+        return out
+    finally:
+        con.close()
+
+
 def list_supplier_invitations(supplier_code: str) -> list[dict[str, Any]]:
     code = _clean_text(supplier_code)
     if not code:
@@ -278,6 +351,10 @@ def list_supplier_invitations(supplier_code: str) -> list[dict[str, Any]]:
                     "bidStatus": _clean_text(row[8]),
                 }
             )
+        delivery_map = _fetch_pr_delivery_dates_by_dockey([int(r["requestDockey"]) for r in result])
+        for r in result:
+            dk = int(r.get("requestDockey") or 0)
+            r["requestDeliveryDate"] = delivery_map.get(dk)
         return result
     finally:
         con.close()
@@ -462,14 +539,64 @@ def submit_supplier_bid(
         con.close()
 
 
+def _bid_hdr_row_to_lines(cur: Any, bid_id: int) -> list[dict[str, Any]]:
+    cur.execute(
+        """
+        SELECT SOURCE_DTLKEY, ITEMCODE, DESCRIPTION, BID_QTY, BID_UNITPRICE, BID_TAXAMT,
+               BID_AMOUNT, LEAD_DAYS, REMARKS
+        FROM PR_BID_DTL
+        WHERE BID_ID = ?
+        ORDER BY BID_DTL_ID ASC
+        """,
+        (bid_id,),
+    )
+    lines = cur.fetchall() or []
+    return [
+        {
+            "detailId": int(row[0]),
+            "itemCode": _clean_text(row[1]),
+            "description": _clean_text(row[2]),
+            "quantity": float(_as_decimal(row[3], "0")),
+            "unitPrice": float(_as_decimal(row[4], "0")),
+            "tax": float(_as_decimal(row[5], "0")),
+            "amount": float(_as_decimal(row[6], "0")),
+            "leadDays": int(_as_decimal(row[7], "0")),
+            "remarks": _clean_text(row[8]),
+        }
+        for row in lines
+    ]
+
+
+def _bid_hdr_row_to_dict(bid: tuple, lines: list[dict[str, Any]]) -> dict[str, Any]:
+    udf_reason = _clean_text(bid[11]) if len(bid) > 11 else ""
+    return {
+        "bidId": int(bid[0]),
+        "requestDockey": int(bid[1]),
+        "requestNumber": _clean_text(bid[2]),
+        "supplierCode": _clean_text(bid[3]),
+        "supplierName": _clean_text(bid[4]),
+        "status": _clean_text(bid[5]),
+        "remarks": _clean_text(bid[6]),
+        "createdBy": _clean_text(bid[7]),
+        "createdAt": bid[8].isoformat() if bid[8] else None,
+        "approvedBy": _clean_text(bid[9]),
+        "approvedAt": bid[10].isoformat() if bid[10] else None,
+        "udfReason": udf_reason,
+        "lines": lines,
+    }
+
+
 def list_bids_for_request(request_dockey: int) -> list[dict[str, Any]]:
     con = _connect_db()
     try:
         cur = con.cursor()
+        _ensure_pr_bid_hdr_udf_reason(con)
+        cur = con.cursor()
         cur.execute(
             """
             SELECT BID_ID, REQUEST_DOCKEY, REQUEST_NO, SUPPLIER_CODE, SUPPLIER_NAME,
-                   STATUS, REMARKS, CREATED_BY, CREATED_AT, APPROVED_BY, APPROVED_AT
+                   STATUS, REMARKS, CREATED_BY, CREATED_AT, APPROVED_BY, APPROVED_AT,
+                   UDF_REASON
             FROM PR_BID_HDR
             WHERE REQUEST_DOCKEY = ?
             ORDER BY CASE STATUS WHEN 'APPROVED' THEN 0 WHEN 'SUBMITTED' THEN 1 ELSE 9 END, BID_ID DESC
@@ -481,47 +608,41 @@ def list_bids_for_request(request_dockey: int) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
         for bid in bid_rows:
             bid_id = int(bid[0])
-            cur.execute(
-                """
-                SELECT SOURCE_DTLKEY, ITEMCODE, DESCRIPTION, BID_QTY, BID_UNITPRICE, BID_TAXAMT,
-                       BID_AMOUNT, LEAD_DAYS, REMARKS
-                FROM PR_BID_DTL
-                WHERE BID_ID = ?
-                ORDER BY BID_DTL_ID ASC
-                """,
-                (bid_id,),
-            )
-            lines = cur.fetchall() or []
-            result.append(
-                {
-                    "bidId": bid_id,
-                    "requestDockey": int(bid[1]),
-                    "requestNumber": _clean_text(bid[2]),
-                    "supplierCode": _clean_text(bid[3]),
-                    "supplierName": _clean_text(bid[4]),
-                    "status": _clean_text(bid[5]),
-                    "remarks": _clean_text(bid[6]),
-                    "createdBy": _clean_text(bid[7]),
-                    "createdAt": bid[8].isoformat() if bid[8] else None,
-                    "approvedBy": _clean_text(bid[9]),
-                    "approvedAt": bid[10].isoformat() if bid[10] else None,
-                    "lines": [
-                        {
-                            "detailId": int(row[0]),
-                            "itemCode": _clean_text(row[1]),
-                            "description": _clean_text(row[2]),
-                            "quantity": float(_as_decimal(row[3], "0")),
-                            "unitPrice": float(_as_decimal(row[4], "0")),
-                            "tax": float(_as_decimal(row[5], "0")),
-                            "amount": float(_as_decimal(row[6], "0")),
-                            "leadDays": int(_as_decimal(row[7], "0")),
-                            "remarks": _clean_text(row[8]),
-                        }
-                        for row in lines
-                    ],
-                }
-            )
+            lines = _bid_hdr_row_to_lines(cur, bid_id)
+            result.append(_bid_hdr_row_to_dict(bid, lines))
         return result
+    finally:
+        con.close()
+
+
+def get_supplier_bid_snapshot(request_dockey: int, supplier_code: str) -> dict[str, Any] | None:
+    """Return this supplier's bid for a PR (for read-only review of pricing and admin decision)."""
+    code = _clean_text(supplier_code)
+    if not code:
+        return None
+
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        _ensure_pr_bid_hdr_udf_reason(con)
+        cur = con.cursor()
+        cur.execute(
+            """
+            SELECT FIRST 1 BID_ID, REQUEST_DOCKEY, REQUEST_NO, SUPPLIER_CODE, SUPPLIER_NAME,
+                   STATUS, REMARKS, CREATED_BY, CREATED_AT, APPROVED_BY, APPROVED_AT,
+                   UDF_REASON
+            FROM PR_BID_HDR
+            WHERE REQUEST_DOCKEY = ? AND SUPPLIER_CODE = ?
+            ORDER BY BID_ID DESC
+            """,
+            (request_dockey, code),
+        )
+        bid = cur.fetchone()
+        if not bid:
+            return None
+        bid_id = int(bid[0])
+        lines = _bid_hdr_row_to_lines(cur, bid_id)
+        return _bid_hdr_row_to_dict(bid, lines)
     finally:
         con.close()
 
@@ -534,10 +655,13 @@ def get_approved_bid_for_request(request_dockey: int) -> dict[str, Any] | None:
     return None
 
 
-def approve_bid(request_dockey: int, bid_id: int, actor: str) -> dict[str, Any]:
+def approve_bid(request_dockey: int, bid_id: int, actor: str, udf_reason: str = "") -> dict[str, Any]:
     now = _utc_now()
+    reason = _clean_text(udf_reason)
     con = _connect_db()
     try:
+        cur = con.cursor()
+        _ensure_pr_bid_hdr_udf_reason(con)
         cur = con.cursor()
         cur.execute(
             "SELECT FIRST 1 BID_ID, SUPPLIER_CODE, REQUEST_NO FROM PR_BID_HDR WHERE BID_ID = ? AND REQUEST_DOCKEY = ?",
@@ -551,12 +675,16 @@ def approve_bid(request_dockey: int, bid_id: int, actor: str) -> dict[str, Any]:
         request_no = _clean_text(row[2])
 
         cur.execute(
-            "UPDATE PR_BID_HDR SET STATUS = ?, APPROVED_BY = ?, APPROVED_AT = ? WHERE REQUEST_DOCKEY = ?",
-            ("REJECTED", _clean_text(actor) or "admin", now, request_dockey),
+            "UPDATE PR_BID_HDR SET STATUS = ?, APPROVED_BY = ?, APPROVED_AT = ? WHERE REQUEST_DOCKEY = ? AND BID_ID <> ?",
+            ("REJECTED", _clean_text(actor) or "admin", now, request_dockey, bid_id),
         )
         cur.execute(
-            "UPDATE PR_BID_HDR SET STATUS = ?, APPROVED_BY = ?, APPROVED_AT = ? WHERE BID_ID = ?",
-            ("APPROVED", _clean_text(actor) or "admin", now, bid_id),
+            """
+            UPDATE PR_BID_HDR
+            SET STATUS = ?, APPROVED_BY = ?, APPROVED_AT = ?, UDF_REASON = ?
+            WHERE BID_ID = ?
+            """,
+            ("APPROVED", _clean_text(actor) or "admin", now, reason, bid_id),
         )
         cur.execute(
             "UPDATE PR_BID_INVITE SET STATUS = ?, UPDATED_AT = ? WHERE REQUEST_DOCKEY = ? AND SUPPLIER_CODE = ?",
@@ -582,10 +710,14 @@ def approve_bid(request_dockey: int, bid_id: int, actor: str) -> dict[str, Any]:
         con.close()
 
 
-def reject_bid(request_dockey: int, bid_id: int, actor: str, remarks: str = "") -> dict[str, Any]:
+def reject_bid(request_dockey: int, bid_id: int, actor: str, udf_reason: str = "") -> dict[str, Any]:
+    """Reject a bid; admin explanation is stored in PR_BID_HDR.UDF_REASON (supplier header REMARKS unchanged)."""
     now = _utc_now()
+    reason = _clean_text(udf_reason)
     con = _connect_db()
     try:
+        cur = con.cursor()
+        _ensure_pr_bid_hdr_udf_reason(con)
         cur = con.cursor()
         cur.execute(
             "SELECT FIRST 1 BID_ID FROM PR_BID_HDR WHERE BID_ID = ? AND REQUEST_DOCKEY = ?",
@@ -596,8 +728,12 @@ def reject_bid(request_dockey: int, bid_id: int, actor: str, remarks: str = "") 
             raise BiddingValidationError("bid not found for this request")
 
         cur.execute(
-            "UPDATE PR_BID_HDR SET STATUS = ?, APPROVED_BY = ?, APPROVED_AT = ?, REMARKS = ? WHERE BID_ID = ?",
-            ("REJECTED", _clean_text(actor) or "admin", now, _clean_text(remarks), bid_id),
+            """
+            UPDATE PR_BID_HDR
+            SET STATUS = ?, APPROVED_BY = ?, APPROVED_AT = ?, UDF_REASON = ?
+            WHERE BID_ID = ?
+            """,
+            ("REJECTED", _clean_text(actor) or "admin", now, reason, bid_id),
         )
         con.commit()
         return {

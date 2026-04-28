@@ -127,7 +127,6 @@
         let supplierCache = [];
         let activePr = null;
         let seenPrIds = new Set();
-        let seenLatestBidByPr = new Set();
 
         function msg(text, isError) {
             const el = document.getElementById('admin-bidding-message');
@@ -208,15 +207,6 @@
             renderRequests();
             setSelectionUi();
             msg('Selected PR ' + (requestNumber || id));
-            loadBidsForActivePr();
-        }
-
-        function markLatestBidSeen(requestId, bidId) {
-            const key = `${Number(requestId || 0)}:${Number(bidId || 0)}`;
-            if (!key) {
-                return;
-            }
-            seenLatestBidByPr.add(key);
             loadBidsForActivePr();
         }
 
@@ -388,8 +378,7 @@
 
             wrap.innerHTML = compareHtml + bids.map((bid, idx) => {
                 const status = esc(bid.status || '');
-                const bidKey = `${Number(activePr?.id || 0)}:${Number(bid.bidId || 0)}`;
-                const newBadge = (idx === 0 && !seenLatestBidByPr.has(bidKey)) ? '<span class="new-badge">New</span>' : '';
+                const newBadge = idx === 0 ? '<span class="new-badge">New</span>' : '';
                 const rows = (bid.lines || []).map((line) => `
                     <tr>
                         <td>${esc(line.itemCode || '')}</td>
@@ -400,9 +389,10 @@
                         <td>${Number(line.leadDays || 0)}</td>
                     </tr>
                 `).join('');
+                const bidIdNum = Number(bid.bidId || 0);
 
                 return `
-                    <div class="bid-card" onclick="markLatestBidSeen(${Number(activePr?.id || 0)}, ${Number(bid.bidId || 0)})">
+                    <div class="bid-card">
                         <div class="toolbar">
                             <strong>${esc(bid.supplierCode)} - ${esc(bid.supplierName)}${newBadge}</strong>
                             <span class="status ${status}">${status || '-'}</span>
@@ -412,9 +402,11 @@
                             <thead><tr><th>Item</th><th>Qty</th><th>Unit Price</th><th>Tax</th><th>Amount</th><th>Lead Days</th></tr></thead>
                             <tbody>${rows || '<tr><td colspan="6" class="muted">No lines</td></tr>'}</tbody>
                         </table>
+                        <label class="muted" style="display:block;margin-top:10px;font-size:12px;">Reason (optional, stored as UDF_REASON)</label>
+                        <textarea id="bid-reason-${bidIdNum}" class="bid-reason-input" rows="2" style="width:100%;box-sizing:border-box;border:1px solid #ecdfca;border-radius:8px;padding:8px;font-size:12px;" onclick="event.stopPropagation();" placeholder="Shown to supplier when bid is accepted or rejected">${esc(bid.udfReason || '')}</textarea>
                         <div class="toolbar" style="margin-top:8px;">
-                            <button class="btn" onclick="event.stopPropagation(); approveBid(${activePr.id}, ${bid.bidId})">Approve</button>
-                            <button class="btn secondary" onclick="event.stopPropagation(); rejectBid(${activePr.id}, ${bid.bidId})">Reject</button>
+                            <button class="btn" type="button" onclick="approveBid(${activePr.id}, ${bid.bidId})">Approve</button>
+                            <button class="btn secondary" type="button" onclick="rejectBid(${activePr.id}, ${bid.bidId})">Reject</button>
                         </div>
                     </div>
                 `;
@@ -422,8 +414,14 @@
         }
 
         async function approveBid(requestId, bidId) {
+            const ta = document.getElementById('bid-reason-' + Number(bidId || 0));
+            const udfReason = ta ? String(ta.value || '').trim() : '';
             msg('Approving bid...');
-            const res = await fetch(`/api/admin/procurement/purchase-requests/${requestId}/bids/${bidId}/approve`, { method: 'POST' });
+            const res = await fetch(`/api/admin/procurement/purchase-requests/${requestId}/bids/${bidId}/approve`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ udfReason }),
+            });
             const body = await res.json();
             if (!res.ok || !body.success) {
                 msg(body.error || 'Approve failed', true);
@@ -434,12 +432,13 @@
         }
 
         async function rejectBid(requestId, bidId) {
-            const remarks = window.prompt('Rejection remarks (optional):', '') || '';
+            const ta = document.getElementById('bid-reason-' + Number(bidId || 0));
+            const udfReason = ta ? String(ta.value || '').trim() : '';
             msg('Rejecting bid...');
             const res = await fetch(`/api/admin/procurement/purchase-requests/${requestId}/bids/${bidId}/reject`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ remarks }),
+                body: JSON.stringify({ udfReason }),
             });
             const body = await res.json();
             if (!res.ok || !body.success) {

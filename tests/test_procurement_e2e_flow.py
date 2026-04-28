@@ -182,7 +182,7 @@ def run_flow() -> dict:
     if not bid_id_a or not bid_id_b:
         raise RuntimeError("Failed to locate both supplier bids")
 
-    rejected = reject_bid(request_id, bid_id_b, actor="e2e-admin", remarks="Cancelled in favor of better bid")
+    rejected = reject_bid(request_id, bid_id_b, actor="e2e-admin", udf_reason="Cancelled in favor of better bid")
     approved = approve_bid(request_id, bid_id_a, actor="e2e-admin")
 
     gate = get_transfer_gate_state(request_id)

@@ -55,6 +55,7 @@ from utils.procurement_bidding import (
     apply_approved_bid_to_request,
     approve_bid,
     create_bid_invitations,
+    get_supplier_bid_snapshot,
     get_transfer_gate_state,
     list_bids_for_request,
     list_supplier_invitations,
@@ -4598,15 +4599,23 @@ def api_supplier_bidding_request_details():
             con = None
             cur = None
             try:
+                from utils.procurement_purchase_request import _get_table_columns, _pick_existing
+
                 con = get_db_connection()
                 cur = con.cursor()
+                detail_cols = _get_table_columns(cur, "PH_PQDTL")
+                dtl_key_col = _pick_existing(detail_cols, "DTLKEY", "PQDTLKEY", "ID")
+                fk_col = _pick_existing(detail_cols, "DOCKEY", "PQKEY", "REQUEST_ID", "HEADER_ID")
+                del_col = _pick_existing(detail_cols, "DELIVERYDATE", "DELIVERY_DATE", "REQUIREDDATE")
+                if not dtl_key_col or not fk_col or not del_col:
+                    return {}
                 placeholders = ', '.join(['?'] * len(detail_ids))
                 cur.execute(
                     f"""
-                    SELECT DTLKEY, DELIVERYDATE, DELIVERY_DATE
+                    SELECT {dtl_key_col}, {del_col}
                     FROM PH_PQDTL
-                    WHERE DOCKEY = ?
-                      AND DTLKEY IN ({placeholders})
+                    WHERE {fk_col} = ?
+                      AND {dtl_key_col} IN ({placeholders})
                     """,
                     tuple([int(request_dockey), *[int(x) for x in detail_ids]]),
                 )
@@ -4618,13 +4627,66 @@ def api_supplier_bidding_request_details():
                         key = int(row[0])
                     except Exception:
                         continue
-                    value = row[1] if len(row) > 1 and row[1] is not None else (row[2] if len(row) > 2 else None)
+                    value = row[1]
                     if value is None:
                         continue
-                    result[key] = str(value)
+                    if hasattr(value, 'isoformat'):
+                        result[key] = value.isoformat()
+                    else:
+                        result[key] = str(value)
                 return result
             except Exception:
                 return {}
+            finally:
+                if cur:
+                    cur.close()
+                if con:
+                    con.close()
+
+        def _lookup_ph_pq_header_delivery(request_dockey: int):
+            out = {}
+            if not request_dockey:
+                return out
+            con = None
+            cur = None
+            try:
+                from utils.procurement_purchase_request import _get_table_columns, _pick_existing
+
+                con = get_db_connection()
+                cur = con.cursor()
+                header_cols = _get_table_columns(cur, "PH_PQ")
+                key_col = _pick_existing(header_cols, "DOCKEY", "PQKEY", "ID")
+                req_col = _pick_existing(header_cols, "REQUIREDDATE", "DELIVERYDATE")
+                doc_col = _pick_existing(header_cols, "DOCDATE", "POSTDATE", "REQUESTDATE")
+                if not key_col:
+                    return out
+                pieces: list[str] = []
+                if req_col:
+                    pieces.append(req_col)
+                if doc_col:
+                    pieces.append(doc_col)
+                if not pieces:
+                    return out
+                cur.execute(
+                    f"SELECT FIRST 1 {', '.join(pieces)} FROM PH_PQ WHERE {key_col} = ?",
+                    (int(request_dockey),),
+                )
+                row = cur.fetchone()
+                if not row:
+                    return out
+                idx = 0
+                if req_col:
+                    v = row[idx]
+                    if v is not None:
+                        out['requiredDeliveryDate'] = v.isoformat() if hasattr(v, 'isoformat') else str(v)
+                    idx += 1
+                if doc_col:
+                    v = row[idx]
+                    if v is not None:
+                        out['documentDate'] = v.isoformat() if hasattr(v, 'isoformat') else str(v)
+                return out
+            except Exception:
+                return out
             finally:
                 if cur:
                     cur.close()
@@ -4654,6 +4716,8 @@ def api_supplier_bidding_request_details():
         except Exception:
             request_dockey_int = 0
 
+        pq_meta = _lookup_ph_pq_header_delivery(request_dockey_int)
+
         raw_rows = request_header.get('sdsdocdetail') or []
         detail_ids_for_lookup: list[int] = []
         for row in raw_rows:
@@ -4679,6 +4743,7 @@ def api_supplier_bidding_request_details():
             resolved_delivery = (
                 row_delivery
                 or lookup_delivery
+                or pq_meta.get('requiredDeliveryDate')
                 or header_delivery_fallback
             )
             delivery_source = (
@@ -4704,6 +4769,18 @@ def api_supplier_bidding_request_details():
                 'tax': float(row.get('taxamt') or row.get('tax') or 0),
             })
 
+        api_required = (
+            request_header.get('requireddate')
+            or request_header.get('requiredDate')
+            or request_header.get('deliverydate')
+        )
+        required_for_pr = pq_meta.get('requiredDeliveryDate') or api_required or header_delivery_fallback
+
+        supplier_for_bid = (request.args.get('supplierCode') or session.get('customer_code') or '').strip()
+        my_bid = None
+        if supplier_for_bid and request_dockey_int:
+            my_bid = get_supplier_bid_snapshot(request_dockey_int, supplier_for_bid)
+
         return jsonify({
             'success': True,
             'requestId': request_header.get('dockey'),
@@ -4711,6 +4788,9 @@ def api_supplier_bidding_request_details():
             'supplierCode': str(request_header.get('code') or '').strip(),
             'details': details,
             'count': len(details),
+            'requiredDeliveryDate': required_for_pr,
+            'documentDate': pq_meta.get('documentDate'),
+            'myBid': my_bid,
         })
     except requests.exceptions.Timeout:
         return jsonify({'success': False, 'error': 'Purchase request lookup timed out'}), 504
@@ -4794,9 +4874,11 @@ def api_admin_list_request_bids(request_id):
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_approve_bid(request_id, bid_id):
     """Approve one supplier bid for a purchase request."""
+    payload = request.get_json(silent=True) or {}
+    udf_reason = str(payload.get('udfReason') or payload.get('reason') or '').strip()
     actor = (session.get('user_email') or session.get('user_name') or 'admin').strip()
     try:
-        result = approve_bid(request_id, bid_id, actor)
+        result = approve_bid(request_id, bid_id, actor, udf_reason)
         gate = get_transfer_gate_state(request_id)
         return jsonify({'success': True, 'message': 'Bid approved', 'data': result, 'gate': gate})
     except BiddingValidationError as exc:
@@ -4812,9 +4894,9 @@ def api_admin_reject_bid(request_id, bid_id):
     """Reject one supplier bid for a purchase request."""
     payload = request.get_json(silent=True) or {}
     actor = (session.get('user_email') or session.get('user_name') or 'admin').strip()
-    remarks = str(payload.get('remarks') or '').strip()
+    udf_reason = str(payload.get('udfReason') or payload.get('reason') or payload.get('remarks') or '').strip()
     try:
-        result = reject_bid(request_id, bid_id, actor, remarks)
+        result = reject_bid(request_id, bid_id, actor, udf_reason)
         gate = get_transfer_gate_state(request_id)
         return jsonify({'success': True, 'message': 'Bid rejected', 'data': result, 'gate': gate})
     except BiddingValidationError as exc:
