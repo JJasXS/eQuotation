@@ -2028,12 +2028,46 @@ body.procurement-warm-ui .stock-card-table th,
 body.procurement-warm-ui .stock-card-table td {
     border-top-color: #efe6d8;
     border-bottom-color: #efe6d8;
+    border-left: 1px solid #e6d8bf;
+    border-right: 1px solid #e6d8bf;
     color: #2a241b;
 }
 
 body.procurement-warm-ui .stock-card-table th {
     background: #faf6ee;
     color: #5c4a32;
+}
+
+/* Clear metric/location separation in Overall Report table */
+body.procurement-warm-ui .stock-card-table th.qty-group-col {
+    border-left: 2px solid #d1bb8f;
+    border-right: 2px solid #d1bb8f;
+    box-shadow: inset 0 -1px 0 #d8c7a3;
+}
+
+body.procurement-warm-ui .stock-card-table th.qty-col,
+body.procurement-warm-ui .stock-card-table td.qty-col {
+    border-left: 1px solid #d9c8a8;
+    border-right: 1px solid #d9c8a8;
+}
+
+body.procurement-warm-ui .stock-card-table td.qty-col.location-bg-1,
+body.procurement-warm-ui .stock-card-table td.qty-col.location-bg-2,
+body.procurement-warm-ui .stock-card-table td.qty-col.location-bg-3,
+body.procurement-warm-ui .stock-card-table td.qty-col.location-bg-4,
+body.procurement-warm-ui .stock-card-table td.qty-col.location-bg-5,
+body.procurement-warm-ui .stock-card-table td.qty-col.location-bg-6,
+body.procurement-warm-ui .stock-card-table td.qty-col.location-bg-7,
+body.procurement-warm-ui .stock-card-table td.qty-col.location-bg-8,
+body.procurement-warm-ui .stock-card-table td.qty-col.location-bg-9,
+body.procurement-warm-ui .stock-card-table td.qty-col.location-bg-10 {
+    box-shadow: inset 0 0 0 1px rgba(166, 131, 73, 0.18);
+}
+
+/* Stronger border for summary metric cards */
+body.procurement-warm-ui .report-summary-card {
+    border: 1px solid #cfb587;
+    box-shadow: 0 1px 4px rgba(84, 64, 32, 0.1);
 }
 
 body.procurement-warm-ui .stock-card-table th.code-col,
