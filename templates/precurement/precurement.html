@@ -11,18 +11,18 @@
     <link rel="stylesheet" href="/static/css/adminViewQuotations.css">
     <link rel="stylesheet" href="/static/css/precurement.css">
 </head>
-<body>
+<body class="procurement-warm-ui">
 
 
-    <div class="container" style="min-height: 80vh;">
+    <div class="container procurement-warm-container" style="min-height: 80vh;">
         <div class="main-content">
 
-            <div class="header" style="display: flex; align-items: center; justify-content: space-between; gap: 18px;">
+            <div class="header procurement-warm-topbar" style="display: flex; align-items: center; justify-content: space-between; gap: 18px;">
                 <div style="display: flex; align-items: center; gap: 18px;">
                     {% include 'components/admin_hamburger_menu.html' %}
                     <div>
                         <h3 class="header-title">Procurement Module</h3>
-                        <div style="font-size: 12px; color: #9ba7b6; margin-top: 4px;">Welcome, {{ user_name }}</div>
+                        <div class="procurement-warm-welcome">Welcome, {{ user_name }}</div>
                     </div>
                 </div>
                 <!-- sidebar toggle removed (requested) -->
@@ -33,41 +33,40 @@
                     <!-- Sidebar tabs removed (requested). Navigation is now handled via the main hamburger menu. -->
                     <div class="procurement-panel">
                         <div id="panel-report" class="panel-content">
-                            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
-                                <h2 style="margin: 0;">Overall Report</h2>
+                            <div class="procurement-report-title-row">
+                                <h2 class="procurement-warm-section-title">Overall Report</h2>
                             </div>
-                           <div class="location-filter-shell" style="margin-bottom: 12px;">
-    <div class="location-filter-row" style="align-items: end; gap: 12px; flex-wrap: wrap;">
-        <label class="pr-field" style="max-width: 180px; margin-bottom: 0;">
-            <span>Last Cutoff Date</span>
-            <input type="date" id="stock-card-from-date" />
-        </label>
-
-        <div class="location-filter-actions" style="gap: 8px;">
-            <button type="button" class="view-pr-refresh-btn" onclick="applyStockCardDateFilter()">Apply Cutoff</button>
-            <button type="button" class="view-pr-refresh-btn" onclick="clearStockCardDateFilter()">Clear Cutoff</button>
-            <button type="button" class="location-buy-btn" onclick="goToCreateProcurement()">New e-Purchase Request</button>
+                           <div class="location-filter-shell">
+        <div class="location-filter-main">
+            <div class="location-filter-row location-filter-row--actions">
+                <label class="pr-field location-filter-date-field">
+                    <span>Last Cutoff Date</span>
+                    <input type="date" id="stock-card-from-date" />
+                </label>
+                <div class="location-filter-actions">
+                    <button type="button" class="view-pr-refresh-btn" onclick="applyStockCardDateFilter()">Apply Cutoff</button>
+                    <button type="button" class="view-pr-refresh-btn" onclick="clearStockCardDateFilter()">Clear Cutoff</button>
+                    <button type="button" class="location-buy-btn" onclick="goToCreateProcurement()">New e-Purchase Request</button>
+                </div>
+            </div>
+            <div class="location-filter-row location-filter-row--qty">
+                <span class="location-filter-label">Qty Mode</span>
+                <div class="qty-mode-toggle" id="qty-mode-toggle">
+                    <button type="button" class="qty-mode-btn qty-mode-active" id="qty-mode-sqty" onclick="setQtyMode('SQTY')">SQTY</button>
+                    <button type="button" class="qty-mode-btn" id="qty-mode-suomqty" onclick="setQtyMode('SUOMQTY')">SUOMQTY</button>
+                </div>
+            </div>
         </div>
-    </div>
-
-    <div class="location-filter-row" style="margin-top: 10px; align-items: center; gap: 10px;">
-        <span class="location-filter-label">Qty Mode</span>
-        <div class="qty-mode-toggle" id="qty-mode-toggle">
-            <button type="button" class="qty-mode-btn qty-mode-active" id="qty-mode-sqty" onclick="setQtyMode('SQTY')">SQTY</button>
-            <button type="button" class="qty-mode-btn" id="qty-mode-suomqty" onclick="setQtyMode('SUOMQTY')">SUOMQTY</button>
+        <div class="location-filter-locations">
+            <div class="location-filter-row location-filter-row--stack">
+                <span class="location-filter-label">Selected Locations</span>
+                <div id="selected-location-list" class="location-pill-list"></div>
+            </div>
+            <div class="location-filter-row location-filter-row--stack">
+                <span class="location-filter-label">Add Location</span>
+                <div id="available-location-list" class="location-pill-list"></div>
+            </div>
         </div>
-    </div>
-
-    <div class="location-filter-row">
-        <span class="location-filter-label">Selected Locations</span>
-        <div id="selected-location-list" class="location-pill-list"></div>
-    </div>
-
-    <div class="location-filter-row">
-        <span class="location-filter-label">Add Location</span>
-        <div id="available-location-list" class="location-pill-list"></div>
-    </div>
-
     <div id="report-summary-cards" class="report-summary-cards"></div>
 </div>
                             <div class="stock-card-table-wrap" id="stock-card-table-wrap">
@@ -128,23 +127,28 @@
                         <div id="panel-view" class="panel-content" style="display: none;">
                             <h2 style="margin-bottom: 12px;">View e-Purchase Request</h2>
                             <div class="view-pr-actions">
-                                <div class="view-pr-actions-left">
-                                    <span class="view-pr-filter-label">Filter By</span>
-                                    <div class="view-pr-filter-tabs" id="view-pr-filter-tabs">
-                                        <button type="button" class="view-pr-filter-tab is-active" data-status="ALL" onclick="setViewStatusFilter('ALL')">ALL</button>
-                                        <button type="button" class="view-pr-filter-tab" data-status="APPROVED" onclick="setViewStatusFilter('APPROVED')">APPROVED</button>
-                                        <button type="button" class="view-pr-filter-tab" data-status="CANCELLED" onclick="setViewStatusFilter('CANCELLED')">CANCELLED</button>
-                                        <button type="button" class="view-pr-filter-tab" data-status="PENDING" onclick="setViewStatusFilter('PENDING')">PENDING</button>
-                                    </div>
-                                </div>
                                 <div class="view-pr-actions-right">
                                     <button type="button" class="view-pr-refresh-btn" onclick="loadViewPurchaseRequests(true)">Refresh</button>
                                     <button type="button" class="view-pr-refresh-btn" id="view-pr-update-btn" onclick="saveViewDetailApprovals()" disabled>Update Details</button>
                                 </div>
                             </div>
                             <div class="view-pr-list-wrap">
-                                <div id="view-pr-list" class="view-pr-list">
-                                    <div class="view-pr-empty">Loading e-Purchase Request records...</div>
+                                <div class="view-pr-split">
+                                    <div class="view-pr-split-left">
+                                        <div class="view-pr-list-toolbar">
+                                            <div class="view-pr-filter-tabs view-pr-filter-tabs--bar" id="view-pr-filter-tabs" role="group" aria-label="Filter by UDF status">
+                                                <button type="button" class="view-pr-filter-tab" data-status="APPROVED" onclick="toggleViewStatusFilter('APPROVED')">APPROVED</button>
+                                                <button type="button" class="view-pr-filter-tab" data-status="CANCELLED" onclick="toggleViewStatusFilter('CANCELLED')">CANCELLED</button>
+                                                <button type="button" class="view-pr-filter-tab is-active" data-status="PENDING" onclick="toggleViewStatusFilter('PENDING')">PENDING</button>
+                                            </div>
+                                        </div>
+                                        <div id="view-pr-list" class="view-pr-list">
+                                            <div class="view-pr-empty">Loading e-Purchase Request records...</div>
+                                        </div>
+                                    </div>
+                                    <div class="view-pr-split-right" id="view-pr-detail-panel">
+                                        <div class="view-pr-detail-panel-empty">Select a purchase request to view its line items.</div>
+                                    </div>
                                 </div>
                             </div>
                             <div id="pr-edit-modal" class="pr-edit-modal" style="display:none;">
@@ -301,33 +305,17 @@
                                                 cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 6px;
                                             }
                                             .pr-supplier-empty { color: #aaa; font-style: italic; font-size: 13px; padding: 8px 0; }
-                                            .view-pr-filter-tabs { display: inline-flex; gap: 6px; align-items: center; }
-                                            .view-pr-filter-tab {
-                                                border: 1px solid #3c4e63;
-                                                background: #223349;
-                                                color: #d4deea;
-                                                border-radius: 999px;
-                                                padding: 4px 10px;
-                                                font-size: 12px;
-                                                cursor: pointer;
-                                            }
-                                            .view-pr-filter-tab.is-active {
-                                                background: #1a87d8;
-                                                border-color: #1a87d8;
-                                                color: #fff;
-                                                font-weight: 600;
-                                            }
                                             .view-pr-status-badge {
                                                 display: inline-flex;
                                                 align-items: center;
-                                                padding: 2px 8px;
+                                                padding: 1px 6px;
                                                 border-radius: 999px;
                                                 background: #24364f;
                                                 border: 1px solid #375173;
                                                 color: #c6d8eb;
-                                                font-size: 11px;
+                                                font-size: 10px;
                                                 font-weight: 700;
-                                                letter-spacing: 0.3px;
+                                                letter-spacing: 0.2px;
                                             }
                                             .pr-edit-modal { position: fixed; inset: 0; z-index: 1200; }
                                             .pr-edit-modal-backdrop { position: absolute; inset: 0; background: rgba(8, 15, 25, 0.58); }
@@ -482,13 +470,14 @@
         let stockCardBuySelections = {};
         let viewPurchaseRequestsLoaded = false;
         let viewPurchaseRequests = [];
-        let viewExpandedHeaderIds = new Set();
+        let viewSelectedHeaderId = null;
         let viewLoadingDetailIds = new Set();
         let viewTransferSavingHeaderIds = new Set();
         let viewApprovalPendingChanges = new Map();
         let viewHeaderStatusPendingChanges = new Map();
         let viewApprovalSaving = false;
-        let viewStatusFilter = 'ALL';
+        const VIEW_UDF_STATUS_OPTIONS = ['APPROVED', 'CANCELLED', 'PENDING'];
+        let viewStatusFilters = new Set(['PENDING']);
         let prEditState = null;
         let prFormEditState = null;
 
@@ -581,24 +570,46 @@
         }
 
         function getFilteredViewPurchaseRequests() {
-            if (viewStatusFilter === 'ALL') {
-                return viewPurchaseRequests;
+            const filters = viewStatusFilters instanceof Set ? viewStatusFilters : new Set(['PENDING']);
+            if (!filters.size) {
+                return viewPurchaseRequests || [];
             }
-            return (viewPurchaseRequests || []).filter((row) => normalizeUdfStatus(row.udfStatus) === viewStatusFilter);
+            return (viewPurchaseRequests || []).filter((row) => filters.has(normalizeUdfStatus(row.udfStatus)));
         }
 
-        function renderFilteredViewPurchaseRequests() {
-            renderViewPurchaseRequests(getFilteredViewPurchaseRequests());
-        }
-
-        function setViewStatusFilter(status) {
-            viewStatusFilter = String(status || 'ALL').toUpperCase();
+        function syncViewStatusFilterTabClasses() {
             const tabs = document.querySelectorAll('#view-pr-filter-tabs .view-pr-filter-tab');
             tabs.forEach((tab) => {
                 const tabStatus = String(tab.getAttribute('data-status') || '').toUpperCase();
-                tab.classList.toggle('is-active', tabStatus === viewStatusFilter);
+                tab.classList.toggle('is-active', viewStatusFilters.has(tabStatus));
             });
+        }
+
+        function toggleViewStatusFilter(status) {
+            const s = String(status || '').toUpperCase();
+            if (!VIEW_UDF_STATUS_OPTIONS.includes(s)) {
+                return;
+            }
+            if (viewStatusFilters.has(s)) {
+                viewStatusFilters.delete(s);
+                if (viewStatusFilters.size === 0) {
+                    viewStatusFilters.add('PENDING');
+                }
+            } else {
+                viewStatusFilters.add(s);
+            }
+            syncViewStatusFilterTabClasses();
             renderFilteredViewPurchaseRequests();
+        }
+
+        function renderFilteredViewPurchaseRequests() {
+            const rows = getFilteredViewPurchaseRequests();
+            if (viewSelectedHeaderId != null && !rows.some((r) => Number(r.id || 0) === Number(viewSelectedHeaderId))) {
+                viewSelectedHeaderId = null;
+            }
+            syncViewStatusFilterTabClasses();
+            renderViewPurchaseRequests(rows);
+            renderViewPurchaseRequestDetailPanel();
         }
 
         function getDetailMaxTransferQuantity(detail) {
@@ -847,104 +858,13 @@
             }
         }
 
-        function renderViewPurchaseRequests(rows) {
-    const list = document.getElementById('view-pr-list');
-    if (!list) {
-        return;
-    }
-
-    if (!Array.isArray(rows) || !rows.length) {
-        list.innerHTML = '<div class="view-pr-empty">No e-Purchase Request records found.</div>';
-        return;
-    }
-
-    const htmlParts = [];
-
-    rows.forEach((header) => {
-        const headerId = Number(header.id || 0);
-        const prStatus = String(header.status || 'DRAFT').toUpperCase();
-        const canEditDraft = prStatus === 'DRAFT';
-        const details = Array.isArray(header.details) ? header.details : [];
-        const isLoadingDetails = viewLoadingDetailIds.has(headerId);
-        const isExpanded = viewExpandedHeaderIds.has(headerId);
-        const isTransferring = viewTransferSavingHeaderIds.has(headerId);
-        const canTransfer = isPurchaseRequestTransferReady(header);
-        const transferTitle = getPurchaseRequestTransferTitle(header);
-        const expander = isLoadingDetails ? '...' : (isExpanded ? 'v' : '>');
-
-        htmlParts.push(`
-            <div class="view-pr-card">
-                <div class="view-pr-card-header">
-                    <div class="view-pr-card-grid" onclick="toggleViewPurchaseRequest(${headerId})" style="cursor: pointer;">
-                        <div class="view-pr-main-col">
-                            <div class="view-pr-main-line">
-                                <span class="view-pr-toggle">${expander}</span>
-                                <span class="view-pr-docno">${escapeHtml(header.requestNumber || '-')}</span>
-                                <span class="view-pr-status-badge">${escapeHtml(prStatus)}</span>
-
-                                <select class="view-pr-udf-status" onclick="event.stopPropagation()" onchange="onHeaderUdfStatusChange(${headerId}, this.value)">
-                                    <option value="APPROVED" ${normalizeUdfStatus(header.udfStatus) === 'APPROVED' ? 'selected' : ''}>APPROVED</option>
-                                    <option value="CANCELLED" ${normalizeUdfStatus(header.udfStatus) === 'CANCELLED' ? 'selected' : ''}>CANCELLED</option>
-                                    <option value="PENDING" ${normalizeUdfStatus(header.udfStatus) === 'PENDING' ? 'selected' : ''}>PENDING</option>
-                                </select>
-
-                                <button
-                                    type="button"
-                                    class="view-pr-refresh-btn"
-                                    style="padding:4px 8px;"
-                                    onclick="event.stopPropagation(); openPurchaseRequestEdit(${headerId});"
-                                    ${canEditDraft ? '' : 'disabled'}
-                                    title="${escapeHtml(canEditDraft ? 'Edit draft purchase request' : 'Only draft purchase requests can be edited')}"
-                                >Edit</button>
-                            </div>
-                        </div>
-
-                        <div class="view-pr-meta-row view-pr-supplier-col" style="display: flex; gap: 8px; align-items: flex-start; min-width: 0;">
-                            <span style="font-size: 12px; color: #b9c4d1; min-width: 60px; padding-top: 2px;">Supplier</span>
-                            <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0; max-width: 240px;">
-                                <strong style="font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(header.supplierName || header.supplierId || '-')}</strong>
-                                <span style="font-size: 11px; color: #8b98a8; word-break: break-all; line-height: 1.25;">${escapeHtml((header.supplierEmail && String(header.supplierEmail).trim()) ? String(header.supplierEmail).trim() : '-')}</span>
-                            </div>
-                        </div>
-
-                        <div class="view-pr-meta-row"><span>Requested Date</span><strong>${formatPrDate(header.requestDate)}</strong></div>
-                        <div class="view-pr-meta-row"><span>Status</span><strong>${escapeHtml(prStatus)}</strong></div>
-                        <div class="view-pr-meta-row"><span>Currency</span><strong>${escapeHtml(header.currency || '-')}</strong></div>
-
-                        <div class="view-pr-amount-col">
-                            <div class="view-pr-amount-label">Total Amount</div>
-                            <div class="view-pr-amount-value">${formatMoney(header.totalAmount || 0)}</div>
-                        </div>
-                    </div>
-                </div>
-        `);
-
-        if (!isExpanded) {
-            htmlParts.push('</div>');
-            return;
-        }
-
-        if (isLoadingDetails) {
-            htmlParts.push(`
-                <div class="view-pr-detail-host">
-                    <div class="view-pr-detail-empty">Loading detail rows...</div>
-                </div>
-            `);
-            htmlParts.push('</div>');
-            return;
-        }
-
-        if (!details.length) {
-            htmlParts.push(`
-                <div class="view-pr-detail-host">
-                    <div class="view-pr-detail-empty">No detail rows found for this request.</div>
-                </div>
-            `);
-            htmlParts.push('</div>');
-            return;
-        }
-
-        const detailRows = details.map((detail, idx) => `
+        function buildViewPurchaseRequestDetailHtml(header) {
+            const headerId = Number(header.id || 0);
+            const details = Array.isArray(header.details) ? header.details : [];
+            const isTransferring = viewTransferSavingHeaderIds.has(headerId);
+            const canTransfer = isPurchaseRequestTransferReady(header);
+            const transferTitle = getPurchaseRequestTransferTitle(header);
+            const detailRows = details.map((detail, idx) => `
             <tr>
                 <td class="col-line">${escapeHtml(detail.seq || (idx + 1))}</td>
                 <td class="col-item-name">${escapeHtml(detail.itemName || '-')}</td>
@@ -984,8 +904,12 @@
             </tr>
         `).join('');
 
-        htmlParts.push(`
-            <div class="view-pr-detail-host">
+            return `
+            <div class="view-pr-detail-panel-head">
+                <span class="view-pr-detail-panel-title">${escapeHtml(header.requestNumber || '-')}</span>
+                <span class="view-pr-detail-panel-sub">${escapeHtml(String(header.status || '').toUpperCase())}</span>
+            </div>
+            <div class="view-pr-detail-host view-pr-detail-host--panel">
                 <div class="view-pr-detail-actions">
                     <div class="view-pr-detail-summary">
                         Selected transfer qty: <strong>${formatStockCardNumber(getSelectedTransferQuantityTotal(header))}</strong>
@@ -994,7 +918,7 @@
                     <button
                         type="button"
                         class="view-pr-transfer-btn ${(canTransfer && !isTransferring) ? '' : 'is-disabled'}"
-                        onclick="event.stopPropagation(); onTransferPurchaseRequest(${headerId})"
+                        onclick="onTransferPurchaseRequest(${headerId})"
                         ${canTransfer ? '' : 'disabled'}
                         title="${escapeHtml(transferTitle)}"
                     >${isTransferring ? 'Transferring...' : (canTransfer ? 'Transfer to Purchase Order' : 'Awaiting Approval')}</button>
@@ -1034,41 +958,134 @@
                     </table>
                 </div>
             </div>
+        `;
+        }
+
+        function renderViewPurchaseRequestDetailPanel() {
+            const panel = document.getElementById('view-pr-detail-panel');
+            if (!panel) {
+                return;
+            }
+
+            const selectedId = viewSelectedHeaderId != null ? Number(viewSelectedHeaderId) : null;
+            if (!selectedId) {
+                panel.innerHTML = '<div class="view-pr-detail-panel-empty">Select a purchase request to view its line items.</div>';
+                return;
+            }
+
+            const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === selectedId);
+            if (!header) {
+                panel.innerHTML = '<div class="view-pr-detail-panel-empty">Purchase request not found.</div>';
+                return;
+            }
+
+            if (viewLoadingDetailIds.has(selectedId)) {
+                panel.innerHTML = '<div class="view-pr-detail-empty">Loading line items…</div>';
+                return;
+            }
+
+            if (!Array.isArray(header.details)) {
+                panel.innerHTML = '<div class="view-pr-detail-empty">Loading line items…</div>';
+                return;
+            }
+
+            if (!header.details.length) {
+                panel.innerHTML = `
+                    <div class="view-pr-detail-panel-head">
+                        <span class="view-pr-detail-panel-title">${escapeHtml(header.requestNumber || '-')}</span>
+                    </div>
+                    <div class="view-pr-detail-empty">No line items for this request.</div>
+                `;
+                return;
+            }
+
+            panel.innerHTML = buildViewPurchaseRequestDetailHtml(header);
+        }
+
+        function renderViewPurchaseRequests(rows) {
+            const list = document.getElementById('view-pr-list');
+            if (!list) {
+                return;
+            }
+
+            if (!Array.isArray(rows) || !rows.length) {
+                list.innerHTML = '<div class="view-pr-empty">No e-Purchase Request records found.</div>';
+                return;
+            }
+
+            const htmlParts = [];
+
+            rows.forEach((header) => {
+                const headerId = Number(header.id || 0);
+                const prStatus = String(header.status || 'DRAFT').toUpperCase();
+                const canEditDraft = prStatus === 'DRAFT';
+                const isSelected = viewSelectedHeaderId != null && Number(viewSelectedHeaderId) === headerId;
+                const supplierEmail = (header.supplierEmail && String(header.supplierEmail).trim()) ? String(header.supplierEmail).trim() : '-';
+                htmlParts.push(`
+            <div class="view-pr-card${isSelected ? ' is-selected' : ''}">
+                <div class="view-pr-card-grid view-pr-card-summary" onclick="selectViewPurchaseRequest(${headerId})" style="cursor: pointer;">
+                    <div class="view-pr-main-col">
+                        <span class="view-pr-docno">${escapeHtml(header.requestNumber || '-')}</span>
+                        <span class="view-pr-status-badge">${escapeHtml(prStatus)}</span>
+                        <select class="view-pr-udf-status" onclick="event.stopPropagation()" onchange="onHeaderUdfStatusChange(${headerId}, this.value)">
+                            <option value="APPROVED" ${normalizeUdfStatus(header.udfStatus) === 'APPROVED' ? 'selected' : ''}>APPROVED</option>
+                            <option value="CANCELLED" ${normalizeUdfStatus(header.udfStatus) === 'CANCELLED' ? 'selected' : ''}>CANCELLED</option>
+                            <option value="PENDING" ${normalizeUdfStatus(header.udfStatus) === 'PENDING' ? 'selected' : ''}>PENDING</option>
+                        </select>
+                        <button type="button" class="view-pr-refresh-btn view-pr-edit-inline-btn" onclick="event.stopPropagation(); openPurchaseRequestEdit(${headerId});" ${canEditDraft ? '' : 'disabled'} title="${escapeHtml(canEditDraft ? 'Edit draft purchase request' : 'Only draft purchase requests can be edited')}">Edit</button>
+                    </div>
+
+                    <div class="view-pr-col view-pr-col--supplier">
+                        <span class="view-pr-field-label">Supplier</span>
+                        <span class="view-pr-text" title="${escapeHtml(header.supplierName || header.supplierId || '-')}">${escapeHtml(header.supplierName || header.supplierId || '-')}</span>
+                        <span class="view-pr-text view-pr-text--muted">${escapeHtml(supplierEmail)}</span>
+                    </div>
+
+                    <div class="view-pr-col">
+                        <span class="view-pr-field-label">Date</span>
+                        <span class="view-pr-text">${formatPrDate(header.requestDate)}</span>
+                    </div>
+
+                    <div class="view-pr-col view-pr-amount-col">
+                        <span class="view-pr-field-label">Total</span>
+                        <span class="view-pr-text view-pr-text--amount">${formatMoney(header.totalAmount || 0)}</span>
+                    </div>
+                </div>
+            </div>
         `);
+            });
 
-        htmlParts.push('</div>');
-    });
+            list.innerHTML = htmlParts.join('');
+        }
 
-    list.innerHTML = htmlParts.join('');
-}
-
-        function toggleViewPurchaseRequest(headerId) {
+        function selectViewPurchaseRequest(headerId) {
             if (!headerId) {
                 return;
             }
-            const record = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(headerId));
+            const id = Number(headerId);
+            const record = viewPurchaseRequests.find((row) => Number(row.id || 0) === id);
             if (!record) {
                 return;
             }
 
-            if (viewExpandedHeaderIds.has(headerId)) {
-                viewExpandedHeaderIds.delete(headerId);
+            if (viewSelectedHeaderId != null && Number(viewSelectedHeaderId) === id) {
+                viewSelectedHeaderId = null;
                 renderFilteredViewPurchaseRequests();
                 return;
             }
 
-            viewExpandedHeaderIds.add(headerId);
+            viewSelectedHeaderId = id;
 
             if (Array.isArray(record.details)) {
                 renderFilteredViewPurchaseRequests();
                 return;
             }
 
-            viewLoadingDetailIds.add(headerId);
+            viewLoadingDetailIds.add(id);
             renderFilteredViewPurchaseRequests();
 
             const requestNo = encodeURIComponent(String(record.requestNumber || ''));
-            fetch(`/api/admin/procurement/purchase-requests/details?request_id=${headerId}&request_no=${requestNo}`)
+            fetch(`/api/admin/procurement/purchase-requests/details?request_id=${id}&request_no=${requestNo}`)
                 .then((res) => res.json())
                 .then((payload) => {
                     if (!payload.success) {
@@ -1096,7 +1113,7 @@
                     record.details = [];
                 })
                 .finally(() => {
-                    viewLoadingDetailIds.delete(headerId);
+                    viewLoadingDetailIds.delete(id);
                     renderFilteredViewPurchaseRequests();
                 });
         }
@@ -1122,7 +1139,8 @@
                         row.udfStatus = normalizeUdfStatus(row.udfStatus);
                         row._originalUdfStatus = row.udfStatus;
                     });
-                    viewExpandedHeaderIds = new Set();
+                    viewSelectedHeaderId = null;
+                    viewStatusFilters = new Set(['PENDING']);
                     viewLoadingDetailIds = new Set();
                     viewTransferSavingHeaderIds = new Set();
                     viewApprovalPendingChanges = new Map();
@@ -1652,14 +1670,14 @@
                 }
             }
             const cards = [
-                { label: 'S.O Qty',      key: 'so_qty',      bg: '#1a2d45', color: '#7ec8f7' },
-                { label: 'P.O Qty',      key: 'po_qty',      bg: '#2e2107', color: '#f5c842' },
-                { label: 'J.O Qty',      key: 'jo_qty',      bg: '#112a1a', color: '#5de0a0' },
-                { label: 'Avail. Qty',   key: 'qty',         bg: '#1e1535', color: '#c27eff' },
-                { label: 'Qty on Hand',  key: 'avail_qty',   bg: '#0d2530', color: '#5ad4f7' },
-                { label: 'Need to Buy',  key: 'need_to_buy', bg: '#2e0e18', color: '#ff7a9c' },
-                { label: 'Pending PR',   key: 'pending_pr',  bg: '#2a2005', color: '#ffd66b' },
-            ];
+                { label: 'S.O Qty',      key: 'so_qty',      bg: '#e3eef9', color: '#153d66' },
+                { label: 'P.O Qty',      key: 'po_qty',      bg: '#faf0d8', color: '#6b4e0f' },
+                { label: 'J.O Qty',      key: 'jo_qty',      bg: '#dff3e6', color: '#14532a' },
+                { label: 'Avail. Qty',   key: 'qty',         bg: '#ede6f7', color: '#4a3168' },
+                { label: 'Qty on Hand',  key: 'avail_qty',   bg: '#dff2f6', color: '#124a5c' },
+                { label: 'Need to Buy',  key: 'need_to_buy', bg: '#fce4e8', color: '#7a2222' },
+                { label: 'Pending PR',   key: 'pending_pr',  bg: '#fff2d6', color: '#6d5200' },
+            ].map((c) => ({ ...c, label: String(c.label || '').toUpperCase() }));
             el.innerHTML = cards.map(c => `
                 <div class="report-summary-card" style="background:${c.bg};color:${c.color};">
                     <div class="report-summary-card-label">${c.label}</div>

@@ -13,21 +13,32 @@
             color: #2a241b;
         }
         .bidding-page { min-height: 100vh; display: flex; flex-direction: column; box-sizing: border-box; }
-        .bidding-page .main-content { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 0 12px 12px; max-width: none; width: 100%; }
+        .bidding-page .main-content { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 0 8px 8px; max-width: none; width: 100%; }
         .bidding-topbar {
-            display: flex; justify-content: space-between; align-items: center; gap: 16px;
-            padding: 12px 4px 10px; flex-shrink: 0;
+            display: flex; justify-content: space-between; align-items: center; gap: 10px;
+            padding: 8px 4px 7px; flex-shrink: 0;
             border-bottom: 1px solid rgba(139, 90, 31, 0.15);
         }
-        .bidding-topbar h3 { margin: 0; font-size: 1.25rem; letter-spacing: -0.02em; }
+        .bidding-topbar.header {
+            height: auto;
+            padding: 8px 9px;
+            background: linear-gradient(180deg, #fff9f1 0%, #f7efdf 100%);
+            border: 1px solid #dccfb8;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(42, 36, 27, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+            margin-bottom: 2px;
+        }
+        .bidding-topbar h3 { margin: 0; font-size: 1.05rem; letter-spacing: -0.01em; }
+        .bidding-topbar .header-title { color: #4f3a1f; }
+        .bidding-topbar .muted { color: #7a6a52; }
         #admin-bidding-message {
-            font-size: 12px; padding: 6px 4px 10px; min-height: 1.25em;
+            font-size: 11px; padding: 4px 3px 6px; min-height: 1.1em;
             color: #4f5b49;
         }
         .bidding-grid {
             display: grid;
             grid-template-columns: minmax(200px, 0.9fr) minmax(260px, 1.25fr) minmax(280px, 1.15fr);
-            gap: 12px;
+            gap: 8px;
             flex: 1;
             min-height: 0;
             align-items: stretch;
@@ -35,7 +46,7 @@
         .bidding-col-stack {
             display: flex;
             flex-direction: column;
-            gap: 12px;
+            gap: 8px;
             min-height: 0;
             min-width: 0;
             align-self: stretch;
@@ -45,9 +56,23 @@
             min-height: 0;
         }
         @media (max-width: 1400px) {
-            .bidding-grid { grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr); grid-template-rows: auto minmax(240px, 1fr); }
+            .bidding-grid { grid-template-columns: minmax(170px, 1fr) minmax(210px, 1fr); grid-template-rows: auto minmax(210px, 1fr); }
             .bidding-col-stack { grid-column: 1 / -1; flex-direction: row; align-items: stretch; }
             .bidding-col-stack .bidding-col { flex: 1 1 0; min-width: 0; }
+        }
+        @media (max-width: 980px) {
+            .bidding-page .main-content { padding: 0 6px 6px; }
+            .bidding-grid { gap: 6px; }
+            .bidding-col-stack { gap: 6px; }
+            .bidding-col { border-radius: 10px; }
+            .bidding-col-head { padding: 8px 9px; }
+            .bidding-col-head h2 { font-size: 11px; letter-spacing: 0.03em; }
+            .bidding-col-sub { padding: 6px 9px; font-size: 11px; }
+            .bidding-col-body { padding: 7px 8px; }
+            .toolbar { gap: 5px; }
+            .btn { padding: 5px 9px; font-size: 11px; }
+            .pr-item { padding: 7px 8px; }
+            .pr-item .title { font-size: 12px; }
         }
         @media (max-width: 720px) {
             .bidding-grid { grid-template-columns: 1fr; grid-template-rows: auto; }
@@ -56,83 +81,83 @@
         .bidding-col {
             background: #fffef9;
             border: 1px solid #dccfb8;
-            border-radius: 14px;
-            box-shadow: 0 4px 24px rgba(42, 36, 27, 0.07), inset 0 1px 0 rgba(255,255,255,0.85);
+            border-radius: 12px;
+            box-shadow: 0 2px 14px rgba(42, 36, 27, 0.06), inset 0 1px 0 rgba(255,255,255,0.85);
             display: flex;
             flex-direction: column;
             min-height: 0;
             overflow: hidden;
         }
         .bidding-col-head {
-            padding: 12px 14px;
+            padding: 9px 10px;
             border-bottom: 1px solid #ebe3d4;
             background: linear-gradient(180deg, #fffbf5 0%, #faf6ee 100%);
             flex-shrink: 0;
         }
         .bidding-col-head h2 {
             margin: 0;
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.06em;
             color: #5c4a32;
         }
-        .bidding-col-head .toolbar { margin-top: 8px; }
+        .bidding-col-head .toolbar { margin-top: 6px; }
         .bidding-col-sub {
-            padding: 8px 14px;
-            font-size: 12px;
+            padding: 6px 10px;
+            font-size: 11px;
             color: #6b6254;
             border-bottom: 1px solid #f0eadf;
             flex-shrink: 0;
         }
         .bidding-col-body {
-            padding: 10px 12px;
+            padding: 8px 9px;
             flex: 1;
             min-height: 0;
             overflow-y: auto;
             overflow-x: hidden;
         }
-        .muted { color: #6b6254; font-size: 12px; }
-        .pr-list { display: grid; gap: 8px; }
-        .pr-item { border: 1px solid #e9deca; border-radius: 10px; padding: 10px 12px; background: #fff; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
+        .muted { color: #6b6254; font-size: 11px; }
+        .pr-list { display: grid; gap: 6px; }
+        .pr-item { border: 1px solid #e9deca; border-radius: 9px; padding: 8px 9px; background: #fff; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
         .pr-item:hover { border-color: #c9a86a; box-shadow: 0 2px 8px rgba(139, 90, 31, 0.08); }
         .pr-item.active { border-color: #b6812f; background: linear-gradient(180deg, #fffdfa 0%, #fff8ed 100%); box-shadow: inset 0 0 0 1px rgba(182, 129, 47, 0.2); }
-        .pr-item .title { font-weight: 700; font-size: 13px; }
-        .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-        .btn { border: none; border-radius: 8px; padding: 7px 12px; cursor: pointer; background: #8b5a1f; color: #fff; font-size: 12px; font-weight: 600; }
+        .pr-item .title { font-weight: 700; font-size: 12px; line-height: 1.2; }
+        .toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+        .btn { border: none; border-radius: 7px; padding: 6px 10px; cursor: pointer; background: #8b5a1f; color: #fff; font-size: 11px; font-weight: 600; line-height: 1.2; }
         .btn.secondary { background: #fff; color: #8b5a1f; border: 1px solid #c9a86a; }
         .btn:disabled { opacity: 0.55; cursor: not-allowed; }
-        .invite-help { font-size: 11px; line-height: 1.45; color: #6b6254; margin: 0 0 10px; }
+        .invite-help { font-size: 10px; line-height: 1.35; color: #6b6254; margin: 0 0 6px; }
         .supplier-invite-tools {
-            display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
-            margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #efe6d8;
+            display: flex; flex-wrap: wrap; align-items: center; gap: 7px;
+            margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid #efe6d8;
         }
-        .supplier-invite-tools label { font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 6px; user-select: none; }
+        .supplier-invite-tools label { font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 5px; user-select: none; }
         .invite-extra-emails {
-            width: 100%; box-sizing: border-box; min-height: 52px;
-            padding: 8px 10px; border: 1px solid #ecdfca; border-radius: 10px;
-            font-size: 12px; font-family: inherit; resize: vertical;
+            width: 100%; box-sizing: border-box; min-height: 44px;
+            padding: 7px 8px; border: 1px solid #ecdfca; border-radius: 9px;
+            font-size: 11px; font-family: inherit; resize: vertical;
             background: #fff; color: #2a241b;
         }
         .invite-extra-emails:focus { outline: none; border-color: #c9a86a; box-shadow: 0 0 0 2px rgba(201, 168, 106, 0.2); }
         .supplier-list { border: 1px solid #ecdfca; border-radius: 10px; background: #fff; }
-        .supplier-row { display: flex; gap: 8px; padding: 8px 10px; border-bottom: 1px solid #f2eadf; font-size: 12px; }
+        .supplier-row { display: flex; gap: 6px; padding: 6px 8px; border-bottom: 1px solid #f2eadf; font-size: 11px; }
         .supplier-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
         .supplier-row:last-child { border-bottom: none; }
-        .bid-card { border: 1px solid #e5dcc8; border-radius: 11px; padding: 11px; margin-bottom: 12px; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
-        .compare-card { border: none; border-radius: 0; padding: 0; margin-bottom: 16px; background: transparent; }
-        .compare-title { font-weight: 700; color: #5f4120; margin-bottom: 6px; font-size: 13px; }
-        .compare-note { font-size: 11px; color: #7a6a52; margin-bottom: 10px; line-height: 1.4; }
+        .bid-card { border: 1px solid #e5dcc8; border-radius: 9px; padding: 8px; margin-bottom: 8px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+        .compare-card { border: none; border-radius: 0; padding: 0; margin-bottom: 8px; background: transparent; }
+        .compare-title { font-weight: 700; color: #5f4120; margin-bottom: 4px; font-size: 12px; }
+        .compare-note { font-size: 10px; color: #7a6a52; margin-bottom: 6px; line-height: 1.3; }
         .best-cost { color: #0f6d3f; font-weight: 700; }
-        .status { padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+        .status { padding: 2px 6px; border-radius: 999px; font-size: 10px; font-weight: 700; }
         .status.APPROVED { background: #dff0ff; color: #115282; }
         .status.SUBMITTED { background: #fff3d7; color: #8a6300; }
         .status.REJECTED { background: #f6e2e2; color: #832525; }
-        .new-badge { display: inline-block; margin-left: 8px; padding: 2px 7px; border-radius: 999px; background: #dc2626; color: #fff; font-size: 10px; font-weight: 700; letter-spacing: 0.03em; }
-        .bidding-col-body table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 11px; }
-        .bidding-col-body th, .bidding-col-body td { border-bottom: 1px solid #efe6d8; padding: 6px 5px; text-align: left; }
-        .bidding-col-body th { background: #faf6ee; color: #5c4a32; font-weight: 600; }
-        .bidding-placeholder { color: #9a8f7e; font-size: 12px; padding: 16px 8px; text-align: center; line-height: 1.5; }
+        .new-badge { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: #dc2626; color: #fff; font-size: 9px; font-weight: 700; letter-spacing: 0.02em; }
+        .bidding-col-body table { width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 10px; }
+        .bidding-col-body th, .bidding-col-body td { border-bottom: 1px solid #efe6d8; padding: 4px 4px; text-align: left; }
+        .bidding-col-body th { background: #faf6ee; color: #5c4a32; font-weight: 600; font-size: 10px; }
+        .bidding-placeholder { color: #9a8f7e; font-size: 11px; padding: 10px 5px; text-align: center; line-height: 1.35; }
     </style>
 </head>
 <body>
@@ -198,10 +223,7 @@
                             </div>
                         </div>
                         <div class="bidding-col-body supplier-list-wrap">
-                            <p class="invite-help">
-                                Saving invitations records who may bid on this PR in the system.
-                                RFQ emails are sent to supplier emails shown below (when available) plus any additional notify emails.
-                            </p>
+                            
                             <label class="muted" for="additional-invite-emails" style="display:block;font-size:11px;margin-bottom:4px;">Additional notify emails (optional)</label>
                             <textarea id="additional-invite-emails" class="invite-extra-emails" rows="2" placeholder="You can separate by comma, semicolon, space, or new line." autocomplete="off"></textarea>
                             <div class="supplier-invite-tools">
