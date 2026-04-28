@@ -691,8 +691,9 @@
                     throw new Error(data.error || `Transfer failed (HTTP ${res.status})`);
                 }
 
-                const poNo = data?.data?.poNumber || '-';
-                alert(`Transfer completed. Purchase Order: ${poNo}`);
+                const poNumbers = Array.isArray(data?.data?.poNumbers) ? data.data.poNumbers.filter(Boolean) : [];
+                const poText = poNumbers.length ? poNumbers.join(', ') : (data?.data?.poNumber || '-');
+                alert(`Transfer completed. Purchase Order(s): ${poText}`);
                 loadViewPurchaseRequests(true);
             } catch (error) {
                 alert(error.message || 'Transfer to Purchase Order failed.');
@@ -1006,6 +1007,14 @@
                 const prStatus = String(header.status || 'DRAFT').toUpperCase();
                 const canEditDraft = prStatus === 'DRAFT';
                 const isSelected = viewSelectedHeaderId != null && Number(viewSelectedHeaderId) === headerId;
+                const supplierRaw = String(header.supplierName || header.supplierId || '-').trim();
+                const supplierParts = supplierRaw
+                    .split(',')
+                    .map((part) => String(part || '').trim())
+                    .filter(Boolean);
+                const supplierDisplay = supplierParts.length > 1
+                    ? `Multiple suppliers (${supplierParts.length})`
+                    : (supplierRaw || '-');
                 const rawEmail = (header.supplierEmail && String(header.supplierEmail).trim()) ? String(header.supplierEmail).trim() : '';
                 const emailCell = rawEmail
                     ? `<span class="view-pr-text view-pr-text--muted view-pr-card-email-text" title="${escapeHtml(rawEmail)}">${escapeHtml(rawEmail)}</span>`
@@ -1018,7 +1027,7 @@
                             <span class="view-pr-docno">${escapeHtml(header.requestNumber || '-')}</span>
                         </div>
                         <div class="view-pr-cgrid-cell view-pr-cgrid-cell--name">
-                            <span class="view-pr-text view-pr-card-supplier-name" title="${escapeHtml(header.supplierName || header.supplierId || '-')}">${escapeHtml(header.supplierName || header.supplierId || '-')}</span>
+                            <span class="view-pr-text view-pr-card-supplier-name" title="${escapeHtml(supplierRaw || '-')}">${escapeHtml(supplierDisplay)}</span>
                         </div>
                         <div class="view-pr-cgrid-cell view-pr-cgrid-cell--date">
                             <span class="view-pr-text">${formatPrDate(header.requestDate)}</span>
@@ -1119,11 +1128,18 @@
                 list.innerHTML = '<div class="view-pr-empty">Loading e-Purchase Request records...</div>';
             }
 
-            return fetch('/api/admin/procurement/purchase-requests?offset=0&limit=50&fast=1')
+            return fetch('/api/admin/procurement/purchase-requests?offset=0&limit=50&fast=1&debug_suppliers=1')
                 .then((res) => res.json())
                 .then((payload) => {
                     if (!payload.success) {
                         throw new Error(payload.error || 'Failed to load e-Purchase Request records');
+                    }
+                    if (payload.debugSuppliers) {
+                        try {
+                            console.log('[VIEW PR DEBUG suppliers]', payload.debugSuppliers);
+                        } catch (e) {
+                            // no-op
+                        }
                     }
                     viewPurchaseRequests = Array.isArray(payload.data) ? payload.data : [];
                     viewPurchaseRequests.forEach((row) => {

@@ -158,6 +158,23 @@
         .bidding-col-body th, .bidding-col-body td { border-bottom: 1px solid #efe6d8; padding: 4px 4px; text-align: left; }
         .bidding-col-body th { background: #faf6ee; color: #5c4a32; font-weight: 600; font-size: 10px; }
         .bidding-placeholder { color: #9a8f7e; font-size: 11px; padding: 10px 5px; text-align: center; line-height: 1.35; }
+
+        /* Hamburger menu theme alignment (bright/warm) */
+        .bidding-page .hamburger-btn span { background: #8b5a1f; }
+        .bidding-page .hamburger-btn:hover span { background: #b6812f; }
+        .bidding-page .hamburger-overlay { background: rgba(42, 36, 27, 0.32); }
+        .bidding-page .hamburger-dropdown {
+            background: #fffef9;
+            border-right: 1px solid #dccfb8;
+            box-shadow: 3px 0 16px rgba(42, 36, 27, 0.16);
+        }
+        .bidding-page .hamburger-dropdown a { color: #5c4a32; border-bottom-color: #efe6d8; }
+        .bidding-page .hamburger-dropdown a:hover { background: #fff8ed; color: #2a241b; }
+        .bidding-page .hamburger-dropdown .submenu { background: #faf6ee; }
+        .bidding-page .hamburger-dropdown .submenu a { border-bottom-color: #efe6d8; }
+        .bidding-page .hamburger-dropdown .submenu a:hover { background: #fff8ed; }
+        .bidding-page .hamburger-dropdown a.logout-link { border-top-color: #efe6d8; color: #b42318; }
+        .bidding-page .hamburger-dropdown a.logout-link:hover { background: #fdecef; color: #8a1c1c; }
     </style>
 </head>
 <body>
@@ -198,6 +215,7 @@
                         <h2>Submitted bids</h2>
                         <div class="toolbar">
                             <button class="btn secondary" type="button" id="load-bids-btn" onclick="loadBidsForActivePr()" disabled>Refresh bids</button>
+                            <button class="btn" type="button" id="save-line-awards-btn" onclick="saveLineAwards()" disabled>Save Item Awards</button>
                         </div>
                     </div>
                     <div class="bidding-col-sub" id="current-pr-subtitle">Select a purchase request to load bids.</div>
@@ -246,6 +264,7 @@
         let supplierCache = [];
         let activePr = null;
         let seenPrIds = new Set();
+        let currentBidLineAwards = new Map();
 
         function msg(text, isError) {
             const el = document.getElementById('admin-bidding-message');
@@ -316,6 +335,7 @@
         function clearBiddingPanels() {
             const bidsEl = document.getElementById('bids-cards-wrap');
             const cmpEl = document.getElementById('compare-wrap');
+            currentBidLineAwards = new Map();
             if (bidsEl) {
                 bidsEl.innerHTML = '<div class="bidding-placeholder">Select a purchase request to view submitted bids.</div>';
             }
@@ -327,6 +347,7 @@
         function setSelectionUi() {
             document.getElementById('invite-btn').disabled = !activePr;
             document.getElementById('load-bids-btn').disabled = !activePr;
+            document.getElementById('save-line-awards-btn').disabled = !activePr;
             const sub = document.getElementById('current-pr-subtitle');
             if (sub) {
                 sub.textContent = activePr
@@ -474,6 +495,17 @@
                 return;
             }
 
+            const gate = body.gate || {};
+            const lineAwards = Array.isArray(gate.lineAwards) ? gate.lineAwards : [];
+            currentBidLineAwards = new Map();
+            lineAwards.forEach((row) => {
+                const detailId = Number(row && row.detailId || 0);
+                const bidId = Number(row && row.bidId || 0);
+                if (detailId > 0 && bidId > 0) {
+                    currentBidLineAwards.set(detailId, bidId);
+                }
+            });
+
             const supplierTotals = bids.map((bid) => {
                 const totalAmount = (bid.lines || []).reduce((sum, line) => sum + Number(line.amount || 0), 0);
                 const lineCount = Array.isArray(bid.lines) ? bid.lines.length : 0;
@@ -526,7 +558,7 @@
             const compareHtml = `
                 <div class="compare-card">
                     <div class="compare-title">Totals by supplier</div>
-                    <div class="compare-note">Compare total bid value and ranking before approve/reject. Lowest total is highlighted.</div>
+                    <div class="compare-note">Tick line checkboxes in Submitted bids, then click Save Item Awards. You can choose Item A from Supplier 1 and Item B from Supplier 2.</div>
                     <table>
                         <thead><tr><th>Supplier</th><th>Status</th><th>Lines</th><th>Total</th><th>Rank</th></tr></thead>
                         <tbody>
@@ -556,6 +588,14 @@
                 const newBadge = idx === 0 ? '<span class="new-badge">New</span>' : '';
                 const rows = (bid.lines || []).map((line) => `
                     <tr>
+                        <td style="text-align:center;">
+                            <input type="checkbox"
+                                   class="line-award-checkbox"
+                                   data-detail-id="${Number(line.detailId || 0)}"
+                                   data-bid-id="${Number(bid.bidId || 0)}"
+                                   ${Number(currentBidLineAwards.get(Number(line.detailId || 0)) || 0) === Number(bid.bidId || 0) ? 'checked' : ''}
+                                   onchange="onLineAwardToggle(this)" />
+                        </td>
                         <td>${esc(line.itemCode || '')}</td>
                         <td>${Number(line.quantity || 0).toFixed(2)}</td>
                         <td>${Number(line.unitPrice || 0).toFixed(2)}</td>
@@ -564,7 +604,6 @@
                         <td>${Number(line.leadDays || 0)}</td>
                     </tr>
                 `).join('');
-                const bidIdNum = Number(bid.bidId || 0);
 
                 return `
                     <div class="bid-card">
@@ -574,15 +613,9 @@
                         </div>
                         <div class="muted">Submitted by ${esc(bid.createdBy || '-')} | ${esc(bid.createdAt || '')}</div>
                         <table>
-                            <thead><tr><th>Item</th><th>Qty</th><th>Unit Price</th><th>Tax</th><th>Amount</th><th>Lead Days</th></tr></thead>
-                            <tbody>${rows || '<tr><td colspan="6" class="muted">No lines</td></tr>'}</tbody>
+                            <thead><tr><th style="width:30px;">Pick</th><th>Item</th><th>Qty</th><th>Unit Price</th><th>Tax</th><th>Amount</th><th>Lead Days</th></tr></thead>
+                            <tbody>${rows || '<tr><td colspan="7" class="muted">No lines</td></tr>'}</tbody>
                         </table>
-                        <label class="muted" style="display:block;margin-top:10px;font-size:12px;">Reason</label>
-                        <textarea id="bid-reason-${bidIdNum}" class="bid-reason-input" rows="2" style="width:100%;box-sizing:border-box;border:1px solid #ecdfca;border-radius:8px;padding:8px;font-size:12px;" onclick="event.stopPropagation();" placeholder="">${esc(bid.udfReason || '')}</textarea>
-                        <div class="toolbar" style="margin-top:8px;">
-                            <button class="btn" type="button" onclick="approveBid(${activePr.id}, ${bid.bidId})">Approve</button>
-                            <button class="btn secondary" type="button" onclick="rejectBid(${activePr.id}, ${bid.bidId})">Reject</button>
-                        </div>
                     </div>
                 `;
             }).join('');
@@ -590,39 +623,55 @@
             if (bidsWrap) bidsWrap.innerHTML = bidsHtml;
         }
 
-        async function approveBid(requestId, bidId) {
-            const ta = document.getElementById('bid-reason-' + Number(bidId || 0));
-            const udfReason = ta ? String(ta.value || '').trim() : '';
-            msg('Approving bid...');
-            const res = await fetch(`/api/admin/procurement/purchase-requests/${requestId}/bids/${bidId}/approve`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ udfReason }),
-            });
-            const body = await res.json();
-            if (!res.ok || !body.success) {
-                msg(body.error || 'Approve failed', true);
-                return;
+        function onLineAwardToggle(el) {
+            const detailId = Number(el?.dataset?.detailId || 0);
+            const bidId = Number(el?.dataset?.bidId || 0);
+            if (!(detailId > 0 && bidId > 0)) return;
+            if (el.checked) {
+                document.querySelectorAll(`.line-award-checkbox[data-detail-id="${detailId}"]`).forEach((cb) => {
+                    if (cb !== el) cb.checked = false;
+                });
+                currentBidLineAwards.set(detailId, bidId);
+            } else {
+                currentBidLineAwards.delete(detailId);
             }
-            msg('Bid approved. PR can now transfer to PO using selected supplier bid.');
-            await loadBidsForActivePr();
         }
 
-        async function rejectBid(requestId, bidId) {
-            const ta = document.getElementById('bid-reason-' + Number(bidId || 0));
-            const udfReason = ta ? String(ta.value || '').trim() : '';
-            msg('Rejecting bid...');
-            const res = await fetch(`/api/admin/procurement/purchase-requests/${requestId}/bids/${bidId}/reject`, {
+        async function saveLineAwards() {
+            if (!activePr) {
+                msg('Select a purchase request first.', true);
+                return;
+            }
+            // Build from currently checked boxes to avoid stale in-memory map edge cases.
+            const checked = Array.from(document.querySelectorAll('.line-award-checkbox:checked'));
+            const byDetail = new Map();
+            checked.forEach((cb) => {
+                const detailId = Number(cb?.dataset?.detailId || 0);
+                const bidId = Number(cb?.dataset?.bidId || 0);
+                if (detailId > 0 && bidId > 0) {
+                    byDetail.set(detailId, bidId);
+                }
+            });
+            const awards = Array.from(byDetail.entries()).map(([detailId, bidId]) => ({ detailId, bidId }));
+            if (!awards.length) {
+                msg('Tick at least one line to save item awards.', true);
+                return;
+            }
+            currentBidLineAwards = byDetail;
+            msg('Saving item awards...');
+            const res = await fetch(`/api/admin/procurement/purchase-requests/${activePr.id}/bids/line-awards`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ udfReason }),
+                body: JSON.stringify({ awards }),
             });
             const body = await res.json();
             if (!res.ok || !body.success) {
-                msg(body.error || 'Reject failed', true);
+                msg(body.error || 'Failed to save item awards', true);
                 return;
             }
-            msg('Bid rejected.');
+            const savedCount = Number(body?.data?.savedCount || awards.length);
+            const supplierCount = Number(body?.data?.supplierCount || 0);
+            msg(`Item awards saved (${savedCount} item(s), ${supplierCount || 1} supplier group(s)). You can now transfer PR->PO by selected awarded lines.`);
             await loadBidsForActivePr();
         }
 

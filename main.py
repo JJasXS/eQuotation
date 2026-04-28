@@ -51,9 +51,9 @@ from utils.procurement_purchase_order_transfer import (
     transfer_purchase_request_to_po,
 )
 from utils.procurement_bidding import (
+    apply_awarded_lines_to_request,
     BiddingValidationError,
     _normalize_supplier_rows,
-    apply_approved_bid_to_request,
     approve_bid,
     create_bid_invitations,
     get_supplier_bid_snapshot,
@@ -61,9 +61,11 @@ from utils.procurement_bidding import (
     list_bids_for_request,
     list_supplier_invitations,
     map_approved_bid_suppliers_by_request_ids,
+    map_awarded_suppliers_by_request_ids,
     reject_bid,
+    save_line_awards,
     submit_supplier_bid,
-    validate_transfer_against_approved_bid,
+    validate_transfer_against_line_awards,
 )
 from utils.sql_query_helpers import (
     fetch_stock_items,
@@ -4117,6 +4119,8 @@ def api_admin_list_purchase_requests():
     raw_offset = (request.args.get('offset') or '').strip()
     raw_limit = (request.args.get('limit') or '').strip()
     raw_fast = request.args.get('fast')
+    raw_debug_suppliers = request.args.get('debug_suppliers')
+    debug_suppliers = str(raw_debug_suppliers or '').strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
     if raw_fast is None:
         # Default to fast mode for better UI responsiveness.
         fast_mode = True
@@ -4289,15 +4293,10 @@ def api_admin_list_purchase_requests():
                 'departmentId': str(row.get('businessunit') or row.get('area') or '').strip(),
                 'costCenter': str(row.get('businessunit') or '').strip(),
                 'project': str(row.get('project') or '').strip() or '----',
-                'supplierId': str(row.get('agent') or '').strip(),
-                'supplierName': str(row.get('companyname') or row.get('companyName') or '').strip(),
-                'supplierEmail': str(
-                    row.get('udf_email')
-                    or row.get('UDF_EMAIL')
-                    or row.get('email')
-                    or row.get('EMAIL')
-                    or ''
-                ).strip(),
+                # Keep supplier empty until bid award exists (requested UX behavior).
+                'supplierId': '',
+                'supplierName': '',
+                'supplierEmail': '',
                 'currency': str(row.get('currencycode') or '').strip(),
                 'description': str(row.get('description') or '').strip(),
                 'udfReason': str(row.get('udf_reason') or '').strip(),
@@ -4311,6 +4310,38 @@ def api_admin_list_purchase_requests():
                 'balanceQty': _num(qty_summary.get('balanceQty')),
                 'details': None,
             })
+
+        try:
+            awarded_suppliers = map_awarded_suppliers_by_request_ids([int(r['id']) for r in records if r.get('id')])
+        except Exception as awarded_exc:
+            print(f"[PROCUREMENT LIST PR] awarded supplier lookup warning: {awarded_exc}", flush=True)
+            awarded_suppliers = {}
+        debug_supplier_rows = []
+        for rec in records:
+            rid = rec.get('id')
+            if not rid:
+                continue
+            try:
+                key = int(rid)
+            except Exception:
+                continue
+            hit = awarded_suppliers.get(key)
+            if not isinstance(hit, dict):
+                if debug_suppliers:
+                    debug_supplier_rows.append({
+                        'requestId': key,
+                        'awardedSupplierCode': '',
+                        'awardedSupplierName': '',
+                    })
+                continue
+            rec['supplierId'] = str(hit.get('supplierCode') or '').strip()
+            rec['supplierName'] = str(hit.get('supplierName') or '').strip()
+            if debug_suppliers:
+                debug_supplier_rows.append({
+                    'requestId': key,
+                    'awardedSupplierCode': rec['supplierId'],
+                    'awardedSupplierName': rec['supplierName'],
+                })
 
         if not fast_mode:
             try:
@@ -4332,11 +4363,11 @@ def api_admin_list_purchase_requests():
                     continue
                 code = str(info.get('supplierCode') or '').strip()
                 name = str(info.get('supplierName') or '').strip()
-                if code:
+                if code and not rec.get('supplierId'):
                     rec['supplierId'] = code
-                if name:
+                if name and not rec.get('supplierName'):
                     rec['supplierName'] = name
-                elif code:
+                elif code and not rec.get('supplierName'):
                     rec['supplierName'] = code
 
             try:
@@ -4368,12 +4399,26 @@ def api_admin_list_purchase_requests():
             except Exception as em_exc:
                 print(f"[PROCUREMENT LIST PR] supplier master/email enrichment warning: {em_exc}", flush=True)
 
-        return jsonify({
+        if debug_suppliers:
+            try:
+                preview = debug_supplier_rows[:20]
+                print(f"[PROCUREMENT LIST PR DEBUG] supplier mapping preview: {preview}", flush=True)
+            except Exception:
+                pass
+
+        response_payload = {
             'success': True,
             'data': records,
             'count': len(records),
             'pagination': pagination if isinstance(pagination, dict) else {'offset': offset, 'limit': limit, 'count': len(records)},
-        })
+        }
+        if debug_suppliers:
+            response_payload['debugSuppliers'] = {
+                'fastMode': bool(fast_mode),
+                'rows': debug_supplier_rows,
+                'awardedCount': len(awarded_suppliers) if isinstance(awarded_suppliers, dict) else 0,
+            }
+        return jsonify(response_payload)
     except requests.exceptions.Timeout:
         return jsonify({'success': False, 'error': 'Purchase request list request timed out'}), 504
     except requests.exceptions.ConnectionError:
@@ -4564,17 +4609,38 @@ def api_admin_purchase_request_details_fallback():
         if resolved_request_id and details:
             try:
                 gate = get_transfer_gate_state(resolved_request_id)
-                approved_bid = gate.get('approvedBid') if isinstance(gate, dict) else None
-                approved_lines = approved_bid.get('lines') if isinstance(approved_bid, dict) else []
-
                 approved_line_map = {}
-                for line in approved_lines if isinstance(approved_lines, list) else []:
-                    if not isinstance(line, dict):
-                        continue
-                    try:
-                        approved_line_map[int(line.get('detailId'))] = line
-                    except Exception:
-                        continue
+
+                # Preferred: mixed line awards (different supplier per item).
+                line_awards = gate.get('lineAwards') if isinstance(gate, dict) else []
+                if isinstance(line_awards, list) and line_awards:
+                    for line in line_awards:
+                        if not isinstance(line, dict):
+                            continue
+                        try:
+                            approved_line_map[int(line.get('detailId'))] = line
+                        except Exception:
+                            continue
+                    print(
+                        f"[PROCUREMENT PR DETAIL DEBUG] request_id={resolved_request_id} pricing_source=line_awards lines={len(approved_line_map)}",
+                        flush=True
+                    )
+                else:
+                    # Fallback: legacy single approved bid flow.
+                    approved_bid = gate.get('approvedBid') if isinstance(gate, dict) else None
+                    approved_lines = approved_bid.get('lines') if isinstance(approved_bid, dict) else []
+                    for line in approved_lines if isinstance(approved_lines, list) else []:
+                        if not isinstance(line, dict):
+                            continue
+                        try:
+                            approved_line_map[int(line.get('detailId'))] = line
+                        except Exception:
+                            continue
+                    if approved_line_map:
+                        print(
+                            f"[PROCUREMENT PR DETAIL DEBUG] request_id={resolved_request_id} pricing_source=approved_bid lines={len(approved_line_map)}",
+                            flush=True
+                        )
 
                 for detail in details:
                     try:
@@ -4594,7 +4660,7 @@ def api_admin_purchase_request_details_fallback():
                     detail['isFinalChosenPrice'] = True
                     detail['finalPriceSource'] = 'APPROVED_BID'
             except Exception as exc:
-                print(f"[PROCUREMENT PR DETAIL] warning: failed to apply approved bid pricing: {exc}", flush=True)
+                print(f"[PROCUREMENT PR DETAIL] warning: failed to apply awarded pricing: {exc}", flush=True)
 
         total_amount = 0.0
         for row in details:
@@ -5230,6 +5296,25 @@ def api_admin_list_request_bids(request_id):
         return jsonify({'success': False, 'error': str(exc)}), 500
 
 
+@app.route('/api/admin/procurement/purchase-requests/<int:request_id>/bids/line-awards', methods=['POST'])
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_save_bid_line_awards(request_id):
+    """Save per-item awarded supplier selections for one purchase request."""
+    payload = request.get_json(silent=True) or {}
+    awards = payload.get('awards') if isinstance(payload.get('awards'), list) else []
+    udf_reason = str(payload.get('udfReason') or payload.get('reason') or '').strip()
+    actor = (session.get('user_email') or session.get('user_name') or 'admin').strip()
+    try:
+        result = save_line_awards(request_id, awards, actor, udf_reason)
+        gate = get_transfer_gate_state(request_id)
+        return jsonify({'success': True, 'message': 'Line awards saved', 'data': result, 'gate': gate})
+    except BiddingValidationError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+    except Exception as exc:
+        print(f"[PROCUREMENT BIDDING LINE AWARD] error: {exc}", flush=True)
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
 @app.route('/api/admin/procurement/purchase-requests/<int:request_id>/bids/<int:bid_id>/approve', methods=['POST'])
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_approve_bid(request_id, bid_id):
@@ -5310,14 +5395,15 @@ def api_admin_transfer_purchase_request_to_po():
         if udf_status_text != 'APPROVED':
             return jsonify({'success': False, 'error': 'Transfer is allowed only when purchase request UDF status is APPROVED'}), 400
 
-        requested_supplier_code = str(supplier.get('code') or request_header.get('code') or '').strip()
-        approved_bid = validate_transfer_against_approved_bid(request_dockey, requested_supplier_code, transfer_lines)
-        request_for_transfer, approved_supplier = apply_approved_bid_to_request(request_header, approved_bid)
+        awarded_lines = validate_transfer_against_line_awards(request_dockey, transfer_lines)
+        request_for_transfer = apply_awarded_lines_to_request(request_header, awarded_lines)
 
         # Resolve supplier master data (especially currency) from SQL supplier API by selected supplier code.
-        supplier_code = str(approved_supplier.get('code') or request_for_transfer.get('code') or '').strip()
-        supplier_master = dict(supplier)
-        if supplier_code:
+        def _resolve_supplier_master(selected_code: str, fallback_name: str = ''):
+            code = str(selected_code or '').strip()
+            if not code:
+                return {}
+            hit_supplier = {}
             offset = 0
             limit = 100
             while True:
@@ -5335,16 +5421,13 @@ def api_admin_transfer_purchase_request_to_po():
                 if not isinstance(supplier_rows, list) or not supplier_rows:
                     break
 
-                hit = None
                 for row in supplier_rows:
                     if not isinstance(row, dict):
                         continue
-                    if str(row.get('code') or '').strip() == supplier_code:
-                        hit = row
+                    if str(row.get('code') or '').strip() == code:
+                        hit_supplier = row
                         break
-
-                if hit is not None:
-                    supplier_master = hit
+                if hit_supplier:
                     break
 
                 pagination = supplier_payload.get('pagination', {}) if isinstance(supplier_payload, dict) else {}
@@ -5353,24 +5436,85 @@ def api_admin_transfer_purchase_request_to_po():
                 if offset >= total_count:
                     break
 
-        # Fallback values from selected supplier/request if supplier lookup does not return a hit.
-        if not supplier_master.get('code'):
-            supplier_master['code'] = supplier_code
-        if not supplier_master.get('companyname'):
-            supplier_master['companyname'] = str(approved_supplier.get('companyname') or request_for_transfer.get('companyname') or '').strip()
+            if not hit_supplier:
+                hit_supplier = {}
+            if not hit_supplier.get('code'):
+                hit_supplier['code'] = code
+            if not hit_supplier.get('companyname'):
+                hit_supplier['companyname'] = str(fallback_name or '').strip()
+            return hit_supplier
 
-        transfer_result = transfer_purchase_request_to_po(
-            purchase_request=request_for_transfer,
-            transfer_lines=transfer_lines,
-            supplier=supplier_master,
-            created_by=actor,
-            transfer_date=transfer_date,
-        )
+        supplier_groups: dict[str, dict[str, object]] = {}
+        if awarded_lines:
+            award_by_detail = {
+                int(line.get('detailId')): line
+                for line in awarded_lines
+                if isinstance(line, dict) and str(line.get('detailId') or '').strip()
+            }
+            for row in transfer_lines:
+                if not isinstance(row, dict):
+                    continue
+                raw_detail_id = row.get('fromdtlkey', row.get('dtlkey', row.get('detailId')))
+                try:
+                    detail_id = int(raw_detail_id)
+                except Exception:
+                    continue
+                award = award_by_detail.get(detail_id)
+                if not award:
+                    continue
+                supplier_code = str(award.get('supplierCode') or '').strip()
+                supplier_name = str(award.get('supplierName') or '').strip()
+                if not supplier_code:
+                    return jsonify({'success': False, 'error': f'No supplier code found for awarded detail {detail_id}'}), 400
+                bucket = supplier_groups.setdefault(
+                    supplier_code,
+                    {'supplierName': supplier_name, 'lines': []},
+                )
+                bucket['lines'].append(row)
+        else:
+            supplier_code = str(supplier.get('code') or request_for_transfer.get('code') or '').strip()
+            supplier_name = str(supplier.get('companyname') or request_for_transfer.get('companyname') or '').strip()
+            if not supplier_code:
+                return jsonify({'success': False, 'error': 'Supplier code is required for transfer'}), 400
+            supplier_groups[supplier_code] = {'supplierName': supplier_name, 'lines': transfer_lines}
+
+        if not supplier_groups:
+            return jsonify({'success': False, 'error': 'No transferable awarded lines found'}), 400
+
+        transfer_results = []
+        total_transferred_qty = 0.0
+        total_line_count = 0
+        for supplier_code, info in supplier_groups.items():
+            supplier_name = str(info.get('supplierName') or '').strip()
+            group_lines = info.get('lines') if isinstance(info.get('lines'), list) else []
+            if not group_lines:
+                continue
+            supplier_master = _resolve_supplier_master(supplier_code, supplier_name)
+            result = transfer_purchase_request_to_po(
+                purchase_request=request_for_transfer,
+                transfer_lines=group_lines,
+                supplier=supplier_master,
+                created_by=actor,
+                transfer_date=transfer_date,
+            )
+            transfer_results.append(result)
+            total_transferred_qty += float(result.get('transferredQty') or 0.0)
+            total_line_count += int(result.get('lineCount') or 0)
+
+        if not transfer_results:
+            return jsonify({'success': False, 'error': 'No purchase order created from selected lines'}), 400
 
         return jsonify({
             'success': True,
             'message': 'Purchase request transferred to purchase order successfully',
-            'data': transfer_result,
+            'data': {
+                'poNumber': transfer_results[0].get('poNumber'),
+                'poDockey': transfer_results[0].get('poDockey'),
+                'poNumbers': [str(r.get('poNumber') or '').strip() for r in transfer_results if str(r.get('poNumber') or '').strip()],
+                'results': transfer_results,
+                'lineCount': total_line_count,
+                'transferredQty': total_transferred_qty,
+            },
         })
     except BiddingValidationError as exc:
         return jsonify({'success': False, 'error': str(exc)}), 400

@@ -1316,7 +1316,7 @@ def _ensure_ph_pqdtl_defaults_trigger(conn):
 
 
 def _ensure_procurement_bidding_tables(conn):
-    """Create PR_BID_INVITE, PR_BID_HDR, PR_BID_DTL tables and related objects if missing."""
+    """Create bidding tables (invite/header/detail/line-award) and related objects if missing."""
     _execute_ddl(
         conn,
         """
@@ -1399,6 +1399,31 @@ def _ensure_procurement_bidding_tables(conn):
     )
     _execute_ddl(
         conn,
+        """
+        CREATE TABLE PR_BID_LINE_AWARD (
+            AWARD_ID INTEGER NOT NULL,
+            REQUEST_DOCKEY INTEGER NOT NULL,
+            DETAIL_ID INTEGER NOT NULL,
+            BID_ID INTEGER NOT NULL,
+            SUPPLIER_CODE VARCHAR(30),
+            SUPPLIER_NAME VARCHAR(160),
+            UDF_REASON VARCHAR(500),
+            APPROVED_BY VARCHAR(120),
+            APPROVED_AT TIMESTAMP,
+            PRIMARY KEY (AWARD_ID)
+        )
+        """,
+        success_message='[DB INIT] PR_BID_LINE_AWARD table created.',
+        ignore_if_contains=['already exists', 'name in use', 'table unknown']
+    )
+    _execute_ddl(
+        conn,
+        'CREATE GENERATOR GEN_PR_BID_LINE_AWARD_ID',
+        success_message='[DB INIT] GEN_PR_BID_LINE_AWARD_ID generator created.',
+        ignore_if_contains=['already exists', 'name in use']
+    )
+    _execute_ddl(
+        conn,
         'CREATE INDEX IX_PR_BID_INVITE_REQ_SUP ON PR_BID_INVITE (REQUEST_DOCKEY, SUPPLIER_CODE)',
         success_message='[DB INIT] IX_PR_BID_INVITE_REQ_SUP index created.',
         ignore_if_contains=['already exists', 'name in use']
@@ -1413,6 +1438,18 @@ def _ensure_procurement_bidding_tables(conn):
         conn,
         'CREATE INDEX IX_PR_BID_DTL_BID ON PR_BID_DTL (BID_ID)',
         success_message='[DB INIT] IX_PR_BID_DTL_BID index created.',
+        ignore_if_contains=['already exists', 'name in use']
+    )
+    _execute_ddl(
+        conn,
+        'CREATE UNIQUE INDEX IX_PR_BID_AWARD_REQ_DTL ON PR_BID_LINE_AWARD (REQUEST_DOCKEY, DETAIL_ID)',
+        success_message='[DB INIT] IX_PR_BID_AWARD_REQ_DTL unique index created.',
+        ignore_if_contains=['already exists', 'name in use']
+    )
+    _execute_ddl(
+        conn,
+        'CREATE INDEX IX_PR_BID_AWARD_REQ ON PR_BID_LINE_AWARD (REQUEST_DOCKEY)',
+        success_message='[DB INIT] IX_PR_BID_AWARD_REQ index created.',
         ignore_if_contains=['already exists', 'name in use']
     )
     _execute_ddl(
