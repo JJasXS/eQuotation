@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="/static/css/hamburger_menu.css">
     <link rel="stylesheet" href="/static/css/orderQuotation.css">
     <link rel="stylesheet" href="/static/css/adminViewQuotations.css">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr14">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr21">
 </head>
 <body class="procurement-warm-ui">
 
@@ -214,99 +214,50 @@
                                 </div>
                             </div>
                         </div>
-                        <div id="panel-create" class="panel-content" style="display: none;">
-                            <h2 id="pr-form-title" style="margin-bottom: 12px;">Create e-Purchase Request</h2>
-                            <form id="purchase-request-form" class="pr-form" novalidate>
-                                <div class="pr-grid">
-                                    <div class="pr-form-row">
-                                        <label class="pr-field">
-                                            <span>Request Number</span>
-                                            <input type="text" id="pr-request-number" readonly class="pr-system-generated" />
+                        <div id="panel-create" class="panel-content panel-content--create" style="display: none;">
+                            <form id="purchase-request-form" class="pr-form pr-form--create-bidding" novalidate>
+                                <div class="pr-create-layout">
+                                    <section class="pr-create-panel" aria-label="Create purchase request">
+                                        <div class="pr-create-panel-head">
+                                            <h2 id="pr-form-title" class="pr-create-panel-title">Create e-Purchase Request</h2>
+                                        </div>
+                                        <div class="pr-create-panel-body">
+                                <div class="pr-grid pr-grid--create">
+                                    <div class="pr-form-row pr-form-row--meta">
+                                        <label class="pr-field pr-field--compact pr-field--reqno">
+                                            <span>PR No.</span>
+                                            <input type="text" id="pr-request-number" readonly class="pr-system-generated pr-input-request-no" />
                                         </label>
-                                    </div>
-                                    <div class="pr-form-row">
-                                        <label class="pr-field">
-                                            <span>Requested Date <em>*</em></span>
+                                        <label class="pr-field pr-field--compact">
+                                            <span>Date <em>*</em></span>
                                             <input type="date" id="pr-request-date" required readonly class="pr-system-generated" />
                                         </label>
-                                        <label class="pr-field">
+                                        <label class="pr-field pr-field--compact pr-field--project">
                                             <span>Project</span>
                                             <select id="pr-project-code"></select>
                                         </label>
-                                        <label class="pr-field">
+                                        <label class="pr-field pr-field--compact pr-field--currency">
                                             <span>Currency</span>
                                             <input type="text" id="pr-currency" value="MYR" maxlength="8" />
                                         </label>
                                     </div>
-                                    <div class="pr-form-row">
+                                    <div class="pr-form-row pr-form-row--details">
                                         <label class="pr-field pr-field-wide">
                                             <span>Description</span>
-                                            <input type="text" id="pr-header-description" placeholder="Header description for PH_PQ.DESCRIPTION" />
+                                            <input type="text" id="pr-header-description" placeholder="Description" />
                                         </label>
                                         <label class="pr-field pr-field-wide">
-                                            <span>Delivery Location</span>
-                                            <input type="text" id="pr-delivery-location" />
+                                            <span>Delivery location</span>
+                                            <input type="text" id="pr-delivery-location" autocomplete="address-line1" />
                                         </label>
                                     </div>
                                         <style>
-                                            .pr-form-row {
-                                                display: flex;
-                                                gap: 24px;
-                                                margin-bottom: 10px;
-                                                flex-wrap: wrap;
-                                            }
-                                            .pr-form-row .pr-field {
-                                                flex: 1 1 180px;
-                                                min-width: 180px;
-                                                margin-bottom: 0;
-                                            }
-                                            .pr-form-row .pr-field-wide {
-                                                flex: 2 1 360px;
-                                                min-width: 300px;
-                                            }
                                             .pr-system-generated {
                                                 background: #f5f5f5;
                                                 color: #888;
                                                 font-style: italic;
                                                 border: 1px solid #ddd;
                                             }
-                                            /* Supplier table */
-                                            .pr-supplier-section { margin-top: 18px; }
-                                            .pr-supplier-section h3 { margin-bottom: 10px; font-size: 15px; }
-                                            .pr-supplier-add-row {
-                                                display: flex; gap: 8px; align-items: center;
-                                                margin-bottom: 10px; position: relative;
-                                            }
-                                            .pr-supplier-add-row input {
-                                                flex: 1; padding: 6px 10px; border: 1px solid #ccc;
-                                                border-radius: 6px; font-size: 13px; outline: none;
-                                                color: #1f2937; background: #fff;
-                                            }
-                                            .pr-supplier-add-row input:focus { border-color: #1a56db; }
-                                            .supplier-dropdown {
-                                                position: absolute; top: 100%; left: 0;
-                                                min-width: 340px;
-                                                background: #fff; border: 1px solid #ccc;
-                                                border-top: none; border-radius: 0 0 6px 6px;
-                                                max-height: 220px; overflow-y: auto;
-                                                z-index: 999; box-shadow: 0 4px 12px rgba(0,0,0,.10);
-                                            }
-                                            .supplier-dropdown-item {
-                                                padding: 7px 12px; cursor: pointer; font-size: 13px;
-                                                display: flex; gap: 8px; align-items: baseline;
-                                                color: #1f2937;
-                                            }
-                                            .supplier-dropdown-item:hover { background: #f0f4ff; }
-                                            .supplier-dropdown-item.already-selected { opacity:.4; pointer-events:none; }
-                                            .pr-supplier-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-                                            .pr-supplier-table th { background: #f5f7fa; color: #334155; padding: 7px 10px; text-align: left; border-bottom: 2px solid #e2e8f0; font-weight: 600; }
-                                            .pr-supplier-table td { background: #fff; color: #1f2937; padding: 7px 10px; border-bottom: 1px solid #e2e8f0; vertical-align: middle; }
-                                            .pr-supplier-table tr:last-child td { border-bottom: none; }
-                                            .pr-supplier-remove-btn {
-                                                background: none; border: none; color: #e53e3e;
-                                                cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 6px;
-                                            }
-                                            .pr-supplier-empty { color: #aaa; font-style: italic; font-size: 13px; padding: 8px 0; }
                                             .view-pr-status-badge {
                                                 display: inline-flex;
                                                 align-items: center;
@@ -393,35 +344,56 @@
 
                                 <div class="pr-summary-row">
                                     <div class="pr-summary-block">Subtotal: <strong id="pr-subtotal">0.00</strong></div>
-                                    <div class="pr-summary-block">Tax: <strong id="pr-tax-total">0.00</strong></div>
+                                    <div class="pr-summary-block pr-summary-block--tax">Tax: <strong id="pr-tax-total">0.00</strong></div>
                                     <div class="pr-summary-block">Total: <strong id="pr-grand-total">0.00</strong></div>
                                 </div>
+                                        </div>
+                                    </section>
 
-                                <!-- Supplier selection table -->
-                                <div class="pr-supplier-section">
-                                    <h3>Invite Suppliers to Bid</h3>
-                                    <div class="pr-supplier-add-row" style="position:relative;">
-                                        <input id="pr-supplier-search" type="text" placeholder="Search supplier by name or code…" autocomplete="off" />
-                                        <div id="pr-supplier-dropdown" class="supplier-dropdown" style="display:none;"></div>
+                                    <section class="pr-create-panel" aria-label="Invite suppliers">
+                                        <div class="pr-create-panel-head">
+                                            <h2 class="pr-create-panel-title">Invite suppliers to bid</h2>
+                                        </div>
+                                        <div class="pr-create-panel-body pr-create-panel-body--suppliers">
+                                <div class="pr-supplier-section pr-supplier-invite-card pr-supplier-invite-card--in-panel">
+                                    <p class="pr-supplier-invite-hint">Search by company name, supplier code, or email, then pick from the list.</p>
+                                    <div class="pr-supplier-invite-inner">
+                                        <div class="pr-supplier-add-row">
+                                            <input id="pr-supplier-search" type="text" placeholder="Search by name, code, or email…" autocomplete="off" />
+                                            <div id="pr-supplier-dropdown" class="supplier-dropdown" style="display:none;"></div>
+                                        </div>
+                                        <div class="pr-supplier-table-wrap">
+                                            <table class="pr-supplier-table pr-supplier-table--invite">
+                                                <colgroup>
+                                                    <col class="pr-sup-col-idx" span="1" />
+                                                    <col class="pr-sup-col-code" span="1" />
+                                                    <col class="pr-sup-col-name" span="1" />
+                                                    <col class="pr-sup-col-email" span="1" />
+                                                    <col class="pr-sup-col-action" span="1" />
+                                                </colgroup>
+                                                <thead>
+                                                    <tr>
+                                                        <th>#</th>
+                                                        <th>Code</th>
+                                                        <th>Company Name</th>
+                                                        <th>Email</th>
+                                                        <th class="pr-sup-th-action"></th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="pr-supplier-tbody">
+                                                    <tr id="pr-supplier-empty-row">
+                                                        <td colspan="5" class="pr-supplier-empty">No suppliers added. Search and select above.</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
                                     </div>
-                                    <table class="pr-supplier-table">
-                                        <thead>
-                                            <tr>
-                                                <th>#</th>
-                                                <th>Code</th>
-                                                <th>Company Name</th>
-                                                <th>Email</th>
-                                                <th></th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="pr-supplier-tbody">
-                                            <tr id="pr-supplier-empty-row">
-                                                <td colspan="5" class="pr-supplier-empty">No suppliers added. Search and select above.</td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
+                                </div>
+                                        </div>
+                                    </section>
                                 </div>
 
+                                <div class="pr-create-footer">
                                 <div class="pr-actions">
                                     <button type="button" class="pr-secondary-btn" id="pr-cancel-edit-btn" onclick="cancelPurchaseRequestEditMode()" style="display:none;">Cancel Edit</button>
                                     <button type="button" class="pr-secondary-btn" id="pr-save-draft-btn" onclick="saveDraftPurchaseRequest()">Save as Draft</button>
@@ -429,6 +401,7 @@
                                 </div>
 
                                 <div id="pr-form-message" class="pr-form-message" style="display:none;"></div>
+                                </div>
                             </form>
                         </div>
                     </div>
@@ -2027,6 +2000,32 @@
             }
         }
 
+        function syncDeliveryLocationToLineItems() {
+            if (prFormEditState && prFormEditState.requestId) {
+                return;
+            }
+            const locInput = document.getElementById('pr-delivery-location');
+            const loc = locInput ? String(locInput.value || '').trim() : '';
+            if (!window.purchaseRequestItems || !window.purchaseRequestItems.length) {
+                return;
+            }
+            window.purchaseRequestItems.forEach((item) => {
+                item.locationCode = loc;
+            });
+            renderPurchaseRequestLineItems();
+        }
+
+        function bindPurchaseRequestDeliveryLocationSync() {
+            const el = document.getElementById('pr-delivery-location');
+            if (!el || el.dataset.prLocBound === '1') {
+                return;
+            }
+            el.dataset.prLocBound = '1';
+            const handler = () => syncDeliveryLocationToLineItems();
+            el.addEventListener('input', handler);
+            el.addEventListener('change', handler);
+        }
+
         function renderPurchaseRequestLineItems() {
             const body = document.getElementById('pr-line-items-body');
             if (!body) return;
@@ -2034,7 +2033,8 @@
 
             if (!window.purchaseRequestItems || !window.purchaseRequestItems.length) {
                 const selectedProjectCode = getSelectedProjectCode();
-                window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: '', description: '', udfReason: '', project: selectedProjectCode, quantity: 1, unitPrice: 0, deliveryDate: '' }];
+                const locFromHeader = String(document.getElementById('pr-delivery-location')?.value || '').trim();
+                window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: locFromHeader, description: '', udfReason: '', project: selectedProjectCode, quantity: 1, unitPrice: 0, deliveryDate: '' }];
             }
 
             body.innerHTML = window.purchaseRequestItems.map((item, idx) => {
@@ -2048,16 +2048,20 @@
                 const qty = Number(item.quantity || 0);
                 const unitPrice = Number(item.unitPrice || 0);
                 const amount = qty * unitPrice;
+                const locDisplay = String(item.locationCode || '').trim();
+                const locHtml = locDisplay
+                    ? `<span class="pr-loc-readonly" title="${escapeHtml(locDisplay)}">${escapeHtml(locDisplay)}</span>`
+                    : '<span class="pr-loc-readonly pr-loc-placeholder">—</span>';
                 return `
                     <tr data-pr-index="${idx}">
-                        <td><input type="text" placeholder="Loc." style="min-width:72px;width:100%;max-width:120px;" value="${escapeHtml(item.locationCode || '')}" oninput="updatePurchaseRequestItem(${idx}, 'locationCode', this.value)" /></td>
+                        <td class="pr-loc-cell">${locHtml}</td>
                         <td>
                             <select onchange="onPurchaseRequestProductChange(${idx}, this.value)" ${isEditMode ? 'disabled' : ''} style="min-width:200px;width:100%;max-width:420px;">
                                 ${buildPrProductOptions(item.itemCode || '')}
                             </select>
                         </td>
                         <td><input type="text" value="${escapeHtml(item.udfReason || '')}" oninput="updatePurchaseRequestItem(${idx}, 'udfReason', this.value)" /></td>
-                        <td><input type="number" min="0.0001" step="0.0001" value="${escapeHtml(item.quantity || 0)}" oninput="updatePurchaseRequestItem(${idx}, 'quantity', this.value)" /></td>
+                        <td class="pr-qty-cell"><input type="number" class="pr-input-qty" min="0.0001" step="0.0001" value="${escapeHtml(item.quantity || 0)}" oninput="updatePurchaseRequestItem(${idx}, 'quantity', this.value)" /></td>
                         <td><input type="number" min="0" step="0.01" value="${escapeHtml(item.unitPrice || 0)}" oninput="updatePurchaseRequestItem(${idx}, 'unitPrice', this.value)" /></td>
                         <td><input type="date" value="${escapeHtml(item.deliveryDate || '')}" oninput="updatePurchaseRequestItem(${idx}, 'deliveryDate', this.value)" /></td>
                         <td class="pr-amount-cell" id="pr-amount-${idx}">${formatMoney(amount)}</td>
@@ -2088,7 +2092,8 @@
             }
             if (!window.purchaseRequestItems) window.purchaseRequestItems = [];
             const selectedProjectCode = getSelectedProjectCode();
-            window.purchaseRequestItems.push({ itemCode: '', itemName: '', locationCode: '', description: '', udfReason: '', project: selectedProjectCode, quantity: 1, unitPrice: 0, deliveryDate: String(document.getElementById('pr-request-date')?.value || '').trim() });
+            const loc = String(document.getElementById('pr-delivery-location')?.value || '').trim();
+            window.purchaseRequestItems.push({ itemCode: '', itemName: '', locationCode: loc, description: '', udfReason: '', project: selectedProjectCode, quantity: 1, unitPrice: 0, deliveryDate: String(document.getElementById('pr-request-date')?.value || '').trim() });
             renderPurchaseRequestLineItems();
         }
 
@@ -2456,7 +2461,8 @@
             const filtered = supplierList.filter((s) => {
                 const name = (s.companyname || '').toLowerCase();
                 const code = (s.code || '').toLowerCase();
-                return !q || name.includes(q) || code.includes(q);
+                const email = String(s.udf_email || s.email || '').toLowerCase();
+                return !q || name.includes(q) || code.includes(q) || email.includes(q);
             });
             if (!filtered.length) {
                 dropdown.innerHTML = '<div class="supplier-dropdown-item" style="color:#aaa;pointer-events:none;">No suppliers found</div>';
@@ -2536,7 +2542,8 @@
         function initPurchaseRequestForm() {
             prFormEditState = null;
             renderProjectOptions('');
-            window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: '', description: '', udfReason: '', project: getSelectedProjectCode(), quantity: 1, unitPrice: 0, deliveryDate: '' }];
+            const loc = String(document.getElementById('pr-delivery-location')?.value || '').trim();
+            window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: loc, description: '', udfReason: '', project: getSelectedProjectCode(), quantity: 1, unitPrice: 0, deliveryDate: '' }];
             selectedSuppliers = [];
             _renderChips();
             const requestDateEl = document.getElementById('pr-request-date');
@@ -2544,6 +2551,7 @@
                 requestDateEl.value = prTodayIso();
             }
             loadNextPurchaseRequestNumber();
+            bindPurchaseRequestDeliveryLocationSync();
             renderPurchaseRequestLineItems();
             applyPurchaseRequestFormModeUI();
         }
@@ -2551,6 +2559,7 @@
         document.addEventListener('DOMContentLoaded', function () {
                 loadStockCardRows();
                 afterStockCardTableRender();
+                bindPurchaseRequestDeliveryLocationSync();
                 initPurchaseRequestForm();
                 loadPurchaseRequestProducts();
                 loadSuppliers();
