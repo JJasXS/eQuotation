@@ -45,12 +45,12 @@
 }
 
 .admin-quotations-view .quotation-items-table thead th {
-    color: #9ba7b6;
+    color: #87684d;
     font-size: 12px;
     font-weight: 600;
     padding: 8px 10px;
     vertical-align: bottom;
-    border-bottom: 1px solid #3d4654;
+    border-bottom: 1px solid #e2cfab;
 }
 
 .admin-quotations-view .quotation-items-table thead th:first-child {
@@ -62,11 +62,11 @@
 }
 
 .admin-quotations-view .quotation-items-table tbody td {
-    color: #e4e9f1;
+    color: #4f3b2a;
     font-size: 13px;
     padding: 8px 10px;
     vertical-align: top;
-    border-top: 1px solid #3d4654;
+    border-top: 1px solid #ead8b5;
     box-sizing: border-box;
 }
 
@@ -85,9 +85,195 @@
 .admin-quotations-view .quotation-items-table .quotation-items-total td {
     vertical-align: middle;
     font-weight: bold;
-    background: #232a36;
-    color: #f5b301;
-    border-top: 1px solid #3d4654;
+    background: #f8efdd;
+    color: #7b5a36;
+    border-top: 1px solid #e2cfab;
+}
+
+.admin-quotations-view-page .container {
+    background: #f6efe2;
+}
+
+.admin-quotations-view-page .header {
+    background: #f3e3c7;
+    border-bottom: 1px solid #d9c6a0;
+}
+
+.admin-quotations-view-page .header-title {
+    color: #5c4028;
+}
+
+.admin-quotations-view-page .tab-content.active {
+    background: linear-gradient(135deg, #fbf4e6 0%, #f1e1c5 100%);
+}
+
+.admin-quotations-view-page .approvals-tabs {
+    background: #f7edda;
+    border-bottom: 1px solid #e2cfab;
+}
+
+.quotation-page-header {
+    background: #f8efdd;
+    border: 1px solid #e2cfab;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 12px;
+}
+
+.quotation-page-header-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    padding: 10px 12px;
+    border-bottom: 1px solid #e2cfab;
+}
+
+.quotation-page-header-tabs {
+    margin: 0;
+}
+
+.admin-quotations-view-page .approval-tab {
+    color: #6f5238;
+}
+
+.admin-quotations-view-page .approval-tab:hover {
+    background: #f4e6c8;
+    color: #5c4028;
+}
+
+.admin-quotations-view-page .approval-tab.active {
+    color: #5c4028;
+    border-bottom: 2px solid #b9894a;
+    background: #f5e7c9;
+}
+
+.admin-quotations-view-page .admin-quotations-view {
+    color: #5c4028;
+}
+
+.quotation-split-wrap {
+    display: grid;
+    grid-template-columns: minmax(340px, 44%) minmax(420px, 56%);
+    gap: 14px;
+    align-items: start;
+}
+
+.quotation-list-pane {
+    min-height: 0;
+    max-height: calc(100vh - 285px);
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.quotation-detail-pane {
+    background: #fffaf0;
+    border: 1px solid #e2cfab;
+    border-radius: 10px;
+    padding: 12px;
+    min-height: 420px;
+    box-shadow: 0 2px 8px rgba(112, 86, 45, 0.08);
+}
+
+.quotation-card.is-selected {
+    border-color: #b9894a !important;
+    box-shadow: 0 0 0 1px rgba(185, 137, 74, 0.28);
+}
+
+.quotation-list-pane .quotation-card__field-value--wrap {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.quotation-detail-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.quotation-detail-title {
+    font-size: 17px;
+    font-weight: 700;
+    color: #4f341e;
+}
+
+.quotation-detail-sub {
+    font-size: 13px;
+    color: #6d5238;
+    margin-top: 3px;
+}
+
+.quotation-detail-amount {
+    background: #b9894a;
+    color: #fff;
+    font-weight: 700;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 13px;
+}
+
+.quotation-detail-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    font-size: 13px;
+    color: #5c4028;
+    border-top: 1px solid #ead8b5;
+    border-bottom: 1px solid #ead8b5;
+    padding: 8px 0;
+    margin-bottom: 10px;
+}
+
+.quotation-detail-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.quotation-detail-actions .edit-button,
+.quotation-detail-actions .activate-btn,
+.quotation-detail-actions .toggle-cancelled-btn {
+    border: none;
+    border-radius: 6px;
+    color: #fff;
+    padding: 6px 12px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.quotation-detail-actions .edit-button { background: #5a8fc4; }
+.quotation-detail-actions .activate-btn { background: #4b9e6e; }
+.quotation-detail-actions .toggle-cancelled-btn { background: #a65c5c; }
+
+.quotation-detail-loading,
+.quotation-detail-empty {
+    color: #6d5238;
+    text-align: center;
+    padding: 14px 8px;
+}
+
+.quotation-detail-error {
+    color: #a61f1f;
+    text-align: center;
+    padding: 14px 8px;
+}
+
+@media (max-width: 1080px) {
+    .quotation-split-wrap {
+        grid-template-columns: 1fr;
+    }
+
+    .quotation-detail-pane {
+        min-height: 320px;
+    }
+
+    .quotation-page-header-controls {
+        padding: 10px;
+    }
 }
 
 .admin-quotations-view .quotation-items-table .quotation-items-total td:first-child {

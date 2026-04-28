@@ -19,13 +19,13 @@
 .hamburger-btn span {
     width: 24px;
     height: 3px;
-    background: #e4e9f1;
+    background: #8b5a1f;
     border-radius: 3px;
     transition: all 0.3s ease;
 }
 
 .hamburger-btn:hover span {
-    background: #4b6e9e;
+    background: #b6812f;
 }
 
 /* Overlay backdrop */
@@ -35,7 +35,7 @@
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(0, 0, 0, 0.5);
+    background: rgba(42, 36, 27, 0.32);
     opacity: 0;
     visibility: hidden;
     transition: opacity 0.3s ease, visibility 0.3s ease;
@@ -54,9 +54,9 @@
     left: -280px;
     width: 280px;
     height: 100%;
-    background: #2d3440;
-    border-right: 1px solid #3a424e;
-    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.3);
+    background: #fffef9;
+    border-right: 1px solid #dccfb8;
+    box-shadow: 3px 0 16px rgba(42, 36, 27, 0.16);
     display: flex;
     flex-direction: column;
     overflow-y: auto;
@@ -71,11 +71,11 @@
 
 .hamburger-dropdown a {
     padding: 16px 24px;
-    color: #e4e9f1;
+    color: #5c4a32;
     text-decoration: none;
     font-size: 15px;
     transition: background 0.2s ease;
-    border-bottom: 1px solid #3a424e;
+    border-bottom: 1px solid #efe6d8;
     display: block;
 }
 
@@ -84,22 +84,22 @@
 }
 
 .hamburger-dropdown a:hover {
-    background: #3a424e;
-    color: #fff;
+    background: #fff8ed;
+    color: #2a241b;
 }
 
 .hamburger-dropdown a.logout-link {
     margin-top: auto;
-    border-top: 1px solid #3a424e;
+    border-top: 1px solid #efe6d8;
     border-bottom: none;
-    color: #ff6b6b;
+    color: #b42318;
     padding-top: 16px;
     padding-bottom: 16px;
 }
 
 .hamburger-dropdown a.logout-link:hover {
-    background: #3a424e;
-    color: #ff8787;
+    background: #fdecef;
+    color: #8a1c1c;
 }
 
 /* Submenu Styles */
@@ -127,7 +127,7 @@
     max-height: 0;
     overflow: hidden;
     transition: max-height 0.3s ease;
-    background: #232931;
+    background: #faf6ee;
 }
 
 .submenu.active {
@@ -138,9 +138,9 @@
 .submenu a {
     padding: 12px 24px 12px 40px;
     font-size: 14px;
-    border-bottom: 1px solid #2d3440;
+    border-bottom: 1px solid #efe6d8;
 }
 
 .submenu a:hover {
-    background: #2d3440;
+    background: #fff8ed;
 }

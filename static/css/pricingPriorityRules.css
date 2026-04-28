@@ -50,57 +50,6 @@ body {
     margin-top: 4px;
 }
 
-/* Keep hamburger menu colors aligned with this page palette */
-.pricing-priority-page .hamburger-btn span {
-    background: #8b5a1f;
-}
-
-.pricing-priority-page .hamburger-btn:hover span {
-    background: #b6812f;
-}
-
-.pricing-priority-page .hamburger-overlay {
-    background: rgba(42, 36, 27, 0.32);
-}
-
-.pricing-priority-page .hamburger-dropdown {
-    background: #fffef9;
-    border-right: 1px solid #dccfb8;
-    box-shadow: 3px 0 16px rgba(42, 36, 27, 0.16);
-}
-
-.pricing-priority-page .hamburger-dropdown a {
-    color: #5c4a32;
-    border-bottom-color: #efe6d8;
-}
-
-.pricing-priority-page .hamburger-dropdown a:hover {
-    background: #fff8ed;
-    color: #2a241b;
-}
-
-.pricing-priority-page .hamburger-dropdown .submenu {
-    background: #faf6ee;
-}
-
-.pricing-priority-page .hamburger-dropdown .submenu a {
-    border-bottom-color: #efe6d8;
-}
-
-.pricing-priority-page .hamburger-dropdown .submenu a:hover {
-    background: #fff8ed;
-}
-
-.pricing-priority-page .hamburger-dropdown a.logout-link {
-    border-top-color: #efe6d8;
-    color: #b42318;
-}
-
-.pricing-priority-page .hamburger-dropdown a.logout-link:hover {
-    background: #fdecef;
-    color: #8a1c1c;
-}
-
 .priority-shell {
     max-width: 960px;
     margin: 24px auto;

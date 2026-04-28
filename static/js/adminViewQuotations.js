@@ -4,6 +4,8 @@ let pendingQuotationsCache = [];
 let companyFilter = '';
 let currentTab = 'active';
 let selectedActiveQuotations = new Set();
+let selectedQuotationDockey = null;
+const quotationDetailCache = new Map();
 
 /** Date filter (YYYY-MM-DD from input type=date) */
 let adminDateFrom = '';
@@ -207,6 +209,13 @@ function setupDateFilter() {
     toEl.value = adminDateTo || '';
 }
 
+function getFilteredListByTab(tabName) {
+    const { active, pending, cancelled } = getFilteredAdminLists();
+    if (tabName === 'pending') return pending;
+    if (tabName === 'cancelled') return cancelled;
+    return active;
+}
+
 async function loadQuotations() {
     const content = document.getElementById('quotation-content');
     if (!content) return;
@@ -240,35 +249,33 @@ async function loadQuotations() {
 
         const html = `
             <div class="admin-quotations-view" style="padding: 16px;">
-                <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px;">
-                    <label style="display: flex; align-items: center; gap: 6px; color: #9ba7b6; font-size: 13px;">From
-                        <input type="date" id="quotation-date-from" style="padding: 6px 10px; border-radius: 6px; border: 1px solid #3d4654; background: #232a36; color: #e4e9f1; font-size: 13px;">
-                    </label>
-                    <label style="display: flex; align-items: center; gap: 6px; color: #9ba7b6; font-size: 13px;">To
-                        <input type="date" id="quotation-date-to" style="padding: 6px 10px; border-radius: 6px; border: 1px solid #3d4654; background: #232a36; color: #e4e9f1; font-size: 13px;">
-                    </label>
-                    <button type="button" id="quotation-date-apply" style="padding: 8px 12px; border-radius: 6px; background: #4b6e9e; color: #fff; border: none; cursor: pointer; font-size: 13px;">Apply</button>
-                    <button type="button" id="quotation-date-clear" style="padding: 8px 12px; border-radius: 6px; background: #2d3440; color: #9ba7b6; border: 1px solid #3d4654; cursor: pointer; font-size: 13px;">Clear dates</button>
+                <div class="quotation-page-header">
+                    <div class="quotation-page-header-controls">
+                        <label style="display: flex; align-items: center; gap: 6px; color: #87684d; font-size: 13px;">From
+                            <input type="date" id="quotation-date-from" style="padding: 6px 10px; border-radius: 6px; border: 1px solid #e2cfab; background: #fffaf0; color: #4f3b2a; font-size: 13px;">
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; color: #87684d; font-size: 13px;">To
+                            <input type="date" id="quotation-date-to" style="padding: 6px 10px; border-radius: 6px; border: 1px solid #e2cfab; background: #fffaf0; color: #4f3b2a; font-size: 13px;">
+                        </label>
+                        <button type="button" id="quotation-date-apply" style="padding: 8px 12px; border-radius: 6px; background: #b9894a; color: #fff; border: none; cursor: pointer; font-size: 13px;">Apply</button>
+                        <button type="button" id="quotation-date-clear" style="padding: 8px 12px; border-radius: 6px; background: #f8efdd; color: #7b5a36; border: 1px solid #e2cfab; cursor: pointer; font-size: 13px;">Clear dates</button>
+                        <select id="company-filter-dropdown" style="padding: 8px 12px; border-radius: 6px; border: 1px solid #e2cfab; background: #fffaf0; color: #4f3b2a; font-size: 13px; width: 240px;">
+                            <option value="">All Companies</option>
+                        </select>
+                        <button id="company-filter-clear" style="padding: 8px 12px; border-radius: 6px; background: #f8efdd; color: #7b5a36; border: 1px solid #e2cfab; cursor: pointer; font-size: 13px;">Clear</button>
+                    </div>
+                    <div class="approvals-tabs quotation-page-header-tabs">
+                        <button id="tab-active" class="approval-tab" onclick="setQuotationTab('active')">
+                            Active (${activeQuotationsCache.length})
+                        </button>
+                        <button id="tab-pending" class="approval-tab" onclick="setQuotationTab('pending')">
+                            Pending (${pendingQuotationsCache.length})
+                        </button>
+                        <button id="tab-cancelled" class="approval-tab" onclick="setQuotationTab('cancelled')">
+                            Cancelled (${cancelledQuotationsCache.length})
+                        </button>
+                    </div>
                 </div>
-                <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px;">
-                    <select id="company-filter-dropdown" style="padding: 8px 12px; border-radius: 6px; border: 1px solid #3d4654; background: #232a36; color: #e4e9f1; font-size: 13px; width: 240px;">
-                        <option value="">All Companies</option>
-                    </select>
-                    <button id="company-filter-clear" style="padding: 8px 12px; border-radius: 6px; background: #2d3440; color: #9ba7b6; border: 1px solid #3d4654; cursor: pointer; font-size: 13px;">Clear</button>
-                </div>
-
-                <div class="approvals-tabs" style="margin: 0 -16px;">
-                    <button id="tab-active" class="approval-tab" onclick="setQuotationTab('active')">
-                        Active (${activeQuotationsCache.length})
-                    </button>
-                    <button id="tab-pending" class="approval-tab" onclick="setQuotationTab('pending')">
-                        Pending (${pendingQuotationsCache.length})
-                    </button>
-                    <button id="tab-cancelled" class="approval-tab" onclick="setQuotationTab('cancelled')">
-                        Cancelled (${cancelledQuotationsCache.length})
-                    </button>
-                </div>
-
                 <div id="quotation-tab-content" style="padding-top: 12px;"></div>
             </div>
         `;
@@ -302,30 +309,42 @@ function setQuotationTab(tabName) {
     cancelledBtn.classList.remove('active');
 
     let tabKey = 'active';
-    let html = '';
+    let currentList = activeList;
+    let options = { isCancelled: false, isPending: false };
     if (tabName === 'cancelled') {
-        html = renderQuotationList(cancelledList, { isCancelled: true, isPending: false }, 'cancelled');
         cancelledBtn.classList.add('active');
         tabKey = 'cancelled';
+        currentList = cancelledList;
+        options = { isCancelled: true, isPending: false };
     } else if (tabName === 'pending') {
-        html = renderQuotationList(pendingList, { isCancelled: false, isPending: true }, 'pending');
         pendingBtn.classList.add('active');
         tabKey = 'pending';
+        currentList = pendingList;
+        options = { isCancelled: false, isPending: true };
     } else {
-        html = renderQuotationList(activeList, { isCancelled: false, isPending: false }, 'active');
         activeBtn.classList.add('active');
         tabKey = 'active';
+        currentList = activeList;
+        options = { isCancelled: false, isPending: false };
     }
 
+    const visibleList = currentList;
+
+    if (!visibleList.some((row) => Number(row.DOCKEY) === Number(selectedQuotationDockey))) {
+        selectedQuotationDockey = visibleList.length ? Number(visibleList[0].DOCKEY) : null;
+    }
+
+    const html = `
+        <div class="quotation-split-wrap">
+            <div class="quotation-list-pane">
+                ${renderQuotationList(visibleList, options, tabKey, false)}
+            </div>
+            <div class="quotation-detail-pane" id="quotation-detail-pane">
+                <div class="quotation-detail-empty">Select a quotation to view details.</div>
+            </div>
+        </div>
+    `;
     tabContent.innerHTML = html;
-
-    const moreBtn = tabContent.querySelector('.quotation-load-more-btn');
-    if (moreBtn) {
-        moreBtn.addEventListener('click', function handler() {
-            listVisibleLimit[tabKey] = (listVisibleLimit[tabKey] || 5) + 10;
-            setQuotationTab(tabKey);
-        });
-    }
 
     document.querySelectorAll('.quotation-card').forEach(card => {
         card.addEventListener('click', function(e) {
@@ -335,43 +354,43 @@ function setQuotationTab(tabName) {
                 && !e.target.closest('.toggle-cancelled-btn')
                 && !e.target.closest('.quotation-checkbox-active')
             ) {
-                toggleQuotationItems(this);
+                selectedQuotationDockey = Number(this.dataset.dockey);
+                setQuotationTab(currentTab);
             }
         });
     });
+
+    updateActiveDeleteControls();
+    renderQuotationDetail(currentList, options);
 }
 
-function renderQuotationList(list, options = {}, tabKey = 'active') {
+function renderQuotationList(list, options = {}, tabKey = 'active', hasMore = false) {
     const isCancelled = !!options.isCancelled;
     const isPending = !!options.isPending;
     const isActive = !isCancelled && !isPending;
 
     if (!list || list.length === 0) {
-        return '<div style="padding: 12px; text-align: center; color: #888;">No quotations</div>';
+        return '<div style="padding: 12px; text-align: center; color: #7b5a36;">No quotations</div>';
     }
-
-    const limit = listVisibleLimit[tabKey] != null ? listVisibleLimit[tabKey] : 5;
-    const pageList = list.slice(0, limit);
-    const hasMore = list.length > pageList.length;
 
     let controlsHtml = '';
     if (isActive) {
         controlsHtml = `
             <div class="active-tab-controls show">
-                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; user-select: none; color: #e4e9f1;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; user-select: none; color: #5c4028;">
                     <input type="checkbox" id="select-all-active" onchange="toggleSelectAllActive(event)" style="width: 18px; height: 18px; cursor: pointer; accent-color: #dc3545;">
                     Select All
                 </label>
                 <button id="bulk-delete-active-btn" onclick="showDeleteConfirmActive()" class="btn-delete-active" disabled>
                     Delete Selected
                 </button>
-                <span id="selected-count-active" style="margin-left: auto; font-size: 14px; color: #9ba7b6; font-weight: 500;">0 selected</span>
+                <span id="selected-count-active" style="margin-left: auto; font-size: 14px; color: #87684d; font-weight: 500;">0 selected</span>
             </div>
         `;
     }
 
     let html = controlsHtml;
-    pageList.forEach(qt => {
+    list.forEach(qt => {
         const amount = Number(qt.DOCAMT || 0).toFixed(2);
         const docDate = formatDateForDisplay(qt.DOCDATE);
         const validity = formatDateForDisplay(qt.VALIDITY);
@@ -379,11 +398,12 @@ function renderQuotationList(list, options = {}, tabKey = 'active') {
         const customerCode = qt.CODE || 'N/A';
         const borderColor = isPending ? '#b0892f' : (isCancelled ? '#a65c5c' : '#4b6e9e');
         const badgeColor = isPending ? '#b0892f' : (isCancelled ? '#a65c5c' : '#4b6e9e');
+        const isSelected = Number(qt.DOCKEY) === Number(selectedQuotationDockey);
         
-        const checkboxHtml = isActive ? `<input type="checkbox" class="quotation-checkbox-active" data-dockey="${qt.DOCKEY}" onchange="handleActiveCheckboxChange(); event.stopPropagation();" style="width: 18px; height: 18px; cursor: pointer; accent-color: #dc3545; flex-shrink: 0;">` : '';
+        const checkboxHtml = isActive ? `<input type="checkbox" class="quotation-checkbox-active" data-dockey="${qt.DOCKEY}" ${selectedActiveQuotations.has(Number(qt.DOCKEY)) ? 'checked' : ''} onchange="handleActiveCheckboxChange(); event.stopPropagation();" style="width: 18px; height: 18px; cursor: pointer; accent-color: #dc3545; flex-shrink: 0;">` : '';
 
         html += `
-            <div class="quotation-card" data-dockey="${qt.DOCKEY}" style="background: #2d3440; padding: 12px; margin-bottom: 12px; border-radius: 8px; border-left: 3px solid ${borderColor}; cursor: pointer; display: flex; gap: 12px; align-items: flex-start;">
+            <div class="quotation-card ${isSelected ? 'is-selected' : ''}" data-dockey="${qt.DOCKEY}" style="background: #fffaf0; padding: 12px; margin-bottom: 12px; border-radius: 8px; border-left: 3px solid ${borderColor}; cursor: pointer; display: flex; gap: 12px; align-items: flex-start; border: 1px solid #ead8b5;">
                 ${checkboxHtml}
                 <div style="flex: 1; min-width: 0;">
                     <div class="quotation-card__header-layout">
@@ -392,7 +412,6 @@ function renderQuotationList(list, options = {}, tabKey = 'active') {
                                 <div class="quotation-card__field">
                                     <span class="quotation-card__field-label">QT Code</span>
                                     <div class="quotation-card__field-value">
-                                        <span class="expand-arrow" style="color: #9ba7b6; font-size: 11px; transition: transform 0.2s;">▼</span>
                                         <span>${qt.DOCNO || ('DOCKEY #' + qt.DOCKEY)}</span>
                                     </div>
                                 </div>
@@ -422,88 +441,96 @@ function renderQuotationList(list, options = {}, tabKey = 'active') {
                             </div>
                         </div>
                     </div>
-                    <div class="quotation-items" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid #3d4654;">
-                        <div style="text-align: center; color: #888; padding: 8px;">Loading items...</div>
-                    </div>
                 </div>
             </div>
         `;
     });
 
-    if (hasMore) {
-        html += `
-            <div style="text-align: center; padding: 12px;">
-                <button type="button" class="quotation-load-more-btn" style="background: #3d4654; color: #e4e9f1; border: 1px solid #5a6575; padding: 8px 20px; border-radius: 6px; cursor: pointer; font-size: 13px;">more</button>
-            </div>
-        `;
-    }
-
     return html;
 }
 
-async function toggleQuotationItems(card) {
-    const itemsDiv = card.querySelector('.quotation-items');
-    const arrow = card.querySelector('.expand-arrow');
-    const dockey = card.dataset.dockey;
+async function renderQuotationDetail(currentList, options = {}) {
+    const panel = document.getElementById('quotation-detail-pane');
+    if (!panel) return;
 
-    if (itemsDiv.style.display === 'none') {
-        if (!itemsDiv.dataset.loaded) {
-            try {
-                const response = await fetch(`/api/get_quotation_details?dockey=${dockey}`);
-                const data = await response.json();
+    const selected = (currentList || []).find((row) => Number(row.DOCKEY) === Number(selectedQuotationDockey));
+    if (!selected) {
+        panel.innerHTML = '<div class="quotation-detail-empty">Select a quotation to view details.</div>';
+        return;
+    }
 
-                if (data.success && data.data.items) {
-                    const items = data.data.items;
-                    let itemsHtml = '';
+    const isCancelled = !!options.isCancelled;
+    const isPending = !!options.isPending;
+    const amount = Number(selected.DOCAMT || 0).toFixed(2);
+    const docDate = formatDateForDisplay(selected.DOCDATE);
+    const validity = formatDateForDisplay(selected.VALIDITY);
+    const companyName = selected.COMPANYNAME || 'N/A';
+    const customerCode = selected.CODE || 'N/A';
 
-                    if (items.length === 0) {
-                        itemsHtml = '<div style="color: #888; padding: 8px; text-align: center;">No items</div>';
-                    } else {
-                        itemsHtml = '<table class="quotation-items-table">';
-                            itemsHtml += '<colgroup><col style="width:36%" /><col style="width:16%" /><col style="width:14%" /><col style="width:16%" /><col style="width:18%" /></colgroup>';
-                            itemsHtml += '<thead><tr>';
-                            itemsHtml += '<th scope="col">Item</th>';
-                            itemsHtml += '<th scope="col">Price</th>';
-                            itemsHtml += '<th scope="col">Qty</th>';
-                            itemsHtml += '<th scope="col">Discount</th>';
-                            itemsHtml += '<th scope="col">Subtotal</th>';
-                            itemsHtml += '</tr></thead><tbody>';
+    panel.innerHTML = `
+        <div class="quotation-detail-head">
+            <div>
+                <div class="quotation-detail-title">${selected.DOCNO || ('DOCKEY #' + selected.DOCKEY)}</div>
+                <div class="quotation-detail-sub">${companyName} (${customerCode})</div>
+            </div>
+            <div class="quotation-detail-amount">RM ${amount}</div>
+        </div>
+        <div class="quotation-detail-meta">
+            <span><strong>Date:</strong> ${docDate}</span>
+            <span><strong>Valid Until:</strong> ${validity}</span>
+        </div>
+        <div class="quotation-detail-actions">
+            ${isPending ? `<button class="edit-button" onclick="editQuotation(${selected.DOCKEY})">Edit</button>` : ''}
+            ${isPending ? `<button class="activate-btn" onclick="activateQuotation(${selected.DOCKEY})">Activate</button>` : ''}
+            ${!isPending && !isCancelled ? `<button class="toggle-cancelled-btn" onclick="toggleCancelledStatus(${selected.DOCKEY}, false)">Cancel</button>` : ''}
+            ${isCancelled ? `<button class="toggle-cancelled-btn" onclick="toggleCancelledStatus(${selected.DOCKEY}, true)">Restore</button>` : ''}
+        </div>
+        <div class="quotation-detail-items" id="quotation-detail-items">
+            <div class="quotation-detail-loading">Loading items...</div>
+        </div>
+    `;
 
-                            let total = 0;
-                            items.forEach(item => {
-                                const qty = Number(item.QTY || 0).toFixed(2);
-                                const price = Number(item.UNITPRICE || 0).toFixed(2);
-                                const discount = Number(item.DISC || 0).toFixed(2);
-                                const amount = Math.max(0, (item.QTY * item.UNITPRICE) - (item.DISC || 0)).toFixed(2);
-                                total += parseFloat(amount);
-                                itemsHtml += '<tr>';
-                                itemsHtml += `<td><div style="font-weight: 500;">${item.ITEMCODE}</div><div style="color: #9ba7b6; font-size: 11px;">${item.DESCRIPTION}</div></td>`;
-                                itemsHtml += `<td>RM ${price}</td>`;
-                                itemsHtml += `<td>${qty}</td>`;
-                                itemsHtml += `<td>RM ${discount}</td>`;
-                                itemsHtml += `<td style="font-weight: 600;">RM ${amount}</td>`;
-                                itemsHtml += '</tr>';
-                            });
-                            itemsHtml += `<tr class="quotation-items-total"><td colspan="4">TOTAL</td><td>RM ${total.toFixed(2)}</td></tr>`;
-                            itemsHtml += '</tbody></table>';
-                    }
-
-                    itemsDiv.innerHTML = itemsHtml;
-                    itemsDiv.dataset.loaded = 'true';
-                } else {
-                    itemsDiv.innerHTML = '<div style="color: #ff6b6b; padding: 8px; text-align: center;">Failed to load items</div>';
-                }
-            } catch (error) {
-                console.error('Error fetching quotation items:', error);
-                itemsDiv.innerHTML = '<div style="color: #ff6b6b; padding: 8px; text-align: center;">Error loading items</div>';
+    const detailContainer = document.getElementById('quotation-detail-items');
+    try {
+        let items = quotationDetailCache.get(Number(selected.DOCKEY));
+        if (!items) {
+            const response = await fetch(`/api/get_quotation_details?dockey=${selected.DOCKEY}`);
+            const data = await response.json();
+            if (!data.success || !data.data || !Array.isArray(data.data.items)) {
+                throw new Error(data.error || 'Failed to load items');
             }
+            items = data.data.items;
+            quotationDetailCache.set(Number(selected.DOCKEY), items);
         }
 
-        itemsDiv.style.display = 'block';
-        arrow.style.transform = 'rotate(-180deg)';
-    } else {
-        itemsDiv.style.display = 'none';
-        arrow.style.transform = 'rotate(0deg)';
+        if (!items.length) {
+            detailContainer.innerHTML = '<div class="quotation-detail-empty">No items</div>';
+            return;
+        }
+
+        let itemsHtml = '<table class="quotation-items-table">';
+        itemsHtml += '<colgroup><col style="width:36%" /><col style="width:16%" /><col style="width:14%" /><col style="width:16%" /><col style="width:18%" /></colgroup>';
+        itemsHtml += '<thead><tr>';
+        itemsHtml += '<th scope="col">Item</th><th scope="col">Price</th><th scope="col">Qty</th><th scope="col">Discount</th><th scope="col">Subtotal</th>';
+        itemsHtml += '</tr></thead><tbody>';
+        let total = 0;
+        items.forEach((item) => {
+            const qty = Number(item.QTY || 0).toFixed(2);
+            const price = Number(item.UNITPRICE || 0).toFixed(2);
+            const discount = Number(item.DISC || 0).toFixed(2);
+            const amountRow = Math.max(0, (item.QTY * item.UNITPRICE) - (item.DISC || 0)).toFixed(2);
+            total += parseFloat(amountRow);
+            itemsHtml += '<tr>';
+            itemsHtml += `<td><div style="font-weight: 600; color:#4f3b2a;">${item.ITEMCODE}</div><div style="color: #6d5238; font-size: 11px;">${item.DESCRIPTION}</div></td>`;
+            itemsHtml += `<td>RM ${price}</td><td>${qty}</td><td>RM ${discount}</td><td style="font-weight: 600;">RM ${amountRow}</td>`;
+            itemsHtml += '</tr>';
+        });
+        itemsHtml += `<tr class="quotation-items-total"><td colspan="4">TOTAL</td><td>RM ${total.toFixed(2)}</td></tr>`;
+        itemsHtml += '</tbody></table>';
+        detailContainer.innerHTML = itemsHtml;
+    } catch (error) {
+        console.error('Error loading quotation detail items:', error);
+        detailContainer.innerHTML = '<div class="quotation-detail-error">Failed to load items</div>';
     }
 }
 
