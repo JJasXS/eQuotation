@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="/static/css/app_page_header.css">
     <link rel="stylesheet" href="/static/css/orderQuotation.css">
     <link rel="stylesheet" href="/static/css/adminViewQuotations.css">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr28">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr30">
 </head>
 <body class="procurement-warm-ui">
 
@@ -30,92 +30,117 @@
                             <div class="procurement-report-title-row">
                                 <h2 class="procurement-warm-section-title">Dashboard</h2>
                             </div>
-                           <div class="location-filter-shell">
-        <div class="location-filter-main">
-                <div class="location-filter-row location-filter-row--actions">
-                <label class="pr-field location-filter-date-field">
-                    <span>Last Cutoff Date</span>
-                    <input type="date" id="stock-card-from-date" />
-                </label>
-                <div class="location-filter-actions">
-                    <button type="button" class="view-pr-refresh-btn" onclick="applyStockCardDateFilter()">Apply Cutoff</button>
-                    <button type="button" class="view-pr-refresh-btn" onclick="clearStockCardDateFilter()">Clear Cutoff</button>
-                    <button type="button" class="location-buy-btn" onclick="goToCreateProcurement()">New e-Purchase Request</button>
-                </div>
-            </div>
-        </div>
-        <div class="location-filter-locations">
-            <div class="location-filter-row location-filter-row--stack">
-                <span class="location-filter-label">Selected Locations</span>
-                <div id="selected-location-list" class="location-pill-list"></div>
-            </div>
-            <div class="location-filter-row location-filter-row--stack">
-                <span class="location-filter-label">Add Location</span>
-                <div id="available-location-list" class="location-pill-list"></div>
-            </div>
-            <div class="location-filter-row location-filter-row--stack">
-                <span class="location-filter-label">Report qty</span>
-                <div class="stock-card-uom-toggle" role="group" aria-label="Stock quantity columns">
-                    <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="both" checked onchange="onStockCardUomDisplayChange(this)" /> SQTY | SUOMQTY</label>
-                    <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="sqty_only" onchange="onStockCardUomDisplayChange(this)" /> SQTY only</label>
-                </div>
-            </div>
-        </div>
-    <div id="report-summary-cards" class="report-summary-cards"></div>
-</div>
-                            <div class="stock-card-table-wrap" id="stock-card-table-wrap">
-                                <table class="stock-card-table" id="stock-card-table">
-                                    <thead id="stock-card-table-head">
-                                        <tr>
-                                            <th class="code-col">ST_ITEM.CODE</th>
-                                            <th class="qty-col">Quantity on Hand</th>
-                                            <th class="qty-col">S.O Qty</th>
-                                            <th class="qty-col">P.O Qty</th>
-                                            <th class="qty-col">J.O Qty</th>
-                                            <th class="qty-col">Avail.Qty</th>
-                                            <th class="qty-col">Quantity Need to Buy</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="stock-card-table-body">
-                                        <tr>
-                                            <td colspan="64" class="stock-card-status">Loading stock items...</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                            <div class="stock-card-scrollbar-wrap" id="stock-card-scrollbar-wrap">
-                                <div class="stock-card-scrollbar" id="stock-card-scrollbar"></div>
-                            </div>
-                            <div id="stock-card-breakdown-dock" class="stock-card-breakdown-dock" style="display: none;" aria-hidden="true">
-                                <div id="stock-card-breakdown-panel" class="stock-card-breakdown-panel" role="region" aria-labelledby="stock-card-breakdown-title">
-                                    <div class="stock-card-breakdown-header">
-                                        <div>
-                                            <h3 id="stock-card-breakdown-title">Breakdown</h3>
-                                            <div id="stock-card-breakdown-subtitle" class="stock-card-breakdown-subtitle"></div>
+                            <div id="stock-dashboard-layout" class="stock-dashboard-layout" data-layout="vertical">
+                                <div class="stock-dashboard-cutoff-strip">
+                                    <div class="stock-dashboard-cutoff-strip__left">
+                                        <div class="location-filter-main">
+                                            <div class="location-filter-row location-filter-row--actions">
+                                                <label class="pr-field location-filter-date-field">
+                                                    <span>Last Cutoff Date</span>
+                                                    <input type="date" id="stock-card-from-date" />
+                                                </label>
+                                                <div class="location-filter-actions">
+                                                    <button type="button" class="view-pr-refresh-btn" onclick="applyStockCardDateFilter()">Apply Cutoff</button>
+                                                    <button type="button" class="view-pr-refresh-btn" onclick="clearStockCardDateFilter()">Clear Cutoff</button>
+                                                    <button type="button" class="location-buy-btn" onclick="goToCreateProcurement()">New e-Purchase Request</button>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <button type="button" class="stock-card-breakdown-close" onclick="closeStockCardBreakdown()">Close</button>
                                     </div>
-                                    <div class="stock-card-breakdown-table-wrap" id="stock-card-breakdown-table-outer">
-                                        <table class="stock-card-breakdown-table" id="stock-card-breakdown-table">
-                                            <thead id="stock-card-breakdown-thead">
-                                                <tr>
-                                                    <th>Doc No</th>
-                                                    <th>Date</th>
-                                                    <th>Company Name</th>
-                                                    <th>Remarks</th>
-                                                    <th>Total</th>
-                                                    <th>Moved</th>
-                                                    <th>Net</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody id="stock-card-breakdown-body">
-                                                <tr>
-                                                    <td colspan="7" class="stock-card-status">Click a value to see its breakdown.</td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
+                                    <div class="stock-dashboard-cutoff-strip__right">
+                                        <div class="stock-dashboard-layout-toggle" role="group" aria-label="Dashboard layout">
+                                            <span class="stock-dashboard-layout-toggle__label">Orientation</span>
+                                            <label class="stock-dashboard-layout-toggle__opt">
+                                                <input type="radio" name="stock-dashboard-layout" value="vertical" checked onchange="onStockDashboardLayoutChange(this)" />
+                                                Vertical
+                                            </label>
+                                            <label class="stock-dashboard-layout-toggle__opt">
+                                                <input type="radio" name="stock-dashboard-layout" value="split" onchange="onStockDashboardLayoutChange(this)" />
+                                                Split (report | breakdown)
+                                            </label>
+                                        </div>
                                     </div>
-                                    <div id="stock-card-breakdown-summary" class="stock-card-breakdown-summary"></div>
+                                </div>
+                                <div class="stock-dashboard-body">
+                                    <div class="stock-dashboard-report-pane">
+                                        <div class="location-filter-shell location-filter-shell--below-cutoff">
+                                            <div class="location-filter-locations">
+                                                <div class="location-filter-row location-filter-row--stack">
+                                                    <span class="location-filter-label">Selected Locations</span>
+                                                    <div id="selected-location-list" class="location-pill-list"></div>
+                                                </div>
+                                                <div class="location-filter-row location-filter-row--stack">
+                                                    <span class="location-filter-label">Add Location</span>
+                                                    <div id="available-location-list" class="location-pill-list"></div>
+                                                </div>
+                                                <div class="location-filter-row location-filter-row--stack">
+                                                    <span class="location-filter-label">Report qty</span>
+                                                    <div class="stock-card-uom-toggle" role="group" aria-label="Stock quantity columns">
+                                                        <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="both" checked onchange="onStockCardUomDisplayChange(this)" /> SQTY | SUOMQTY</label>
+                                                        <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="sqty_only" onchange="onStockCardUomDisplayChange(this)" /> SQTY only</label>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div id="report-summary-cards" class="report-summary-cards"></div>
+                                        </div>
+                                        <div class="stock-card-table-wrap" id="stock-card-table-wrap">
+                                            <table class="stock-card-table" id="stock-card-table">
+                                                <thead id="stock-card-table-head">
+                                                    <tr>
+                                                        <th class="code-col">ST_ITEM.CODE</th>
+                                                        <th class="qty-col">Quantity on Hand</th>
+                                                        <th class="qty-col">S.O Qty</th>
+                                                        <th class="qty-col">P.O Qty</th>
+                                                        <th class="qty-col">J.O Qty</th>
+                                                        <th class="qty-col">Avail.Qty</th>
+                                                        <th class="qty-col">Quantity Need to Buy</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="stock-card-table-body">
+                                                    <tr>
+                                                        <td colspan="64" class="stock-card-status">Loading stock items...</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <div class="stock-card-scrollbar-wrap" id="stock-card-scrollbar-wrap">
+                                            <div class="stock-card-scrollbar" id="stock-card-scrollbar"></div>
+                                        </div>
+                                    </div>
+                                    <div class="stock-dashboard-breakdown-pane">
+                                        <div id="stock-card-breakdown-dock" class="stock-card-breakdown-dock" style="display: none;" aria-hidden="true">
+                                            <div id="stock-card-breakdown-panel" class="stock-card-breakdown-panel" role="region" aria-labelledby="stock-card-breakdown-title">
+                                                <div class="stock-card-breakdown-header">
+                                                    <div>
+                                                        <h3 id="stock-card-breakdown-title">Breakdown</h3>
+                                                        <div id="stock-card-breakdown-subtitle" class="stock-card-breakdown-subtitle"></div>
+                                                    </div>
+                                                    <button type="button" class="stock-card-breakdown-close" onclick="closeStockCardBreakdown()">Close</button>
+                                                </div>
+                                                <div class="stock-card-breakdown-table-wrap" id="stock-card-breakdown-table-outer">
+                                                    <table class="stock-card-breakdown-table" id="stock-card-breakdown-table">
+                                                        <thead id="stock-card-breakdown-thead">
+                                                            <tr>
+                                                                <th>Doc No</th>
+                                                                <th>Date</th>
+                                                                <th>Company Name</th>
+                                                                <th>Remarks</th>
+                                                                <th>Total</th>
+                                                                <th>Moved</th>
+                                                                <th>Net</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody id="stock-card-breakdown-body">
+                                                            <tr>
+                                                                <td colspan="7" class="stock-card-status">Click a value to see its breakdown.</td>
+                                                            </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                                <div id="stock-card-breakdown-summary" class="stock-card-breakdown-summary"></div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -432,6 +457,51 @@
         let stockCardLocations = [];
         let selectedStockCardLocations = [];
         let stockCardBreakdownRequestId = 0;
+        const STOCK_DASHBOARD_LAYOUT_LS = 'procurementStockDashboardLayout';
+
+        function getStockDashboardLayoutEl() {
+            return document.getElementById('stock-dashboard-layout');
+        }
+
+        function syncStockDashboardSplitBodyClass() {
+            const layoutRoot = getStockDashboardLayoutEl();
+            const bodyEl = document.querySelector('.stock-dashboard-body');
+            const dock = document.getElementById('stock-card-breakdown-dock');
+            if (!layoutRoot || !bodyEl || !dock) return;
+            const isSplit = layoutRoot.getAttribute('data-layout') === 'split';
+            const dockHidden = dock.style.display === 'none' || dock.getAttribute('aria-hidden') === 'true';
+            bodyEl.classList.toggle('stock-dashboard-body--split-breakdown-closed', isSplit && dockHidden);
+        }
+
+        function applyStockDashboardLayout(mode) {
+            const root = getStockDashboardLayoutEl();
+            if (!root) return;
+            const m = mode === 'split' ? 'split' : 'vertical';
+            root.setAttribute('data-layout', m);
+            try {
+                localStorage.setItem(STOCK_DASHBOARD_LAYOUT_LS, m);
+            } catch (e) { /* ignore */ }
+            document.querySelectorAll('input[name="stock-dashboard-layout"]').forEach((inp) => {
+                inp.checked = inp.value === m;
+            });
+            syncStockDashboardSplitBodyClass();
+            setTimeout(() => { afterStockCardTableRender(); }, 0);
+        }
+
+        function onStockDashboardLayoutChange(radio) {
+            if (!radio) return;
+            applyStockDashboardLayout(radio.value);
+        }
+
+        function initStockDashboardLayout() {
+            let saved = 'vertical';
+            try {
+                saved = localStorage.getItem(STOCK_DASHBOARD_LAYOUT_LS) || 'vertical';
+            } catch (e) { /* ignore */ }
+            if (saved !== 'split' && saved !== 'vertical') saved = 'vertical';
+            applyStockDashboardLayout(saved);
+        }
+
         let stockCardBuySelections = {};
         let viewPurchaseRequestsLoaded = false;
         let viewPurchaseRequests = [];
@@ -1821,6 +1891,7 @@
                 dock.style.display = 'block';
                 dock.setAttribute('aria-hidden', 'false');
             }
+            syncStockDashboardSplitBodyClass();
             title.textContent = `${metricLabel(metricKey)} Breakdown`;
             subtitle.textContent = `${itemCode} | ${locationCode}`;
             summary.innerHTML = 'Loading breakdown...';
@@ -1875,6 +1946,7 @@
                 dock.style.display = 'none';
                 dock.setAttribute('aria-hidden', 'true');
             }
+            syncStockDashboardSplitBodyClass();
         }
 
         document.addEventListener('keydown', (ev) => {
@@ -2951,6 +3023,7 @@
         }
 
         document.addEventListener('DOMContentLoaded', function () {
+                initStockDashboardLayout();
                 loadStockCardRows();
                 afterStockCardTableRender();
                 bindPurchaseRequestDeliveryLocationSync();
