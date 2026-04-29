@@ -4588,11 +4588,25 @@ def api_admin_purchase_request_details_fallback():
         try:
             con = get_db_connection()
             cur = con.cursor()
+            from utils.procurement_purchase_request import _get_table_columns, _pick_existing
+
+            xtrans_cols = _get_table_columns(cur, "ST_XTRANS")
+            qty_col = _pick_existing(xtrans_cols, "QTY")
+            sqty_col = _pick_existing(xtrans_cols, "SQTY")
+            suom_col = _pick_existing(xtrans_cols, "SUOMQTY")
+            if suom_col and sqty_col and qty_col:
+                quantity_expr = (
+                    f"COALESCE(NULLIF({suom_col}, 0), NULLIF({sqty_col}, 0), COALESCE({qty_col}, 0), 0)"
+                )
+            elif sqty_col and qty_col:
+                quantity_expr = f"COALESCE(NULLIF({sqty_col}, 0), COALESCE({qty_col}, 0), 0)"
+            else:
+                quantity_expr = suom_col or sqty_col or qty_col or "0"
             placeholders = ', '.join(['?'] * len(detail_ids))
             cur.execute(
                 f"""
                 SELECT FROMDTLKEY,
-                       CAST(SUM(CAST(COALESCE(SQTY, QTY, 0) AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TRANSFERRED_QTY
+                       CAST(SUM(CAST({quantity_expr} AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TRANSFERRED_QTY
                 FROM ST_XTRANS
                 WHERE FROMDOCTYPE = ?
                   AND FROMDOCKEY = ?
