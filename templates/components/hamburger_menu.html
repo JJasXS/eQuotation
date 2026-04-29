@@ -1,36 +1,52 @@
+{# Single reusable hamburger for all roles (customer, supplier, admin). Uses session.user_type. #}
+{% set _ut = (session.get('user_type') or '') %}
+{% set is_admin = (_ut == 'admin') %}
+{% set is_supplier = (_ut == 'supplier') %}
+{% set view_quotation_href = '/admin/view-quotations' if is_admin else '/view-quotation' %}
 <div class="hamburger-menu-container">
-    <button class="hamburger-btn" onclick="toggleHamburgerMenu()" aria-label="Menu">
+    <button class="hamburger-btn" type="button" onclick="toggleHamburgerMenu()" aria-label="Menu">
         <span></span>
         <span></span>
         <span></span>
     </button>
     <div class="hamburger-overlay" id="hamburger-overlay"></div>
     <div class="hamburger-dropdown" id="hamburger-dropdown">
-       <!--   <a href="#" onclick="handleMenuAction('chat')">Chat</a> -->
-        
-        <!-- Order Dropdown - COMMENTED OUT -->
-        <!-- <div class="menu-item-with-submenu">
-            <a href="#" onclick="toggleSubmenu(event, 'order-submenu')" class="has-submenu">
-                Order <span class="submenu-arrow">›</span>
+        {% if is_admin %}
+        <a href="/admin">Admin Dashboard</a>
+
+        <div class="menu-item-with-submenu">
+            <a href="#" onclick="toggleSubmenu(event, 'admin-purchase-submenu')" class="has-submenu">
+                Purchase <span class="submenu-arrow">›</span>
             </a>
-            <div class="submenu" id="order-submenu">
-                <a href="#" id="menu-create-order" onclick="handleMenuAction('createOrder')">Create Order</a>
-                <a href="#" onclick="handleMenuAction('viewOrderStatus')">View Order Status</a>
+            <div class="submenu" id="admin-purchase-submenu">
+                <a href="/admin/precurement/precurement?tab=report">Dashboard</a>
+                <a href="/admin/precurement/precurement?tab=create">Create e-Purchase Request</a>
+                <a href="/admin/precurement/precurement?tab=view">View e-Purchase Request</a>
+                <a href="/admin/procurement/bidding">Supplier Bidding</a>
             </div>
-        </div> -->
-        
-        <!-- Quotation Dropdown -->
+        </div>
+        {% endif %}
+
+        {% if not is_supplier %}
         <div class="menu-item-with-submenu">
             <a href="#" onclick="toggleSubmenu(event, 'quotation-submenu')" class="has-submenu">
                 Quotation <span class="submenu-arrow">›</span>
             </a>
             <div class="submenu" id="quotation-submenu">
-                <a href="#" id="menu-create-quotation" onclick="handleMenuAction('createQuotation')">Request Quotation</a>
-                <a href="#" onclick="handleMenuAction('viewQuotation')">View Quotation</a>
-                <a href="#" onclick="handleMenuAction('supplierBidding')">Supplier Bidding</a>
+                <a href="/create-quotation" id="menu-create-quotation">Create Quotation</a>
+                <a href="{{ view_quotation_href }}">View Quotation</a>
             </div>
         </div>
-        
-        <a href="#" onclick="handleMenuAction('logout')" class="logout-link">Log Out</a>
+        {% endif %}
+
+        {% if is_supplier %}
+        <a href="/supplier/bidding">Supplier Bidding</a>
+        {% endif %}
+
+        {% if is_admin %}
+        <a href="/admin/pricing-priority-rules">Set Priority Rules</a>
+        {% endif %}
+
+        <a href="/logout" class="logout-link">Log Out</a>
     </div>
 </div>

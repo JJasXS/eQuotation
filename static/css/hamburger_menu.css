@@ -144,3 +144,19 @@
 .submenu a:hover {
     background: #fff8ed;
 }
+
+.hamburger-section-label {
+    display: block;
+    padding: 10px 24px 4px 40px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #8a7a62;
+    pointer-events: none;
+    border-top: 1px solid #efe6d8;
+}
+.hamburger-section-label:first-child {
+    border-top: none;
+    padding-top: 12px;
+}

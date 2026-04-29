@@ -4,11 +4,18 @@ let draftQuotationsCache = [];
 let pendingQuotationsCache = [];
 let slQtDraftCache = [];
 let slQtDraftLoaded = false;
+let currentListTab = 'active';
+
+function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
 
 function isPendingQuotation(qt) {
-    // Same as admin: CANCELLED not set yet, or SL_QT.UPDATECOUNT is null.
-    // Active: not pending && CANCELLED === false (implies UPDATECOUNT !== null).
-    // Cancelled: not pending && CANCELLED === true (implies UPDATECOUNT !== null).
     const cancelledUnset = qt.CANCELLED === null || qt.CANCELLED === undefined;
     const updateCountUnset = qt.UPDATECOUNT === null || qt.UPDATECOUNT === undefined;
     return cancelledUnset || updateCountUnset;
@@ -31,11 +38,277 @@ async function fetchSavedDraftQuotations(forceReload = false) {
     return slQtDraftCache;
 }
 
+function shellHtml() {
+    return `
+    <div class="view-quotation-page">
+        <div class="view-quotation-tabs" role="tablist">
+            <button type="button" id="tab-drafts" data-tab="drafts" onclick="setQuotationTab('drafts')">
+                📋 Drafts (${draftQuotationsCache.length})
+            </button>
+            <button type="button" id="tab-pending" data-tab="pending" onclick="setQuotationTab('pending')">
+                ⏳ Pending (${pendingQuotationsCache.length})
+            </button>
+            <button type="button" id="tab-active" data-tab="active" onclick="setQuotationTab('active')">
+                Active (${activeQuotationsCache.length})
+            </button>
+            <button type="button" id="tab-cancelled" data-tab="cancelled" onclick="setQuotationTab('cancelled')">
+                Cancelled (${cancelledQuotationsCache.length})
+            </button>
+        </div>
+        <div class="view-quotation-split">
+            <aside class="view-quotation-list-pane" aria-label="Quotation list">
+                <div id="view-quotation-list" class="view-quotation-list-scroll"></div>
+            </aside>
+            <section class="view-quotation-detail-pane" aria-label="Quotation details">
+                <div id="view-quotation-detail-body" class="view-quotation-detail-scroll"></div>
+            </section>
+        </div>
+    </div>
+    `;
+}
+
+function showDetailEmpty(message) {
+    const el = document.getElementById('view-quotation-detail-body');
+    if (!el) return;
+    el.innerHTML = `<div class="view-quotation-detail-empty">${escapeHtml(message)}</div>`;
+}
+
+function setTabButtonStyles(tabName) {
+    const map = {
+        drafts: { id: 'tab-drafts', cls: 'tab--drafts' },
+        pending: { id: 'tab-pending', cls: 'tab--pending' },
+        active: { id: 'tab-active', cls: 'tab--active' },
+        cancelled: { id: 'tab-cancelled', cls: 'tab--cancelled' },
+    };
+    ['tab-drafts', 'tab-pending', 'tab-active', 'tab-cancelled'].forEach((tid) => {
+        const b = document.getElementById(tid);
+        if (b) {
+            b.classList.remove('is-active');
+        }
+    });
+    const m = map[tabName] || map.active;
+    const btn = document.getElementById(m.id);
+    if (btn) {
+        btn.classList.add('is-active');
+    }
+    const controlsDiv = document.querySelector('.active-tab-controls');
+    if (controlsDiv) {
+        controlsDiv.classList.remove('show');
+    }
+}
+
+function parseDisc(item) {
+    const raw = item.DISC;
+    if (raw == null) {
+        return 0;
+    }
+    if (typeof raw === 'number') {
+        return raw;
+    }
+    const t = String(raw).replace(/,/g, '');
+    const n = parseFloat(t);
+    return Number.isFinite(n) ? n : 0;
+}
+
+function renderLineItemsTable(items) {
+    if (!items || items.length === 0) {
+        return '<p class="view-qt-detail-error">No line items.</p>';
+    }
+    let total = 0;
+    let rows = '';
+    items.forEach((item) => {
+        const qty = Number(item.QTY || 0);
+        const price = Number(item.UNITPRICE || 0);
+        const disc = parseDisc(item);
+        const amount = Math.max(0, qty * price - disc);
+        total += amount;
+        const code = escapeHtml(item.ITEMCODE || '');
+        const desc = escapeHtml(item.DESCRIPTION || '');
+        const deliv = item.DELIVERYDATE
+            ? `<span class="view-qt-line-desc">Deliv. ${escapeHtml(String(item.DELIVERYDATE))}</span>`
+            : '';
+        rows += '<tr>';
+        rows += `<td><div>${code}</div><span class="view-qt-line-desc">${desc}</span>${deliv}</td>`;
+        rows += `<td class="num">RM ${price.toFixed(2)}</td>`;
+        rows += `<td class="num">${qty.toFixed(2)}</td>`;
+        rows += `<td class="num">RM ${disc.toFixed(2)}</td>`;
+        rows += `<td class="num">RM ${amount.toFixed(2)}</td>`;
+        rows += '</tr>';
+    });
+    return `
+    <table class="view-quotation-items-table">
+        <thead>
+            <tr>
+                <th>Item</th>
+                <th class="num">Unit</th>
+                <th class="num">Qty</th>
+                <th class="num">Discount</th>
+                <th class="num">Subtotal</th>
+            </tr>
+        </thead>
+        <tbody>${rows}
+            <tr class="view-quotation-items-total">
+                <td colspan="4" class="num">Total</td>
+                <td class="num">RM ${total.toFixed(2)}</td>
+            </tr>
+        </tbody>
+    </table>`;
+}
+
+function listTypeLabel(listType) {
+    if (listType === 'draft' || listType === 'drafts') {
+        return 'Draft (saved)';
+    }
+    if (listType === 'pending') {
+        return 'Pending';
+    }
+    if (listType === 'cancelled') {
+        return 'Cancelled';
+    }
+    return 'Active';
+}
+
+function renderDetailPanel(data, listType) {
+    const d = data || {};
+    const items = Array.isArray(d.items) ? d.items : [];
+    const statusLabel = listTypeLabel(listType);
+    const docno = d.DOCNO != null ? String(d.DOCNO) : (d.DOCKEY != null ? `DOCKEY #${d.DOCKEY}` : '—');
+    const meta = [];
+    meta.push(['<dt>Status</dt>', `<dd>${escapeHtml(statusLabel)}</dd>`]);
+    if (d.COMPANYNAME) {
+        meta.push(['<dt>Customer</dt>', `<dd>${escapeHtml(d.COMPANYNAME)}</dd>`]);
+    }
+    if (d.DOCDATE) {
+        meta.push(['<dt>Date</dt>', `<dd>${escapeHtml(d.DOCDATE)}</dd>`]);
+    }
+    if (d.VALIDITY) {
+        meta.push(['<dt>Valid until</dt>', `<dd>${escapeHtml(d.VALIDITY)}</dd>`]);
+    }
+    const credit = d.CREDITTERM != null && d.CREDITTERM !== '' ? d.CREDITTERM : d.TERMS;
+    if (credit != null && String(credit) !== '') {
+        meta.push(['<dt>Terms</dt>', `<dd>${escapeHtml(String(credit))}</dd>`]);
+    }
+    if (d.CURRENCYCODE) {
+        meta.push(['<dt>Currency</dt>', `<dd>${escapeHtml(d.CURRENCYCODE)}</dd>`]);
+    }
+    if (d.STATUS && listType === 'active') {
+        meta.push(['<dt>Record status</dt>', `<dd>${escapeHtml(d.STATUS)}</dd>`]);
+    }
+    if (d.PHONE1) {
+        meta.push(['<dt>Phone</dt>', `<dd>${escapeHtml(d.PHONE1)}</dd>`]);
+    }
+    if (d.ADDRESS1) {
+        meta.push(['<dt>Address</dt>', `<dd>${[d.ADDRESS1, d.ADDRESS2, d.ADDRESS3, d.ADDRESS4].filter(Boolean).map(escapeHtml).join(', ')}</dd>`]);
+    }
+    if (d.DESCRIPTION) {
+        meta.push(['<dt>Description</dt>', `<dd>${escapeHtml(d.DESCRIPTION)}</dd>`]);
+    }
+    if (d.DOCAMT != null) {
+        meta.push(['<dt>Document amount</dt>', `<dd>RM ${Number(d.DOCAMT).toFixed(2)}</dd>`]);
+    }
+
+    return `
+        <h3 class="view-quotation-detail-title">${escapeHtml(docno)}</h3>
+        <p class="view-quotation-detail-status">${escapeHtml(statusLabel)}</p>
+        <dl class="view-quotation-detail-meta">${meta.map((m) => m[0] + m[1]).join('')}</dl>
+        ${renderLineItemsTable(items)}
+    `;
+}
+
+async function loadQuotationDetailIntoPanel(dockey, isDraftSource, listType) {
+    const detailRoot = document.getElementById('view-quotation-detail-body');
+    if (!detailRoot) {
+        return;
+    }
+    detailRoot.innerHTML = '<div class="view-qt-detail-loading">Loading details…</div>';
+    const endpoint = isDraftSource
+        ? `/api/get_draft_quotation_details?dockey=${encodeURIComponent(dockey)}`
+        : `/api/get_quotation_details?dockey=${encodeURIComponent(dockey)}`;
+
+    try {
+        const response = await fetch(endpoint);
+        const payload = await response.json();
+        const dataBlock = payload && payload.data && typeof payload.data === 'object' ? payload.data : payload;
+        if (!payload.success) {
+            const err = dataBlock && (dataBlock.error != null) ? dataBlock.error : (payload.error || 'Failed to load');
+            detailRoot.innerHTML = `<div class="view-qt-detail-error">${escapeHtml(String(err))}</div>`;
+            return;
+        }
+        detailRoot.innerHTML = renderDetailPanel(dataBlock, isDraftSource ? 'draft' : listType);
+    } catch (err) {
+        console.error('loadQuotationDetailIntoPanel', err);
+        detailRoot.innerHTML = '<div class="view-qt-detail-error">Error loading details.</div>';
+    }
+}
+
+function getListTypeFromCurrentTab() {
+    return currentListTab;
+}
+
+function selectListCard(card) {
+    if (!card) {
+        return;
+    }
+    document.querySelectorAll('.view-qt-list-card').forEach((c) => c.classList.remove('is-selected'));
+    card.classList.add('is-selected');
+    const dockey = card.dataset.dockey;
+    const source = (card.dataset.source || '').trim();
+    const isDraft = source === 'slqtdraft';
+    const listType = card.dataset.listType || getListTypeFromCurrentTab();
+    loadQuotationDetailIntoPanel(dockey, isDraft, listType);
+}
+
+function hasAnyQuotations() {
+    return (
+        (activeQuotationsCache && activeQuotationsCache.length > 0) ||
+        (cancelledQuotationsCache && cancelledQuotationsCache.length > 0) ||
+        (pendingQuotationsCache && pendingQuotationsCache.length > 0) ||
+        (draftQuotationsCache && draftQuotationsCache.length > 0)
+    );
+}
+
+function trySelectFirstListCard() {
+    const first = document.querySelector('#view-quotation-list .view-qt-list-card');
+    if (first) {
+        selectListCard(first);
+    } else {
+        const noneAnywhere = !hasAnyQuotations();
+        let msg;
+        if (currentListTab === 'drafts') {
+            msg = 'No saved drafts in this list.';
+        } else if (noneAnywhere) {
+            msg = 'No quotations found. New quotations from your workflow will appear in the list on the left when available.';
+        } else {
+            msg = 'No quotations in this tab. Try another filter above.';
+        }
+        showDetailEmpty(msg);
+    }
+}
+
+function ensureListClickDelegation() {
+    const content = document.getElementById('quotation-content');
+    if (!content || content.dataset.viewQtDelegation) {
+        return;
+    }
+    content.dataset.viewQtDelegation = '1';
+    content.addEventListener('click', (e) => {
+        if (e.target.closest('button') || e.target.closest('a')) {
+            return;
+        }
+        const card = e.target.closest('.view-qt-list-card');
+        if (card) {
+            selectListCard(card);
+        }
+    });
+}
+
 async function loadQuotations() {
     const content = document.getElementById('quotation-content');
-    if (!content) return;
+    if (!content) {
+        return;
+    }
 
-    content.innerHTML = '<div style="padding: 20px; text-align: center; color: #888;">Loading...</div>';
+    content.innerHTML = '<div class="view-quotation-detail-empty" style="padding:24px;">Loading…</div>';
 
     try {
         const controller = new AbortController();
@@ -45,173 +318,114 @@ async function loadQuotations() {
         const data = await response.json();
 
         if (!data.success) {
-            content.innerHTML = `<div style="padding: 20px; text-align: center; color: #ff6b6b;">${data.error || 'Failed to load quotations'}</div>`;
+            const err = escapeHtml(data.error || 'Failed to load quotations');
+            pendingQuotationsCache = [];
+            cancelledQuotationsCache = [];
+            activeQuotationsCache = [];
+            try {
+                await fetchSavedDraftQuotations(true);
+            } catch (e) {
+                console.error('fetchSavedDraftQuotations after list error', e);
+                if (!slQtDraftLoaded) {
+                    slQtDraftCache = [];
+                    draftQuotationsCache = [];
+                }
+            }
+            content.innerHTML = shellHtml();
+            ensureListClickDelegation();
+            setQuotationTab('active');
+            updateDraftCountDisplay();
+            showDetailEmpty(err);
             return;
         }
 
         const quotations = data.data || [];
-        await fetchSavedDraftQuotations(true);
-        if (quotations.length === 0 && draftQuotationsCache.length === 0) {
-            content.innerHTML = '<div style="padding: 20px; text-align: center; color: #888;">No quotations found.</div>';
-            return;
+        try {
+            await fetchSavedDraftQuotations(true);
+        } catch (e) {
+            console.error('fetchSavedDraftQuotations', e);
+            if (!slQtDraftLoaded) {
+                slQtDraftCache = [];
+                draftQuotationsCache = [];
+            }
         }
 
-        console.log('[DEBUG] First 3 quotations:', quotations.slice(0, 3).map(qt => ({
-            DOCNO: qt.DOCNO,
-            STATUS: qt.STATUS,
-            CANCELLED: qt.CANCELLED,
-            cancelledType: typeof qt.CANCELLED
-        })));
+        pendingQuotationsCache = quotations.filter((qt) => isPendingQuotation(qt));
+        cancelledQuotationsCache = quotations.filter(
+            (qt) => !isPendingQuotation(qt) && qt.CANCELLED === true
+        );
+        activeQuotationsCache = quotations.filter(
+            (qt) => !isPendingQuotation(qt) && qt.CANCELLED === false
+        );
 
-        pendingQuotationsCache = quotations.filter(qt => isPendingQuotation(qt));
-        cancelledQuotationsCache = quotations.filter(qt => !isPendingQuotation(qt) && qt.CANCELLED === true);
-        activeQuotationsCache = quotations.filter(qt => !isPendingQuotation(qt) && qt.CANCELLED === false);
-
-        console.log(`[DEBUG] Filtered counts - Drafts(SL_QTDRAFT): ${draftQuotationsCache.length}, Pending: ${pendingQuotationsCache.length}, Active: ${activeQuotationsCache.length}, Cancelled: ${cancelledQuotationsCache.length}`);
-
-        let html = `
-            <div style="padding: 16px;">
-                <div style="display: flex; gap: 8px; margin-bottom: 12px; border-bottom: 1px solid #3d4654; padding-bottom: 10px;">
-                    <button id="tab-drafts" onclick="setQuotationTab('drafts')" style="background: #5b82b6; color: #fff; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;">
-                        📋 Drafts (${draftQuotationsCache.length})
-                    </button>
-                    <button id="tab-pending" onclick="setQuotationTab('pending')" style="background: #2d3440; color: #9ba7b6; border: 1px solid #3d4654; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;">
-                        ⏳ Pending (${pendingQuotationsCache.length})
-                    </button>
-                    <button id="tab-active" onclick="setQuotationTab('active')" style="background: #2d3440; color: #9ba7b6; border: 1px solid #3d4654; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;">
-                        Active (${activeQuotationsCache.length})
-                    </button>
-                    <button id="tab-cancelled" onclick="setQuotationTab('cancelled')" style="background: #2d3440; color: #9ba7b6; border: 1px solid #3d4654; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;">
-                        Cancelled (${cancelledQuotationsCache.length})
-                    </button>
-                </div>
-                <div id="quotation-tab-content" style="background: #232a36; border: 1px solid #3d4654; border-radius: 8px; padding: 12px;"></div>
-            </div>
-        `;
-
-        content.innerHTML = html;
+        content.innerHTML = shellHtml();
+        ensureListClickDelegation();
         setQuotationTab('active');
-        
         updateDraftCountDisplay();
     } catch (error) {
-        const message = error && error.name === 'AbortError'
-            ? 'Request timed out while loading quotations. Please refresh and try again.'
-            : 'Failed to load quotations.';
-        content.innerHTML = `<div style="padding: 20px; text-align: center; color: #ff6b6b;">${message}</div>`;
+        const message =
+            error && error.name === 'AbortError'
+                ? 'Request timed out while loading quotations. Please refresh and try again.'
+                : 'Failed to load quotations.';
+        content.innerHTML = `<div class="view-quotation-detail-empty" style="color:#b42318;">${escapeHtml(message)}</div>`;
         console.error('Error loading quotations:', error);
     }
 }
 
 function setQuotationTab(tabName) {
-    const tabContent = document.getElementById('quotation-tab-content');
+    currentListTab = tabName;
+    const listEl = document.getElementById('view-quotation-list');
     const activeBtn = document.getElementById('tab-active');
     const cancelledBtn = document.getElementById('tab-cancelled');
     const draftsBtn = document.getElementById('tab-drafts');
     const pendingBtn = document.getElementById('tab-pending');
-    if (!tabContent || !activeBtn || !cancelledBtn || !draftsBtn || !pendingBtn) return;
-
-    activeBtn.style.background = '#2d3440';
-    activeBtn.style.color = '#9ba7b6';
-    activeBtn.style.border = '1px solid #3d4654';
-    cancelledBtn.style.background = '#2d3440';
-    cancelledBtn.style.color = '#9ba7b6';
-    cancelledBtn.style.border = '1px solid #3d4654';
-    draftsBtn.style.background = '#2d3440';
-    draftsBtn.style.color = '#9ba7b6';
-    draftsBtn.style.border = '1px solid #3d4654';
-    pendingBtn.style.background = '#2d3440';
-    pendingBtn.style.color = '#9ba7b6';
-    pendingBtn.style.border = '1px solid #3d4654';
-
-    const controlsDiv = document.querySelector('.active-tab-controls');
-    if (controlsDiv) {
-        controlsDiv.classList.remove('show');
+    if (!listEl || !activeBtn || !cancelledBtn || !draftsBtn || !pendingBtn) {
+        return;
     }
 
     if (tabName === 'cancelled') {
-        tabContent.innerHTML = renderQuotationList(cancelledQuotationsCache, 'cancelled');
-        cancelledBtn.style.background = '#a65c5c';
-        cancelledBtn.style.color = '#fff';
-        cancelledBtn.style.border = 'none';
+        listEl.innerHTML = renderQuotationList(cancelledQuotationsCache, 'cancelled');
+        setTabButtonStyles('cancelled');
     } else if (tabName === 'drafts') {
-        draftsBtn.style.background = '#5b82b6';
-        draftsBtn.style.color = '#fff';
-        draftsBtn.style.border = 'none';
-        loadSlQtDraftTab(tabContent);
+        setTabButtonStyles('drafts');
+        loadSlQtDraftTab(listEl);
+        return;
     } else if (tabName === 'pending') {
-        tabContent.innerHTML = renderQuotationList(pendingQuotationsCache, 'pending');
-        pendingBtn.style.background = '#b0892f';
-        pendingBtn.style.color = '#fff';
-        pendingBtn.style.border = 'none';
+        listEl.innerHTML = renderQuotationList(pendingQuotationsCache, 'pending');
+        setTabButtonStyles('pending');
     } else {
-        tabContent.innerHTML = renderQuotationList(activeQuotationsCache, 'active');
-        activeBtn.style.background = '#4b6e9e';
-        activeBtn.style.color = '#fff';
-        activeBtn.style.border = 'none';
+        listEl.innerHTML = renderQuotationList(activeQuotationsCache, 'active');
+        setTabButtonStyles('active');
     }
 
-    attachQuotationCardListeners();
+    trySelectFirstListCard();
 }
 
 function renderQuotationList(list, listType) {
     if (!list || list.length === 0) {
-        return '<div style="padding: 12px; text-align: center; color: #888;">No quotations</div>';
+        return '<div class="view-quotation-list-empty">No quotations</div>';
     }
 
     let html = '';
-    list.forEach(qt => {
+    list.forEach((qt) => {
         const amount = Number(qt.DOCAMT || 0).toFixed(2);
-        const docDate = qt.DOCDATE || '-';
-        const validity = qt.VALIDITY || '-';
-        const creditTerm = qt.CREDITTERM || 'N/A';
-        const description = qt.DESCRIPTION || 'Quotation';
-        const companyName = qt.COMPANYNAME || 'N/A';
-        const isDraft = listType === 'draft';
+        const docDate = escapeHtml(qt.DOCDATE || '—');
+        const validity = escapeHtml(qt.VALIDITY || '—');
+        const companyName = escapeHtml(qt.COMPANYNAME || 'N/A');
+        const docno = escapeHtml(qt.DOCNO || 'DOCKEY #' + qt.DOCKEY);
         const isCancelled = listType === 'cancelled';
         const isPending = listType === 'pending';
-        const borderColor = isCancelled ? '#a65c5c' : (isPending ? '#b0892f' : (isDraft ? '#5b82b6' : '#4b6e9e'));
-        const badgeColor = isCancelled ? '#a65c5c' : (isPending ? '#b0892f' : (isDraft ? '#5b82b6' : '#4b6e9e'));
-
-        const editButton = isDraft ? `<button onclick="event.stopPropagation(); editDraft(${qt.DOCKEY});" style="background: #5b82b6; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600;">Edit Draft</button>` : '';
-        
+        const borderColor = isCancelled ? '#a65c5c' : isPending ? '#b0892f' : '#4b6e9e';
+        const badgeColor = isCancelled ? '#a65c5c' : isPending ? '#b0892f' : '#4b6e9e';
+        const lt = escapeHtml(listType);
         html += `
-            <div class="quotation-card" data-dockey="${qt.DOCKEY}" style="background: #2d3440; padding: 12px; margin-bottom: 12px; border-radius: 8px; border-left: 3px solid ${borderColor}; cursor: pointer;">
-                <div class="quotation-card__header-layout">
-                    <div class="quotation-card__info">
-                        <div class="quotation-card__info-grid">
-                            <div class="quotation-card__field">
-                                <span class="quotation-card__field-label">QT Code</span>
-                                <div class="quotation-card__field-value">
-                                    <span class="expand-arrow" style="color: #9ba7b6; font-size: 12px; transition: transform 0.2s; flex-shrink: 0; cursor: pointer;">▼</span>
-                                    <span>${qt.DOCNO || ('DOCKEY #' + qt.DOCKEY)}</span>
-                                </div>
-                            </div>
-                            <div class="quotation-card__field">
-                                <span class="quotation-card__field-label">Customer Name</span>
-                                <div class="quotation-card__field-value quotation-card__field-value--wrap">${companyName}</div>
-                            </div>
-                            <div class="quotation-card__field">
-                                <span class="quotation-card__field-label">Date</span>
-                                <div class="quotation-card__field-value">${docDate}</div>
-                            </div>
-                            <div class="quotation-card__field">
-                                <span class="quotation-card__field-label">Valid Until</span>
-                                <div class="quotation-card__field-value">${validity}</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="quotation-card__amount-col">
-                        <span class="quotation-card__amount" style="background: ${badgeColor};">RM ${amount}</span>
-                    </div>
-                    <div class="quotation-card__button-col">
-                        <div class="quotation-card__side-actions">
-                            ${editButton}
-                        </div>
-                    </div>
+            <div class="view-qt-list-card" data-dockey="${qt.DOCKEY}" data-list-type="${lt}" data-source="" style="border-left-color:${borderColor}" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}">
+                <div class="view-qt-list-card__row">
+                    <span class="view-qt-list-card__docno">${docno}</span>
+                    <span class="view-qt-list-card__amount" style="background:${badgeColor}">RM ${amount}</span>
                 </div>
-                <div class="quotation-items" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid #3d4654;">
-                    <div style="text-align: center; color: #888; padding: 8px;">Loading items...</div>
-                </div>
+                <div class="view-qt-list-card__meta">${companyName}</div>
+                <div class="view-qt-list-card__row2">Date: ${docDate} · Valid: ${validity}</div>
             </div>
         `;
     });
@@ -219,176 +433,47 @@ function renderQuotationList(list, listType) {
     return html;
 }
 
-async function toggleQuotationItems(card) {
-    const itemsDiv = card.querySelector('.quotation-items');
-    const arrow = card.querySelector('.expand-arrow');
-    const dockey = card.dataset.dockey;
-    const isDraftSource = card.dataset.source === 'slqtdraft';
-
-    if (itemsDiv.style.display === 'none') {
-        if (!itemsDiv.dataset.loaded) {
-            try {
-                const endpoint = isDraftSource
-                    ? `/api/get_draft_quotation_details?dockey=${dockey}`
-                    : `/api/get_quotation_details?dockey=${dockey}`;
-                const response = await fetch(endpoint);
-                const data = await response.json();
-
-                const payload = (data && typeof data === 'object' ? data : {});
-                const dataBlock = payload.data && typeof payload.data === 'object' ? payload.data : {};
-                const items = Array.isArray(dataBlock.items)
-                    ? dataBlock.items
-                    : (Array.isArray(payload.items) ? payload.items : null);
-
-                if (payload.success && Array.isArray(items)) {
-                    let itemsHtml = '';
-
-                    if (items.length === 0) {
-                        itemsHtml = '<div style="color: #888; padding: 8px; text-align: center;">No items</div>';
-                    } else {
-                        itemsHtml = '<table style="width: 100%; border-collapse: collapse;">';
-                        itemsHtml += '<thead><tr style="color: #9ba7b6; font-size: 12px; text-align: left;">';
-                        itemsHtml += '<th style="padding: 6px;">Item</th>';
-                        itemsHtml += '<th style="padding: 6px; text-align: right;">Price</th>';
-                        itemsHtml += '<th style="padding: 6px; text-align: right;">Qty</th>';
-                        itemsHtml += '<th style="padding: 6px; text-align: right;">Discount</th>';
-                        itemsHtml += '<th style="padding: 6px; text-align: right;">Subtotal</th>';
-                        itemsHtml += '</tr></thead><tbody>';
-
-                        let total = 0;
-                        items.forEach(item => {
-                            const qty = Number(item.QTY || 0).toFixed(2);
-                            const price = Number(item.UNITPRICE || 0).toFixed(2);
-                            const discount = Number(item.DISC || 0).toFixed(2);
-                            const amount = Math.max(0, (item.QTY * item.UNITPRICE) - (item.DISC || 0)).toFixed(2);
-                            total += parseFloat(amount);
-
-                            itemsHtml += '<tr style="color: #e4e9f1; font-size: 13px; border-top: 1px solid #3d4654;">';
-                            itemsHtml += `<td style="padding: 8px 6px;"><div style="font-weight: 500;">${item.ITEMCODE || ''}</div><div style="color: #9ba7b6; font-size: 11px;">${item.DESCRIPTION || ''}</div></td>`;
-                            itemsHtml += `<td style="padding: 8px 6px; text-align: right;">RM ${price}</td>`;
-                            itemsHtml += `<td style="padding: 8px 6px; text-align: right;">${qty}</td>`;
-                            itemsHtml += `<td style="padding: 8px 6px; text-align: right;">RM ${discount}</td>`;
-                            itemsHtml += `<td style="padding: 8px 6px; text-align: right; font-weight: 600;">RM ${amount}</td>`;
-                            itemsHtml += '</tr>';
-                        });
-
-                        itemsHtml += `<tr style="background: #232a36; color: #f5b301; font-weight: bold;"><td colspan="4" style="padding: 8px 6px; text-align: right;">TOTAL</td><td style="padding: 8px 6px; text-align: right; font-weight: bold;">RM ${total.toFixed(2)}</td></tr>`;
-                        itemsHtml += '</tbody></table>';
-                    }
-
-                    itemsDiv.innerHTML = itemsHtml;
-                    itemsDiv.dataset.loaded = 'true';
-                } else {
-                    const errorText = payload.error ? String(payload.error) : 'Failed to load items';
-                    itemsDiv.innerHTML = `<div style="color: #ff6b6b; padding: 8px; text-align: center;">${errorText}</div>`;
-                }
-            } catch (error) {
-                itemsDiv.innerHTML = '<div style="color: #ff6b6b; padding: 8px; text-align: center;">Error loading items</div>';
-                console.error('Error fetching quotation items:', error);
-            }
-        }
-
-        itemsDiv.style.display = 'block';
-        arrow.style.transform = 'rotate(180deg)';
-    } else {
-        itemsDiv.style.display = 'none';
-        arrow.style.transform = 'rotate(0deg)';
-    }
-}
-
-async function loadSlQtDraftTab(tabContent) {
-    tabContent.innerHTML = '<div style="padding: 12px; text-align: center; color: #888;">Loading drafts...</div>';
+async function loadSlQtDraftTab(listEl) {
+    listEl.innerHTML = '<div class="view-quotation-list-empty" style="padding:16px;">Loading drafts…</div>';
     try {
         await fetchSavedDraftQuotations();
-        tabContent.innerHTML = renderDraftList(slQtDraftCache);
-        attachQuotationCardListeners();
+        if (!slQtDraftCache || slQtDraftCache.length === 0) {
+            listEl.innerHTML = '<div class="view-quotation-list-empty">No saved drafts</div>';
+        } else {
+            listEl.innerHTML = renderDraftList(slQtDraftCache);
+        }
     } catch (e) {
-        tabContent.innerHTML = '<div style="padding: 12px; text-align: center; color: #ff6b6b;">Error loading drafts</div>';
+        listEl.innerHTML = '<div class="view-quotation-list-empty" style="color:#b42318;">Error loading drafts</div>';
         console.error('loadSlQtDraftTab error:', e);
     }
-}
-
-function attachQuotationCardListeners() {
-    document.querySelectorAll('.quotation-card').forEach(card => {
-        card.addEventListener('click', function(e) {
-            // Don't toggle if clicking on checkbox or expand arrow
-            if (e.target.closest('.quotation-checkbox-active') || e.target.closest('input[type="checkbox"]')) {
-                e.stopPropagation();
-                return;
-            }
-            const arrow = this.querySelector('.expand-arrow');
-            if (e.target === arrow || arrow?.contains(e.target)) {
-                toggleQuotationItems(this);
-            } else if (!e.target.closest('button')) {
-                toggleQuotationItems(this);
-            }
-        });
-        
-        const expandArrow = card.querySelector('.expand-arrow');
-        if (expandArrow) {
-            expandArrow.addEventListener('click', (e) => {
-                e.stopPropagation();
-                toggleQuotationItems(card);
-            });
-        }
-    });
+    trySelectFirstListCard();
 }
 
 function renderDraftList(list) {
     if (!list || list.length === 0) {
-        return '<div style="padding: 12px; text-align: center; color: #888;">No saved drafts</div>';
+        return '<div class="view-quotation-list-empty">No saved drafts</div>';
     }
-
     let html = '';
-    list.forEach(qt => {
+    list.forEach((qt) => {
         const amount = Number(qt.DOCAMT || 0).toFixed(2);
-        const docDate = qt.DOCDATE || '-';
-        const validity = qt.VALIDITY || '-';
-        const creditTerm = qt.CREDITTERM || 'N/A';
-        const description = qt.DESCRIPTION || 'Draft Quotation';
-        const companyName = qt.COMPANYNAME || 'N/A';
+        const docDate = escapeHtml(qt.DOCDATE || '—');
+        const validity = escapeHtml(qt.VALIDITY || '—');
+        const companyName = escapeHtml(qt.COMPANYNAME || 'N/A');
+        const docno = escapeHtml(qt.DOCNO || 'DOCKEY #' + qt.DOCKEY);
         html += `
-            <div class="quotation-card" data-dockey="${qt.DOCKEY}" data-source="slqtdraft" style="background: #2d3440; padding: 12px; margin-bottom: 12px; border-radius: 8px; border-left: 3px solid #5b82b6; cursor: pointer;">
-                <div class="quotation-card__header-layout">
-                    <div class="quotation-card__info">
-                        <div class="quotation-card__info-grid">
-                            <div class="quotation-card__field">
-                                <span class="quotation-card__field-label">QT Code</span>
-                                <div class="quotation-card__field-value">
-                                    <span class="expand-arrow" style="color: #9ba7b6; font-size: 12px; transition: transform 0.2s; flex-shrink: 0;">▼</span>
-                                    <span>${qt.DOCNO || ('DOCKEY #' + qt.DOCKEY)}</span>
-                                </div>
-                            </div>
-                            <div class="quotation-card__field">
-                                <span class="quotation-card__field-label">Customer Name</span>
-                                <div class="quotation-card__field-value quotation-card__field-value--wrap">${companyName}</div>
-                            </div>
-                            <div class="quotation-card__field">
-                                <span class="quotation-card__field-label">Date</span>
-                                <div class="quotation-card__field-value">${docDate}</div>
-                            </div>
-                            <div class="quotation-card__field">
-                                <span class="quotation-card__field-label">Valid Until</span>
-                                <div class="quotation-card__field-value">${validity}</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="quotation-card__amount-col">
-                        <span class="quotation-card__amount" style="background: #5b82b6;">RM ${amount}</span>
-                    </div>
-                    <div class="quotation-card__button-col">
-                        <div class="quotation-card__side-actions">
-                            <button onclick="event.stopPropagation(); editSlQtDraft(${qt.DOCKEY});" style="background: #5b82b6; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600;">Edit Draft</button>
-                        </div>
-                    </div>
+            <div class="view-qt-list-card" data-dockey="${qt.DOCKEY}" data-list-type="draft" data-source="slqtdraft" style="border-left-color:#4b6e9e" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}">
+                <div class="view-qt-list-card__row">
+                    <span class="view-qt-list-card__docno">${docno}</span>
+                    <span class="view-qt-list-card__amount" style="background:#4b6e9e">RM ${amount}</span>
                 </div>
-                <div class="quotation-items" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid #3d4654;">
-                    <div style="text-align: center; color: #888; padding: 8px;">Loading items...</div>
+                <div class="view-qt-list-card__meta">${companyName}</div>
+                <div class="view-qt-list-card__row2">Date: ${docDate} · Valid: ${validity}</div>
+                <div class="view-qt-list-card__actions">
+                    <button type="button" class="btn-edit-draft" onclick="event.stopPropagation(); editSlQtDraft(${qt.DOCKEY})">Edit draft</button>
                 </div>
             </div>
         `;
     });
-
     return html;
 }
 
@@ -404,6 +489,10 @@ function updateDraftCountDisplay() {
         const count = draftQuotationsCache.length;
         draftDisplay.textContent = `📋 Drafts: ${count}`;
     }
+    const td = document.getElementById('tab-drafts');
+    if (td) {
+        td.textContent = `📋 Drafts (${draftQuotationsCache.length})`;
+    }
 }
 
 function editDraft(dockey) {
@@ -412,23 +501,26 @@ function editDraft(dockey) {
 
 function viewDrafts() {
     setQuotationTab('drafts');
-    document.getElementById('quotation-content').scrollIntoView({ behavior: 'smooth' });
+    const qc = document.getElementById('quotation-content');
+    if (qc) {
+        qc.scrollIntoView({ behavior: 'smooth' });
+    }
 }
 
 function showDraftNotification(docno) {
     const notification = document.getElementById('draft-notification');
-    if (!notification) return;
-    
+    if (!notification) {
+        return;
+    }
+
     const messageEl = notification.querySelector('.draft-notification-message');
     if (messageEl) {
-        messageEl.innerHTML = `✓ Draft saved successfully!<br><strong>DOCNO: ${docno}</strong>`;
+        messageEl.innerHTML = `✓ Draft saved successfully!<br><strong>DOCNO: ${escapeHtml(docno)}</strong>`;
     }
-    
+
     notification.classList.remove('hidden');
-    
+
     setTimeout(() => {
         notification.classList.add('hidden');
     }, 5000);
 }
-
-

@@ -94,13 +94,9 @@
     background: #f6efe2;
 }
 
-.admin-quotations-view-page .header {
-    background: #f3e3c7;
-    border-bottom: 1px solid #d9c6a0;
-}
-
-.admin-quotations-view-page .header-title {
-    color: #5c4028;
+/* Top bar: shared app_page_header.css; keep page chrome only if needed */
+.admin-quotations-view-page .admin-header.app-page-header {
+    box-sizing: border-box;
 }
 
 .admin-quotations-view-page .tab-content.active {
@@ -184,6 +180,16 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    word-break: normal;
+    overflow-wrap: normal;
+}
+
+.quotation-list-pane .quotation-card__side-actions .edit-button,
+.quotation-list-pane .quotation-card__side-actions .activate-btn,
+.quotation-list-pane .quotation-card__side-actions .toggle-cancelled-btn {
+    padding: 4px 9px !important;
+    font-size: 11px !important;
+    line-height: 1.2;
 }
 
 .quotation-detail-head {

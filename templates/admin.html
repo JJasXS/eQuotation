@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -6,13 +6,12 @@
     <title>Admin Dashboard</title>
     <link rel="stylesheet" href="/static/css/admin.css">
     <link rel="stylesheet" href="/static/css/hamburger_menu.css">
+    <link rel="stylesheet" href="/static/css/app_page_header.css">
 </head>
 <body>
     <div class="admin-container">
-        <div class="admin-header">
-            {% include 'components/admin_hamburger_menu.html' %}
-            <h2>Admin Dashboard</h2>
-        </div>
+        {% set page_header_title = "Admin Dashboard" %}
+        {% include 'components/app_page_header.html' %}
 
         <div class="admin-welcome" id="admin-welcome">
             <div class="admin-dashboard-shell">
@@ -121,7 +120,7 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="/static/js/admin_hamburger_menu.js"></script>
+    <script src="/static/js/hamburger_menu.js"></script>
     <script src="/static/js/admin_menu.js"></script>
     <script src="/static/js/admin_dashboard.js"></script>
 </body>

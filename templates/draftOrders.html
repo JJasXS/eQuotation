@@ -6,13 +6,12 @@
     <title>Draft Orders</title>
     <link rel="stylesheet" href="/static/css/admin.css">
     <link rel="stylesheet" href="/static/css/hamburger_menu.css">
+    <link rel="stylesheet" href="/static/css/app_page_header.css">
 </head>
 <body>
     <div class="admin-container">
-        <div class="admin-header">
-            {% include 'components/hamburger_menu.html' %}
-            <h2>Draft Orders</h2>
-        </div>
+        {% set page_header_title = "Draft Orders" %}
+        {% include 'components/app_page_header.html' %}
 
         <div class="admin-approvals" style="display: flex;">
             <div class="approvals-header">

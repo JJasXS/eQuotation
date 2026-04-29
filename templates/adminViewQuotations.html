@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -6,6 +6,7 @@
     <title>Admin - View All Quotations</title>
     <link rel="stylesheet" href="/static/css/chat.css">
     <link rel="stylesheet" href="/static/css/hamburger_menu.css">
+    <link rel="stylesheet" href="/static/css/app_page_header.css">
     <link rel="stylesheet" href="/static/css/orderQuotation.css">
     <link rel="stylesheet" href="/static/css/adminViewQuotations.css">
     <style>
@@ -37,18 +38,18 @@
         }
         .quotation-card__header-layout {
             display: grid;
-            grid-template-columns: minmax(0, 1fr) 110px 180px;
-            gap: 16px;
+            grid-template-columns: minmax(0, 1fr) 96px 132px;
+            gap: 10px;
             align-items: start;
-            margin-bottom: 12px;
+            margin-bottom: 6px;
         }
         .quotation-card__info {
             min-width: 0;
         }
         .quotation-card__info-grid {
             display: grid;
-            grid-template-columns: 150px minmax(0, 1fr) 130px 130px;
-            gap: 12px;
+            grid-template-columns: 108px minmax(140px, 1fr) 96px 96px;
+            gap: 8px;
             align-items: start;
         }
         .quotation-card__field {
@@ -56,9 +57,9 @@
         }
         .quotation-card__field-label {
             display: block;
-            margin-bottom: 4px;
+            margin-bottom: 2px;
             color: #6f5238;
-            font-size: 11px;
+            font-size: 10px;
             font-weight: 600;
             letter-spacing: 0.03em;
             text-transform: uppercase;
@@ -66,10 +67,10 @@
         .quotation-card__field-value {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 6px;
             min-width: 0;
             color: #4f341e;
-            font-size: 13px;
+            font-size: 12px;
         }
         .quotation-card__field-value--wrap {
             display: block;
@@ -89,19 +90,20 @@
         .quotation-card__amount {
             background: #4b6e9e;
             color: #fff;
-            padding: 4px 10px;
+            padding: 3px 8px;
             border-radius: 6px;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 600;
             white-space: nowrap;
             text-align: right;
         }
         .quotation-card__side-actions {
             display: flex;
-            flex-direction: column;
+            flex-direction: row;
             flex-wrap: wrap;
-            align-items: stretch;
-            gap: 8px;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 6px;
             width: 100%;
         }
         @media (max-width: 900px) {
@@ -129,13 +131,9 @@
 <body class="admin-quotations-view-page">
     <div class="container">
         <div class="main-content">
-            <div class="header">
-                {% include 'components/admin_hamburger_menu.html' %}
-                <div>
-                    <h3 class="header-title">All Quotations</h3>
-                    <div style="font-size: 12px; color: #87684d; margin-top: 4px;">Admin: {{ user_email }}</div>
-                </div>
-            </div>
+            {% set page_header_title = "All Quotations" %}
+            {% set page_header_subtitle = "Admin: " ~ (user_email or "—") %}
+            {% include 'components/app_page_header.html' %}
 
             <div class="tab-content active">
                 <div id="quotation-content" style="padding: 20px;">
@@ -170,7 +168,7 @@
         <span></span>
     </div>
 
-    <script src="/static/js/admin_hamburger_menu.js"></script>
-    <script src="/static/js/adminViewQuotations.js?v=20260330"></script>
+    <script src="/static/js/hamburger_menu.js"></script>
+    <script src="/static/js/adminViewQuotations.js?v=20260429"></script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -6,18 +6,15 @@
     <title>Admin - Pricing Priority Rules</title>
     <link rel="stylesheet" href="/static/css/chat.css">
     <link rel="stylesheet" href="/static/css/hamburger_menu.css">
+    <link rel="stylesheet" href="/static/css/app_page_header.css">
     <link rel="stylesheet" href="/static/css/pricingPriorityRules.css">
 </head>
 <body>
     <div class="container pricing-priority-page">
         <div class="main-content">
-            <div class="header">
-                {% include 'components/admin_hamburger_menu.html' %}
-                <div>
-                    <h3 class="header-title">Set Priority Rule</h3>
-                    <div class="header-subtitle">Admin: {{ user_email }}</div>
-                </div>
-            </div>
+            {% set page_header_title = "Set Priority Rule" %}
+            {% set page_header_subtitle = "Admin: " ~ (user_email or "—") %}
+            {% include 'components/app_page_header.html' %}
 
             <div class="priority-shell">
                 <div class="priority-shell__header">
@@ -45,7 +42,7 @@
         </div>
     </div>
 
-    <script src="/static/js/admin_hamburger_menu.js"></script>
+    <script src="/static/js/hamburger_menu.js"></script>
     <script src="/static/js/pricingPriorityRules.js"></script>
 </body>
 </html>

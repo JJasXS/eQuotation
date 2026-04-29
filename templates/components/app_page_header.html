@@ -1,0 +1,18 @@
+{# Reusable top bar: left = hamburger + title; right = optional welcome + optional actions (one row).
+   page_header_title (required). Optional: page_header_subtitle, page_header_subtitle_is_html, page_header_right. #}
+<header class="admin-header app-page-header" role="banner">
+  <div class="app-page-header__left">
+    {% include 'components/hamburger_menu.html' %}
+    <h2 class="app-page-header__title">{{ page_header_title | default('') }}</h2>
+  </div>
+  {% if (page_header_subtitle is defined and page_header_subtitle) or (page_header_right is defined and page_header_right) %}
+  <div class="app-page-header__end">
+    {% if page_header_subtitle is defined and page_header_subtitle %}
+    <div class="app-page-header__subtitle">{% if page_header_subtitle_is_html is defined and page_header_subtitle_is_html %}{{ page_header_subtitle | safe }}{% else %}{{ page_header_subtitle }}{% endif %}</div>
+    {% endif %}
+    {% if page_header_right is defined and page_header_right %}
+    <div class="app-page-header__right">{{ page_header_right | safe }}</div>
+    {% endif %}
+  </div>
+  {% endif %}
+</header>

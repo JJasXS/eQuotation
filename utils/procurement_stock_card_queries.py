@@ -437,50 +437,122 @@ def fetch_procurement_metric_breakdown(
         }
 
     if metric_key == "avail_qty":
+        st_cols = _get_table_columns(cur, "ST_TR")
+        docno_col = _pick_existing(st_cols, "DOCNO", "DOCNOEX", "REFNO", "REFERENCENO", "BATCHREF")
+        desc_col = _pick_existing(
+            st_cols, "DESCRIPTION", "DESC1", "DESC2", "REMARK1", "REMARKS", "MEMO", "NARRATION"
+        )
+        qty_col = _pick_existing(st_cols, "QTY", "QUANTITY", "BALANCE", "BALQTY")
+        batch_col = _pick_existing(st_cols, "BATCH", "BATCHNO", "LOT", "BATCHCODE")
+        dtl_col = _pick_existing(st_cols, "DTLKEY", "RID", "LINE", "LINENO")
+
+        if not qty_col:
+            details = [
+                {
+                    "docno": "—",
+                    "docdate": None,
+                    "party": _stringify(batch_col) if batch_col else None,
+                    "remarks": "ST_TR has no QTY column in metadata; cannot list stock lines.",
+                    "total_qty": 0.0,
+                    "moved_qty": 0.0,
+                    "outstanding_qty": 0.0,
+                }
+            ]
+            return {
+                "metric": metric_key,
+                "title": "Avail.Qty Breakdown",
+                "item_code": item,
+                "location": location,
+                "breakdown_style": "st_tr",
+                "rows": details,
+                "summary": {"value": 0.0, "note": "Missing QTY on ST_TR."},
+            }
+
+        select_parts: list[str] = []
+        if docno_col:
+            select_parts.append(f"TRIM(CAST(S.{docno_col} AS VARCHAR(120)))")
+        else:
+            select_parts.append("CAST(NULL AS VARCHAR(120))")
+        if desc_col:
+            select_parts.append(f"TRIM(CAST(S.{desc_col} AS VARCHAR(200)))")
+        else:
+            select_parts.append("CAST('' AS VARCHAR(200))")
+        select_parts.append(f"CAST(COALESCE(S.{qty_col}, 0) AS DOUBLE PRECISION)")
+        if batch_col:
+            select_parts.append(f"TRIM(CAST(S.{batch_col} AS VARCHAR(80)))")
+        else:
+            select_parts.append("CAST(NULL AS VARCHAR(80))")
+        if dtl_col:
+            select_parts.append(f"CAST(S.{dtl_col} AS VARCHAR(40))")
+        else:
+            select_parts.append("CAST(NULL AS VARCHAR(40))")
+
+        order_clause = f"S.{docno_col} DESC" if docno_col else f"S.{dtl_col} DESC" if dtl_col else "1"
+
         cur.execute(
-            """
-            SELECT DOCNO, DESCRIPTION, QTY
-            FROM ST_TR
-            WHERE ITEMCODE = ?
-              AND LOCATION = ?
-            ORDER BY DOCNO DESC
+            f"""
+            SELECT
+                {select_parts[0]} AS C_DOCNO,
+                {select_parts[1]} AS C_DESC,
+                {select_parts[2]} AS C_QTY,
+                {select_parts[3]} AS C_BATCH,
+                {select_parts[4]} AS C_DTL
+            FROM ST_TR S
+            WHERE S.ITEMCODE = ?
+              AND S.LOCATION = ?
+            ORDER BY {order_clause}
             """,
             (item, location),
         )
-        rows = cur.fetchall() or []
+        raw_rows = cur.fetchall() or []
         details = []
         total = 0.0
-        for row in rows:
+        for row in raw_rows:
+            ref = _stringify(_row_value(row, 0)) or "—"
+            des = _stringify(_row_value(row, 1)) or "—"
             qty = _to_float(_row_value(row, 2))
+            batch = _stringify(_row_value(row, 3)) if len(row) > 3 else None
+            dtl = _stringify(_row_value(row, 4)) if len(row) > 4 else None
             total += qty
-            details.append({
-                "docno": _stringify(_row_value(row, 0)),
-                "docdate": None,
-                "party": None,
-                "remarks": _stringify(_row_value(row, 1)),
-                "total_qty": qty,
-                "moved_qty": 0,
-                "outstanding_qty": qty,
-            })
+            des_line = des
+            if batch and str(batch).strip() and str(batch).strip() not in str(des or ""):
+                des_line = f"{des_line} · Batch: {batch}" if des_line and des_line != "—" else f"Batch: {batch}"
+            if dtl and str(dtl).strip():
+                des_line = f"{des_line} · #{dtl}" if des_line and des_line != "—" else f"#{dtl}"
+
+            details.append(
+                {
+                    "docno": ref,
+                    "docdate": None,
+                    "party": _stringify(batch) if batch else None,
+                    "remarks": des_line,
+                    "total_qty": qty,
+                    "moved_qty": 0.0,
+                    "outstanding_qty": qty,
+                }
+            )
         if not details:
-            details.append({
-                "docno": "ST_TR",
-                "docdate": None,
-                "party": None,
-                "remarks": "No ST_TR records for this item/location.",
-                "total_qty": 0,
-                "moved_qty": 0,
-                "outstanding_qty": 0,
-            })
+            details = [
+                {
+                    "docno": "—",
+                    "docdate": None,
+                    "party": None,
+                    "remarks": "No ST_TR records for this item/location.",
+                    "total_qty": 0.0,
+                    "moved_qty": 0.0,
+                    "outstanding_qty": 0.0,
+                }
+            ]
         return {
             "metric": metric_key,
             "title": "Avail.Qty Breakdown",
             "item_code": item,
             "location": location,
+            "breakdown_style": "st_tr",
             "rows": details,
             "summary": {
                 "value": total,
-                "note": "Avail.Qty is the sum of QTY from all ST_TR records for this item/location.",
+                "note": "Total = sum of QTY on each ST_TR line above.",
             },
         }
 

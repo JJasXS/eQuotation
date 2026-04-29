@@ -6,18 +6,17 @@
     <title>Request Quotation</title>
     <link rel="stylesheet" href="/static/css/chat.css">
     <link rel="stylesheet" href="/static/css/hamburger_menu.css">
+    <link rel="stylesheet" href="/static/css/app_page_header.css">
     <link rel="stylesheet" href="/static/css/orderQuotation.css">
+    <link rel="stylesheet" href="/static/css/quotationChatPopup.css">
+    <link rel="stylesheet" href="/static/css/createQuotationLight.css">
 </head>
-<body data-php-base-url="{{ php_base_url }}">
+<body class="create-quotation-page" data-php-base-url="{{ php_base_url }}">
     <div class="container">
         <div class="main-content">
-            <div class="header">
-                {% include 'components/hamburger_menu.html' %}
-                <div>
-                    <h3 class="header-title">Request Quotation</h3>
-                    <div style="font-size: 12px; color: #9ba7b6; margin-top: 4px;">Welcome User: {{ user_email }}</div>
-                </div>
-            </div>
+            {% set page_header_title = "Request Quotation" %}
+            {% set page_header_subtitle = "Welcome: " ~ (user_email or "—") %}
+            {% include 'components/app_page_header.html' %}
             
             <!-- Quotation Form -->
             <div class="tab-content active">
@@ -157,7 +156,6 @@
             <button type="button" class="quotation-send-btn" onclick="sendQuotationChatMessage()">Send</button>
         </div>
     </div>
-    <link rel="stylesheet" href="/static/css/quotationChatPopup.css">
     <script src="/static/js/quotationChatPopup.js"></script>
                             <!-- Hide Quotation Name field -->
                             <input type="hidden" id="quotation-name" name="quotationName" value="Quotation">

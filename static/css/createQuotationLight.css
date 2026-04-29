@@ -1,0 +1,245 @@
+/* Create Quotation page — light warm theme (aligns with procurement / view-quotations) */
+
+body.create-quotation-page {
+    background: #f2e8d8;
+    color: #3d2f1f;
+}
+
+body.create-quotation-page .container,
+body.create-quotation-page .main-content {
+    background: #f2e8d8;
+}
+
+body.create-quotation-page .tab-content {
+    background: transparent;
+}
+
+/* Subtitle: matches app_page_header; slight tweak for this page if needed */
+body.create-quotation-page .app-page-header__subtitle {
+    color: #6b5a45;
+}
+
+body.create-quotation-page .admin-header.app-page-header {
+    background: #f8efdd;
+    border-bottom: 1px solid #e2cfab;
+}
+
+body.create-quotation-page h2.app-page-header__title {
+    color: #4f3b2a;
+}
+
+body.create-quotation-page .form-container {
+    background: #fffaf0;
+    border: 1px solid #e2cfab;
+    box-shadow: 0 4px 16px rgba(80, 60, 30, 0.08);
+}
+
+body.create-quotation-page .form-container h3 {
+    color: #4f3b2a;
+}
+
+body.create-quotation-page .form-group label {
+    color: #6b5a45;
+}
+
+body.create-quotation-page .form-group input,
+body.create-quotation-page .form-group textarea,
+body.create-quotation-page .form-group select {
+    background: #fff8ec !important;
+    border: 1px solid #d4c4a8;
+    color: #3d2f1f !important;
+}
+
+body.create-quotation-page .form-group input:focus,
+body.create-quotation-page .form-group textarea:focus,
+body.create-quotation-page .form-group select:focus {
+    background: #fffef8 !important;
+    border-color: #5a7eb8;
+    outline: none;
+}
+
+body.create-quotation-page .form-group input:read-only,
+body.create-quotation-page .form-group input[readonly] {
+    background: #f0e6d2 !important;
+    color: #5c4a35 !important;
+    cursor: default;
+}
+
+body.create-quotation-page .form-group select option {
+    background: #fff8ec !important;
+    color: #3d2f1f !important;
+}
+
+body.create-quotation-page .form-group select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%235c4a35' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+}
+
+body.create-quotation-page .order-item,
+body.create-quotation-page .item-row input,
+body.create-quotation-page .item-row select {
+    background: #fff8ec !important;
+    border-color: #d4c4a8;
+    color: #3d2f1f !important;
+}
+
+body.create-quotation-page .order-item {
+    background: #fff4e0;
+    border: 1px solid #e2cfab;
+}
+
+body.create-quotation-page .item-row input:focus,
+body.create-quotation-page .item-row select:focus {
+    background: #fffef8 !important;
+    border-color: #5a7eb8;
+}
+
+body.create-quotation-page .item-row .item-suggested-price,
+body.create-quotation-page .item-row .item-price {
+    background: #ede4d0 !important;
+    color: #2d4a6e !important;
+}
+
+body.create-quotation-page .item-row select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%235c4a35' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+}
+
+body.create-quotation-page .item-row select option {
+    background: #fff8ec !important;
+    color: #3d2f1f !important;
+}
+
+body.create-quotation-page .item-row-header {
+    color: #6b5a45;
+    border-bottom: 1px solid #e2cfab;
+    padding-bottom: 8px;
+    margin-bottom: 4px;
+}
+
+body.create-quotation-page .total-section {
+    background: #fff4e0;
+    border: 1px solid #e2cfab;
+}
+
+body.create-quotation-page .total-row,
+body.create-quotation-page .total-row span:first-child {
+    color: #4f3b2a;
+}
+
+body.create-quotation-page .total-row span:last-child {
+    color: #2d4a6e;
+}
+
+body.create-quotation-page .btn-primary {
+    background: #4b6e9e;
+}
+
+body.create-quotation-page .btn-primary:hover {
+    background: #3d5d86;
+    box-shadow: 0 4px 8px rgba(75, 110, 158, 0.25);
+}
+
+body.create-quotation-page .btn-secondary {
+    background: #e8ddc8;
+    color: #4f3b2a;
+    border: 1px solid #d4c4a8;
+}
+
+body.create-quotation-page .btn-secondary:hover {
+    background: #e0d3ba;
+    color: #3d2f1f;
+}
+
+body.create-quotation-page .btn-add-item {
+    background: #fff4e0;
+    border: 2px dashed #c9b89a;
+    color: #4b6e9e;
+}
+
+body.create-quotation-page .btn-add-item:hover {
+    background: #faefd9;
+    border-color: #4b6e9e;
+}
+
+body.create-quotation-page .btn-remove {
+    background: #c45c5c;
+}
+
+body.create-quotation-page .btn-remove:hover {
+    background: #a84848;
+}
+
+/* Quotation chat bubble / popup (scoped light) */
+body.create-quotation-page .quotation-chat-bubble {
+    background: #4b6e9e;
+    box-shadow: 0 4px 12px rgba(75, 110, 158, 0.35);
+}
+
+body.create-quotation-page .quotation-chat-preview {
+    background: linear-gradient(180deg, #f8f0e0 0%, #f0e6d2 100%);
+    border: 1px solid #d4c4a8;
+    color: #3d2f1f;
+    box-shadow: 0 12px 28px rgba(50, 40, 20, 0.12);
+}
+
+body.create-quotation-page .quotation-chat-preview-label {
+    color: #4b6e9e;
+}
+
+body.create-quotation-page .quotation-chat-popup {
+    background: #fffaf0;
+    border: 1px solid #e2cfab;
+    box-shadow: 0 8px 28px rgba(50, 40, 20, 0.12);
+}
+
+body.create-quotation-page .quotation-chat-popup-header {
+    background: #f8efdd;
+    border-bottom: 1px solid #e2cfab;
+}
+
+body.create-quotation-page .quotation-chat-popup-header h4 {
+    color: #4f3b2a;
+}
+
+body.create-quotation-page .quotation-close-btn {
+    color: #6b5a45;
+}
+
+body.create-quotation-page .quotation-close-btn:hover {
+    color: #3d2f1f;
+}
+
+body.create-quotation-page .quotation-chat-popup-messages {
+    background: #fffef8;
+}
+
+body.create-quotation-page .quotation-chat-popup-message-content {
+    background: #e8e0d0;
+    color: #3d2f1f;
+    border: 1px solid #d4c4a8;
+}
+
+body.create-quotation-page .quotation-chat-popup-input {
+    background: #f8efdd;
+    border-top: 1px solid #e2cfab;
+}
+
+body.create-quotation-page #quotation-chat-popup-textarea {
+    background: #fff8ec;
+    border: 1px solid #d4c4a8;
+    color: #3d2f1f;
+}
+
+body.create-quotation-page .quotation-send-btn {
+    background: #4b6e9e;
+}
+
+body.create-quotation-page .quotation-send-btn:hover {
+    background: #3d5d86;
+}
+
+/* Hamburger: subtle contrast on light header (inherits hamburger_menu.css) */
+body.create-quotation-page .hamburger-menu-container .hamburger-btn {
+    background: #fffef8;
+    border: 1px solid #d4c4a8;
+    border-radius: 8px;
+}

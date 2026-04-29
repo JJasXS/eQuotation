@@ -2,7 +2,8 @@ let activeQuotationsCache = [];
 let cancelledQuotationsCache = [];
 let pendingQuotationsCache = [];
 let companyFilter = '';
-let currentTab = 'active';
+/** One or more of: active, pending, cancelled. At least one must stay selected. */
+let selectedQuotationTabFilters = new Set(['active']);
 let selectedActiveQuotations = new Set();
 let selectedQuotationDockey = null;
 const quotationDetailCache = new Map();
@@ -93,7 +94,6 @@ window.toggleCancelledStatus = async function(dockey, isCancelled) {
         if (data.success) {
             console.log('[DEBUG] Update successful, reloading quotations...');
             await loadQuotations();
-            setQuotationTab(currentTab);
         } else {
             alert('Failed to update status: ' + (data.error || 'Unknown error'));
         }
@@ -126,7 +126,7 @@ window.activateQuotation = async function(dockey) {
         if (data.success) {
             console.log('[DEBUG] Activation successful, reloading quotations...');
             await loadQuotations();
-            setQuotationTab('active'); // Switch to active tab to show the newly activated quotation
+            setQuotationTab('active');
         } else {
             alert('Failed to activate quotation: ' + (data.error || 'Unknown error'));
         }
@@ -172,14 +172,14 @@ async function setupCompanyFilter() {
     dropdown.onchange = function() {
         companyFilter = dropdown.value;
         listVisibleLimit = { active: 5, pending: 5, cancelled: 5 };
-        setQuotationTab(currentTab);
+        refreshQuotationListView();
     };
 
     clearBtn.onclick = function() {
         companyFilter = '';
         dropdown.value = '';
         listVisibleLimit = { active: 5, pending: 5, cancelled: 5 };
-        setQuotationTab(currentTab);
+        refreshQuotationListView();
     };
 }
 
@@ -194,7 +194,7 @@ function setupDateFilter() {
         adminDateFrom = fromEl.value || '';
         adminDateTo = toEl.value || '';
         listVisibleLimit = { active: 5, pending: 5, cancelled: 5 };
-        setQuotationTab(currentTab);
+        refreshQuotationListView();
     };
     clearBtn.onclick = function() {
         fromEl.value = '';
@@ -202,18 +202,107 @@ function setupDateFilter() {
         adminDateFrom = '';
         adminDateTo = '';
         listVisibleLimit = { active: 5, pending: 5, cancelled: 5 };
-        setQuotationTab(currentTab);
+        refreshQuotationListView();
     };
 
     fromEl.value = adminDateFrom || '';
     toEl.value = adminDateTo || '';
 }
 
-function getFilteredListByTab(tabName) {
+function getCombinedQuotationList() {
     const { active, pending, cancelled } = getFilteredAdminLists();
-    if (tabName === 'pending') return pending;
-    if (tabName === 'cancelled') return cancelled;
-    return active;
+    const out = [];
+    const parts = [
+        ['active', active],
+        ['pending', pending],
+        ['cancelled', cancelled],
+    ];
+    for (const [key, list] of parts) {
+        if (!selectedQuotationTabFilters.has(key)) {
+            continue;
+        }
+        for (const q of list) {
+            out.push({ ...q, _filterTab: key });
+        }
+    }
+    return out;
+}
+
+/**
+ * Toggle a status filter (Active / Pending / Cancelled). Multiple can be on at once.
+ * At least one filter must remain selected.
+ */
+window.toggleQuotationFilter = function (name) {
+    if (!['active', 'pending', 'cancelled'].includes(name)) {
+        return;
+    }
+    if (selectedQuotationTabFilters.has(name) && selectedQuotationTabFilters.size <= 1) {
+        return;
+    }
+    if (selectedQuotationTabFilters.has(name)) {
+        selectedQuotationTabFilters.delete(name);
+    } else {
+        selectedQuotationTabFilters.add(name);
+    }
+    if (selectedQuotationTabFilters.size === 0) {
+        selectedQuotationTabFilters.add('active');
+    }
+    refreshQuotationListView();
+};
+
+function refreshQuotationListView() {
+    const tabContent = document.getElementById('quotation-tab-content');
+    const activeBtn = document.getElementById('tab-active');
+    const cancelledBtn = document.getElementById('tab-cancelled');
+    const pendingBtn = document.getElementById('tab-pending');
+    if (!tabContent || !activeBtn || !cancelledBtn || !pendingBtn) {
+        return;
+    }
+
+    const { active: activeList, pending: pendingList, cancelled: cancelledList } = getFilteredAdminLists();
+
+    activeBtn.textContent = `Active (${activeList.length})`;
+    pendingBtn.textContent = `Pending (${pendingList.length})`;
+    cancelledBtn.textContent = `Cancelled (${cancelledList.length})`;
+
+    activeBtn.classList.toggle('active', selectedQuotationTabFilters.has('active'));
+    pendingBtn.classList.toggle('active', selectedQuotationTabFilters.has('pending'));
+    cancelledBtn.classList.toggle('active', selectedQuotationTabFilters.has('cancelled'));
+
+    const visibleList = getCombinedQuotationList();
+
+    if (!visibleList.some((row) => Number(row.DOCKEY) === Number(selectedQuotationDockey))) {
+        selectedQuotationDockey = visibleList.length ? Number(visibleList[0].DOCKEY) : null;
+    }
+
+    const html = `
+        <div class="quotation-split-wrap">
+            <div class="quotation-list-pane">
+                ${renderQuotationList(visibleList, {}, 'combined', false)}
+            </div>
+            <div class="quotation-detail-pane" id="quotation-detail-pane">
+                <div class="quotation-detail-empty">Select a quotation to view details.</div>
+            </div>
+        </div>
+    `;
+    tabContent.innerHTML = html;
+
+    document.querySelectorAll('.quotation-card').forEach((card) => {
+        card.addEventListener('click', function (e) {
+            if (
+                !e.target.closest('.edit-button')
+                && !e.target.closest('.activate-btn')
+                && !e.target.closest('.toggle-cancelled-btn')
+                && !e.target.closest('.quotation-checkbox-active')
+            ) {
+                selectedQuotationDockey = Number(this.dataset.dockey);
+                refreshQuotationListView();
+            }
+        });
+    });
+
+    updateActiveDeleteControls();
+    renderQuotationDetail(visibleList, {});
 }
 
 async function loadQuotations() {
@@ -265,13 +354,13 @@ async function loadQuotations() {
                         <button id="company-filter-clear" style="padding: 8px 12px; border-radius: 6px; background: #f8efdd; color: #7b5a36; border: 1px solid #e2cfab; cursor: pointer; font-size: 13px;">Clear</button>
                     </div>
                     <div class="approvals-tabs quotation-page-header-tabs">
-                        <button id="tab-active" class="approval-tab" onclick="setQuotationTab('active')">
+                        <button type="button" id="tab-active" class="approval-tab ${selectedQuotationTabFilters.has('active') ? 'active' : ''}" onclick="toggleQuotationFilter('active')">
                             Active (${activeQuotationsCache.length})
                         </button>
-                        <button id="tab-pending" class="approval-tab" onclick="setQuotationTab('pending')">
+                        <button type="button" id="tab-pending" class="approval-tab ${selectedQuotationTabFilters.has('pending') ? 'active' : ''}" onclick="toggleQuotationFilter('pending')">
                             Pending (${pendingQuotationsCache.length})
                         </button>
-                        <button id="tab-cancelled" class="approval-tab" onclick="setQuotationTab('cancelled')">
+                        <button type="button" id="tab-cancelled" class="approval-tab ${selectedQuotationTabFilters.has('cancelled') ? 'active' : ''}" onclick="toggleQuotationFilter('cancelled')">
                             Cancelled (${cancelledQuotationsCache.length})
                         </button>
                     </div>
@@ -282,7 +371,7 @@ async function loadQuotations() {
 
         content.innerHTML = html;
         setupDateFilter();
-        setQuotationTab(currentTab);
+        refreshQuotationListView();
     } catch (error) {
         content.innerHTML = '<div style="padding: 20px; text-align: center; color: #ff6b6b;">Failed to load quotations.</div>';
         console.error('Error loading quotations:', error);
@@ -290,91 +379,21 @@ async function loadQuotations() {
 }
 
 function setQuotationTab(tabName) {
-    currentTab = tabName;
-
-    const tabContent = document.getElementById('quotation-tab-content');
-    const activeBtn = document.getElementById('tab-active');
-    const cancelledBtn = document.getElementById('tab-cancelled');
-    const pendingBtn = document.getElementById('tab-pending');
-    if (!tabContent || !activeBtn || !cancelledBtn || !pendingBtn) return;
-
-    const { active: activeList, pending: pendingList, cancelled: cancelledList } = getFilteredAdminLists();
-
-    activeBtn.textContent = `Active (${activeList.length})`;
-    pendingBtn.textContent = `Pending (${pendingList.length})`;
-    cancelledBtn.textContent = `Cancelled (${cancelledList.length})`;
-
-    activeBtn.classList.remove('active');
-    pendingBtn.classList.remove('active');
-    cancelledBtn.classList.remove('active');
-
-    let tabKey = 'active';
-    let currentList = activeList;
-    let options = { isCancelled: false, isPending: false };
-    if (tabName === 'cancelled') {
-        cancelledBtn.classList.add('active');
-        tabKey = 'cancelled';
-        currentList = cancelledList;
-        options = { isCancelled: true, isPending: false };
-    } else if (tabName === 'pending') {
-        pendingBtn.classList.add('active');
-        tabKey = 'pending';
-        currentList = pendingList;
-        options = { isCancelled: false, isPending: true };
-    } else {
-        activeBtn.classList.add('active');
-        tabKey = 'active';
-        currentList = activeList;
-        options = { isCancelled: false, isPending: false };
+    if (!['active', 'pending', 'cancelled'].includes(tabName)) {
+        return;
     }
-
-    const visibleList = currentList;
-
-    if (!visibleList.some((row) => Number(row.DOCKEY) === Number(selectedQuotationDockey))) {
-        selectedQuotationDockey = visibleList.length ? Number(visibleList[0].DOCKEY) : null;
-    }
-
-    const html = `
-        <div class="quotation-split-wrap">
-            <div class="quotation-list-pane">
-                ${renderQuotationList(visibleList, options, tabKey, false)}
-            </div>
-            <div class="quotation-detail-pane" id="quotation-detail-pane">
-                <div class="quotation-detail-empty">Select a quotation to view details.</div>
-            </div>
-        </div>
-    `;
-    tabContent.innerHTML = html;
-
-    document.querySelectorAll('.quotation-card').forEach(card => {
-        card.addEventListener('click', function(e) {
-            if (
-                !e.target.closest('.edit-button')
-                && !e.target.closest('.activate-btn')
-                && !e.target.closest('.toggle-cancelled-btn')
-                && !e.target.closest('.quotation-checkbox-active')
-            ) {
-                selectedQuotationDockey = Number(this.dataset.dockey);
-                setQuotationTab(currentTab);
-            }
-        });
-    });
-
-    updateActiveDeleteControls();
-    renderQuotationDetail(currentList, options);
+    selectedQuotationTabFilters = new Set([tabName]);
+    refreshQuotationListView();
 }
 
 function renderQuotationList(list, options = {}, tabKey = 'active', hasMore = false) {
-    const isCancelled = !!options.isCancelled;
-    const isPending = !!options.isPending;
-    const isActive = !isCancelled && !isPending;
-
     if (!list || list.length === 0) {
         return '<div style="padding: 12px; text-align: center; color: #7b5a36;">No quotations</div>';
     }
 
+    const hasActiveInList = list.some((qt) => (qt._filterTab || 'active') === 'active');
     let controlsHtml = '';
-    if (isActive) {
+    if (hasActiveInList) {
         controlsHtml = `
             <div class="active-tab-controls show">
                 <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; user-select: none; color: #5c4028;">
@@ -391,6 +410,10 @@ function renderQuotationList(list, options = {}, tabKey = 'active', hasMore = fa
 
     let html = controlsHtml;
     list.forEach(qt => {
+        const filterTab = qt._filterTab || 'active';
+        const isPending = filterTab === 'pending';
+        const isCancelled = filterTab === 'cancelled';
+        const isActive = filterTab === 'active';
         const amount = Number(qt.DOCAMT || 0).toFixed(2);
         const docDate = formatDateForDisplay(qt.DOCDATE);
         const validity = formatDateForDisplay(qt.VALIDITY);
@@ -459,8 +482,9 @@ async function renderQuotationDetail(currentList, options = {}) {
         return;
     }
 
-    const isCancelled = !!options.isCancelled;
-    const isPending = !!options.isPending;
+    const filterTab = selected._filterTab || 'active';
+    const isPending = filterTab === 'pending';
+    const isCancelled = filterTab === 'cancelled';
     const amount = Number(selected.DOCAMT || 0).toFixed(2);
     const docDate = formatDateForDisplay(selected.DOCDATE);
     const validity = formatDateForDisplay(selected.VALIDITY);

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -6,14 +6,13 @@
     <title>Edit Approval</title>
     <link rel="stylesheet" href="/static/css/admin.css">
     <link rel="stylesheet" href="/static/css/hamburger_menu.css">
+    <link rel="stylesheet" href="/static/css/app_page_header.css">
     <link rel="stylesheet" href="/static/css/admin_edit_approval.css">
 </head>
 <body data-orderid="{{ orderid }}">
     <div class="admin-container">
-        <div class="admin-header">
-            {% include 'components/admin_hamburger_menu.html' %}
-            <h2>Admin Dashboard</h2>
-        </div>
+        {% set page_header_title = "Admin Dashboard" %}
+        {% include 'components/app_page_header.html' %}
 
         <div class="admin-approvals edit-approval-container" style="display: flex;">
             <div class="approvals-header">
@@ -90,6 +89,7 @@
     <script>
         window.editOrderId = Number(document.body.dataset.orderid || 0);
     </script>
+    <script src="/static/js/hamburger_menu.js"></script>
     <script src="/static/js/admin_edit_approval.js"></script>
 </body>
 </html>

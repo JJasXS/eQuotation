@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -6,18 +6,15 @@
     <title>Update Quotation</title>
     <link rel="stylesheet" href="/static/css/chat.css">
     <link rel="stylesheet" href="/static/css/hamburger_menu.css">
+    <link rel="stylesheet" href="/static/css/app_page_header.css">
     <link rel="stylesheet" href="/static/css/orderQuotation.css">
 </head>
 <body>
     <div class="container">
         <div class="main-content">
-            <div class="header">
-                {% include 'components/admin_hamburger_menu.html' %}
-                <div>
-                    <h3 class="header-title">Update Quotation</h3>
-                    <div style="font-size: 12px; color: #9ba7b6; margin-top: 4px;">Admin: {{ user_email }}</div>
-                </div>
-            </div>
+            {% set page_header_title = "Update Quotation" %}
+            {% set page_header_subtitle = "Admin: " ~ (user_email or "—") %}
+            {% include 'components/app_page_header.html' %}
             
             <!-- Quotation Form -->
             <div class="tab-content active">
@@ -118,7 +115,7 @@
         </div>
     </div>
     
-    <script src="/static/js/admin_hamburger_menu.js"></script>
+    <script src="/static/js/hamburger_menu.js"></script>
     <script src="/static/js/updateQuotation.js"></script>
 </body>
 </html>

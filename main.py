@@ -356,7 +356,10 @@ def render_protected_template(template_name, *, require_admin=False, block_admin
     if page_error:
         return page_error
 
-    template_context = {'user_email': session.get('user_email', '')}
+    template_context = {
+        'user_email': session.get('user_email', ''),
+        'user_type': session.get('user_type', ''),
+    }
     template_context.update(context)
     return render_template(template_name, **template_context)
 
@@ -2336,8 +2339,6 @@ def create_quotation_page():
     draft_dockey = request.args.get('draftDockey', '')
     return render_protected_template(
         'createQuotation.html',
-        block_admin=True,
-        admin_redirect='/admin',
         dockey=dockey,
         draft_dockey=draft_dockey,
         php_base_url=BASE_API_URL,
@@ -3200,6 +3201,34 @@ def api_get_stock_items():
                 con.close()
         except Exception:
             pass
+
+
+@app.route('/api/admin/procurement/locations')
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_procurement_locations():
+    """Return warehouse/stock location codes for purchase request line dropdowns."""
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        cur.execute("SELECT TRIM(CODE) FROM ST_LOCATION ORDER BY CODE")
+        locations = []
+        for row in cur.fetchall() or []:
+            if not row or row[0] is None:
+                continue
+            code = str(row[0]).strip()
+            if code:
+                locations.append(code)
+        return jsonify({'success': True, 'locations': locations})
+    except Exception as e:
+        print(f"[PROCUREMENT LOCATIONS] DB error: {e}", flush=True)
+        return jsonify({'success': False, 'error': str(e), 'locations': []}), 500
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
 
 
 @app.route('/api/admin/procurement/stock-card')

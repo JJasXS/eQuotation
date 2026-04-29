@@ -1,0 +1,73 @@
+/* Unified app top bar (warm palette, matches admin header). Include after hamburger_menu.css. */
+.admin-header.app-page-header {
+    background-color: #f3e3c7;
+    border-bottom: 1px solid #d9c6a0;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px 20px;
+    min-height: 60px;
+    box-sizing: border-box;
+    width: 100%;
+    flex: 0 0 auto;
+}
+
+.app-page-header__left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+h2.app-page-header__title {
+    font-size: 20px;
+    font-weight: 600;
+    color: #5c4028;
+    margin: 0;
+    line-height: 1.2;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.app-page-header__end {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px 14px;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: min(100%, 52%);
+}
+
+.app-page-header__subtitle {
+    font-size: 12px;
+    color: #7a6a52;
+    margin: 0;
+    line-height: 1.35;
+    min-width: 0;
+    flex: 1 1 auto;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: right;
+}
+
+.app-page-header__right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+}
+
+@media (max-width: 600px) {
+    .app-page-header__end {
+        max-width: 42%;
+    }
+}

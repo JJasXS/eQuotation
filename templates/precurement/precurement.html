@@ -1,15 +1,16 @@
-
+﻿
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Procurement Module</title>
+    <title>Procurement</title>
     <link rel="stylesheet" href="/static/css/chat.css">
     <link rel="stylesheet" href="/static/css/hamburger_menu.css">
+    <link rel="stylesheet" href="/static/css/app_page_header.css">
     <link rel="stylesheet" href="/static/css/orderQuotation.css">
     <link rel="stylesheet" href="/static/css/adminViewQuotations.css">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr22">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr25">
 </head>
 <body class="procurement-warm-ui">
 
@@ -17,16 +18,9 @@
     <div class="container procurement-warm-container">
         <div class="main-content">
 
-            <div class="header procurement-warm-topbar" style="display: flex; align-items: center; justify-content: space-between; gap: 18px;">
-                <div style="display: flex; align-items: center; gap: 18px;">
-                    {% include 'components/admin_hamburger_menu.html' %}
-                    <div>
-                        <h3 class="header-title">Procurement Module</h3>
-                        <div class="procurement-warm-welcome">Welcome, {{ user_name }}</div>
-                    </div>
-                </div>
-                <!-- sidebar toggle removed (requested) -->
-            </div>
+            {% set page_header_title = "Procurement" %}
+            {% set page_header_subtitle = "Welcome, " ~ (user_email or "—") %}
+            {% include 'components/app_page_header.html' %}
 
             <div id="content-view" class="tab-content active">
                 <div class="procurement-shell">
@@ -34,7 +28,7 @@
                     <div class="procurement-panel">
                         <div id="panel-report" class="panel-content">
                             <div class="procurement-report-title-row">
-                                <h2 class="procurement-warm-section-title">Overall Report</h2>
+                                <h2 class="procurement-warm-section-title">Dashboard</h2>
                             </div>
                            <div class="location-filter-shell">
         <div class="location-filter-main">
@@ -93,10 +87,9 @@
                                     </div>
                                     <button type="button" class="stock-card-breakdown-close" onclick="closeStockCardBreakdown()">Close</button>
                                 </div>
-                                <div id="stock-card-breakdown-summary" class="stock-card-breakdown-summary"></div>
-                                <div class="stock-card-breakdown-table-wrap">
-                                    <table class="stock-card-breakdown-table">
-                                        <thead>
+                                <div class="stock-card-breakdown-table-wrap" id="stock-card-breakdown-table-outer">
+                                    <table class="stock-card-breakdown-table" id="stock-card-breakdown-table">
+                                        <thead id="stock-card-breakdown-thead">
                                             <tr>
                                                 <th>Doc No</th>
                                                 <th>Date</th>
@@ -114,35 +107,38 @@
                                         </tbody>
                                     </table>
                                 </div>
+                                <div id="stock-card-breakdown-summary" class="stock-card-breakdown-summary"></div>
                             </div>
                         </div>
 
-                        <div id="panel-view" class="panel-content" style="display: none;">
-                            <h2 style="margin-bottom: 12px;">View e-Purchase Request</h2>
-                            <div class="view-pr-actions">
-                                <div class="view-pr-actions-right">
-                                    <button type="button" class="view-pr-refresh-btn" onclick="loadViewPurchaseRequests(true)">Refresh</button>
-                                    <button type="button" class="view-pr-refresh-btn" id="view-pr-update-btn" onclick="saveViewDetailApprovals()" disabled>Update Details</button>
-                                </div>
-                            </div>
-                            <div class="view-pr-list-wrap">
-                                <div class="view-pr-header-panel" aria-label="Purchase request list">
-                                    <div class="view-pr-list-column">
-                                        <div class="view-pr-list-toolbar">
-                                            <div class="view-pr-filter-tabs view-pr-filter-tabs--bar" id="view-pr-filter-tabs" role="group" aria-label="Filter by UDF status">
-                                                <button type="button" class="view-pr-filter-tab" data-status="APPROVED" onclick="toggleViewStatusFilter('APPROVED')">APPROVED</button>
-                                                <button type="button" class="view-pr-filter-tab is-active" data-status="PENDING" onclick="toggleViewStatusFilter('PENDING')">PENDING</button>
-                                                <button type="button" class="view-pr-filter-tab" data-status="CANCELLED" onclick="toggleViewStatusFilter('CANCELLED')">CANCELLED</button>
+                        <div id="panel-view" class="panel-content pr-panel-view-quotation-like" style="display: none;">
+                            <div class="admin-quotations-view" style="padding: 0;">
+                                <div class="quotation-page-header">
+                                    <div class="quotation-page-header-controls pr-view-header-row">
+                                        <h2 class="pr-view-title">View e-Purchase Request</h2>
+                                        <div class="view-pr-actions">
+                                            <div class="view-pr-actions-right">
+                                                <button type="button" class="view-pr-refresh-btn" onclick="loadViewPurchaseRequests(true)">Refresh</button>
+                                                <button type="button" class="view-pr-refresh-btn" id="view-pr-update-btn" onclick="saveViewDetailApprovals()" disabled>Update Details</button>
                                             </div>
                                         </div>
-                                        <div id="view-pr-list" class="view-pr-list">
+                                    </div>
+                                    <div class="approvals-tabs quotation-page-header-tabs" id="view-pr-filter-tabs" role="group" aria-label="Filter by UDF status">
+                                        <button type="button" class="approval-tab view-pr-filter-tab" data-status="APPROVED" onclick="toggleViewStatusFilter('APPROVED')">APPROVED</button>
+                                        <button type="button" class="approval-tab view-pr-filter-tab is-active" data-status="PENDING" onclick="toggleViewStatusFilter('PENDING')">PENDING</button>
+                                        <button type="button" class="approval-tab view-pr-filter-tab" data-status="CANCELLED" onclick="toggleViewStatusFilter('CANCELLED')">CANCELLED</button>
+                                    </div>
+                                </div>
+                                <div class="quotation-split-wrap pr-procurement-split">
+                                    <div class="quotation-list-pane pr-view-quotation-list" id="view-pr-list-outer" aria-label="Purchase request list">
+                                        <div id="view-pr-list" class="view-pr-list view-pr-list--cards">
                                             <div class="view-pr-empty">Loading e-Purchase Request records...</div>
                                         </div>
                                     </div>
-                                </div>
-                                <div class="view-pr-items-panel" id="view-pr-items-panel" aria-label="Line items for selected request">
-                                    <div id="view-pr-detail-panel" class="view-pr-detail-panel-inner">
-                                        <div class="view-pr-detail-panel-empty">Select a purchase request to view its line items.</div>
+                                    <div class="quotation-detail-pane pr-view-quotation-detail" id="view-pr-items-panel" aria-label="Line items for selected request">
+                                        <div id="view-pr-detail-panel" class="view-pr-detail-panel-inner">
+                                            <div class="view-pr-detail-panel-empty quotation-detail-empty">Select a purchase request to view its line items.</div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -167,10 +163,7 @@
                                                 <span>Project</span>
                                                 <input type="text" id="pr-edit-cost-center" />
                                             </label>
-                                            <label class="pr-field">
-                                                <span>Currency</span>
-                                                <input type="text" id="pr-edit-currency" maxlength="8" />
-                                            </label>
+                                            <input type="hidden" id="pr-edit-currency" value="MYR" />
                                             <label class="pr-field pr-field-wide">
                                                 <span>Description</span>
                                                 <input type="text" id="pr-edit-description" />
@@ -228,10 +221,6 @@
                                         <label class="pr-field pr-field--compact pr-field--project">
                                             <span>Project</span>
                                             <select id="pr-project-code"></select>
-                                        </label>
-                                        <label class="pr-field pr-field--compact pr-field--currency">
-                                            <span>Currency</span>
-                                            <input type="text" id="pr-currency" value="MYR" maxlength="8" />
                                         </label>
                                     </div>
                                     <div class="pr-form-row pr-form-row--details">
@@ -553,7 +542,9 @@
             const tabs = document.querySelectorAll('#view-pr-filter-tabs .view-pr-filter-tab');
             tabs.forEach((tab) => {
                 const tabStatus = String(tab.getAttribute('data-status') || '').toUpperCase();
-                tab.classList.toggle('is-active', viewStatusFilters.has(tabStatus));
+                const on = viewStatusFilters.has(tabStatus);
+                tab.classList.toggle('is-active', on);
+                tab.classList.toggle('active', on);
             });
         }
 
@@ -709,13 +700,20 @@
             if (!detail) {
                 return;
             }
-            detail.transferQty = clampTransferQuantity(rawValue, detail.quantity);
+            const maxTransfer = getDetailMaxTransferQuantity(detail);
+            detail.transferQty = clampTransferQuantity(rawValue, maxTransfer);
             renderFilteredViewPurchaseRequests();
         }
 
         function onHeaderUdfStatusChange(requestId, value) {
             const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(requestId));
             if (!header) return;
+
+            const saved = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
+            if (saved === 'APPROVED' || saved === 'CANCELLED') {
+                renderFilteredViewPurchaseRequests();
+                return;
+            }
 
             const normalized = normalizeUdfStatus(value);
             const original = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
@@ -983,27 +981,17 @@
             list.style.maxHeight = '';
 
             if (!Array.isArray(rows) || !rows.length) {
-                list.innerHTML = '<div class="view-pr-empty">No e-Purchase Request records found.</div>';
+                list.innerHTML = '<div class="view-pr-empty" style="padding: 12px; text-align: center; color: #7b5a36;">No e-Purchase Request records found.</div>';
                 return;
             }
 
             const htmlParts = [];
-            const colheadHtml = `
-            <div class="view-pr-list-colhead view-pr-cgrid" role="row" aria-label="Column headers">
-                <span class="view-pr-ch">PR</span>
-                <span class="view-pr-ch">Name</span>
-                <span class="view-pr-ch">Date</span>
-                <span class="view-pr-ch">Email</span>
-                <span class="view-pr-ch">Status</span>
-                <span class="view-pr-ch view-pr-ch--end" aria-hidden="true"></span>
-            </div>
-            `;
-
             rows.forEach((header) => {
                 const headerId = Number(header.id || 0);
                 const prStatus = String(header.status || 'DRAFT').toUpperCase();
                 const canEditDraft = prStatus === 'DRAFT';
                 const isSelected = viewSelectedHeaderId != null && Number(viewSelectedHeaderId) === headerId;
+                const udfLocked = ['APPROVED', 'CANCELLED'].includes(normalizeUdfStatus(header._originalUdfStatus));
                 const supplierRaw = String(header.supplierName || header.supplierId || '-').trim();
                 const supplierParts = supplierRaw
                     .split(',')
@@ -1013,46 +1001,40 @@
                     ? `Multiple suppliers (${supplierParts.length})`
                     : (supplierRaw || '-');
                 const rawEmail = (header.supplierEmail && String(header.supplierEmail).trim()) ? String(header.supplierEmail).trim() : '';
-                const emailCell = rawEmail
-                    ? `<span class="view-pr-text view-pr-text--muted view-pr-card-email-text" title="${escapeHtml(rawEmail)}">${escapeHtml(rawEmail)}</span>`
-                    : '<span class="view-pr-text view-pr-text--muted view-pr-card-email-empty">—</span>';
+                const udf = normalizeUdfStatus(header.udfStatus);
+                const borderColor = udf === 'CANCELLED' ? '#a65c5c' : (udf === 'APPROVED' ? '#2d6a4f' : '#b0892f');
+                const badgeColor = borderColor;
+                const emailVal = rawEmail
+                    ? `<span class="pr-view-v" title="${escapeHtml(rawEmail)}">${escapeHtml(rawEmail)}</span>`
+                    : '<span class="pr-view-v pr-view-field-val--empty">—</span>';
+
                 htmlParts.push(`
-            <div class="view-pr-card${isSelected ? ' is-selected' : ''}" data-header-id="${headerId}">
-                <div class="view-pr-card-body view-pr-card-summary" onclick="selectViewPurchaseRequest(${headerId})" style="cursor: pointer;">
-                    <div class="view-pr-card-main-row view-pr-cgrid">
-                        <div class="view-pr-cgrid-cell view-pr-cgrid-cell--pr">
-                            <span class="view-pr-docno">${escapeHtml(header.requestNumber || '-')}</span>
-                        </div>
-                        <div class="view-pr-cgrid-cell view-pr-cgrid-cell--name">
-                            <span class="view-pr-text view-pr-card-supplier-name" title="${escapeHtml(supplierRaw || '-')}">${escapeHtml(supplierDisplay)}</span>
-                        </div>
-                        <div class="view-pr-cgrid-cell view-pr-cgrid-cell--date">
-                            <span class="view-pr-text">${formatPrDate(header.requestDate)}</span>
-                        </div>
-                        <div class="view-pr-cgrid-cell view-pr-cgrid-cell--email">
-                            ${emailCell}
-                        </div>
-                        <div class="view-pr-cgrid-cell view-pr-cgrid-cell--actions">
-                            <div class="view-pr-card-top-actions">
-                                <span class="view-pr-status-badge">${escapeHtml(prStatus)}</span>
-                                <select class="view-pr-udf-status" onclick="event.stopPropagation()" onchange="onHeaderUdfStatusChange(${headerId}, this.value)">
-                                    <option value="APPROVED" ${normalizeUdfStatus(header.udfStatus) === 'APPROVED' ? 'selected' : ''}>APPROVED</option>
-                                    <option value="CANCELLED" ${normalizeUdfStatus(header.udfStatus) === 'CANCELLED' ? 'selected' : ''}>CANCELLED</option>
-                                    <option value="PENDING" ${normalizeUdfStatus(header.udfStatus) === 'PENDING' ? 'selected' : ''}>PENDING</option>
-                                </select>
-                                <button type="button" class="view-pr-refresh-btn view-pr-edit-inline-btn" onclick="event.stopPropagation(); openPurchaseRequestEdit(${headerId});" ${canEditDraft ? '' : 'disabled'} title="${escapeHtml(canEditDraft ? 'Edit draft purchase request' : 'Only draft purchase requests can be edited')}">Edit</button>
-                            </div>
-                        </div>
-                        <div class="view-pr-cgrid-cell view-pr-cgrid-cell--amount">
-                            <span class="view-pr-text view-pr-text--amount">${formatMoney(header.totalAmount || 0)}</span>
-                        </div>
+            <div class="quotation-card pr-view-quotation-card pr-view-card-single-row${isSelected ? ' is-selected' : ''}" data-header-id="${headerId}" style="background: #fffaf0; padding: 10px 12px; margin-bottom: 10px; border-radius: 8px; border-left: 3px solid ${borderColor}; border: 1px solid #ead8b5; border-left-width: 3px;">
+                <div class="pr-view-card-row">
+                    <div class="pr-view-card-row__main" role="button" tabindex="0" onclick="selectViewPurchaseRequest(${headerId})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectViewPurchaseRequest(${headerId});}">
+                        <div class="pr-view-kv" title="PR number"><span class="pr-view-k">PR</span><span class="pr-view-v pr-view-v--pr">${escapeHtml(header.requestNumber || '-')}</span></div>
+                        <div class="pr-view-kv pr-view-kv--grow" title="${escapeHtml(supplierRaw || '-')}"><span class="pr-view-k">Supplier</span><span class="pr-view-v">${escapeHtml(supplierDisplay)}</span></div>
+                        <div class="pr-view-kv" title="Request date"><span class="pr-view-k">Date</span><span class="pr-view-v">${formatPrDate(header.requestDate)}</span></div>
+                        <div class="pr-view-kv pr-view-kv--email" title="Supplier email"><span class="pr-view-k">Email</span>${emailVal}</div>
+                    </div>
+                    <div class="pr-view-card-row__amount">
+                        <span class="pr-view-amount-pill" style="background: ${badgeColor};">RM ${formatMoney(header.totalAmount || 0)}</span>
+                    </div>
+                    <div class="pr-view-card-row__actions" onclick="event.stopPropagation();">
+                        <span class="pr-status-pill" style="background: #4b6e9e; color: #fff; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 6px; white-space: nowrap;">${escapeHtml(prStatus)}</span>
+                        <select class="view-pr-udf-status" onchange="onHeaderUdfStatusChange(${headerId}, this.value)" ${udfLocked ? 'disabled title="Status cannot be changed after APPROVED or CANCELLED"' : ''}>
+                            <option value="APPROVED" ${udf === 'APPROVED' ? 'selected' : ''}>APPROVED</option>
+                            <option value="CANCELLED" ${udf === 'CANCELLED' ? 'selected' : ''}>CANCELLED</option>
+                            <option value="PENDING" ${udf === 'PENDING' ? 'selected' : ''}>PENDING</option>
+                        </select>
+                        <button type="button" class="view-pr-refresh-btn view-pr-edit-inline-btn" onclick="openPurchaseRequestEdit(${headerId});" ${canEditDraft ? '' : 'disabled'} title="${escapeHtml(canEditDraft ? 'Edit draft purchase request' : 'Only draft purchase requests can be edited')}">Edit</button>
                     </div>
                 </div>
             </div>
         `);
             });
 
-            list.innerHTML = colheadHtml + htmlParts.join('');
+            list.innerHTML = htmlParts.join('');
         }
 
         function selectViewPurchaseRequest(headerId) {
@@ -1190,7 +1172,7 @@
             }
 
             const startedAt = performance.now();
-            return fetch('/api/admin/procurement/purchase-requests?offset=0&limit=50&fast=1')
+            return fetch('/api/admin/procurement/purchase-requests?offset=0&limit=50&fast=1&include_qty=1')
                 .then((res) => res.json())
                 .then((payload) => {
                     if (!payload.success) {
@@ -1372,6 +1354,7 @@
             prFormEditState = {
                 requestId: Number(header.id || 0),
                 requestNumber: String(header.requestNumber || ''),
+                currency: String(header.currency || 'MYR'),
             };
 
             document.getElementById('pr-request-number').value = String(header.requestNumber || '');
@@ -1380,7 +1363,6 @@
                 requestDateEl.value = _toInputDate(header.requestDate);
             }
             renderProjectOptions(String(header.project || ''));
-            document.getElementById('pr-currency').value = String(header.currency || 'MYR');
             document.getElementById('pr-header-description').value = String(header.description || '');
             document.getElementById('pr-delivery-location').value = String(header.deliveryLocation || '');
             window.purchaseRequestItems = lineItems;
@@ -1558,7 +1540,18 @@
             if (!selectedEntries.length) {
                 // No selection: go straight to create with a blank line item
                 const selectedProjectCode = getSelectedProjectCode();
-                window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: '', description: '', udfReason: '', project: selectedProjectCode, quantity: 1, unitPrice: 0, deliveryDate: '' }];
+                const today = prTodayIso();
+                window.purchaseRequestItems = [{
+                    itemCode: '',
+                    itemName: '',
+                    locationCode: getDefaultLineLocation(),
+                    description: '',
+                    udfReason: '',
+                    project: selectedProjectCode,
+                    quantity: 1,
+                    unitPrice: 0,
+                    deliveryDate: today,
+                }];
                 showTab('create');
                 renderPurchaseRequestLineItems();
                 showPurchaseRequestMessage('Starting a new e-Purchase Request.', 'info');
@@ -1585,7 +1578,7 @@
                     project: getSelectedProjectCode(),
                     quantity: Number(entry.quantity || 0),
                     unitPrice: 0,
-                    deliveryDate: String(document.getElementById('pr-request-date')?.value || '').trim(),
+                    deliveryDate: prTodayIso(),
                 };
             });
 
@@ -1656,6 +1649,70 @@
             return found ? found.label : metricKey;
         }
 
+        function renderStockCardBreakdownTable(payload, metricKey) {
+            const thead = document.getElementById('stock-card-breakdown-thead');
+            const body = document.getElementById('stock-card-breakdown-body');
+            const table = document.getElementById('stock-card-breakdown-table');
+            const metric = String(payload.metric || metricKey || '').replace('_by_location', '');
+            const style = String(payload.breakdown_style || '');
+            const rows = Array.isArray(payload.rows) ? payload.rows : [];
+            if (table) {
+                const compact = metric === 'avail_qty' || style === 'st_tr' || metric === 'qty';
+                table.classList.toggle('stock-card-breakdown-table--compact', compact);
+            }
+
+            if (metric === 'avail_qty' || style === 'st_tr') {
+                thead.innerHTML = '<tr><th scope="col">Reference</th><th scope="col">Description</th><th scope="col" class="stock-card-breakdown-num">Qty</th></tr>';
+                if (!rows.length) {
+                    body.innerHTML = '<tr><td colspan="3" class="stock-card-status">No ST_TR lines for this item/location.</td></tr>';
+                    return;
+                }
+                body.innerHTML = rows.map((row) => {
+                    const q = row.outstanding_qty != null ? row.outstanding_qty : row.total_qty;
+                    return `
+                        <tr>
+                            <td>${escapeHtml(row.docno != null && String(row.docno).trim() ? row.docno : '—')}</td>
+                            <td>${escapeHtml(row.remarks != null && String(row.remarks).trim() ? row.remarks : (row.party || '—'))}</td>
+                            <td class="stock-card-breakdown-num">${formatStockCardNumber(q)}</td>
+                        </tr>`;
+                }).join('');
+                return;
+            }
+
+            if (metric === 'qty') {
+                thead.innerHTML = '<tr><th scope="col">Component</th><th scope="col">Details</th><th scope="col" class="stock-card-breakdown-num">Net</th></tr>';
+                if (!rows.length) {
+                    body.innerHTML = '<tr><td colspan="3" class="stock-card-status">No data.</td></tr>';
+                    return;
+                }
+                body.innerHTML = rows.map((row) => `
+                    <tr>
+                        <td>${escapeHtml(row.docno || '—')}</td>
+                        <td>${escapeHtml(row.remarks || '—')}</td>
+                        <td class="stock-card-breakdown-num">${formatStockCardNumber(row.outstanding_qty)}</td>
+                    </tr>
+                `).join('');
+                return;
+            }
+
+            thead.innerHTML = '<tr><th scope="col">Doc No</th><th scope="col">Date</th><th scope="col">Company / Party</th><th scope="col">Remarks</th><th scope="col" class="stock-card-breakdown-num">Total</th><th scope="col" class="stock-card-breakdown-num">Moved</th><th scope="col" class="stock-card-breakdown-num">Net</th></tr>';
+            if (!rows.length) {
+                body.innerHTML = '<tr><td colspan="7" class="stock-card-status">No supporting records found.</td></tr>';
+                return;
+            }
+            body.innerHTML = rows.map((row) => `
+                <tr>
+                    <td>${escapeHtml(row.docno || '-')}</td>
+                    <td>${escapeHtml(row.docdate || '-')}</td>
+                    <td>${escapeHtml(row.party || '-')}</td>
+                    <td>${escapeHtml(row.remarks || '-')}</td>
+                    <td class="stock-card-breakdown-num">${formatStockCardNumber(row.total_qty)}</td>
+                    <td class="stock-card-breakdown-num">${formatStockCardNumber(row.moved_qty)}</td>
+                    <td class="stock-card-breakdown-num">${formatStockCardNumber(row.outstanding_qty)}</td>
+                </tr>
+            `).join('');
+        }
+
         function openStockCardBreakdown(itemCode, locationCode, metricKey) {
             const panel = document.getElementById('stock-card-breakdown-panel');
             const body = document.getElementById('stock-card-breakdown-body');
@@ -1667,7 +1724,8 @@
             panel.style.display = '';
             title.textContent = `${metricLabel(metricKey)} Breakdown`;
             subtitle.textContent = `${itemCode} | ${locationCode}`;
-            summary.textContent = 'Loading breakdown...';
+            summary.innerHTML = 'Loading breakdown...';
+            document.getElementById('stock-card-breakdown-thead').innerHTML = '<tr><th colspan="7">…</th></tr>';
             body.innerHTML = '<tr><td colspan="7" class="stock-card-status">Loading breakdown...</td></tr>';
 
             const params = new URLSearchParams({
@@ -1689,33 +1747,18 @@
                     title.textContent = payload.title || `${metricLabel(metricKey)} Breakdown`;
                     subtitle.textContent = `${payload.item_code || itemCode} | ${payload.location || locationCode}`;
 
+                    renderStockCardBreakdownTable(payload, metricKey);
+
                     const note = payload.summary && payload.summary.note ? escapeHtml(payload.summary.note) : '';
                     const value = payload.summary ? formatStockCardNumber(payload.summary.value) : '0';
-                    summary.innerHTML = `<strong>Value:</strong> ${value}${note ? ` <span class="stock-card-breakdown-note">${note}</span>` : ''}`;
-
-                    const rows = Array.isArray(payload.rows) ? payload.rows : [];
-                    if (!rows.length) {
-                        body.innerHTML = '<tr><td colspan="7" class="stock-card-status">No supporting records found.</td></tr>';
-                        return;
-                    }
-
-                    body.innerHTML = rows.map((row) => `
-                        <tr>
-                            <td>${escapeHtml(row.docno || '-')}</td>
-                            <td>${escapeHtml(row.docdate || '-')}</td>
-                            <td>${escapeHtml(row.party || '-')}</td>
-                            <td>${escapeHtml(row.remarks || '-')}</td>
-                            <td class="stock-card-breakdown-num">${formatStockCardNumber(row.total_qty)}</td>
-                            <td class="stock-card-breakdown-num">${formatStockCardNumber(row.moved_qty)}</td>
-                            <td class="stock-card-breakdown-num">${formatStockCardNumber(row.outstanding_qty)}</td>
-                        </tr>
-                    `).join('');
+                    summary.innerHTML = `<strong>Total:</strong> ${value}${note ? ` <span class="stock-card-breakdown-note">${note}</span>` : ''}`;
                 })
                 .catch((error) => {
                     if (requestId !== stockCardBreakdownRequestId) {
                         return;
                     }
                     summary.textContent = '';
+                    document.getElementById('stock-card-breakdown-thead').innerHTML = '<tr><th colspan="7">Error</th></tr>';
                     body.innerHTML = `<tr><td colspan="7" class="stock-card-status">${escapeHtml(error.message || 'Failed to load breakdown.')}</td></tr>`;
                 });
         }
@@ -1798,9 +1841,6 @@
                 if (metricKey === 'need_to_buy_by_location') {
                     const renderNeedBuyCell = (itemCode, locationCode, shortage, bgClass) => {
                         const shortageNum = Math.max(0, Number(shortage || 0));
-                        if (shortageNum <= 0) {
-                            return `<td class="${bgClass}">0</td>`;
-                        }
                         const key = buySelectionKey(itemCode, locationCode);
                         const selection = stockCardBuySelections[key] || {
                             itemCode,
@@ -1814,13 +1854,13 @@
                         const jc = escapeJs(itemCode || '');
                         const jl = escapeJs(locationCode || '');
                         return `
-                            <td class="${bgClass} need-buy-td${selectedClass}" onclick="event.stopPropagation();" title="Select line and edit qty before New e-Purchase Request">
+                            <td class="${bgClass} need-buy-td${selectedClass}" onclick="event.stopPropagation();" title="Select line and edit quantity before New e-Purchase Request">
                                 <div class="need-buy-editor" onclick="event.stopPropagation();">
-                                    <input type="checkbox" title="Select for PR" ${selection.selected ? 'checked' : ''}
-                                        onclick="event.stopPropagation(); stockCardSetBuyCheckbox('${jc}', '${jl}', ${shortageNum}, this)" />
                                     <input type="number" class="need-buy-qty-input" min="0" step="any" value="${escapeHtml(qtyStr)}"
                                         onclick="event.stopPropagation();" onkeydown="event.stopPropagation();"
                                         oninput="event.stopPropagation(); stockCardSetBuyQty('${jc}', '${jl}', ${shortageNum}, this)" />
+                                    <input type="checkbox" class="need-buy-cb" title="Select for PR" ${selection.selected ? 'checked' : ''}
+                                        onclick="event.stopPropagation(); stockCardSetBuyCheckbox('${jc}', '${jl}', ${shortageNum}, this)" />
                                 </div>
                             </td>`;
                     };
@@ -2032,6 +2072,77 @@
         }
 
         let prCatalogProducts = [];
+        let prWarehouseLocations = [];
+
+        function getDefaultLineLocation() {
+            return (Array.isArray(prWarehouseLocations) && prWarehouseLocations.length)
+                ? String(prWarehouseLocations[0])
+                : '';
+        }
+
+        function getPrimarySupplierCurrency() {
+            const s = (typeof selectedSuppliers !== 'undefined' && selectedSuppliers && selectedSuppliers[0]) ? selectedSuppliers[0] : null;
+            if (!s) {
+                return 'MYR';
+            }
+            const raw = s.currency ?? s.currencyCode ?? s.currencycode ?? s.CURRENCYCODE;
+            const c = String(raw || '').trim();
+            return c || 'MYR';
+        }
+
+        async function loadPrWarehouseLocations() {
+            try {
+                const res = await fetch('/api/admin/procurement/locations');
+                const data = await res.json();
+                if (data.success && Array.isArray(data.locations)) {
+                    prWarehouseLocations = data.locations;
+                } else {
+                    prWarehouseLocations = [];
+                }
+            } catch (e) {
+                console.warn('[PR locations] load failed', e);
+                prWarehouseLocations = [];
+            }
+            if (window.purchaseRequestItems && window.purchaseRequestItems.length) {
+                const def = getDefaultLineLocation();
+                if (def) {
+                    window.purchaseRequestItems.forEach((it) => {
+                        if (!String((it && it.locationCode) || '').trim()) {
+                            it.locationCode = def;
+                        }
+                    });
+                }
+                renderPurchaseRequestLineItems();
+            }
+        }
+
+        function buildPrLocationOptions(selectedCode) {
+            const locs = prWarehouseLocations || [];
+            const first = locs.length ? String(locs[0]).trim() : '';
+            const sel = String(selectedCode || '').trim() || first;
+            if (!locs.length) {
+                return '<option value="">— No locations —</option>';
+            }
+            return locs
+                .map((code) => {
+                    const c = String(code || '').trim();
+                    if (!c) return '';
+                    const isSel = c === sel ? ' selected' : '';
+                    return `<option value="${escapeHtml(c)}"${isSel}>${escapeHtml(c)}</option>`;
+                })
+                .filter(Boolean)
+                .join('');
+        }
+
+        function onPurchaseRequestLocationChange(index, value) {
+            if (prFormEditState && prFormEditState.requestId) {
+                return;
+            }
+            if (!window.purchaseRequestItems || !window.purchaseRequestItems[index]) {
+                return;
+            }
+            window.purchaseRequestItems[index].locationCode = String(value || '').trim();
+        }
 
         function findPrProductByCode(itemCode) {
             const code = String(itemCode || '').trim();
@@ -2098,18 +2209,7 @@
         }
 
         function syncDeliveryLocationToLineItems() {
-            if (prFormEditState && prFormEditState.requestId) {
-                return;
-            }
-            const locInput = document.getElementById('pr-delivery-location');
-            const loc = locInput ? String(locInput.value || '').trim() : '';
-            if (!window.purchaseRequestItems || !window.purchaseRequestItems.length) {
-                return;
-            }
-            window.purchaseRequestItems.forEach((item) => {
-                item.locationCode = loc;
-            });
-            renderPurchaseRequestLineItems();
+            // Line warehouse locations are chosen per line (dropdown), not copied from the header address field.
         }
 
         function bindPurchaseRequestDeliveryLocationSync() {
@@ -2130,8 +2230,9 @@
 
             if (!window.purchaseRequestItems || !window.purchaseRequestItems.length) {
                 const selectedProjectCode = getSelectedProjectCode();
-                const locFromHeader = String(document.getElementById('pr-delivery-location')?.value || '').trim();
-                window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: locFromHeader, description: '', udfReason: '', project: selectedProjectCode, quantity: 1, unitPrice: 0, deliveryDate: '' }];
+                const defLoc = getDefaultLineLocation();
+                const today = prTodayIso();
+                window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: defLoc, description: '', udfReason: '', project: selectedProjectCode, quantity: 1, unitPrice: 0, deliveryDate: today }];
             }
 
             body.innerHTML = window.purchaseRequestItems.map((item, idx) => {
@@ -2142,13 +2243,20 @@
                     if (!String(item.description || '').trim()) item.description = dn;
                 }
 
+                if (!isEditMode) {
+                    const def = getDefaultLineLocation();
+                    if (def && !String(item.locationCode || '').trim()) {
+                        item.locationCode = def;
+                    }
+                }
+
                 const qty = Number(item.quantity || 0);
                 const unitPrice = Number(item.unitPrice || 0);
                 const amount = qty * unitPrice;
-                const locDisplay = String(item.locationCode || '').trim();
-                const locHtml = locDisplay
-                    ? `<span class="pr-loc-readonly" title="${escapeHtml(locDisplay)}">${escapeHtml(locDisplay)}</span>`
-                    : '<span class="pr-loc-readonly pr-loc-placeholder">—</span>';
+                const locVal = String(item.locationCode || '').trim();
+                const locHtml = isEditMode
+                    ? (locVal ? `<span class="pr-loc-readonly" title="${escapeHtml(locVal)}">${escapeHtml(locVal)}</span>` : '<span class="pr-loc-readonly pr-loc-placeholder">—</span>')
+                    : `<select class="pr-line-location-select" onchange="onPurchaseRequestLocationChange(${idx}, this.value)">${buildPrLocationOptions(locVal)}</select>`;
                 return `
                     <tr data-pr-index="${idx}">
                         <td class="pr-loc-cell">${locHtml}</td>
@@ -2189,8 +2297,18 @@
             }
             if (!window.purchaseRequestItems) window.purchaseRequestItems = [];
             const selectedProjectCode = getSelectedProjectCode();
-            const loc = String(document.getElementById('pr-delivery-location')?.value || '').trim();
-            window.purchaseRequestItems.push({ itemCode: '', itemName: '', locationCode: loc, description: '', udfReason: '', project: selectedProjectCode, quantity: 1, unitPrice: 0, deliveryDate: String(document.getElementById('pr-request-date')?.value || '').trim() });
+            const today = prTodayIso();
+            window.purchaseRequestItems.push({
+                itemCode: '',
+                itemName: '',
+                locationCode: getDefaultLineLocation(),
+                description: '',
+                udfReason: '',
+                project: selectedProjectCode,
+                quantity: 1,
+                unitPrice: 0,
+                deliveryDate: today,
+            });
             renderPurchaseRequestLineItems();
         }
 
@@ -2253,7 +2371,7 @@
                 supplierId: supplierCode,
                 supplierName: supplierName,
                 suppliers: selectedSuppliers.map((s) => ({ code: s.code, name: s.name, email: s.email || '' })),
-                currency: document.getElementById('pr-currency').value.trim() || 'MYR',
+                currency: getPrimarySupplierCurrency(),
                 requestDate: String(document.getElementById('pr-request-date')?.value || '').trim() || prTodayIso(),
                 description: document.getElementById('pr-header-description').value.trim(),
                 deliveryLocation: document.getElementById('pr-delivery-location').value.trim(),
@@ -2319,7 +2437,7 @@
                     // requiredDate is not user-facing; backend defaults it to requestDate when omitted.
                     costCenter: selectedProjectCode,
                     project: selectedProjectCode,
-                    currency: document.getElementById('pr-currency').value.trim() || 'MYR',
+                    currency: (prFormEditState && prFormEditState.currency) ? String(prFormEditState.currency) : 'MYR',
                     description: document.getElementById('pr-header-description').value.trim(),
                     deliveryLocation: document.getElementById('pr-delivery-location').value.trim(),
                     suppliers: selectedSuppliers.map((s) => ({
@@ -2571,7 +2689,9 @@
                 const email = s.udf_email || '';
                 const safeName = (s.companyname || '').replace(/'/g, "\\'");
                 const safeEmail = email.replace(/'/g, "\\'");
-                return `<div class="supplier-dropdown-item${isSelected ? ' already-selected' : ''}" onclick="_addSupplier('${s.code}','${safeName}','${safeEmail}')">
+                const curRaw = s.currencycode || s.CURRENCYCODE || s.currency || '';
+                const safeCur = String(curRaw).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                return `<div class="supplier-dropdown-item${isSelected ? ' already-selected' : ''}" onclick="_addSupplier('${s.code}','${safeName}','${safeEmail}','${safeCur}')">
                     <span style="font-weight:600;min-width:80px;">${s.code}</span>
                     <span style="flex:1;">${s.companyname || ''}</span>
                     <span style="color:#9ba7b6;font-size:12px;">${email}</span>
@@ -2581,9 +2701,14 @@
             dropdown.style.display = 'block';
         }
 
-        function _addSupplier(code, name, email) {
+        function _addSupplier(code, name, email, currency) {
             if (selectedSuppliers.find((s) => s.code === code)) return;
-            selectedSuppliers.push({ code, name, email });
+            selectedSuppliers.push({
+                code,
+                name,
+                email,
+                currency: String(currency || '').trim(),
+            });
             _renderSupplierTable();
             const search = document.getElementById('pr-supplier-search');
             search.value = '';
@@ -2639,13 +2764,23 @@
         function initPurchaseRequestForm() {
             prFormEditState = null;
             renderProjectOptions('');
-            const loc = String(document.getElementById('pr-delivery-location')?.value || '').trim();
-            window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: loc, description: '', udfReason: '', project: getSelectedProjectCode(), quantity: 1, unitPrice: 0, deliveryDate: '' }];
+            const today = prTodayIso();
+            window.purchaseRequestItems = [{
+                itemCode: '',
+                itemName: '',
+                locationCode: getDefaultLineLocation(),
+                description: '',
+                udfReason: '',
+                project: getSelectedProjectCode(),
+                quantity: 1,
+                unitPrice: 0,
+                deliveryDate: today,
+            }];
             selectedSuppliers = [];
             _renderChips();
             const requestDateEl = document.getElementById('pr-request-date');
-            if (requestDateEl && !requestDateEl.value) {
-                requestDateEl.value = prTodayIso();
+            if (requestDateEl) {
+                requestDateEl.value = today;
             }
             loadNextPurchaseRequestNumber();
             bindPurchaseRequestDeliveryLocationSync();
@@ -2657,6 +2792,7 @@
                 loadStockCardRows();
                 afterStockCardTableRender();
                 bindPurchaseRequestDeliveryLocationSync();
+                loadPrWarehouseLocations();
                 initPurchaseRequestForm();
                 loadPurchaseRequestProducts();
                 loadSuppliers();
@@ -2674,6 +2810,6 @@
         });
     </script>
 
-    <script src="/static/js/admin_hamburger_menu.js"></script>
+    <script src="/static/js/hamburger_menu.js"></script>
 </body>
 </html>

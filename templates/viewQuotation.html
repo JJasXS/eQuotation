@@ -6,124 +6,26 @@
     <title>View Quotation</title>
     <link rel="stylesheet" href="/static/css/chat.css">
     <link rel="stylesheet" href="/static/css/hamburger_menu.css">
+    <link rel="stylesheet" href="/static/css/app_page_header.css">
     <link rel="stylesheet" href="/static/css/orderQuotation.css">
-    <style>
-        .quotation-checkbox {
-            width: 20px;
-            height: 20px;
-            cursor: pointer;
-            accent-color: #dc3545;
-        }
-        .quotation-card__header-layout {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) 110px 180px;
-            gap: 16px;
-            align-items: start;
-            margin-bottom: 12px;
-        }
-        .quotation-card__info {
-            min-width: 0;
-        }
-        .quotation-card__info-grid {
-            display: grid;
-            grid-template-columns: 150px minmax(0, 1fr) 130px 130px;
-            gap: 12px;
-            align-items: start;
-        }
-        .quotation-card__field {
-            min-width: 0;
-        }
-        .quotation-card__field-label {
-            display: block;
-            margin-bottom: 4px;
-            color: #9ba7b6;
-            font-size: 11px;
-            font-weight: 600;
-            letter-spacing: 0.03em;
-            text-transform: uppercase;
-        }
-        .quotation-card__field-value {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            min-width: 0;
-            color: #e4e9f1;
-            font-size: 13px;
-        }
-        .quotation-card__field-value--wrap {
-            display: block;
-            word-break: break-word;
-        }
-        .quotation-card__amount-col,
-        .quotation-card__button-col {
-            display: grid;
-            justify-items: end;
-            align-content: start;
-            gap: 10px;
-            min-width: 0;
-        }
-        .quotation-card__button-col {
-            justify-items: stretch;
-        }
-        .quotation-card__amount {
-            color: #fff;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: 600;
-            white-space: nowrap;
-            text-align: right;
-        }
-        .quotation-card__side-actions {
-            display: flex;
-            flex-direction: column;
-            flex-wrap: wrap;
-            align-items: stretch;
-            gap: 8px;
-            width: 100%;
-        }
-        @media (max-width: 900px) {
-            .quotation-card__header-layout {
-                grid-template-columns: 1fr;
-            }
-            .quotation-card__info-grid {
-                grid-template-columns: 1fr 1fr;
-            }
-            .quotation-card__amount-col,
-            .quotation-card__button-col {
-                justify-items: start;
-            }
-            .quotation-card__side-actions {
-                align-items: flex-start;
-            }
-        }
-        @media (max-width: 640px) {
-            .quotation-card__info-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-    </style>
+    <link rel="stylesheet" href="/static/css/viewQuotation.css">
 </head>
-<body>
+<body class="view-quotation-page">
     <div class="container">
         <div class="main-content">
-            <div class="header">
-                {% include 'components/hamburger_menu.html' %}
-                <div>
-                    <h3 class="header-title">My Quotations</h3>
-                    <div style="font-size: 12px; color: #9ba7b6; margin-top: 4px;">Welcome User: {{ user_email }}</div>
-                </div>
-            </div>
+            {% set page_header_title = "My Quotations" %}
+            {% set page_header_subtitle = "Welcome: " ~ (user_email or "—") %}
+            {% include 'components/app_page_header.html' %}
 
             <div class="tab-content active">
-                <div id="quotation-content" style="padding: 20px;">
-                    <div style="padding: 20px; text-align: center; color: #888;">Loading...</div>
+                <div id="quotation-content">
+                    <div class="view-quotation-detail-empty" style="padding: 24px;">Loading…</div>
                 </div>
             </div>
         </div>
     </div>
 
     <script src="/static/js/hamburger_menu.js"></script>
-    <script src="/static/js/viewQuotation.js?v=20260330"></script>
+    <script src="/static/js/viewQuotation.js?v=20260429_shell"></script>
 </body>
 </html>

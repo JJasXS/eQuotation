@@ -6,85 +6,72 @@
     <title>Supplier Bidding</title>
     <link rel="stylesheet" href="/static/css/chat.css">
     <link rel="stylesheet" href="/static/css/hamburger_menu.css">
-    <style>
-        body { background: linear-gradient(160deg, #f3f6ef 0%, #dfe8d3 100%); color: #1f2a1f; }
-        .bidding-shell { max-width: 1200px; margin: 20px auto; padding: 16px; }
-        .bidding-card { background: #ffffff; border: 1px solid #d4dec9; border-radius: 12px; box-shadow: 0 8px 24px rgba(31, 42, 31, 0.08); }
-        .bidding-head { padding: 16px; border-bottom: 1px solid #e4ecd9; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-        .muted { color: #5f6f5a; font-size: 13px; }
-        .invites-list { padding: 16px; display: grid; gap: 10px; }
-        .invite-row { border: 1px solid #d8e4cb; border-radius: 10px; padding: 12px; background: #f8fbf5; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-        .invite-row button, .action-btn { background: #245c2e; color: #fff; border: none; border-radius: 8px; padding: 8px 14px; cursor: pointer; }
-        .invite-row button:disabled, .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .status-chip { display: inline-block; border-radius: 999px; padding: 3px 10px; font-size: 11px; font-weight: 600; }
-        .status-open { background: #e4f4e1; color: #1f6b2a; }
-        .status-responded { background: #fff3d7; color: #8a6300; }
-        .status-awarded { background: #dff0ff; color: #12598f; }
-        .status-closed { background: #f0f0f0; color: #636363; }
-        .bidding-workbench { margin-top: 16px; display: none; }
-        .table-wrap { overflow-x: auto; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { border-bottom: 1px solid #e8efe1; padding: 8px; font-size: 13px; text-align: left; }
-        th { background: #f4f9ee; color: #2f422d; }
-        input[type='number'], input[type='text'] { width: 100%; padding: 6px 8px; border: 1px solid #cbd8bf; border-radius: 6px; }
-        .footer-actions { padding: 16px; border-top: 1px solid #e4ecd9; display: flex; justify-content: flex-end; gap: 10px; align-items: center; flex-wrap: wrap; }
-        .secondary-btn { background: #ffffff; color: #245c2e; border: 1px solid #245c2e; border-radius: 8px; padding: 8px 14px; cursor: pointer; }
-        #supplier-bid-message { padding: 12px 16px; font-size: 13px; display: none; }
-        .bid-readonly-cell { background: #f5f8f1; color: #1f2a1f; }
-        #bid-decision-panel { padding: 12px 16px; border-top: 1px solid #e4ecd9; background: #f8fbf5; font-size: 13px; }
-    </style>
+    <link rel="stylesheet" href="/static/css/app_page_header.css">
+    <link rel="stylesheet" href="/static/css/supplierBidding.css">
 </head>
-<body>
-    <div class="container" style="min-height: 90vh;">
+<body class="supplier-bidding-page">
+    <div class="container" style="min-height: 100vh;">
         <div class="main-content">
-            <div class="header" style="display:flex;justify-content:space-between;align-items:center;gap:16px;">
-                <div style="display:flex;align-items:center;gap:16px;">
-                    {% include 'components/hamburger_menu.html' %}
-                    <div>
-                        <h3 class="header-title" style="margin:0;">Supplier Bidding</h3>
-                        <div class="muted">Logged in as {{ user_name }} | Supplier Code: <strong id="supplier-code-text">{{ supplier_code }}</strong></div>
-                    </div>
-                </div>
-                <button class="action-btn" onclick="loadInvitations()">Refresh</button>
-            </div>
+            {% set page_header_title = "Supplier Bidding" %}
+            {% set page_header_subtitle_is_html = true %}
+            {%- set page_header_subtitle -%}
+            Logged in as {{ user_name or "—" }} | Supplier Code: <strong id="supplier-code-text">{{ supplier_code or "—" }}</strong>
+            {%- endset -%}
+            {% set page_header_right %}
+            <button class="action-btn" type="button" onclick="loadInvitations()">Refresh</button>
+            {% endset %}
+            {% include 'components/app_page_header.html' %}
 
-            <div class="bidding-shell">
-                <div class="bidding-card">
-                    <div class="bidding-head">
-                        <div>
-                            <h2 style="margin:0;">My Invitations</h2>
-                            <div class="muted">Select an invitation and submit your item-level bid.</div>
+            <div class="tab-content active supplier-bidding-layout">
+                <div class="supplier-bidding-split">
+                    <aside class="supplier-bidding-list-pane" aria-label="Invitations list">
+                        <div class="supplier-bidding-list-head">
+                            <h2>My invitations</h2>
+                            <p class="sb-muted">Select a request to view line items and enter your bid on the right.</p>
+                            <div class="sb-filters" id="sb-invite-filters" role="toolbar" aria-label="Filter by invitation status">
+                                <div class="sb-filters__chips">
+                                    <button type="button" class="sb-filter-btn is-active" data-sb-filter="all">All</button>
+                                    <button type="button" class="sb-filter-btn" data-sb-filter="OPEN" title="Open rounds / in progress">Open</button>
+                                    <button type="button" class="sb-filter-btn" data-sb-filter="ACCEPTED" title="Bid approved by admin">Accepted</button>
+                                    <button type="button" class="sb-filter-btn" data-sb-filter="CLOSED" title="Invitation closed (no final bid outcome)">Closed</button>
+                                    <button type="button" class="sb-filter-btn" data-sb-filter="REJECTED" title="Bid not accepted">Rejected</button>
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                    <div id="invites-list" class="invites-list">
-                        <div class="muted">Loading invitations...</div>
-                    </div>
-                </div>
-
-                <div id="bidding-workbench" class="bidding-workbench bidding-card">
-                    <div class="bidding-head">
-                        <div>
-                            <h3 id="active-request-title" style="margin:0;">Bid Details</h3>
-                            <div id="active-request-subtitle" class="muted"></div>
+                        <div id="invites-list" class="sb-invites-list-scroll">
+                            <div class="sb-list-loading">Loading invitations…</div>
                         </div>
-                    </div>
-                    <div class="table-wrap">
-                        <table>
-                            <thead id="bid-lines-thead"></thead>
-                            <tbody id="bid-lines-body"></tbody>
-                        </table>
-                    </div>
-                    <div id="bid-decision-panel" style="display: none;">
-                        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
-                            <button type="button" class="secondary-btn" id="view-reason-btn">View admin decision reason</button>
-                            <span id="bid-status-hint" class="muted"></span>
+                    </aside>
+                    <div class="supplier-bidding-detail-pane" aria-label="Bidding workbench">
+                        <div id="supplier-bid-placeholder" class="sb-placeholder">
+                            <p><strong>Select an invitation</strong> from the list to load purchase request details and submit your item-level prices.</p>
                         </div>
-                        <pre id="bid-reason-text" style="display:none;white-space:pre-wrap;margin:10px 0 0;font-family:inherit;font-size:13px;"></pre>
-                    </div>
-                    <div id="supplier-bid-message"></div>
-                    <div class="footer-actions">
-                        <button class="secondary-btn" type="button" onclick="resetWorkbench()">Cancel</button>
-                        <button class="action-btn" type="button" id="submit-bid-btn" onclick="submitBid()">Submit Bid</button>
+                        <div id="bidding-workbench">
+                            <div class="bidding-head">
+                                <div>
+                                    <h3 id="active-request-title">Bid details</h3>
+                                    <div id="active-request-subtitle" class="muted"></div>
+                                </div>
+                            </div>
+                            <div class="table-wrap">
+                                <table>
+                                    <thead id="bid-lines-thead"></thead>
+                                    <tbody id="bid-lines-body"></tbody>
+                                </table>
+                            </div>
+                            <div id="bid-decision-panel" style="display: none;">
+                                <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+                                    <button type="button" class="secondary-btn" id="view-reason-btn">View admin decision reason</button>
+                                    <span id="bid-status-hint" class="muted"></span>
+                                </div>
+                                <pre id="bid-reason-text" style="display:none;white-space:pre-wrap;margin:10px 0 0;font-family:inherit;font-size:12px;color:#2a241b;"></pre>
+                            </div>
+                            <div id="supplier-bid-message"></div>
+                            <div class="footer-actions">
+                                <button class="secondary-btn" type="button" onclick="resetWorkbench()">Close</button>
+                                <button class="action-btn" type="button" id="submit-bid-btn" onclick="submitBid()">Submit bid</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -97,20 +84,111 @@
         let activeRequest = null;
         let workbenchReadOnly = false;
         const supplierCode = '{{ supplier_code }}'.trim();
+        const invitesListEl = () => document.getElementById('invites-list');
+        let openInviteSeq = 0;
+        let invitationsAllRows = [];
+        let currentInviteFilter = 'all';
+
+        function setSelectedCard(requestId) {
+            const list = invitesListEl();
+            if (!list) return;
+            const rid = requestId == null ? null : Number(requestId);
+            list.querySelectorAll('.sb-invite-card').forEach((c) => {
+                const id = Number(c.getAttribute('data-request-id') || 0);
+                c.classList.toggle('is-selected', rid != null && !Number.isNaN(rid) && id === rid);
+            });
+        }
+
+        function bindInviteListOnce() {
+            if (window._sbInviteClicksBound) return;
+            window._sbInviteClicksBound = true;
+            const list = invitesListEl();
+            if (list) {
+                list.addEventListener('click', (e) => {
+                    if (e.target.closest('a')) return;
+                    const card = e.target.closest('.sb-invite-card');
+                    if (!card) return;
+                    const rid = Number(card.getAttribute('data-request-id') || 0);
+                    const closed = card.getAttribute('data-invite-closed') === '1';
+                    if (rid) {
+                        openInvite(rid, '', closed);
+                    }
+                });
+            }
+            const bar = document.getElementById('sb-invite-filters');
+            if (bar) {
+                bar.addEventListener('click', (e) => {
+                    const btn = e.target.closest('button.sb-filter-btn');
+                    if (!btn) return;
+                    const f = (btn.getAttribute('data-sb-filter') || 'all').toUpperCase();
+                    if (f === 'ALL' || f === 'OPEN' || f === 'ACCEPTED' || f === 'CLOSED' || f === 'REJECTED') {
+                        setInvitationFilter(f === 'ALL' ? 'all' : f);
+                    }
+                });
+            }
+        }
+
+        function setInvitationFilter(filter) {
+            currentInviteFilter = filter;
+            const bar = document.getElementById('sb-invite-filters');
+            if (bar) {
+                bar.querySelectorAll('button.sb-filter-btn').forEach((b) => {
+                    const bf = b.getAttribute('data-sb-filter') || 'all';
+                    b.classList.toggle('is-active', (bf || 'all').toLowerCase() === (filter || 'all').toLowerCase());
+                });
+            }
+            renderInvitations();
+        }
+
+        function showWorkbench(visible) {
+            const ph = document.getElementById('supplier-bid-placeholder');
+            const wb = document.getElementById('bidding-workbench');
+            if (ph) {
+                if (visible) {
+                    ph.setAttribute('hidden', '');
+                    ph.classList.add('sb-workbench-on');
+                } else {
+                    ph.removeAttribute('hidden');
+                    ph.classList.remove('sb-workbench-on');
+                }
+            }
+            if (wb) wb.classList.toggle('is-visible', visible);
+        }
 
         function chipClass(status) {
             const normalized = String(status || '').toUpperCase();
             if (normalized === 'OPEN') return 'status-open';
+            if (normalized === 'REJECTED') return 'status-rejected';
             if (normalized === 'RESPONDED' || normalized === 'SUBMITTED') return 'status-responded';
-            // Supplier-facing wording: show APPROVED as ACCEPTED.
-            if (normalized === 'AWARDED' || normalized === 'APPROVED' || normalized === 'ACCEPTED') return 'status-awarded';
-            return 'status-closed';
+            if (normalized === 'AWARDED' || normalized === 'APPROVED' || normalized === 'ACCEPTED' || normalized.startsWith('APPROV')) {
+                return 'status-awarded';
+            }
+            if (normalized === 'CLOSED') return 'status-closed';
+            return 'status-responded';
+        }
+
+        /** One of ALL | OPEN | ACCEPTED | CLOSED | REJECTED for filter chips (independent of label text). */
+        function getInvitationFilterKey(row) {
+            const inv = String(row && row.inviteStatus != null ? row.inviteStatus : '').toUpperCase();
+            const bid = String(row && row.bidStatus != null ? row.bidStatus : '').toUpperCase();
+            if (bid === 'REJECTED') return 'REJECTED';
+            if (
+                bid === 'APPROVED'
+                || bid === 'AWARDED'
+                || bid === 'ACCEPTED'
+                || (bid && bid.startsWith('APPROV'))
+            ) {
+                return 'ACCEPTED';
+            }
+            if (inv === 'CLOSED') return 'CLOSED';
+            return 'OPEN';
         }
 
         function displayBidStatus(status) {
             const normalized = String(status || '').toUpperCase();
-            // Supplier-facing wording:
-            // - Any approved/awarded state should read as ACCEPTED.
+            if (normalized === 'REJECTED' || normalized.startsWith('REJECT')) {
+                return 'REJECTED';
+            }
             if (
                 normalized === 'APPROVED'
                 || normalized === 'AWARDED'
@@ -118,6 +196,9 @@
                 || normalized.startsWith('APPROV')
             ) {
                 return 'ACCEPTED';
+            }
+            if (normalized === 'CLOSED') {
+                return 'CLOSED';
             }
             return String(status || '').trim() || 'OPEN';
         }
@@ -158,53 +239,82 @@
             box.textContent = '';
         }
 
-        function renderInvitations(rows) {
-            const list = document.getElementById('invites-list');
-            if (!Array.isArray(rows) || !rows.length) {
-                list.innerHTML = '<div class="muted">No invitations available.</div>';
+        function clearWorkbenchIfHiddenByFilter() {
+            if (!activeInvite) return;
+            const f = (currentInviteFilter || 'all').toUpperCase();
+            const all = invitationsAllRows;
+            if (!all || !all.length) return;
+            const group =
+                f === 'ALL' ? all : all.filter((r) => getInvitationFilterKey(r) === f);
+            const rid = Number(activeInvite.requestId);
+            if (!Number.isNaN(rid) && !group.some((r) => Number(r.requestDockey) === rid)) {
+                resetWorkbench();
+            }
+        }
+
+        function renderInvitations() {
+            const list = invitesListEl();
+            if (!list) return;
+            const all = invitationsAllRows;
+            if (!Array.isArray(all) || !all.length) {
+                list.classList.remove('sb-list--loading');
+                list.innerHTML = '<div class="sb-list-loading">No invitations available.</div>';
+                return;
+            }
+            const filterKey = (currentInviteFilter || 'all').toString().toUpperCase();
+            const rows =
+                filterKey === 'ALL' ? all : all.filter((r) => getInvitationFilterKey(r) === filterKey);
+            if (!rows.length) {
+                list.classList.remove('sb-list--loading');
+                list.innerHTML =
+                    '<div class="sb-list-loading sb-list-loading--soft">No invitations match this status. Try <strong>All</strong> to see every invitation.</div>';
+                clearWorkbenchIfHiddenByFilter();
                 return;
             }
 
-            list.innerHTML = rows.map((row) => {
-                const bidStatus = row.bidStatus || row.inviteStatus || 'OPEN';
-                const bidStatusLabel = displayBidStatus(bidStatus);
-                const inviteClosed = String(row.inviteStatus || '').toUpperCase() === 'CLOSED';
-                const inviteAwarded = String(row.inviteStatus || '').toUpperCase() === 'AWARDED';
-                const reqDel = formatDateText(row.requestDeliveryDate);
-                const btnLabel = (inviteClosed || inviteAwarded) ? 'View bid' : 'Open';
-                // Do not embed request_no in onclick — JSON quotes break the HTML attribute and clicks stop working.
-                return `
-                    <div class="invite-row">
+            clearWorkbenchIfHiddenByFilter();
+
+            const activeRid = activeInvite ? Number(activeInvite.requestId) : null;
+            list.classList.remove('sb-list--loading');
+            list.innerHTML = rows
+                .map((row) => {
+                    const bidStatus = row.bidStatus || row.inviteStatus || 'OPEN';
+                    const bidStatusLabel = displayBidStatus(bidStatus);
+                    const inviteClosed = String(row.inviteStatus || '').toUpperCase() === 'CLOSED';
+                    const reqDel = formatDateText(row.requestDeliveryDate);
+                    const rdoc = Number(row.requestDockey);
+                    const sel = activeRid != null && rdoc === activeRid;
+                    return `
+                    <div class="sb-invite-card${sel ? ' is-selected' : ''}" data-request-id="${rdoc}" data-invite-closed="${inviteClosed ? '1' : '0'}" role="button" tabindex="0">
                         <div>
-                            <div><strong>${escapeHtml(row.requestNumber || ('PR-' + row.requestDockey))}</strong></div>
-                            <div class="muted">Req. delivery: ${escapeHtml(reqDel)} | Bid Status: <span class="status-chip ${chipClass(bidStatusLabel)}">${escapeHtml(bidStatusLabel)}</span></div>
+                            <div class="sb-invite-card__pr">${escapeHtml(row.requestNumber || ('PR-' + row.requestDockey))}</div>
+                            <div class="sb-invite-card__meta">Req. delivery: ${escapeHtml(reqDel)}<br>
+                            <span class="status-chip ${chipClass(bidStatusLabel)}">${escapeHtml(bidStatusLabel)}</span>
+                            </div>
                         </div>
-                        <button type="button" class="invite-open-btn" data-request-id="${Number(row.requestDockey)}" data-invite-closed="${inviteClosed ? '1' : '0'}">${btnLabel}</button>
                     </div>
                 `;
-            }).join('');
-
-            list.querySelectorAll('.invite-open-btn').forEach((btn) => {
-                btn.addEventListener('click', () => {
-                    const rid = Number(btn.getAttribute('data-request-id') || 0);
-                    const closed = btn.getAttribute('data-invite-closed') === '1';
-                    openInvite(rid, '', closed);
-                });
-            });
+                })
+                .join('');
         }
 
         async function loadInvitations() {
-            const list = document.getElementById('invites-list');
-            list.innerHTML = '<div class="muted">Loading invitations...</div>';
+            const list = invitesListEl();
+            if (!list) return;
+            list.classList.add('sb-list--loading');
+            list.innerHTML = '<div class="sb-list-loading">Loading invitations…</div>';
 
             const qs = supplierCode ? ('?supplierCode=' + encodeURIComponent(supplierCode)) : '';
             const res = await fetch('/api/procurement/bidding/my-invitations' + qs);
             const body = await res.json();
             if (!res.ok || !body.success) {
-                list.innerHTML = `<div class="muted" style="color:#a43f3f;">${escapeHtml(body.error || 'Failed to load invitations')}</div>`;
+                invitationsAllRows = [];
+                list.classList.remove('sb-list--loading');
+                list.innerHTML = `<div class="sb-list-loading" style="color:#a43f3f;">${escapeHtml(body.error || 'Failed to load invitations')}</div>`;
                 return;
             }
-            renderInvitations(body.data || []);
+            invitationsAllRows = body.data || [];
+            renderInvitations();
         }
 
         function setDecisionPanel(myBid, readOnly) {
@@ -250,20 +360,33 @@
         }
 
         async function openInvite(requestId, requestNo, inviteClosed) {
+            const rid = Number(requestId);
+            if (!rid) return;
+            const seq = ++openInviteSeq;
             clearBidMessage();
-            activeInvite = { requestId, requestNo };
+            setSelectedCard(rid);
             const qs = new URLSearchParams({
-                request_id: String(requestId),
+                request_id: String(rid),
                 request_no: requestNo || '',
             });
             if (supplierCode) qs.set('supplierCode', supplierCode);
             const res = await fetch('/api/procurement/bidding/purchase-request-details?' + qs.toString());
             const body = await res.json();
             if (!res.ok || !body.success) {
-                alert(body.error || 'Failed to load request details');
+                if (seq === openInviteSeq) {
+                    setSelectedCard(null);
+                    activeInvite = null;
+                    activeRequest = null;
+                    showWorkbench(false);
+                    alert(body.error || 'Failed to load request details');
+                }
+                return;
+            }
+            if (seq !== openInviteSeq) {
                 return;
             }
             activeRequest = body;
+            activeInvite = { requestId: rid, requestNo: String(body.requestNumber || requestNo || '') };
 
             let readOnly = !!inviteClosed;
             const mb = body.myBid;
@@ -337,8 +460,7 @@
             document.getElementById('submit-bid-btn').style.display = readOnly ? 'none' : 'inline-block';
             setDecisionPanel(mb, readOnly);
 
-            document.getElementById('bidding-workbench').style.display = 'block';
-            window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+            showWorkbench(true);
         }
 
         function collectBidLines() {
@@ -403,14 +525,16 @@
             activeRequest = null;
             workbenchReadOnly = false;
             clearBidMessage();
+            setSelectedCard(null);
             document.getElementById('bid-decision-panel').style.display = 'none';
-            document.getElementById('bidding-workbench').style.display = 'none';
+            showWorkbench(false);
             document.getElementById('bid-lines-body').innerHTML = '';
             document.getElementById('bid-lines-thead').innerHTML = '';
             document.getElementById('submit-bid-btn').style.display = 'inline-block';
         }
 
         loadInvitations();
+        bindInviteListOnce();
     </script>
 </body>
 </html>
