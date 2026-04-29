@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="/static/css/app_page_header.css">
     <link rel="stylesheet" href="/static/css/orderQuotation.css">
     <link rel="stylesheet" href="/static/css/adminViewQuotations.css">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr48">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr49">
 </head>
 <body class="procurement-warm-ui">
 
@@ -94,7 +94,7 @@
                                                         <th class="qty-col">P.O Qty</th>
                                                         <th class="qty-col">J.O Qty</th>
                                                         <th class="qty-col">Avail.Qty</th>
-                                                        <th class="qty-col">Quantity Need to Buy</th>
+                                                        <th class="qty-col">Shortage Qty</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody id="stock-card-table-body">
@@ -627,7 +627,7 @@
             { key: 'so_qty_by_location', label: 'S.O Qty', maps: { sqty: 'so_qty_sqty_by_location', suom: 'so_qty_suom_by_location' } },
             { key: 'jo_qty_by_location', label: 'J.O Qty', maps: { sqty: 'jo_qty_sqty_by_location', suom: 'jo_qty_suom_by_location' } },
             { key: 'qty_by_location', label: 'Avail. Qty', maps: { sqty: 'qty_sqty_by_location', suom: 'qty_suom_by_location' } },
-            { key: 'need_to_buy_by_location', label: 'Need to Buy', maps: { sqty: 'need_to_buy_sqty_by_location', suom: 'need_to_buy_suom_by_location' } },
+            { key: 'need_to_buy_by_location', label: 'Shortage Qty', maps: { sqty: 'need_to_buy_sqty_by_location', suom: 'need_to_buy_suom_by_location' } },
             { key: 'pending_pr_by_location', label: 'Pending PR', maps: { sqty: 'pending_pr_sqty_by_location', suom: 'pending_pr_suom_by_location' } },
         ];
 
@@ -2081,7 +2081,7 @@
                 { label: 'S.O Qty', maps: { sqty: 'so_qty_sqty_by_location', suom: 'so_qty_suom_by_location' }, bg: '#e3eef9', color: '#153d66' },
                 { label: 'J.O Qty', maps: { sqty: 'jo_qty_sqty_by_location', suom: 'jo_qty_suom_by_location' }, bg: '#dff3e6', color: '#14532a' },
                 { label: 'Avail. Qty', maps: { sqty: 'qty_sqty_by_location', suom: 'qty_suom_by_location' }, bg: '#ede6f7', color: '#4a3168' },
-                { label: 'Need to Buy', maps: { sqty: 'need_to_buy_sqty_by_location', suom: 'need_to_buy_suom_by_location' }, bg: '#fce4e8', color: '#7a2222' },
+                { label: 'Shortage Qty', maps: { sqty: 'need_to_buy_sqty_by_location', suom: 'need_to_buy_suom_by_location' }, bg: '#fce4e8', color: '#7a2222' },
                 { label: 'Pending PR', maps: { sqty: 'pending_pr_sqty_by_location', suom: 'pending_pr_suom_by_location' }, bg: '#fff2d6', color: '#6d5200' },
             ];
             el.innerHTML = cards.map((c) => {
