@@ -48,6 +48,30 @@ def _fetch_grouped_qty_map(cur: Any, sql: str, params: tuple[Any, ...] = ()) -> 
     return result
 
 
+def _fetch_grouped_qty_pair_map(
+    cur: Any, sql: str, params: tuple[Any, ...] = ()
+) -> tuple[dict[str, dict[str, float]], dict[str, dict[str, float]]]:
+    """Like _fetch_grouped_qty_map but row has two quantity columns (SQTY-priority stack, SUOM-priority stack)."""
+    cur.execute(sql, params)
+    rows = cur.fetchall() or []
+    sqty_result: dict[str, dict[str, float]] = {}
+    suom_result: dict[str, dict[str, float]] = {}
+    for row in rows:
+        item_code = _clean_str(row[0] if len(row) > 0 else None)
+        location_code = _clean_str(row[1] if len(row) > 1 else None)
+        q_sq = _to_float(row[2] if len(row) > 2 else 0)
+        q_su = _to_float(row[3] if len(row) > 3 else 0)
+        if not item_code or not location_code:
+            continue
+        if item_code not in sqty_result:
+            sqty_result[item_code] = {}
+        if item_code not in suom_result:
+            suom_result[item_code] = {}
+        sqty_result[item_code][location_code] = q_sq
+        suom_result[item_code][location_code] = q_su
+    return sqty_result, suom_result
+
+
 def _get_table_columns(cur: Any, table_name: str) -> set[str]:
     cur.execute(
         """
@@ -97,6 +121,9 @@ def _fetch_pr_qty_map(
     included_statuses: list[str],
     from_date: date | None = None,
     to_date: date | None = None,
+    *,
+    d_line_qty_expr: str | None = None,
+    xtrans_moved_qty_expr: str | None = None,
 ) -> dict[str, dict[str, float]]:
     header_cols = _get_table_columns(cur, "PH_PQ")
     detail_cols = _get_table_columns(cur, "PH_PQDTL")
@@ -111,6 +138,7 @@ def _fetch_pr_qty_map(
     docdate_col = _pick_existing(header_cols, "DOCDATE", "REQUESTDATE", "POSTDATE", "TAXDATE")
     item_col = _pick_existing(detail_cols, "ITEMCODE", "CODE")
     qty_col = _pick_existing(detail_cols, "QTY", "QUANTITY", "SQTY")
+    d_line_qty = d_line_qty_expr or _doc_line_stock_qty_expr(detail_cols, "D")
     location_col = _pick_existing(detail_cols, "LOCATION", "LOC", "STOCKLOCATION", "STORELOCATION")
 
     x_fromdoctype_col = _pick_existing(xtrans_cols, "FROMDOCTYPE")
@@ -156,22 +184,18 @@ def _fetch_pr_qty_map(
 
     params = tuple(params_list)
 
+    x_effective = xtrans_moved_qty_expr or _xtrans_moved_qty_expr(xtrans_cols, "X")
     can_compute_outstanding = all(
         [
             detail_key_col,
             x_fromdoctype_col,
             x_fromdockey_col,
             x_fromdtlkey_col,
-            (x_qty_col or x_sqty_col),
         ]
-    )
+    ) and (x_effective != "0")
 
     if can_compute_outstanding:
-        x_qty_expr = (
-            f"COALESCE(X.{x_sqty_col}, X.{x_qty_col}, 0)"
-            if x_sqty_col and x_qty_col
-            else (f"COALESCE(X.{x_sqty_col}, 0)" if x_sqty_col else f"COALESCE(X.{x_qty_col}, 0)")
-        )
+        x_qty_expr = x_effective
         cur.execute(
             f"""
             SELECT
@@ -180,8 +204,8 @@ def _fetch_pr_qty_map(
                 CAST(
                     SUM(
                         CASE
-                            WHEN (COALESCE(D.{qty_col}, 0) - COALESCE(T.TRANSFERRED_QTY, 0)) > 0
-                                THEN (COALESCE(D.{qty_col}, 0) - COALESCE(T.TRANSFERRED_QTY, 0))
+                            WHEN (({d_line_qty}) - COALESCE(T.TRANSFERRED_QTY, 0)) > 0
+                                THEN (({d_line_qty}) - COALESCE(T.TRANSFERRED_QTY, 0))
                             ELSE 0
                         END
                     )
@@ -205,12 +229,13 @@ def _fetch_pr_qty_map(
             tuple(["PQ", *params]),
         )
     else:
+        d_sum = d_line_qty if d_line_qty != "0" else f"COALESCE(D.{qty_col}, 0)"
         cur.execute(
             f"""
             SELECT
                 D.{item_col} AS ITEM_CODE,
                 {location_expr} AS LOCATION_CODE,
-                CAST(SUM(COALESCE(D.{qty_col}, 0)) AS DOUBLE PRECISION) AS TOTAL_QTY
+                CAST(SUM(CAST({d_sum} AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TOTAL_QTY
             FROM PH_PQDTL D
             JOIN PH_PQ H
               ON H.{header_key_col} = D.{detail_fk_col}
@@ -285,33 +310,237 @@ def _fetch_metric_detail_rows(cur: Any, sql: str, params: tuple[Any, ...]) -> li
     return details
 
 
+def _sql_coalesce_chain_from_columns(
+    table_alias: str,
+    column_set: set[str],
+    *preferred_order: str,
+) -> str:
+    """Build COALESCE(a.C1, a.C2, …, 0) using only columns that exist (case-insensitive names)."""
+    upper = {c.upper() for c in column_set}
+    parts: list[str] = []
+    for name in preferred_order:
+        u = name.upper()
+        if u in upper:
+            parts.append(f"{table_alias}.{u}")
+    if not parts:
+        return "0"
+    if len(parts) == 1:
+        return f"COALESCE({parts[0]}, 0)"
+    return "COALESCE(" + ", ".join(parts) + ", 0)"
+
+
+def _doc_line_sqty_priority_expr(detail_cols: set[str], alias: str = "D") -> str:
+    """Primary SQTY column, then QTY; treat SQTY = 0 as unset (same idea as SUOM stack)."""
+    upper = {c.upper() for c in detail_cols}
+    if "SQTY" in upper and "QTY" in upper:
+        return f"COALESCE(NULLIF({alias}.SQTY, 0), COALESCE({alias}.QTY, 0), 0)"
+    if "SQTY" in upper:
+        return f"COALESCE(NULLIF({alias}.SQTY, 0), 0)"
+    if "QTY" in upper:
+        return f"COALESCE({alias}.QTY, 0)"
+    return "0"
+
+
+def _xtrans_sqty_priority_expr(xtrans_cols: set[str], alias: str = "X") -> str:
+    upper = {c.upper() for c in xtrans_cols}
+    if "SQTY" in upper and "QTY" in upper:
+        return f"COALESCE(NULLIF({alias}.SQTY, 0), COALESCE({alias}.QTY, 0), 0)"
+    if "SQTY" in upper:
+        return f"COALESCE(NULLIF({alias}.SQTY, 0), 0)"
+    if "QTY" in upper:
+        return f"COALESCE({alias}.QTY, 0)"
+    return "0"
+
+
+def _st_tr_sqty_bare_expr_for_aggregate(st_tr_cols: set[str]) -> str:
+    """ST_TR on-hand using SQTY then QTY (bare column names for GROUP BY queries)."""
+    upper = {c.upper() for c in st_tr_cols}
+    if "SQTY" in upper and "QTY" in upper:
+        return "COALESCE(NULLIF(SQTY, 0), COALESCE(QTY, 0), 0)"
+    if "SQTY" in upper:
+        return "COALESCE(NULLIF(SQTY, 0), 0)"
+    if "QTY" in upper:
+        return "COALESCE(QTY, 0)"
+    return "0"
+
+
+def _pick_line_qty_skip_zero_suom_sqty(table_alias: str, column_set: set[str]) -> str:
+    """
+    Prefer SUOMQTY then SQTY then QTY, but treat 0 in SUOMQTY/SQTY as unset so COALESCE does not
+    swallow real quantities in SQTY/QTY (common after PR→PO when SUOMQTY was defaulted to 0).
+    """
+    upper = {c.upper() for c in column_set}
+    parts: list[str] = []
+    if "SUOMQTY" in upper:
+        parts.append(f"NULLIF({table_alias}.SUOMQTY, 0)")
+    if "SQTY" in upper:
+        parts.append(f"NULLIF({table_alias}.SQTY, 0)")
+    if "QTY" in upper:
+        parts.append(f"COALESCE({table_alias}.QTY, 0)")
+    if not parts:
+        return "0"
+    if len(parts) == 1:
+        return f"COALESCE({parts[0]}, 0)"
+    return "COALESCE(" + ", ".join(parts) + ", 0)"
+
+
+def _xtrans_moved_qty_expr(xtrans_cols: set[str], alias: str = "X") -> str:
+    """ST_XTRANS moved qty for reporting (PQ/SO/PO/JO links), robust when SUOMQTY is 0 but QTY/SQTY hold the move."""
+    return _pick_line_qty_skip_zero_suom_sqty(alias, xtrans_cols)
+
+
+def _doc_line_stock_qty_expr(detail_cols: set[str], alias: str = "D") -> str:
+    """Document detail qty aligned with ST_XTRANS pick order."""
+    return _pick_line_qty_skip_zero_suom_sqty(alias, detail_cols)
+
+
+def _st_tr_line_qty_expr(st_tr_cols: set[str], alias: str = "S") -> str:
+    """ST_TR on-hand (same pick logic as transfers)."""
+    return _pick_line_qty_skip_zero_suom_sqty(alias, st_tr_cols)
+
+
+def _st_tr_qty_bare_expr_for_aggregate(st_tr_cols: set[str]) -> str:
+    """ST_TR quantity with no table alias (SELECT ... FROM ST_TR GROUP BY)."""
+    upper = {c.upper() for c in st_tr_cols}
+    parts: list[str] = []
+    if "SUOMQTY" in upper:
+        parts.append("NULLIF(SUOMQTY, 0)")
+    if "SQTY" in upper:
+        parts.append("NULLIF(SQTY, 0)")
+    if "QTY" in upper:
+        parts.append("COALESCE(QTY, 0)")
+    if not parts:
+        return "0"
+    if len(parts) == 1:
+        return f"COALESCE({parts[0]}, 0)"
+    return "COALESCE(" + ", ".join(parts) + ", 0)"
+
+
+def _docdate_filter_sql(
+    from_date: date | None,
+    to_date: date | None,
+) -> tuple[str, tuple[Any, ...]]:
+    """AND-clause fragment for H.DOCDATE (matches procurement stock card date range)."""
+    parts: list[str] = []
+    params: list[Any] = []
+    if from_date is not None:
+        parts.append("H.DOCDATE >= ?")
+        params.append(from_date)
+    if to_date is not None:
+        parts.append("H.DOCDATE <= ?")
+        params.append(to_date)
+    if not parts:
+        return "", ()
+    return " AND " + " AND ".join(parts), tuple(params)
+
+
+def _uom_expressions_for_breakdown(cur: Any, use_suom: bool) -> dict[str, str]:
+    """Line qty and ST_XTRANS moved qty for SO, PO, JO breakdowns (aligns with stock card report)."""
+    sodtl = _get_table_columns(cur, "SL_SODTL")
+    podtl = _get_table_columns(cur, "PH_PODTL")
+    jodtl = _get_table_columns(cur, "PD_JODTL")
+    xtrans = _get_table_columns(cur, "ST_XTRANS")
+    if use_suom:
+        return {
+            "so_d": _doc_line_stock_qty_expr(sodtl, "D"),
+            "po_d": _doc_line_stock_qty_expr(podtl, "D"),
+            "jo_d": _doc_line_stock_qty_expr(jodtl, "D"),
+            "x": _xtrans_moved_qty_expr(xtrans, "X"),
+        }
+    return {
+        "so_d": _sql_coalesce_chain_from_columns("D", sodtl, "SQTY", "QTY"),
+        "po_d": _sql_coalesce_chain_from_columns("D", podtl, "SQTY", "QTY"),
+        "jo_d": _sql_coalesce_chain_from_columns("D", jodtl, "SQTY", "QTY"),
+        "x": _sql_coalesce_chain_from_columns("X", xtrans, "SQTY", "QTY"),
+    }
+
+
+def _st_tr_qty_column_for_mode(cur: Any, use_suom: bool) -> str:
+    st_cols = _get_table_columns(cur, "ST_TR")
+    if use_suom:
+        e = _st_tr_line_qty_expr(st_cols, "S")
+        return e if e != "0" else "0"
+    q = _pick_existing(st_cols, "QTY", "QUANTITY", "BALANCE", "BALQTY")
+    if q:
+        return f"COALESCE(S.{q}, 0)"
+    return "0"
+
+
+def _fetch_pr_pending_lines_for_item(
+    cur: Any,
+    item_code: str,
+    location_code: str,
+    from_date: date | None,
+    to_date: date | None,
+) -> list[dict[str, Any]]:
+    """Single summary row: same aggregate as the stock card pending PR (PH_PQ/PH_PQDTL vs ST_XTRANS)."""
+    item = _clean_str(item_code)
+    loc = _clean_str(location_code)
+    pr_map = _fetch_pr_qty_map(
+        cur,
+        ["DRAFT", "SUBMITTED", "PENDING", "APPROVED", "ACTIVE"],
+        from_date,
+        to_date,
+    )
+    total = _to_float((pr_map.get(item) or {}).get(loc, 0))
+    return [
+        {
+            "docno": "e-PR (aggregated)",
+            "docdate": None,
+            "party": "PH_PQ + PH_PQDTL",
+            "remarks": "Reserved quantity on open/approved purchase requests (see View e-PR for document-level detail).",
+            "total_qty": total,
+            "moved_qty": 0.0,
+            "outstanding_qty": total,
+        }
+    ]
+
+
 def fetch_procurement_metric_breakdown(
     cur: Any,
     metric: str,
     item_code: str,
     location_code: str,
+    *,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    qty_mode: str = "SQTY",
 ) -> dict[str, Any]:
-    metric_key = _clean_str(metric).lower()
+    original_metric = _clean_str(metric).lower() or "qty"
+    metric_key = original_metric
+    if metric_key == "suom_qty":
+        metric_key = "qty"
+        qty_mode = "SUOMQTY"
+    use_suom = _clean_str(qty_mode).upper() == "SUOMQTY"
+    uom = _uom_expressions_for_breakdown(cur, use_suom)
+
+    def _m_out(key: str) -> str:
+        if original_metric == "suom_qty" and key == "qty":
+            return "suom_qty"
+        return key
+
     item = _clean_str(item_code)
     location = _clean_str(location_code)
 
     if not item or not location:
         raise ValueError("Item code and location are required")
 
+    date_filter, date_params = _docdate_filter_sql(from_date, to_date)
+
     if metric_key == "so_qty":
-        rows = _fetch_metric_detail_rows(
-            cur,
-            """
+        d_exp = uom["so_d"]
+        x_exp = uom["x"]
+        so_sql = f"""
             SELECT
                 H.DOCNO,
                 H.DOCDATE,
                 H.COMPANYNAME,
                 D.DESCRIPTION,
-                CAST(COALESCE(D.SQTY, D.QTY, 0) AS DOUBLE PRECISION) AS TOTAL_QTY,
-                CAST(COALESCE(SUM(COALESCE(X.SQTY, X.QTY, 0)), 0) AS DOUBLE PRECISION) AS MOVED_QTY,
+                MAX(CAST(({d_exp}) AS DOUBLE PRECISION)) AS TOTAL_QTY,
+                CAST(COALESCE(SUM(CAST({x_exp} AS DOUBLE PRECISION)), 0) AS DOUBLE PRECISION) AS MOVED_QTY,
                 CAST(
-                    COALESCE(D.SQTY, D.QTY, 0)
-                    - COALESCE(SUM(COALESCE(X.SQTY, X.QTY, 0)), 0)
+                    MAX(CAST(({d_exp}) AS DOUBLE PRECISION))
+                    - COALESCE(SUM(CAST({x_exp} AS DOUBLE PRECISION)), 0)
                     AS DOUBLE PRECISION
                 ) AS OUTSTANDING_QTY
             FROM SL_SODTL D
@@ -323,41 +552,41 @@ def fetch_procurement_metric_breakdown(
              AND X.FROMDTLKEY = D.DTLKEY
             WHERE D.ITEMCODE = ?
               AND D.LOCATION = ?
-            GROUP BY H.DOCNO, H.DOCDATE, H.COMPANYNAME, D.DESCRIPTION, D.SQTY, D.QTY, H.DOCKEY, D.DTLKEY
-            HAVING (
-                COALESCE(D.SQTY, D.QTY, 0)
-                - COALESCE(SUM(COALESCE(X.SQTY, X.QTY, 0)), 0)
-            ) > 0
+            {date_filter}
+            GROUP BY H.DOCKEY, D.DTLKEY, H.DOCNO, H.DOCDATE, H.COMPANYNAME, D.DESCRIPTION
+            HAVING
+                (MAX(CAST(({d_exp}) AS DOUBLE PRECISION))
+                - COALESCE(SUM(CAST({x_exp} AS DOUBLE PRECISION)), 0)) > 0
             ORDER BY H.DOCDATE DESC, H.DOCNO DESC
-            """,
-            (item, location),
-        )
+            """
+        params_so = (item, location) + date_params
+        rows = _fetch_metric_detail_rows(cur, so_sql, params_so)
         return {
-            "metric": metric_key,
+            "metric": _m_out("so_qty"),
             "title": "S.O Qty Breakdown",
             "item_code": item,
             "location": location,
             "rows": rows,
             "summary": {
                 "value": sum(_to_float(row.get("outstanding_qty")) for row in rows),
-                "note": "Outstanding sales order quantity = document SQTY minus transferred SQTY.",
+                "note": "Outstanding = document line UOM/SUOM quantity minus same-UOM sum on ST_XTRANS (FROMDOCTYPE=SO) for that line. Filtered by order date if a report cutoff is set.",
             },
         }
 
     if metric_key == "po_qty":
-        rows = _fetch_metric_detail_rows(
-            cur,
-            """
+        d_exp = uom["po_d"]
+        x_exp = uom["x"]
+        po_sql = f"""
             SELECT
                 H.DOCNO,
                 H.DOCDATE,
                 H.COMPANYNAME,
                 D.DESCRIPTION,
-                CAST(COALESCE(D.SQTY, D.QTY, 0) AS DOUBLE PRECISION) AS TOTAL_QTY,
-                CAST(COALESCE(SUM(COALESCE(X.SQTY, X.QTY, 0)), 0) AS DOUBLE PRECISION) AS MOVED_QTY,
+                MAX(CAST(({d_exp}) AS DOUBLE PRECISION)) AS TOTAL_QTY,
+                CAST(COALESCE(SUM(CAST({x_exp} AS DOUBLE PRECISION)), 0) AS DOUBLE PRECISION) AS MOVED_QTY,
                 CAST(
-                    COALESCE(D.SQTY, D.QTY, 0)
-                    - COALESCE(SUM(COALESCE(X.SQTY, X.QTY, 0)), 0)
+                    MAX(CAST(({d_exp}) AS DOUBLE PRECISION))
+                    - COALESCE(SUM(CAST({x_exp} AS DOUBLE PRECISION)), 0)
                     AS DOUBLE PRECISION
                 ) AS OUTSTANDING_QTY
             FROM PH_PODTL D
@@ -369,41 +598,40 @@ def fetch_procurement_metric_breakdown(
              AND X.FROMDTLKEY = D.DTLKEY
             WHERE D.ITEMCODE = ?
               AND D.LOCATION = ?
-            GROUP BY H.DOCNO, H.DOCDATE, H.COMPANYNAME, D.DESCRIPTION, D.SQTY, D.QTY, H.DOCKEY, D.DTLKEY
-            HAVING (
-                COALESCE(D.SQTY, D.QTY, 0)
-                - COALESCE(SUM(COALESCE(X.SQTY, X.QTY, 0)), 0)
-            ) > 0
+            {date_filter}
+            GROUP BY H.DOCKEY, D.DTLKEY, H.DOCNO, H.DOCDATE, H.COMPANYNAME, D.DESCRIPTION
+            HAVING
+                (MAX(CAST(({d_exp}) AS DOUBLE PRECISION))
+                - COALESCE(SUM(CAST({x_exp} AS DOUBLE PRECISION)), 0)) > 0
             ORDER BY H.DOCDATE DESC, H.DOCNO DESC
-            """,
-            (item, location),
-        )
+            """
+        rows = _fetch_metric_detail_rows(cur, po_sql, (item, location) + date_params)
         return {
-            "metric": metric_key,
+            "metric": _m_out("po_qty"),
             "title": "P.O Qty Breakdown",
             "item_code": item,
             "location": location,
             "rows": rows,
             "summary": {
                 "value": sum(_to_float(row.get("outstanding_qty")) for row in rows),
-                "note": "Outstanding purchase order quantity = document SQTY minus transferred SQTY.",
+                "note": "Outstanding = line qty minus ST_XTRANS moves (FROMDOCTYPE=PO).",
             },
         }
 
     if metric_key == "jo_qty":
-        rows = _fetch_metric_detail_rows(
-            cur,
-            """
+        d_exp = uom["jo_d"]
+        x_exp = uom["x"]
+        jo_sql = f"""
             SELECT
                 H.DOCNO,
                 H.DOCDATE,
                 H.DESCRIPTION,
                 D.DESCRIPTION,
-                CAST(COALESCE(D.SQTY, D.QTY, 0) AS DOUBLE PRECISION) AS TOTAL_QTY,
-                CAST(COALESCE(SUM(COALESCE(X.SQTY, X.QTY, 0)), 0) AS DOUBLE PRECISION) AS MOVED_QTY,
+                MAX(CAST(({d_exp}) AS DOUBLE PRECISION)) AS TOTAL_QTY,
+                CAST(COALESCE(SUM(CAST({x_exp} AS DOUBLE PRECISION)), 0) AS DOUBLE PRECISION) AS MOVED_QTY,
                 CAST(
-                    COALESCE(D.SQTY, D.QTY, 0)
-                    - COALESCE(SUM(COALESCE(X.SQTY, X.QTY, 0)), 0)
+                    MAX(CAST(({d_exp}) AS DOUBLE PRECISION))
+                    - COALESCE(SUM(CAST({x_exp} AS DOUBLE PRECISION)), 0)
                     AS DOUBLE PRECISION
                 ) AS OUTSTANDING_QTY
             FROM PD_JODTL D
@@ -415,24 +643,23 @@ def fetch_procurement_metric_breakdown(
              AND X.FROMDTLKEY = D.DTLKEY
             WHERE D.ITEMCODE = ?
               AND D.LOCATION = ?
-            GROUP BY H.DOCNO, H.DOCDATE, H.DESCRIPTION, D.DESCRIPTION, D.SQTY, D.QTY, H.DOCKEY, D.DTLKEY
-            HAVING (
-                COALESCE(D.SQTY, D.QTY, 0)
-                - COALESCE(SUM(COALESCE(X.SQTY, X.QTY, 0)), 0)
-            ) > 0
+            {date_filter}
+            GROUP BY H.DOCKEY, D.DTLKEY, H.DOCNO, H.DOCDATE, H.DESCRIPTION, D.DESCRIPTION
+            HAVING
+                (MAX(CAST(({d_exp}) AS DOUBLE PRECISION))
+                - COALESCE(SUM(CAST({x_exp} AS DOUBLE PRECISION)), 0)) > 0
             ORDER BY H.DOCDATE DESC, H.DOCNO DESC
-            """,
-            (item, location),
-        )
+            """
+        rows = _fetch_metric_detail_rows(cur, jo_sql, (item, location) + date_params)
         return {
-            "metric": metric_key,
+            "metric": _m_out("jo_qty"),
             "title": "J.O Qty Breakdown",
             "item_code": item,
             "location": location,
             "rows": rows,
             "summary": {
                 "value": sum(_to_float(row.get("outstanding_qty")) for row in rows),
-                "note": "Outstanding job order quantity = document SQTY minus transferred SQTY.",
+                "note": "Outstanding = line qty minus ST_XTRANS moves (FROMDOCTYPE=JO).",
             },
         }
 
@@ -442,11 +669,12 @@ def fetch_procurement_metric_breakdown(
         desc_col = _pick_existing(
             st_cols, "DESCRIPTION", "DESC1", "DESC2", "REMARK1", "REMARKS", "MEMO", "NARRATION"
         )
+        st_qty_expr = _st_tr_qty_column_for_mode(cur, use_suom)
         qty_col = _pick_existing(st_cols, "QTY", "QUANTITY", "BALANCE", "BALQTY")
         batch_col = _pick_existing(st_cols, "BATCH", "BATCHNO", "LOT", "BATCHCODE")
         dtl_col = _pick_existing(st_cols, "DTLKEY", "RID", "LINE", "LINENO")
 
-        if not qty_col:
+        if st_qty_expr == "0" and not qty_col:
             details = [
                 {
                     "docno": "—",
@@ -459,7 +687,7 @@ def fetch_procurement_metric_breakdown(
                 }
             ]
             return {
-                "metric": metric_key,
+                "metric": _m_out("avail_qty"),
                 "title": "Avail.Qty Breakdown",
                 "item_code": item,
                 "location": location,
@@ -468,6 +696,10 @@ def fetch_procurement_metric_breakdown(
                 "summary": {"value": 0.0, "note": "Missing QTY on ST_TR."},
             }
 
+        if st_qty_expr != "0":
+            qty_select = f"CAST(({st_qty_expr}) AS DOUBLE PRECISION)"
+        else:
+            qty_select = f"CAST(COALESCE(S.{qty_col}, 0) AS DOUBLE PRECISION)"
         select_parts: list[str] = []
         if docno_col:
             select_parts.append(f"TRIM(CAST(S.{docno_col} AS VARCHAR(120)))")
@@ -477,7 +709,7 @@ def fetch_procurement_metric_breakdown(
             select_parts.append(f"TRIM(CAST(S.{desc_col} AS VARCHAR(200)))")
         else:
             select_parts.append("CAST('' AS VARCHAR(200))")
-        select_parts.append(f"CAST(COALESCE(S.{qty_col}, 0) AS DOUBLE PRECISION)")
+        select_parts.append(qty_select)
         if batch_col:
             select_parts.append(f"TRIM(CAST(S.{batch_col} AS VARCHAR(80)))")
         else:
@@ -543,8 +775,9 @@ def fetch_procurement_metric_breakdown(
                     "outstanding_qty": 0.0,
                 }
             ]
+        uom_note = " (SUOMQTY / secondary UOM when set)" if use_suom else ""
         return {
-            "metric": metric_key,
+            "metric": _m_out("avail_qty"),
             "title": "Avail.Qty Breakdown",
             "item_code": item,
             "location": location,
@@ -552,15 +785,146 @@ def fetch_procurement_metric_breakdown(
             "rows": details,
             "summary": {
                 "value": total,
-                "note": "Total = sum of QTY on each ST_TR line above.",
+                "note": f"Total = sum of on-hand per ST_TR line{uom_note}.",
+            },
+        }
+
+    if metric_key == "pending_pr":
+        pr_rows = _fetch_pr_pending_lines_for_item(
+            cur, item, location, from_date, to_date
+        )
+        total_p = sum(_to_float(r.get("outstanding_qty")) for r in pr_rows)
+        return {
+            "metric": "pending_pr",
+            "title": "Pending e-PR lines",
+            "item_code": item,
+            "location": location,
+            "rows": pr_rows,
+            "summary": {
+                "value": total_p,
+                "note": "Remaining PR line quantity not yet moved via ST_XTRANS (FROMDOCTYPE=PQ).",
+            },
+        }
+
+    if metric_key == "need_to_buy":
+        ad = fetch_procurement_metric_breakdown(
+            cur,
+            "avail_qty",
+            item,
+            location,
+            from_date=from_date,
+            to_date=to_date,
+            qty_mode=qty_mode,
+        )
+        avail_value = _to_float(ad["summary"].get("value"))
+        so_d = fetch_procurement_metric_breakdown(
+            cur, "so_qty", item, location, from_date=from_date, to_date=to_date, qty_mode=qty_mode
+        )
+        po_d = fetch_procurement_metric_breakdown(
+            cur, "po_qty", item, location, from_date=from_date, to_date=to_date, qty_mode=qty_mode
+        )
+        jo_d = fetch_procurement_metric_breakdown(
+            cur, "jo_qty", item, location, from_date=from_date, to_date=to_date, qty_mode=qty_mode
+        )
+        so_v = _to_float(so_d["summary"].get("value"))
+        po_v = _to_float(po_d["summary"].get("value"))
+        jo_v = _to_float(jo_d["summary"].get("value"))
+        pqdtl_cols_nb = _get_table_columns(cur, "PH_PQDTL")
+        xtrans_cols_nb = _get_table_columns(cur, "ST_XTRANS")
+        use_suom_nb = _clean_str(qty_mode).upper() == "SUOMQTY"
+        if use_suom_nb:
+            pr_map = _fetch_pr_qty_map(
+                cur,
+                ["DRAFT", "SUBMITTED", "PENDING", "APPROVED", "ACTIVE"],
+                from_date,
+                to_date,
+                d_line_qty_expr=_doc_line_stock_qty_expr(pqdtl_cols_nb, "D"),
+                xtrans_moved_qty_expr=_xtrans_moved_qty_expr(xtrans_cols_nb, "X"),
+            )
+        else:
+            pr_map = _fetch_pr_qty_map(
+                cur,
+                ["DRAFT", "SUBMITTED", "PENDING", "APPROVED", "ACTIVE"],
+                from_date,
+                to_date,
+                d_line_qty_expr=_doc_line_sqty_priority_expr(pqdtl_cols_nb, "D"),
+                xtrans_moved_qty_expr=_xtrans_sqty_priority_expr(xtrans_cols_nb, "X"),
+            )
+        pending = _to_float((pr_map.get(item) or {}).get(location, 0))
+        procurement_balance = avail_value + po_v - so_v - jo_v
+        base_need = max(0.0, -procurement_balance)
+        need = max(0.0, base_need - pending)
+        return {
+            "metric": "need_to_buy",
+            "title": "Need to buy breakdown",
+            "item_code": item,
+            "location": location,
+            "rows": [
+                {
+                    "docno": "On hand (Avail.)",
+                    "docdate": None,
+                    "party": None,
+                    "remarks": "Physical on-hand from ST_TR; document cutoff does not change this.",
+                    "total_qty": avail_value,
+                    "moved_qty": 0.0,
+                    "outstanding_qty": avail_value,
+                },
+                {
+                    "docno": "P.O (incoming)",
+                    "docdate": None,
+                    "party": None,
+                    "remarks": "Outstanding PO lines (ST_XTRANS net).",
+                    "total_qty": po_v,
+                    "moved_qty": 0.0,
+                    "outstanding_qty": po_v,
+                },
+                {
+                    "docno": "S.O (demand)",
+                    "docdate": None,
+                    "party": None,
+                    "remarks": "Outstanding SO lines.",
+                    "total_qty": so_v,
+                    "moved_qty": 0.0,
+                    "outstanding_qty": -so_v,
+                },
+                {
+                    "docno": "J.O (demand)",
+                    "docdate": None,
+                    "party": None,
+                    "remarks": "Outstanding JO lines.",
+                    "total_qty": jo_v,
+                    "moved_qty": 0.0,
+                    "outstanding_qty": -jo_v,
+                },
+                {
+                    "docno": "Open e-PR",
+                    "docdate": None,
+                    "party": None,
+                    "remarks": "Reserved on approved/pending purchase requests (PH_PQ, ST_XTRANS balance).",
+                    "total_qty": pending,
+                    "moved_qty": 0.0,
+                    "outstanding_qty": -pending,
+                },
+            ],
+            "summary": {
+                "value": need,
+                "note": "Need = max(0, (S.O + J.O - Avail - P.O)) minus open e-PR, aligned with the stock card shortfall row.",
             },
         }
 
     if metric_key == "qty":
-        so_data = fetch_procurement_metric_breakdown(cur, "so_qty", item, location)
-        po_data = fetch_procurement_metric_breakdown(cur, "po_qty", item, location)
-        jo_data = fetch_procurement_metric_breakdown(cur, "jo_qty", item, location)
-        avail_data = fetch_procurement_metric_breakdown(cur, "avail_qty", item, location)
+        so_data = fetch_procurement_metric_breakdown(
+            cur, "so_qty", item, location, from_date=from_date, to_date=to_date, qty_mode=qty_mode
+        )
+        po_data = fetch_procurement_metric_breakdown(
+            cur, "po_qty", item, location, from_date=from_date, to_date=to_date, qty_mode=qty_mode
+        )
+        jo_data = fetch_procurement_metric_breakdown(
+            cur, "jo_qty", item, location, from_date=from_date, to_date=to_date, qty_mode=qty_mode
+        )
+        avail_data = fetch_procurement_metric_breakdown(
+            cur, "avail_qty", item, location, from_date=from_date, to_date=to_date, qty_mode=qty_mode
+        )
 
         avail_value = _to_float(avail_data["summary"].get("value"))
         so_value = _to_float(so_data["summary"].get("value"))
@@ -569,8 +933,8 @@ def fetch_procurement_metric_breakdown(
         qty_value = avail_value + so_value - po_value + jo_value
 
         return {
-            "metric": metric_key,
-            "title": "Qty Breakdown",
+            "metric": _m_out("qty"),
+            "title": "SUOMQTY / Avail. Qty bridge" if original_metric == "suom_qty" else "Qty Breakdown",
             "item_code": item,
             "location": location,
             "rows": [
@@ -578,7 +942,7 @@ def fetch_procurement_metric_breakdown(
                     "docno": "Avail.Qty",
                     "docdate": None,
                     "party": None,
-                    "remarks": "Current available quantity from ST_TR.",
+                    "remarks": "ST_TR (on-hand); cutoff filters documents only, not physical stock.",
                     "total_qty": avail_value,
                     "moved_qty": 0,
                     "outstanding_qty": avail_value,
@@ -587,7 +951,7 @@ def fetch_procurement_metric_breakdown(
                     "docno": "S.O Qty",
                     "docdate": None,
                     "party": None,
-                    "remarks": "Outstanding sales orders added back into Qty.",
+                    "remarks": "Outstanding sales orders (document minus ST_XTRANS from SO).",
                     "total_qty": so_value,
                     "moved_qty": 0,
                     "outstanding_qty": so_value,
@@ -596,7 +960,7 @@ def fetch_procurement_metric_breakdown(
                     "docno": "P.O Qty",
                     "docdate": None,
                     "party": None,
-                    "remarks": "Outstanding purchase orders deducted from Qty.",
+                    "remarks": "Outstanding purchase orders (deducted in the grid).",
                     "total_qty": po_value,
                     "moved_qty": 0,
                     "outstanding_qty": -po_value,
@@ -605,7 +969,7 @@ def fetch_procurement_metric_breakdown(
                     "docno": "J.O Qty",
                     "docdate": None,
                     "party": None,
-                    "remarks": "Outstanding job orders added back into Qty.",
+                    "remarks": "Outstanding job orders.",
                     "total_qty": jo_value,
                     "moved_qty": 0,
                     "outstanding_qty": jo_value,
@@ -613,7 +977,7 @@ def fetch_procurement_metric_breakdown(
             ],
             "summary": {
                 "value": qty_value,
-                "note": "Qty is derived in this report as Avail.Qty + S.O Qty - P.O Qty + J.O Qty.",
+                "note": "Qty = Avail + S.O − P.O + J.O (match stock card; uses SUOMQTY when that mode is on).",
             },
         }
 
@@ -628,45 +992,35 @@ def fetch_procurement_stock_card_data(
 ) -> tuple[list[str], list[dict[str, Any]]]:
     """Return locations and stock-card rows for procurement overall report.
 
-    qty_mode: 'SQTY' (default) uses QTY/SQTY fields; 'SUOMQTY' uses secondary
-    UOM quantity fields (SUOMQTY) when available, falling back to QTY/SQTY.
+    Each row includes parallel **SQTY-priority** and **SUOM-priority** quantity stacks
+    (``*_sqty_by_location`` / ``*_suom_by_location``) for on-hand, S.O, P.O, J.O, Avail,
+    pending PR, and need-to-buy. Legacy flat keys (``so_qty_by_location``, etc.) mirror
+    ``qty_mode``: ``SQTY`` → SQTY stack, ``SUOMQTY`` → SUOM stack (same as before for SUOM clients).
+
+    When ``from_date`` / ``to_date`` are set, S.O / P.O / J.O (and open PR) aggregates use
+    document dates; **quantity on hand** from ``ST_TR`` is not cleared by the cutoff.
     """
     normalized_from = from_date if isinstance(from_date, date) else _parse_iso_date(from_date)
     normalized_to = to_date if isinstance(to_date, date) else _parse_iso_date(to_date)
-    use_suom = _clean_str(qty_mode).upper() == "SUOMQTY"
+    primary_is_suom = _clean_str(qty_mode).upper() == "SUOMQTY"
 
-    # Detect SUOMQTY availability on each table when mode is SUOMQTY.
-    if use_suom:
-        _sodtl_cols  = _get_table_columns(cur, "SL_SODTL")
-        _podtl_cols  = _get_table_columns(cur, "PH_PODTL")
-        _jodtl_cols  = _get_table_columns(cur, "PD_JODTL")
-        _sttr_cols   = _get_table_columns(cur, "ST_TR")
-        _xtrans_cols = _get_table_columns(cur, "ST_XTRANS")
+    _sodtl_cols = _get_table_columns(cur, "SL_SODTL")
+    _podtl_cols = _get_table_columns(cur, "PH_PODTL")
+    _jodtl_cols = _get_table_columns(cur, "PD_JODTL")
+    _sttr_cols = _get_table_columns(cur, "ST_TR")
+    _xtrans_cols = _get_table_columns(cur, "ST_XTRANS")
+    _pqdtl_cols = _get_table_columns(cur, "PH_PQDTL")
 
-        def _doc_qty(alias: str, cols: set) -> str:
-            if "SUOMQTY" in cols:
-                return f"COALESCE({alias}.SUOMQTY, {alias}.QTY, 0)"
-            return f"COALESCE({alias}.QTY, 0)"
-
-        _so_doc_qty  = _doc_qty("SL_SODTL", _sodtl_cols)
-        _po_doc_qty  = _doc_qty("D", _podtl_cols)
-        _jo_doc_qty  = _doc_qty("D", _jodtl_cols)
-        _avail_qty   = "COALESCE(SUOMQTY, QTY, 0)" if "SUOMQTY" in _sttr_cols else "QTY"
-
-        _x_parts = []
-        if "SUOMQTY" in _xtrans_cols:
-            _x_parts.append("X.SUOMQTY")
-        if "SQTY" in _xtrans_cols:
-            _x_parts.append("X.SQTY")
-        _x_parts.append("X.QTY")
-        _x_parts.append("0")
-        _xtrans_qty = "COALESCE(" + ", ".join(_x_parts) + ")"
-    else:
-        _so_doc_qty  = "QTY"
-        _po_doc_qty  = "D.QTY"
-        _jo_doc_qty  = "D.QTY"
-        _avail_qty   = "QTY"
-        _xtrans_qty  = "COALESCE(X.SQTY, X.QTY, 0)"
+    _so_doc_sq = _doc_line_sqty_priority_expr(_sodtl_cols, "SL_SODTL")
+    _so_doc_su = _doc_line_stock_qty_expr(_sodtl_cols, "SL_SODTL")
+    _po_doc_sq = _doc_line_sqty_priority_expr(_podtl_cols, "D")
+    _po_doc_su = _doc_line_stock_qty_expr(_podtl_cols, "D")
+    _jo_doc_sq = _doc_line_sqty_priority_expr(_jodtl_cols, "D")
+    _jo_doc_su = _doc_line_stock_qty_expr(_jodtl_cols, "D")
+    _avail_sq = _st_tr_sqty_bare_expr_for_aggregate(_sttr_cols)
+    _avail_su = _st_tr_qty_bare_expr_for_aggregate(_sttr_cols)
+    _x_sq = _xtrans_sqty_priority_expr(_xtrans_cols, "X")
+    _x_su = _xtrans_moved_qty_expr(_xtrans_cols, "X")
 
     cur.execute("SELECT CODE FROM ST_LOCATION ORDER BY CODE")
     location_rows = cur.fetchall() or []
@@ -684,41 +1038,46 @@ def fetch_procurement_stock_card_data(
         if code:
             item_codes.append(code)
 
-    avail_map = _fetch_grouped_qty_map(
+    date_params = tuple(value for value in (normalized_from, normalized_to) if value is not None)
+
+    avail_sq_map, avail_su_map = _fetch_grouped_qty_pair_map(
         cur,
         f"""
         SELECT ITEMCODE,
                LOCATION,
-               CAST(SUM(CAST({_avail_qty} AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TOTAL_QTY
+               CAST(SUM(CAST({_avail_sq} AS DOUBLE PRECISION)) AS DOUBLE PRECISION),
+               CAST(SUM(CAST({_avail_su} AS DOUBLE PRECISION)) AS DOUBLE PRECISION)
         FROM ST_TR
         GROUP BY ITEMCODE, LOCATION
         """,
     )
 
-    so_total_map = _fetch_grouped_qty_map(
+    so_total_sq, so_total_su = _fetch_grouped_qty_pair_map(
         cur,
         f"""
-        SELECT ITEMCODE,
-               LOCATION,
-               CAST(SUM(CAST({_so_doc_qty} AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TOTAL_SO_QTY
+        SELECT SL_SODTL.ITEMCODE,
+               SL_SODTL.LOCATION,
+               CAST(SUM(CAST({_so_doc_sq} AS DOUBLE PRECISION)) AS DOUBLE PRECISION),
+               CAST(SUM(CAST({_so_doc_su} AS DOUBLE PRECISION)) AS DOUBLE PRECISION)
         FROM SL_SODTL
                 JOIN SL_SO H
                     ON H.DOCKEY = SL_SODTL.DOCKEY
                 WHERE 1 = 1
                 """
-                + ("\n          AND H.DOCDATE >= ?" if normalized_from else "")
-                + ("\n          AND H.DOCDATE <= ?" if normalized_to else "")
-                + """
-        GROUP BY ITEMCODE, LOCATION
+        + ("\n          AND H.DOCDATE >= ?" if normalized_from else "")
+        + ("\n          AND H.DOCDATE <= ?" if normalized_to else "")
+        + """
+        GROUP BY SL_SODTL.ITEMCODE, SL_SODTL.LOCATION
                 """,
-                tuple(value for value in (normalized_from, normalized_to) if value is not None),
+        date_params,
     )
-    so_moved_map = _fetch_grouped_qty_map(
+    so_moved_sq, so_moved_su = _fetch_grouped_qty_pair_map(
         cur,
         f"""
         SELECT D.ITEMCODE,
                D.LOCATION,
-               CAST(SUM(CAST({_xtrans_qty} AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TOTAL_XTRANS_QTY
+               CAST(SUM(CAST({_x_sq} AS DOUBLE PRECISION)) AS DOUBLE PRECISION),
+               CAST(SUM(CAST({_x_su} AS DOUBLE PRECISION)) AS DOUBLE PRECISION)
         FROM ST_XTRANS X
         JOIN SL_SODTL D
           ON D.DOCKEY = X.FROMDOCKEY
@@ -727,38 +1086,40 @@ def fetch_procurement_stock_card_data(
                     ON H.DOCKEY = D.DOCKEY
         WHERE X.FROMDOCTYPE = 'SO'
                 """
-                + ("\n          AND H.DOCDATE >= ?" if normalized_from else "")
-                + ("\n          AND H.DOCDATE <= ?" if normalized_to else "")
-                + """
+        + ("\n          AND H.DOCDATE >= ?" if normalized_from else "")
+        + ("\n          AND H.DOCDATE <= ?" if normalized_to else "")
+        + """
         GROUP BY D.ITEMCODE, D.LOCATION
                 """,
-                tuple(value for value in (normalized_from, normalized_to) if value is not None),
+        date_params,
     )
 
-    po_total_map = _fetch_grouped_qty_map(
+    po_total_sq, po_total_su = _fetch_grouped_qty_pair_map(
         cur,
         f"""
         SELECT D.ITEMCODE,
                D.LOCATION,
-               CAST(SUM(CAST({_po_doc_qty} AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TOTAL_PO_QTY
+               CAST(SUM(CAST({_po_doc_sq} AS DOUBLE PRECISION)) AS DOUBLE PRECISION),
+               CAST(SUM(CAST({_po_doc_su} AS DOUBLE PRECISION)) AS DOUBLE PRECISION)
         FROM PH_PODTL D
         JOIN PH_PO H
           ON H.DOCKEY = D.DOCKEY
                 WHERE 1 = 1
                 """
-                + ("\n          AND H.DOCDATE >= ?" if normalized_from else "")
-                + ("\n          AND H.DOCDATE <= ?" if normalized_to else "")
-                + """
+        + ("\n          AND H.DOCDATE >= ?" if normalized_from else "")
+        + ("\n          AND H.DOCDATE <= ?" if normalized_to else "")
+        + """
         GROUP BY D.ITEMCODE, D.LOCATION
                 """,
-                tuple(value for value in (normalized_from, normalized_to) if value is not None),
+        date_params,
     )
-    po_moved_map = _fetch_grouped_qty_map(
+    po_moved_sq, po_moved_su = _fetch_grouped_qty_pair_map(
         cur,
         f"""
         SELECT D.ITEMCODE,
                D.LOCATION,
-               CAST(SUM(CAST({_xtrans_qty} AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TOTAL_XTRANS_QTY
+               CAST(SUM(CAST({_x_sq} AS DOUBLE PRECISION)) AS DOUBLE PRECISION),
+               CAST(SUM(CAST({_x_su} AS DOUBLE PRECISION)) AS DOUBLE PRECISION)
         FROM ST_XTRANS X
         JOIN PH_PODTL D
           ON D.DOCKEY = X.FROMDOCKEY
@@ -767,38 +1128,40 @@ def fetch_procurement_stock_card_data(
           ON H.DOCKEY = D.DOCKEY
         WHERE X.FROMDOCTYPE = 'PO'
                 """
-                + ("\n          AND H.DOCDATE >= ?" if normalized_from else "")
-                + ("\n          AND H.DOCDATE <= ?" if normalized_to else "")
-                + """
+        + ("\n          AND H.DOCDATE >= ?" if normalized_from else "")
+        + ("\n          AND H.DOCDATE <= ?" if normalized_to else "")
+        + """
         GROUP BY D.ITEMCODE, D.LOCATION
                 """,
-                tuple(value for value in (normalized_from, normalized_to) if value is not None),
+        date_params,
     )
 
-    jo_total_map = _fetch_grouped_qty_map(
+    jo_total_sq, jo_total_su = _fetch_grouped_qty_pair_map(
         cur,
         f"""
         SELECT D.ITEMCODE,
                D.LOCATION,
-               CAST(SUM(CAST({_jo_doc_qty} AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TOTAL_JO_QTY
+               CAST(SUM(CAST({_jo_doc_sq} AS DOUBLE PRECISION)) AS DOUBLE PRECISION),
+               CAST(SUM(CAST({_jo_doc_su} AS DOUBLE PRECISION)) AS DOUBLE PRECISION)
         FROM PD_JODTL D
         JOIN PD_JO H
           ON H.DOCKEY = D.DOCKEY
                 WHERE 1 = 1
                 """
-                + ("\n          AND H.DOCDATE >= ?" if normalized_from else "")
-                + ("\n          AND H.DOCDATE <= ?" if normalized_to else "")
-                + """
+        + ("\n          AND H.DOCDATE >= ?" if normalized_from else "")
+        + ("\n          AND H.DOCDATE <= ?" if normalized_to else "")
+        + """
         GROUP BY D.ITEMCODE, D.LOCATION
                 """,
-                tuple(value for value in (normalized_from, normalized_to) if value is not None),
+        date_params,
     )
-    jo_moved_map = _fetch_grouped_qty_map(
+    jo_moved_sq, jo_moved_su = _fetch_grouped_qty_pair_map(
         cur,
         f"""
         SELECT D.ITEMCODE,
                D.LOCATION,
-               CAST(SUM(CAST({_xtrans_qty} AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TOTAL_XTRANS_QTY
+               CAST(SUM(CAST({_x_sq} AS DOUBLE PRECISION)) AS DOUBLE PRECISION),
+               CAST(SUM(CAST({_x_su} AS DOUBLE PRECISION)) AS DOUBLE PRECISION)
         FROM ST_XTRANS X
         JOIN PD_JODTL D
           ON D.DOCKEY = X.FROMDOCKEY
@@ -807,91 +1170,146 @@ def fetch_procurement_stock_card_data(
           ON H.DOCKEY = D.DOCKEY
         WHERE X.FROMDOCTYPE = 'JO'
                 """
-                + ("\n          AND H.DOCDATE >= ?" if normalized_from else "")
-                + ("\n          AND H.DOCDATE <= ?" if normalized_to else "")
-                + """
+        + ("\n          AND H.DOCDATE >= ?" if normalized_from else "")
+        + ("\n          AND H.DOCDATE <= ?" if normalized_to else "")
+        + """
         GROUP BY D.ITEMCODE, D.LOCATION
                 """,
-                tuple(value for value in (normalized_from, normalized_to) if value is not None),
+        date_params,
     )
 
-    # Open PR reservation reduces need-to-buy until explicitly rejected/cancelled.
-    # Include ACTIVE/APPROVED so approved PR balances still count as reserved demand.
-    pr_pending_map = _fetch_pr_qty_map(
+    pr_d_sq = _doc_line_sqty_priority_expr(_pqdtl_cols, "D")
+    pr_d_su = _doc_line_stock_qty_expr(_pqdtl_cols, "D")
+    pr_pending_sq_map = _fetch_pr_qty_map(
         cur,
         ["DRAFT", "SUBMITTED", "PENDING", "APPROVED", "ACTIVE"],
         normalized_from,
         normalized_to,
+        d_line_qty_expr=pr_d_sq,
+        xtrans_moved_qty_expr=_x_sq,
+    )
+    pr_pending_su_map = _fetch_pr_qty_map(
+        cur,
+        ["DRAFT", "SUBMITTED", "PENDING", "APPROVED", "ACTIVE"],
+        normalized_from,
+        normalized_to,
+        d_line_qty_expr=pr_d_su,
+        xtrans_moved_qty_expr=_x_su,
     )
 
-    # When a cutoff date range is applied, ignore physical quantity on hand (ST_TR) for this report.
-    ignore_qty_on_hand = normalized_from is not None
+    def _outstanding(total: float, moved: float) -> float:
+        v = total - moved
+        return v if v > 0 else 0.0
 
     data: list[dict[str, Any]] = []
     for code in item_codes:
-        so_qty_by_location = {location_code: 0 for location_code in locations}
-        po_qty_by_location = {location_code: 0 for location_code in locations}
-        jo_qty_by_location = {location_code: 0 for location_code in locations}
-        qty_by_location = {location_code: 0 for location_code in locations}
-        avail_qty_by_location = {location_code: 0 for location_code in locations}
-        pending_pr_by_location = {location_code: 0 for location_code in locations}
-        need_to_buy_by_location = {location_code: 0 for location_code in locations}
+        so_sq = {loc: 0.0 for loc in locations}
+        so_su = {loc: 0.0 for loc in locations}
+        po_sq = {loc: 0.0 for loc in locations}
+        po_su = {loc: 0.0 for loc in locations}
+        jo_sq = {loc: 0.0 for loc in locations}
+        jo_su = {loc: 0.0 for loc in locations}
+        avail_sq = {loc: 0.0 for loc in locations}
+        avail_su = {loc: 0.0 for loc in locations}
+        qty_sq = {loc: 0.0 for loc in locations}
+        qty_su = {loc: 0.0 for loc in locations}
+        pending_sq = {loc: 0.0 for loc in locations}
+        pending_su = {loc: 0.0 for loc in locations}
+        need_sq = {loc: 0.0 for loc in locations}
+        need_su = {loc: 0.0 for loc in locations}
 
-        item_avail = avail_map.get(code, {})
-        item_so_total = so_total_map.get(code, {})
-        item_so_moved = so_moved_map.get(code, {})
-        item_po_total = po_total_map.get(code, {})
-        item_po_moved = po_moved_map.get(code, {})
-        item_jo_total = jo_total_map.get(code, {})
-        item_jo_moved = jo_moved_map.get(code, {})
-        item_pr_pending = pr_pending_map.get(code, {})
+        ia_sq = avail_sq_map.get(code, {})
+        ia_su = avail_su_map.get(code, {})
+        ist_sq = so_total_sq.get(code, {})
+        ist_su = so_total_su.get(code, {})
+        ism_sq = so_moved_sq.get(code, {})
+        ism_su = so_moved_su.get(code, {})
+        ipt_sq = po_total_sq.get(code, {})
+        ipt_su = po_total_su.get(code, {})
+        ipm_sq = po_moved_sq.get(code, {})
+        ipm_su = po_moved_su.get(code, {})
+        ijt_sq = jo_total_sq.get(code, {})
+        ijt_su = jo_total_su.get(code, {})
+        ijm_sq = jo_moved_sq.get(code, {})
+        ijm_su = jo_moved_su.get(code, {})
+        ipr_sq = pr_pending_sq_map.get(code, {})
+        ipr_su = pr_pending_su_map.get(code, {})
 
         for location_code in locations:
-            so_outstanding = item_so_total.get(location_code, 0) - item_so_moved.get(location_code, 0)
-            po_outstanding = item_po_total.get(location_code, 0) - item_po_moved.get(location_code, 0)
-            jo_outstanding = item_jo_total.get(location_code, 0) - item_jo_moved.get(location_code, 0)
+            so_o_sq = _outstanding(ist_sq.get(location_code, 0), ism_sq.get(location_code, 0))
+            so_o_su = _outstanding(ist_su.get(location_code, 0), ism_su.get(location_code, 0))
+            po_o_sq = _outstanding(ipt_sq.get(location_code, 0), ipm_sq.get(location_code, 0))
+            po_o_su = _outstanding(ipt_su.get(location_code, 0), ipm_su.get(location_code, 0))
+            jo_o_sq = _outstanding(ijt_sq.get(location_code, 0), ijm_sq.get(location_code, 0))
+            jo_o_su = _outstanding(ijt_su.get(location_code, 0), ijm_su.get(location_code, 0))
 
-            so_qty_by_location[location_code] = so_outstanding if so_outstanding > 0 else 0
-            po_qty_by_location[location_code] = po_outstanding if po_outstanding > 0 else 0
-            jo_qty_by_location[location_code] = jo_outstanding if jo_outstanding > 0 else 0
-            raw_avail = item_avail.get(location_code, 0)
-            avail_qty_by_location[location_code] = 0.0 if ignore_qty_on_hand else raw_avail
-            qty_by_location[location_code] = (
-                avail_qty_by_location[location_code]
-                + so_qty_by_location[location_code]
-                - po_qty_by_location[location_code]
-                + jo_qty_by_location[location_code]
+            so_sq[location_code] = so_o_sq
+            so_su[location_code] = so_o_su
+            po_sq[location_code] = po_o_sq
+            po_su[location_code] = po_o_su
+            jo_sq[location_code] = jo_o_sq
+            jo_su[location_code] = jo_o_su
+
+            raw_a_sq = ia_sq.get(location_code, 0)
+            raw_a_su = ia_su.get(location_code, 0)
+            # Document cutoff filters S.O / P.O / J.O / PR in SQL; qty on hand stays physical ST_TR.
+            avail_sq[location_code] = raw_a_sq
+            avail_su[location_code] = raw_a_su
+
+            qty_sq[location_code] = (
+                avail_sq[location_code] + so_sq[location_code] - po_sq[location_code] + jo_sq[location_code]
             )
-            pending_pr = max(0.0, item_pr_pending.get(location_code, 0))
-            # Procurement shortfall should treat PO as incoming supply and SO/JO as demand.
-            procurement_balance = (
-                avail_qty_by_location[location_code]
-                + po_qty_by_location[location_code]
-                - so_qty_by_location[location_code]
-                - jo_qty_by_location[location_code]
+            qty_su[location_code] = (
+                avail_su[location_code] + so_su[location_code] - po_su[location_code] + jo_su[location_code]
             )
-            base_need = max(0.0, -procurement_balance)
-            pending_pr_by_location[location_code] = pending_pr
-            # Only subtract pending PR (remaining not yet transferred)
-            need_to_buy_by_location[location_code] = max(0.0, base_need - pending_pr)
+
+            pending_sq[location_code] = max(0.0, ipr_sq.get(location_code, 0))
+            pending_su[location_code] = max(0.0, ipr_su.get(location_code, 0))
+
+            bal_sq = avail_sq[location_code] + po_sq[location_code] - so_sq[location_code] - jo_sq[location_code]
+            bal_su = avail_su[location_code] + po_su[location_code] - so_su[location_code] - jo_su[location_code]
+            need_sq[location_code] = max(0.0, max(0.0, -bal_sq) - pending_sq[location_code])
+            need_su[location_code] = max(0.0, max(0.0, -bal_su) - pending_su[location_code])
+
+        primary_so = so_su if primary_is_suom else so_sq
+        primary_po = po_su if primary_is_suom else po_sq
+        primary_jo = jo_su if primary_is_suom else jo_sq
+        primary_avail = avail_su if primary_is_suom else avail_sq
+        primary_qty = qty_su if primary_is_suom else qty_sq
+        primary_pending = pending_su if primary_is_suom else pending_sq
+        primary_need = need_su if primary_is_suom else need_sq
 
         data.append(
             {
                 "code": code,
-                "so_qty": sum(so_qty_by_location.values()),
-                "so_qty_by_location": so_qty_by_location,
-                "po_qty": sum(po_qty_by_location.values()),
-                "po_qty_by_location": po_qty_by_location,
-                "jo_qty": sum(jo_qty_by_location.values()),
-                "jo_qty_by_location": jo_qty_by_location,
-                "qty": sum(qty_by_location.values()),
-                "qty_by_location": qty_by_location,
-                "avail_qty": sum(avail_qty_by_location.values()),
-                "avail_qty_by_location": avail_qty_by_location,
-                "pending_pr": sum(pending_pr_by_location.values()),
-                "pending_pr_by_location": pending_pr_by_location,
-                "need_to_buy": sum(need_to_buy_by_location.values()),
-                "need_to_buy_by_location": need_to_buy_by_location,
+                "so_qty": sum(primary_so.values()),
+                "so_qty_by_location": primary_so,
+                "so_qty_sqty_by_location": so_sq,
+                "so_qty_suom_by_location": so_su,
+                "po_qty": sum(primary_po.values()),
+                "po_qty_by_location": primary_po,
+                "po_qty_sqty_by_location": po_sq,
+                "po_qty_suom_by_location": po_su,
+                "jo_qty": sum(primary_jo.values()),
+                "jo_qty_by_location": primary_jo,
+                "jo_qty_sqty_by_location": jo_sq,
+                "jo_qty_suom_by_location": jo_su,
+                "qty": sum(primary_qty.values()),
+                "qty_by_location": primary_qty,
+                "qty_sqty_by_location": qty_sq,
+                "qty_suom_by_location": qty_su,
+                "avail_qty": sum(primary_avail.values()),
+                "avail_qty_by_location": primary_avail,
+                "avail_qty_sqty_by_location": avail_sq,
+                "avail_qty_suom_by_location": avail_su,
+                "pending_pr": sum(primary_pending.values()),
+                "pending_pr_by_location": primary_pending,
+                "pending_pr_sqty_by_location": pending_sq,
+                "pending_pr_suom_by_location": pending_su,
+                "need_to_buy": sum(primary_need.values()),
+                "need_to_buy_by_location": primary_need,
+                "need_to_buy_sqty_by_location": need_sq,
+                "need_to_buy_suom_by_location": need_su,
             }
         )
 

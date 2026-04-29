@@ -886,13 +886,18 @@ def _ensure_st_xtrans_suomqty_column(conn):
 
 
 def _backfill_st_xtrans_suomqty(conn):
-    """Backfill ST_XTRANS.SUOMQTY using SQTY when available, otherwise QTY * RATE if possible."""
+    """
+    Backfill ST_XTRANS.SUOMQTY to match reporting (same order as COALESCE(SUOMQTY, SQTY, QTY) in app):
+    prefer SQTY (stock UOM), then QTY*RATE if both exist, else QTY.
+    """
     fields = _get_relation_field_names(conn, 'ST_XTRANS')
     if 'SUOMQTY' not in fields:
         print("[DB INIT WARNING] ST_XTRANS.SUOMQTY is missing; backfill skipped")
         return False
 
-    if 'SQTY' in fields:
+    if 'SQTY' in fields and 'QTY' in fields:
+        expression = 'COALESCE(SQTY, QTY, 0)'
+    elif 'SQTY' in fields:
         expression = 'SQTY'
     elif {'QTY', 'RATE'}.issubset(fields):
         expression = 'COALESCE(QTY, 0) * COALESCE(RATE, 1)'
@@ -934,6 +939,7 @@ def _ensure_st_xtrans_suomqty_sync_trigger(conn):
         print("[DB INIT WARNING] ST_XTRANS.SUOMQTY is missing; trigger skipped")
         return False
 
+    # Match app reporting: SUOMQTY then SQTY then QTY (RATE*QTY when both present for UOM convert)
     fallback_parts = []
     if 'SQTY' in fields:
         fallback_parts.append('NEW.SQTY')
@@ -946,6 +952,7 @@ def _ensure_st_xtrans_suomqty_sync_trigger(conn):
         print("[DB INIT WARNING] No suitable source column found for ST_XTRANS.SUOMQTY trigger")
         return False
 
+    # Prefer stock-UOM line qty (SQTY) over raw QTY when both exist
     fallback_expr = 'COALESCE(' + ', '.join(fallback_parts + ['0']) + ')'
 
     cur = conn.cursor()

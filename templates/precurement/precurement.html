@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="/static/css/app_page_header.css">
     <link rel="stylesheet" href="/static/css/orderQuotation.css">
     <link rel="stylesheet" href="/static/css/adminViewQuotations.css">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr25">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr28">
 </head>
 <body class="procurement-warm-ui">
 
@@ -32,7 +32,7 @@
                             </div>
                            <div class="location-filter-shell">
         <div class="location-filter-main">
-            <div class="location-filter-row location-filter-row--actions">
+                <div class="location-filter-row location-filter-row--actions">
                 <label class="pr-field location-filter-date-field">
                     <span>Last Cutoff Date</span>
                     <input type="date" id="stock-card-from-date" />
@@ -53,6 +53,13 @@
                 <span class="location-filter-label">Add Location</span>
                 <div id="available-location-list" class="location-pill-list"></div>
             </div>
+            <div class="location-filter-row location-filter-row--stack">
+                <span class="location-filter-label">Report qty</span>
+                <div class="stock-card-uom-toggle" role="group" aria-label="Stock quantity columns">
+                    <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="both" checked onchange="onStockCardUomDisplayChange(this)" /> SQTY | SUOMQTY</label>
+                    <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="sqty_only" onchange="onStockCardUomDisplayChange(this)" /> SQTY only</label>
+                </div>
+            </div>
         </div>
     <div id="report-summary-cards" class="report-summary-cards"></div>
 </div>
@@ -71,7 +78,7 @@
                                     </thead>
                                     <tbody id="stock-card-table-body">
                                         <tr>
-                                            <td colspan="7" class="stock-card-status">Loading stock items...</td>
+                                            <td colspan="64" class="stock-card-status">Loading stock items...</td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -79,35 +86,37 @@
                             <div class="stock-card-scrollbar-wrap" id="stock-card-scrollbar-wrap">
                                 <div class="stock-card-scrollbar" id="stock-card-scrollbar"></div>
                             </div>
-                            <div id="stock-card-breakdown-panel" class="stock-card-breakdown-panel" style="display: none;">
-                                <div class="stock-card-breakdown-header">
-                                    <div>
-                                        <h3 id="stock-card-breakdown-title">Breakdown</h3>
-                                        <div id="stock-card-breakdown-subtitle" class="stock-card-breakdown-subtitle"></div>
+                            <div id="stock-card-breakdown-dock" class="stock-card-breakdown-dock" style="display: none;" aria-hidden="true">
+                                <div id="stock-card-breakdown-panel" class="stock-card-breakdown-panel" role="region" aria-labelledby="stock-card-breakdown-title">
+                                    <div class="stock-card-breakdown-header">
+                                        <div>
+                                            <h3 id="stock-card-breakdown-title">Breakdown</h3>
+                                            <div id="stock-card-breakdown-subtitle" class="stock-card-breakdown-subtitle"></div>
+                                        </div>
+                                        <button type="button" class="stock-card-breakdown-close" onclick="closeStockCardBreakdown()">Close</button>
                                     </div>
-                                    <button type="button" class="stock-card-breakdown-close" onclick="closeStockCardBreakdown()">Close</button>
+                                    <div class="stock-card-breakdown-table-wrap" id="stock-card-breakdown-table-outer">
+                                        <table class="stock-card-breakdown-table" id="stock-card-breakdown-table">
+                                            <thead id="stock-card-breakdown-thead">
+                                                <tr>
+                                                    <th>Doc No</th>
+                                                    <th>Date</th>
+                                                    <th>Company Name</th>
+                                                    <th>Remarks</th>
+                                                    <th>Total</th>
+                                                    <th>Moved</th>
+                                                    <th>Net</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="stock-card-breakdown-body">
+                                                <tr>
+                                                    <td colspan="7" class="stock-card-status">Click a value to see its breakdown.</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div id="stock-card-breakdown-summary" class="stock-card-breakdown-summary"></div>
                                 </div>
-                                <div class="stock-card-breakdown-table-wrap" id="stock-card-breakdown-table-outer">
-                                    <table class="stock-card-breakdown-table" id="stock-card-breakdown-table">
-                                        <thead id="stock-card-breakdown-thead">
-                                            <tr>
-                                                <th>Doc No</th>
-                                                <th>Date</th>
-                                                <th>Company Name</th>
-                                                <th>Remarks</th>
-                                                <th>Total</th>
-                                                <th>Moved</th>
-                                                <th>Net</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="stock-card-breakdown-body">
-                                            <tr>
-                                                <td colspan="7" class="stock-card-status">Click a value to see its breakdown.</td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                                <div id="stock-card-breakdown-summary" class="stock-card-breakdown-summary"></div>
                             </div>
                         </div>
 
@@ -459,6 +468,7 @@
             });
 
             if (selected === 'report') {
+                initStockCardUomDisplay();
                 afterStockCardTableRender();
                 return;
             }
@@ -476,20 +486,66 @@
             }
         }
 
+        const STOCK_CARD_UOM_LS = 'procurementStockCardUomDisplay';
+        let stockCardUomDisplayMode = 'both';
+
+        function initStockCardUomDisplay() {
+            try {
+                const v = localStorage.getItem(STOCK_CARD_UOM_LS);
+                if (v === 'sqty_only' || v === 'both') {
+                    stockCardUomDisplayMode = v;
+                }
+            } catch (e) { /* ignore */ }
+            document.querySelectorAll('input[name="stock-card-uom-col"]').forEach((el) => {
+                if (el.value === 'sqty_only') {
+                    el.checked = stockCardUomDisplayMode === 'sqty_only';
+                } else {
+                    el.checked = stockCardUomDisplayMode === 'both';
+                }
+            });
+        }
+
+        function onStockCardUomDisplayChange(radio) {
+            if (!radio) return;
+            stockCardUomDisplayMode = radio.value === 'sqty_only' ? 'sqty_only' : 'both';
+            try {
+                localStorage.setItem(STOCK_CARD_UOM_LS, stockCardUomDisplayMode);
+            } catch (e) { /* ignore */ }
+            syncStockCardTable();
+        }
+
+        function stockCardSubcolsPerLocation() {
+            return stockCardUomDisplayMode === 'sqty_only' ? 1 : 2;
+        }
+
         const stockCardMetricGroups = [
-            { key: 'avail_qty_by_location', label: 'Quantity on Hand' },
-            { key: 'po_qty_by_location', label: 'P.O Qty' },
-            { key: 'so_qty_by_location', label: 'S.O Qty' },
-            { key: 'jo_qty_by_location', label: 'J.O Qty' },
-            { key: 'qty_by_location', label: 'Avail.Qty' },
-            { key: 'need_to_buy_by_location', label: 'Quantity Need to Buy' },
-            { key: 'suom_qty_by_location', label: 'SUOMQTY' },
-            { key: 'pending_pr_by_location', label: 'Pending PR' }
+            { key: 'avail_qty_by_location', label: 'Qty on Hand', maps: { sqty: 'avail_qty_sqty_by_location', suom: 'avail_qty_suom_by_location' } },
+            { key: 'po_qty_by_location', label: 'P.O Qty', maps: { sqty: 'po_qty_sqty_by_location', suom: 'po_qty_suom_by_location' } },
+            { key: 'so_qty_by_location', label: 'S.O Qty', maps: { sqty: 'so_qty_sqty_by_location', suom: 'so_qty_suom_by_location' } },
+            { key: 'jo_qty_by_location', label: 'J.O Qty', maps: { sqty: 'jo_qty_sqty_by_location', suom: 'jo_qty_suom_by_location' } },
+            { key: 'qty_by_location', label: 'Avail. Qty', maps: { sqty: 'qty_sqty_by_location', suom: 'qty_suom_by_location' } },
+            { key: 'need_to_buy_by_location', label: 'Need to Buy', maps: { sqty: 'need_to_buy_sqty_by_location', suom: 'need_to_buy_suom_by_location' } },
+            { key: 'pending_pr_by_location', label: 'Pending PR', maps: { sqty: 'pending_pr_sqty_by_location', suom: 'pending_pr_suom_by_location' } },
         ];
 
+        function sumStockCardMapAcrossLocations(row, mapKey, locationColumns) {
+            const m = row && row[mapKey] ? row[mapKey] : {};
+            const locs = Array.isArray(locationColumns) ? locationColumns : [];
+            if (!locs.length) {
+                return Object.keys(m).reduce((acc, k) => acc + Number(m[k] || 0), 0);
+            }
+            return locs.reduce((acc, loc) => acc + Number(m[loc] || 0), 0);
+        }
+
         function getStockCardTotalColumns(locations) {
-            const locationCount = Array.isArray(locations) && locations.length ? locations.length : 1;
-            return 1 + (stockCardMetricGroups.length * locationCount);
+            const locs = Array.isArray(locations) ? locations : [];
+            if (!locs.length) {
+                return 1 + stockCardMetricGroups.length;
+            }
+            const sub = stockCardSubcolsPerLocation();
+            const L = locs.length;
+            const perGroup = sub === 2 ? L * 2 : L;
+            return 1 + stockCardMetricGroups.length * perGroup;
         }
 
         function normalizeUdfStatus(value) {
@@ -1454,41 +1510,59 @@
         function renderStockCardHeader(locations) {
             const locationColumns = Array.isArray(locations) ? locations : [];
             const thead = document.getElementById('stock-card-table-head');
+            const sub = stockCardSubcolsPerLocation();
 
             if (!locationColumns.length) {
-                // When no locations, make the main columns expand to fill space
-                const defaultColumns = stockCardMetricGroups.map((group) => `<th class=\"qty-col stock-card-expand\">${group.label}</th>`).join('');
+                const defaultColumns = stockCardMetricGroups.map((group) => {
+                    if (sub === 2) {
+                        return `<th class="qty-col stock-card-expand"><div class="stock-card-th-stacked"><span class="stock-card-th-main">${escapeHtml(group.label)}</span><span class="stock-card-th-subpair"><span>SQTY</span><span>SUOMQTY</span></span></div></th>`;
+                    }
+                    return `<th class="qty-col stock-card-expand">${escapeHtml(group.label)} <span class="stock-card-th-note">(SQTY)</span></th>`;
+                }).join('');
                 thead.innerHTML = `
                     <tr>
-                        <th class=\"code-col stock-card-expand\">ST_ITEM.CODE</th>
+                        <th class="code-col stock-card-expand">ST_ITEM.CODE</th>
                         ${defaultColumns}
                     </tr>
                 `;
                 return;
             }
 
+            const L = locationColumns.length;
+            const perGroupColspan = sub === 2 ? L * 2 : L;
             const groupHeaders = stockCardMetricGroups
-                .map((group) => `<th colspan="${locationColumns.length}" class="qty-group-col">${group.label}</th>`)
+                .map((group) => `<th colspan="${perGroupColspan}" class="qty-group-col">${escapeHtml(group.label)}</th>`)
                 .join('');
-            // Assign a color class to each location (up to 10)
 
-            const subColumns = stockCardMetricGroups
-                .map(() => locationColumns.map((locationCode, idx) => {
-                    let extraClass = '';
-                    if (idx === 0) extraClass += ' location-first';
-                    if (idx === locationColumns.length - 1) extraClass += ' location-last';
-                    return `<th class="qty-col location-bg-${(idx % 10) + 1}${extraClass}">${escapeHtml(locationCode)}</th>`;
-                }).join(''))
-                .join('');
+            let row2 = '';
+            if (sub === 2) {
+                locationColumns.forEach((locationCode, idx) => {
+                    const extra = idx === 0 ? ' location-first' : (idx === L - 1 ? ' location-last' : '');
+                    row2 += `<th colspan="2" class="qty-col location-bg-${(idx % 10) + 1}${extra}">${escapeHtml(locationCode)}</th>`;
+                });
+            } else {
+                locationColumns.forEach((locationCode, idx) => {
+                    const extra = idx === 0 ? ' location-first' : (idx === L - 1 ? ' location-last' : '');
+                    row2 += `<th class="qty-col location-bg-${(idx % 10) + 1}${extra}">${escapeHtml(locationCode)}</th>`;
+                });
+            }
+
+            let row3 = '';
+            if (sub === 2) {
+                for (let i = 0; i < L; i += 1) {
+                    row3 += '<th class="qty-col stock-card-th-uom">SQTY</th><th class="qty-col stock-card-th-uom">SUOMQTY</th>';
+                }
+            }
 
             thead.innerHTML = `
                 <tr>
-                    <th rowspan="2" class="code-col">ST_ITEM.CODE</th>
+                    <th rowspan="${sub === 2 ? 3 : 2}" class="code-col">ST_ITEM.CODE</th>
                     ${groupHeaders}
                 </tr>
                 <tr>
-                    ${subColumns}
+                    ${stockCardMetricGroups.map(() => row2).join('')}
                 </tr>
+                ${sub === 2 ? `<tr>${stockCardMetricGroups.map(() => row3).join('')}</tr>` : ''}
             `;
         }
 
@@ -1625,6 +1699,22 @@
             stockCardBuySelections[key] = current;
         }
 
+        function stockCardNeedBuyCellClick(event, tdEl) {
+            if (!tdEl || !event) return;
+            const t = event.target;
+            if (t && t.closest && t.closest('input.need-buy-qty-input')) return;
+            if (t && t.closest && t.closest('.need-buy-qty-input')) return;
+            const cb = tdEl.querySelector('input.need-buy-cb');
+            if (!cb) return;
+            cb.checked = !cb.checked;
+            stockCardSetBuyCheckbox(
+                tdEl.getAttribute('data-buy-item') || '',
+                tdEl.getAttribute('data-buy-loc') || '',
+                Number(tdEl.getAttribute('data-buy-default') || 0),
+                cb,
+            );
+        }
+
 
         function syncStockCardTable() {
             renderLocationFilters();
@@ -1657,7 +1747,12 @@
             const style = String(payload.breakdown_style || '');
             const rows = Array.isArray(payload.rows) ? payload.rows : [];
             if (table) {
-                const compact = metric === 'avail_qty' || style === 'st_tr' || metric === 'qty';
+                const compact =
+                    metric === 'avail_qty'
+                    || style === 'st_tr'
+                    || metric === 'qty'
+                    || metric === 'suom_qty'
+                    || metric === 'need_to_buy';
                 table.classList.toggle('stock-card-breakdown-table--compact', compact);
             }
 
@@ -1679,7 +1774,7 @@
                 return;
             }
 
-            if (metric === 'qty') {
+            if (metric === 'qty' || metric === 'suom_qty' || metric === 'need_to_buy') {
                 thead.innerHTML = '<tr><th scope="col">Component</th><th scope="col">Details</th><th scope="col" class="stock-card-breakdown-num">Net</th></tr>';
                 if (!rows.length) {
                     body.innerHTML = '<tr><td colspan="3" class="stock-card-status">No data.</td></tr>';
@@ -1713,26 +1808,37 @@
             `).join('');
         }
 
-        function openStockCardBreakdown(itemCode, locationCode, metricKey) {
-            const panel = document.getElementById('stock-card-breakdown-panel');
+        function openStockCardBreakdown(itemCode, locationCode, metricKey, qtyMode) {
+            const dock = document.getElementById('stock-card-breakdown-dock');
             const body = document.getElementById('stock-card-breakdown-body');
             const title = document.getElementById('stock-card-breakdown-title');
             const subtitle = document.getElementById('stock-card-breakdown-subtitle');
             const summary = document.getElementById('stock-card-breakdown-summary');
             const requestId = ++stockCardBreakdownRequestId;
+            const resolvedQtyMode = qtyMode === 'SQTY' ? 'SQTY' : 'SUOMQTY';
 
-            panel.style.display = '';
+            if (dock) {
+                dock.style.display = 'block';
+                dock.setAttribute('aria-hidden', 'false');
+            }
             title.textContent = `${metricLabel(metricKey)} Breakdown`;
             subtitle.textContent = `${itemCode} | ${locationCode}`;
             summary.innerHTML = 'Loading breakdown...';
             document.getElementById('stock-card-breakdown-thead').innerHTML = '<tr><th colspan="7">…</th></tr>';
             body.innerHTML = '<tr><td colspan="7" class="stock-card-status">Loading breakdown...</td></tr>';
 
+            const fromDateInput = document.getElementById('stock-card-from-date');
+            const fromDate = fromDateInput ? String(fromDateInput.value || '').trim() : '';
             const params = new URLSearchParams({
                 item_code: itemCode,
                 location: locationCode,
                 metric: metricKey.replace('_by_location', ''),
+                qty_mode: resolvedQtyMode,
             });
+            if (fromDate) {
+                params.set('from_date', fromDate);
+                params.set('to_date', prTodayIso());
+            }
 
             fetch(`/api/admin/procurement/stock-card-breakdown?${params.toString()}`)
                 .then((res) => res.json())
@@ -1764,55 +1870,56 @@
         }
 
         function closeStockCardBreakdown() {
-            document.getElementById('stock-card-breakdown-panel').style.display = 'none';
+            const dock = document.getElementById('stock-card-breakdown-dock');
+            if (dock) {
+                dock.style.display = 'none';
+                dock.setAttribute('aria-hidden', 'true');
+            }
         }
+
+        document.addEventListener('keydown', (ev) => {
+            if (ev.key !== 'Escape') return;
+            const dock = document.getElementById('stock-card-breakdown-dock');
+            if (!dock || dock.style.display === 'none') return;
+            closeStockCardBreakdown();
+        });
 
         function updateReportSummaryCards(rows, locations) {
             const el = document.getElementById('report-summary-cards');
             if (!el) return;
             if (!rows || !rows.length) { el.innerHTML = ''; return; }
             const locationColumns = Array.isArray(locations) ? locations : [];
-            const hasLocations = locationColumns.length > 0;
-            const totals = { so_qty: 0, po_qty: 0, jo_qty: 0, qty: 0, avail_qty: 0, need_to_buy: 0, suom_qty: 0, pending_pr: 0 };
-            for (const row of rows) {
-                if (hasLocations) {
-                    for (const loc of locationColumns) {
-                        totals.so_qty     += Number((row.so_qty_by_location     || {})[loc] || 0);
-                        totals.po_qty     += Number((row.po_qty_by_location     || {})[loc] || 0);
-                        totals.jo_qty     += Number((row.jo_qty_by_location     || {})[loc] || 0);
-                        totals.qty        += Number((row.qty_by_location        || {})[loc] || 0);
-                        totals.avail_qty  += Number((row.avail_qty_by_location  || {})[loc] || 0);
-                        totals.need_to_buy+= Number((row.need_to_buy_by_location|| {})[loc] || 0);
-                        totals.suom_qty   += Number((row.qty_by_location        || {})[loc] || 0);
-                        totals.pending_pr += Number((row.pending_pr_by_location || {})[loc] || 0);
-                    }
-                } else {
-                    totals.so_qty      += Number(row.so_qty      || 0);
-                    totals.po_qty      += Number(row.po_qty      || 0);
-                    totals.jo_qty      += Number(row.jo_qty      || 0);
-                    totals.qty         += Number(row.qty         || 0);
-                    totals.avail_qty   += Number(row.avail_qty   || 0);
-                    totals.need_to_buy += Number(row.need_to_buy || 0);
-                    totals.suom_qty    += Number(row.qty         || 0);
-                    totals.pending_pr  += Number(row.pending_pr  || 0);
-                }
-            }
+            const sub = stockCardSubcolsPerLocation();
+            const sumMapAllRows = (mapKey) => rows.reduce((acc, row) => acc + sumStockCardMapAcrossLocations(row, mapKey, locationColumns), 0);
             const cards = [
-                { label: 'Qty on Hand',  key: 'avail_qty',   bg: '#dff2f6', color: '#124a5c' },
-                { label: 'P.O Qty',      key: 'po_qty',      bg: '#faf0d8', color: '#6b4e0f' },
-                { label: 'S.O Qty',      key: 'so_qty',      bg: '#e3eef9', color: '#153d66' },
-                { label: 'J.O Qty',      key: 'jo_qty',      bg: '#dff3e6', color: '#14532a' },
-                { label: 'Avail. Qty',   key: 'qty',         bg: '#ede6f7', color: '#4a3168' },
-                { label: 'Need to Buy',  key: 'need_to_buy', bg: '#fce4e8', color: '#7a2222' },
-                { label: 'SUOMQTY',      key: 'suom_qty',    bg: '#e7f3ee', color: '#17573c' },
-                { label: 'Pending PR',   key: 'pending_pr',  bg: '#fff2d6', color: '#6d5200' },
-            ].map((c) => ({ ...c, label: String(c.label || '').toUpperCase() }));
-            el.innerHTML = cards.map(c => `
+                { label: 'Qty on Hand', maps: { sqty: 'avail_qty_sqty_by_location', suom: 'avail_qty_suom_by_location' }, bg: '#dff2f6', color: '#124a5c' },
+                { label: 'P.O Qty', maps: { sqty: 'po_qty_sqty_by_location', suom: 'po_qty_suom_by_location' }, bg: '#faf0d8', color: '#6b4e0f' },
+                { label: 'S.O Qty', maps: { sqty: 'so_qty_sqty_by_location', suom: 'so_qty_suom_by_location' }, bg: '#e3eef9', color: '#153d66' },
+                { label: 'J.O Qty', maps: { sqty: 'jo_qty_sqty_by_location', suom: 'jo_qty_suom_by_location' }, bg: '#dff3e6', color: '#14532a' },
+                { label: 'Avail. Qty', maps: { sqty: 'qty_sqty_by_location', suom: 'qty_suom_by_location' }, bg: '#ede6f7', color: '#4a3168' },
+                { label: 'Need to Buy', maps: { sqty: 'need_to_buy_sqty_by_location', suom: 'need_to_buy_suom_by_location' }, bg: '#fce4e8', color: '#7a2222' },
+                { label: 'Pending PR', maps: { sqty: 'pending_pr_sqty_by_location', suom: 'pending_pr_suom_by_location' }, bg: '#fff2d6', color: '#6d5200' },
+            ];
+            el.innerHTML = cards.map((c) => {
+                const tSq = sumMapAllRows(c.maps.sqty);
+                const tSu = sumMapAllRows(c.maps.suom);
+                const valueHtml = sub === 2
+                    ? `<div class="report-summary-card-value report-summary-card-value--dual"><span>${formatStockCardNumber(tSq)}</span><span class="report-summary-card-sep">/</span><span>${formatStockCardNumber(tSu)}</span></div><div class="report-summary-card-sublabel">SQTY / SUOMQTY</div>`
+                    : `<div class="report-summary-card-value">${formatStockCardNumber(tSq)}</div>`;
+                return `
                 <div class="report-summary-card" style="background:${c.bg};color:${c.color};">
-                    <div class="report-summary-card-label">${c.label}</div>
-                    <div class="report-summary-card-value">${formatStockCardNumber(totals[c.key])}</div>
-                </div>
-            `).join('');
+                    <div class="report-summary-card-label">${escapeHtml(String(c.label || '').toUpperCase())}</div>
+                    ${valueHtml}
+                </div>`;
+            }).join('');
+        }
+
+        function stockCardClickableQtyCell(bgClass, value, itemCode, locationCode, metricKey, qtyMode) {
+            const jc = escapeJs(itemCode || '');
+            const jl = escapeJs(locationCode || '');
+            const jm = escapeJs(metricKey || '');
+            const qm = qtyMode === 'SUOMQTY' ? 'SUOMQTY' : 'SQTY';
+            return `<td class="${bgClass} stock-card-clickable-cell" title="Click to view breakdown (${qm})" onclick="openStockCardBreakdown('${jc}','${jl}','${jm}','${qm}')">${formatStockCardNumber(value)}</td>`;
         }
 
         function renderStockCardRows(rows, locations) {
@@ -1821,98 +1928,153 @@
             const locationColumns = Array.isArray(locations) ? locations : [];
             const noLocations = !locationColumns.length;
             const totalColumns = getStockCardTotalColumns(locationColumns);
+            const sub = stockCardSubcolsPerLocation();
 
             if (!rows || !rows.length) {
                 tbody.innerHTML = `<tr><td colspan="${totalColumns}" class="stock-card-status">No stock items found.</td></tr>`;
                 return;
             }
 
-            const renderMetricColumns = (row, metricKey, fallbackKey) => {
-                if (metricKey === 'pending_pr_by_location') {
-                    if (!locationColumns.length) {
-                        return `<td class="qty-col stock-card-expand">${formatStockCardNumber(row.pending_pr || 0)}</td>`;
+            const renderNeedBuyPair = (row, locationCode, idx, shortageSq, shortageSu) => {
+                const itemCode = row.code || '';
+                const bgClass = noLocations ? 'qty-col stock-card-expand' : `qty-col location-bg-${(idx % 10) + 1}`;
+                const shortageSqNum = Math.max(0, Number(shortageSq || 0));
+                const shortageSuNum = Math.max(0, Number(shortageSu || 0));
+                const useForPr = sub === 2 ? shortageSuNum : shortageSqNum;
+                const key = buySelectionKey(itemCode, locationCode || '');
+                const selection = stockCardBuySelections[key] || {
+                    itemCode,
+                    locationCode: locationCode || '',
+                    selected: false,
+                    quantity: useForPr,
+                };
+                const qtyVal = Number(selection.quantity != null ? selection.quantity : useForPr);
+                const qtyStr = Number.isFinite(qtyVal) ? String(qtyVal) : String(useForPr);
+                const selectedClass = selection.selected ? ' need-buy-selected' : '';
+                const jc = escapeJs(itemCode);
+                const jl = escapeJs(locationCode || '');
+                const dataItem = escapeHtml(itemCode);
+                const dataLoc = escapeHtml(locationCode || '');
+                const defPr = sub === 2 ? shortageSuNum : shortageSqNum;
+                if (sub === 2) {
+                    const sqTd = `<td class="${bgClass} stock-card-clickable-cell need-buy-sq" title="Need (SQTY stack)" onclick="openStockCardBreakdown('${jc}','${jl}','need_to_buy_by_location','SQTY')">${formatStockCardNumber(shortageSqNum)}</td>`;
+                    const editorTd = `
+                        <td class="${bgClass} need-buy-td need-buy-hitbox${selectedClass}"
+                            data-buy-item="${dataItem}" data-buy-loc="${dataLoc}" data-buy-default="${defPr}"
+                            onclick="stockCardNeedBuyCellClick(event, this)"
+                            onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();stockCardNeedBuyCellClick(event, this);}"
+                            tabindex="0"
+                            title="Click cell to select for e-PR; edit quantity in the field">
+                            <div class="need-buy-suom-line">${formatStockCardNumber(shortageSuNum)}</div>
+                            <div class="need-buy-editor">
+                                <input type="number" class="need-buy-qty-input" min="0" step="any" value="${escapeHtml(qtyStr)}"
+                                    onclick="event.stopPropagation();" onkeydown="event.stopPropagation();"
+                                    oninput="stockCardSetBuyQty('${jc}', '${jl}', ${shortageSuNum}, this)" />
+                                <input type="checkbox" class="need-buy-cb need-buy-cb--visual-off" title="Selected for PR" ${selection.selected ? 'checked' : ''}
+                                    aria-label="Selected for purchase request"
+                                    onclick="event.stopPropagation(); stockCardSetBuyCheckbox('${jc}', '${jl}', ${shortageSuNum}, this)" />
+                            </div>
+                        </td>`;
+                    return sqTd + editorTd;
+                }
+                return `
+                    <td class="${bgClass} need-buy-td need-buy-hitbox${selectedClass}"
+                        data-buy-item="${dataItem}" data-buy-loc="${dataLoc}" data-buy-default="${defPr}"
+                        onclick="stockCardNeedBuyCellClick(event, this)"
+                        onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();stockCardNeedBuyCellClick(event, this);}"
+                        tabindex="0"
+                        title="Click cell to select; edit quantity before New e-Purchase Request">
+                        <div class="need-buy-editor">
+                            <input type="number" class="need-buy-qty-input" min="0" step="any" value="${escapeHtml(qtyStr)}"
+                                onclick="event.stopPropagation();" onkeydown="event.stopPropagation();"
+                                oninput="stockCardSetBuyQty('${jc}', '${jl}', ${shortageSqNum}, this)" />
+                            <input type="checkbox" class="need-buy-cb need-buy-cb--visual-off" title="Selected for PR" ${selection.selected ? 'checked' : ''}
+                                aria-label="Selected for purchase request"
+                                onclick="event.stopPropagation(); stockCardSetBuyCheckbox('${jc}', '${jl}', ${shortageSqNum}, this)" />
+                        </div>
+                    </td>`;
+            };
+
+            const renderMetricGroup = (row, group) => {
+                const sqKey = group.maps.sqty;
+                const suKey = group.maps.suom;
+
+                if (group.key === 'need_to_buy_by_location') {
+                    if (noLocations) {
+                        const tSq = sumStockCardMapAcrossLocations(row, sqKey, []);
+                        const tSu = sumStockCardMapAcrossLocations(row, suKey, []);
+                        if (sub === 2) {
+                            return `<td class="qty-col stock-card-expand stock-card-cell-pair"><span class="stock-card-pair-line">${formatStockCardNumber(tSq)}</span><span class="stock-card-pair-line">${formatStockCardNumber(tSu)}</span></td>`;
+                        }
+                        return renderNeedBuyPair(row, '', 0, tSq, tSu);
                     }
-                    const pendingMap = row.pending_pr_by_location || {};
-                    return locationColumns.map((locationCode, idx) => `
-                        <td class="qty-col location-bg-${(idx % 10) + 1}">${formatStockCardNumber(pendingMap[locationCode] || 0)}</td>
-                    `).join('');
+                    let html = '';
+                    locationColumns.forEach((locationCode, idx) => {
+                        const shSq = Math.max(0, Number((row[sqKey] || {})[locationCode] || 0));
+                        const shSu = Math.max(0, Number((row[suKey] || {})[locationCode] || 0));
+                        html += renderNeedBuyPair(row, locationCode, idx, shSq, shSu);
+                    });
+                    return html;
                 }
 
-                if (metricKey === 'need_to_buy_by_location') {
-                    const renderNeedBuyCell = (itemCode, locationCode, shortage, bgClass) => {
-                        const shortageNum = Math.max(0, Number(shortage || 0));
-                        const key = buySelectionKey(itemCode, locationCode);
-                        const selection = stockCardBuySelections[key] || {
-                            itemCode,
-                            locationCode: locationCode || '',
-                            selected: false,
-                            quantity: shortageNum,
-                        };
-                        const qtyVal = Number(selection.quantity != null ? selection.quantity : shortageNum);
-                        const qtyStr = Number.isFinite(qtyVal) ? String(qtyVal) : String(shortageNum);
-                        const selectedClass = selection.selected ? ' need-buy-selected' : '';
-                        const jc = escapeJs(itemCode || '');
-                        const jl = escapeJs(locationCode || '');
-                        return `
-                            <td class="${bgClass} need-buy-td${selectedClass}" onclick="event.stopPropagation();" title="Select line and edit quantity before New e-Purchase Request">
-                                <div class="need-buy-editor" onclick="event.stopPropagation();">
-                                    <input type="number" class="need-buy-qty-input" min="0" step="any" value="${escapeHtml(qtyStr)}"
-                                        onclick="event.stopPropagation();" onkeydown="event.stopPropagation();"
-                                        oninput="event.stopPropagation(); stockCardSetBuyQty('${jc}', '${jl}', ${shortageNum}, this)" />
-                                    <input type="checkbox" class="need-buy-cb" title="Select for PR" ${selection.selected ? 'checked' : ''}
-                                        onclick="event.stopPropagation(); stockCardSetBuyCheckbox('${jc}', '${jl}', ${shortageNum}, this)" />
-                                </div>
-                            </td>`;
-                    };
-
-                    if (!locationColumns.length) {
-                        const shortage = Math.max(0, Number(row.need_to_buy || 0));
-                        return renderNeedBuyCell(row.code || '', '', shortage, 'qty-col stock-card-expand');
+                if (group.key === 'pending_pr_by_location') {
+                    if (noLocations) {
+                        const tSq = sumStockCardMapAcrossLocations(row, sqKey, []);
+                        const tSu = sumStockCardMapAcrossLocations(row, suKey, []);
+                        if (sub === 2) {
+                            return `<td class="qty-col stock-card-expand stock-card-cell-pair"><span class="stock-card-pair-line">${formatStockCardNumber(tSq)}</span><span class="stock-card-pair-line">${formatStockCardNumber(tSu)}</span></td>`;
+                        }
+                        return `<td class="qty-col stock-card-expand">${formatStockCardNumber(tSq)}</td>`;
                     }
-                    const needMap = row.need_to_buy_by_location || {};
-                    return locationColumns.map((locationCode, idx) => {
-                        const shortage = Math.max(0, Number(needMap[locationCode] || 0));
-                        return renderNeedBuyCell(row.code || '', locationCode || '', shortage, `qty-col location-bg-${(idx % 10) + 1}`);
-                    }).join('');
+                    let html = '';
+                    locationColumns.forEach((locationCode, idx) => {
+                        const bg = `qty-col location-bg-${(idx % 10) + 1}`;
+                        const vSq = Number((row[sqKey] || {})[locationCode] || 0);
+                        const vSu = Number((row[suKey] || {})[locationCode] || 0);
+                        if (sub === 2) {
+                            html += stockCardClickableQtyCell(bg, vSq, row.code, locationCode, group.key, 'SQTY');
+                            html += stockCardClickableQtyCell(bg, vSu, row.code, locationCode, group.key, 'SUOMQTY');
+                        } else {
+                            html += stockCardClickableQtyCell(bg, vSq, row.code, locationCode, group.key, 'SQTY');
+                        }
+                    });
+                    return html;
                 }
 
-                if (metricKey === 'suom_qty_by_location') {
-                    if (!locationColumns.length) {
-                        return `<td class="qty-col stock-card-expand">${formatStockCardNumber(row.qty || 0)}</td>`;
+                if (noLocations) {
+                    const tSq = sumStockCardMapAcrossLocations(row, sqKey, []);
+                    const tSu = sumStockCardMapAcrossLocations(row, suKey, []);
+                    if (sub === 2) {
+                        return `<td class="qty-col stock-card-expand stock-card-cell-pair"><span class="stock-card-pair-line">${formatStockCardNumber(tSq)}</span><span class="stock-card-pair-line">${formatStockCardNumber(tSu)}</span></td>`;
                     }
-                    const suomMap = row.qty_by_location || {};
-                    return locationColumns.map((locationCode, idx) => `
-                        <td class="qty-col location-bg-${(idx % 10) + 1}">${formatStockCardNumber(suomMap[locationCode] || 0)}</td>
-                    `).join('');
+                    return `<td class="qty-col stock-card-expand">${formatStockCardNumber(tSq)}</td>`;
                 }
 
-                if (!locationColumns.length) {
-                    return `<td class="qty-col stock-card-expand">${formatStockCardNumber(row[fallbackKey] || 0)}</td>`;
-                }
-                const map = row[metricKey] || {};
-                return locationColumns.map((locationCode, idx) => `
-                    <td class="qty-col location-bg-${(idx % 10) + 1} stock-card-clickable-cell"
-                        title="Click to view ${metricLabel(metricKey)} breakdown"
-                        onclick="openStockCardBreakdown('${escapeJs(row.code || '')}', '${escapeJs(locationCode)}', '${escapeJs(metricKey)}')">${formatStockCardNumber(map[locationCode] || 0)}</td>
-                `).join('');
+                let html = '';
+                locationColumns.forEach((locationCode, idx) => {
+                    const bg = `qty-col location-bg-${(idx % 10) + 1}`;
+                    const vSq = Number((row[sqKey] || {})[locationCode] || 0);
+                    const vSu = Number((row[suKey] || {})[locationCode] || 0);
+                    if (sub === 2) {
+                        html += stockCardClickableQtyCell(bg, vSq, row.code, locationCode, group.key, 'SQTY');
+                        html += stockCardClickableQtyCell(bg, vSu, row.code, locationCode, group.key, 'SUOMQTY');
+                    } else {
+                        html += stockCardClickableQtyCell(bg, vSq, row.code, locationCode, group.key, 'SQTY');
+                    }
+                });
+                return html;
             };
 
             tbody.innerHTML = rows.map((row) => `
                 <tr>
                     <td class="code-col${noLocations ? ' stock-card-expand' : ''}">${escapeHtml(row.code || '')}</td>
-                    ${renderMetricColumns(row, 'avail_qty_by_location', 'avail_qty')}
-                    ${renderMetricColumns(row, 'po_qty_by_location', 'po_qty')}
-                    ${renderMetricColumns(row, 'so_qty_by_location', 'so_qty')}
-                    ${renderMetricColumns(row, 'jo_qty_by_location', 'jo_qty')}
-                    ${renderMetricColumns(row, 'qty_by_location', 'qty')}
-                    ${renderMetricColumns(row, 'need_to_buy_by_location', 'need_to_buy')}
-                    ${renderMetricColumns(row, 'suom_qty_by_location', 'qty')}
-                    ${renderMetricColumns(row, 'pending_pr_by_location', 'pending_pr')}
+                    ${stockCardMetricGroups.map((g) => renderMetricGroup(row, g)).join('')}
                 </tr>
             `).join('');
         }
 
         function loadStockCardRows() {
+            initStockCardUomDisplay();
             const tbody = document.getElementById('stock-card-table-body');
             const loadingColumns = getStockCardTotalColumns(selectedStockCardLocations);
             tbody.innerHTML = `<tr><td colspan="${loadingColumns}" class="stock-card-status">Loading stock items...</td></tr>`;

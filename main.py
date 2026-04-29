@@ -3291,16 +3291,39 @@ def api_admin_procurement_stock_card_breakdown():
     item_code = (request.args.get('item_code') or '').strip()
     location = (request.args.get('location') or '').strip()
     metric = (request.args.get('metric') or '').strip()
+    raw_from = (request.args.get('from_date') or '').strip()
+    raw_to = (request.args.get('to_date') or '').strip()
+    qty_mode = (request.args.get('qty_mode') or 'SQTY').strip().upper()
+    if qty_mode not in ('SQTY', 'SUOMQTY'):
+        qty_mode = 'SQTY'
 
     if not item_code or not location or not metric:
         return jsonify({'success': False, 'error': 'item_code, location, and metric are required'}), 400
+
+    from_date = None
+    to_date = None
+    try:
+        if raw_from:
+            from_date = datetime.fromisoformat(raw_from).date()
+        if raw_to:
+            to_date = datetime.fromisoformat(raw_to).date()
+    except ValueError:
+        return jsonify({'success': False, 'error': 'from_date and to_date must be YYYY-MM-DD'}), 400
 
     con = None
     cur = None
     try:
         con = get_db_connection()
         cur = con.cursor()
-        payload = fetch_procurement_metric_breakdown(cur, metric, item_code, location)
+        payload = fetch_procurement_metric_breakdown(
+            cur,
+            metric,
+            item_code,
+            location,
+            from_date=from_date,
+            to_date=to_date,
+            qty_mode=qty_mode,
+        )
         return jsonify({'success': True, **payload})
     except ValueError as exc:
         return jsonify({'success': False, 'error': str(exc)}), 400

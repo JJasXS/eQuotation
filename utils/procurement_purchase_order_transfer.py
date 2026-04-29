@@ -102,11 +102,19 @@ def _fetch_existing_transfer_qty_map(
     fromdtlkey_col = _pick_existing(xtrans_columns, "FROMDTLKEY")
     qty_col = _pick_existing(xtrans_columns, "QTY")
     sqty_col = _pick_existing(xtrans_columns, "SQTY")
+    suom_col = _pick_existing(xtrans_columns, "SUOMQTY")
 
-    if not detail_ids or not (fromdoctype_col and fromdockey_col and fromdtlkey_col and (qty_col or sqty_col)):
+    if not detail_ids or not (fromdoctype_col and fromdockey_col and fromdtlkey_col and (qty_col or sqty_col or suom_col)):
         return {}
 
-    quantity_expr = f"COALESCE({sqty_col}, {qty_col}, 0)" if sqty_col and qty_col else (sqty_col or qty_col)
+    if suom_col and sqty_col and qty_col:
+        quantity_expr = (
+            f"COALESCE(NULLIF({suom_col}, 0), NULLIF({sqty_col}, 0), COALESCE({qty_col}, 0), 0)"
+        )
+    elif sqty_col and qty_col:
+        quantity_expr = f"COALESCE(NULLIF({sqty_col}, 0), COALESCE({qty_col}, 0), 0)"
+    else:
+        quantity_expr = suom_col or sqty_col or qty_col
     placeholders = ", ".join(["?"] * len(detail_ids))
     cur.execute(
         f"""
@@ -358,7 +366,10 @@ def transfer_purchase_request_to_po(
                 "UOM": _clean_text(source.get("uom")) or "UNIT",
                 "RATE": float(_as_decimal(source.get("rate"), "1")),
                 "SQTY": float(line["quantity"]),
-                "SUOMQTY": float(_as_decimal(source.get("suomqty"), "0")),
+                "SUOMQTY": float(
+                    _money(_as_decimal(source.get("suomqty"), "0"))
+                    or float(line["quantity"])
+                ),
                 "OFFSETQTY": float(_as_decimal(source.get("offsetqty"), "0")),
                 "UNITPRICE": float(unit_price),
                 "DELIVERYDATE": _normalize_transfer_date(source.get("deliverydate") or effective_date),
@@ -385,26 +396,27 @@ def transfer_purchase_request_to_po(
             }
             detail_inserts.append(detail_values)
 
-            xtrans_rows.append(
-                {
-                    xtrans_key_col: _next_key(
-                        cur,
-                        "ST_XTRANS",
-                        xtrans_key_col,
-                        ["GEN_ST_XTRANS_ID", "GEN_ST_XTRANS_DOCKEY", "GEN_ST_XTRANS", "SEQ_ST_XTRANS_DOCKEY"],
-                    ),
-                    "CODE": supplier_code,
-                    "FROMDOCTYPE": "PQ",
-                    "TODOCTYPE": "PO",
-                    "FROMDOCKEY": request_dockey,
-                    "TODOCKEY": po_dockey,
-                    "FROMDTLKEY": line["detailId"],
-                    "TODTLKEY": po_detail_key,
-                    "QTY": float(line["quantity"]),
-                    "SQTY": float(line["quantity"]),
-                    "TOSTATUS": po_status_value,
-                }
-            )
+            x_row: dict[str, Any] = {
+                xtrans_key_col: _next_key(
+                    cur,
+                    "ST_XTRANS",
+                    xtrans_key_col,
+                    ["GEN_ST_XTRANS_ID", "GEN_ST_XTRANS_DOCKEY", "GEN_ST_XTRANS", "SEQ_ST_XTRANS_DOCKEY"],
+                ),
+                "CODE": supplier_code,
+                "FROMDOCTYPE": "PQ",
+                "TODOCTYPE": "PO",
+                "FROMDOCKEY": request_dockey,
+                "TODOCKEY": po_dockey,
+                "FROMDTLKEY": line["detailId"],
+                "TODTLKEY": po_detail_key,
+                "QTY": float(line["quantity"]),
+                "SQTY": float(line["quantity"]),
+                "TOSTATUS": po_status_value,
+            }
+            if "SUOMQTY" in xtrans_cols:
+                x_row["SUOMQTY"] = float(line["quantity"])
+            xtrans_rows.append(x_row)
 
         header_values = {
             po_header_key_col: po_dockey,
