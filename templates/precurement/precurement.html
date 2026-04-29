@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="/static/css/app_page_header.css">
     <link rel="stylesheet" href="/static/css/orderQuotation.css">
     <link rel="stylesheet" href="/static/css/adminViewQuotations.css">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr30">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr41">
 </head>
 <body class="procurement-warm-ui">
 
@@ -76,8 +76,9 @@
                                                 <div class="location-filter-row location-filter-row--stack">
                                                     <span class="location-filter-label">Report qty</span>
                                                     <div class="stock-card-uom-toggle" role="group" aria-label="Stock quantity columns">
-                                                        <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="both" checked onchange="onStockCardUomDisplayChange(this)" /> SQTY | SUOMQTY</label>
                                                         <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="sqty_only" onchange="onStockCardUomDisplayChange(this)" /> SQTY only</label>
+                                                        <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="suom_only" checked onchange="onStockCardUomDisplayChange(this)" /> SUOMQTY only</label>
+                                                        <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="both" onchange="onStockCardUomDisplayChange(this)" /> SQTY + SUOMQTY</label>
                                                     </div>
                                                 </div>
                                             </div>
@@ -450,7 +451,26 @@
         }
 
         function afterStockCardTableRender() {
-            setTimeout(syncStockCardScrollbar, 0);
+            setTimeout(() => {
+                syncStockCardScrollbar();
+                syncStockCardHeaderStickyOffset();
+            }, 0);
+        }
+
+        /** Two-row thead: set --stock-card-hdr1-h to row1 height so sticky row2 has no visible seam/gap. */
+        function syncStockCardHeaderStickyOffset() {
+            const thead = document.getElementById('stock-card-table-head');
+            if (!thead) return;
+            const row1 = thead.querySelector('tr:first-child');
+            if (!row1) return;
+            if (thead.querySelectorAll('tr').length < 2) {
+                thead.style.removeProperty('--stock-card-hdr1-h');
+                return;
+            }
+            const h = row1.offsetHeight;
+            if (h > 0) {
+                thead.style.setProperty('--stock-card-hdr1-h', `${h}px`);
+            }
         }
         let reportLoaded = false;
         let stockCardRows = [];
@@ -557,35 +577,47 @@
         }
 
         const STOCK_CARD_UOM_LS = 'procurementStockCardUomDisplay';
-        let stockCardUomDisplayMode = 'both';
+        let stockCardUomDisplayMode = 'suom_only';
 
         function initStockCardUomDisplay() {
             try {
                 const v = localStorage.getItem(STOCK_CARD_UOM_LS);
-                if (v === 'sqty_only' || v === 'both') {
+                if (v === 'sqty_only' || v === 'suom_only' || v === 'both') {
                     stockCardUomDisplayMode = v;
                 }
             } catch (e) { /* ignore */ }
             document.querySelectorAll('input[name="stock-card-uom-col"]').forEach((el) => {
-                if (el.value === 'sqty_only') {
-                    el.checked = stockCardUomDisplayMode === 'sqty_only';
-                } else {
-                    el.checked = stockCardUomDisplayMode === 'both';
-                }
+                el.checked = el.value === stockCardUomDisplayMode;
             });
         }
 
         function onStockCardUomDisplayChange(radio) {
             if (!radio) return;
-            stockCardUomDisplayMode = radio.value === 'sqty_only' ? 'sqty_only' : 'both';
+            const v = String(radio.value || '').trim();
+            stockCardUomDisplayMode = (v === 'sqty_only' || v === 'suom_only' || v === 'both') ? v : 'suom_only';
             try {
                 localStorage.setItem(STOCK_CARD_UOM_LS, stockCardUomDisplayMode);
             } catch (e) { /* ignore */ }
-            syncStockCardTable();
+            stockCardBuySelections = {};
+            if (reportLoaded) {
+                loadStockCardRows();
+            } else {
+                syncStockCardTable();
+            }
         }
 
         function stockCardSubcolsPerLocation() {
-            return stockCardUomDisplayMode === 'sqty_only' ? 1 : 2;
+            return stockCardUomDisplayMode === 'both' ? 2 : 1;
+        }
+
+        function defaultPrStockQtyUom() {
+            return stockCardUomDisplayMode === 'sqty_only' ? 'SQTY' : 'SUOMQTY';
+        }
+
+        function stockCardSingleUomLabel() {
+            if (stockCardUomDisplayMode === 'sqty_only') return 'SQTY';
+            if (stockCardUomDisplayMode === 'suom_only') return 'SUOMQTY';
+            return 'SQTY';
         }
 
         const stockCardMetricGroups = [
@@ -1470,6 +1502,7 @@
                 quantity: Number(d.quantity || 0),
                 unitPrice: Number(d.unitPrice || 0),
                 deliveryDate: _toInputDate(d.deliveryDate || header.requestDate),
+                stockQtyUom: String(d.stockQtyUom || defaultPrStockQtyUom() || 'SUOMQTY').toUpperCase() === 'SQTY' ? 'SQTY' : 'SUOMQTY',
             })).filter((d) => d.detailId > 0);
 
             if (!lineItems.length) {
@@ -1526,9 +1559,12 @@
                 return;
             }
 
-            const badLine = prEditState.lineItems.find((l) => !(Number(l.quantity) > 0) || !(Number(l.unitPrice) >= 0));
+            const badLine = prEditState.lineItems.find((l) => {
+                const q = Number(l.quantity);
+                return Number.isNaN(q) || q < 0 || !(Number(l.unitPrice) >= 0);
+            });
             if (badLine) {
-                _showPrEditMessage('Each line needs quantity > 0 and unit price >= 0.', 'error');
+                _showPrEditMessage('Each line needs quantity at least 0 and unit price at least 0.', 'error');
                 return;
             }
 
@@ -1587,7 +1623,7 @@
                     if (sub === 2) {
                         return `<th class="qty-col stock-card-expand"><div class="stock-card-th-stacked"><span class="stock-card-th-main">${escapeHtml(group.label)}</span><span class="stock-card-th-subpair"><span>SQTY</span><span>SUOMQTY</span></span></div></th>`;
                     }
-                    return `<th class="qty-col stock-card-expand">${escapeHtml(group.label)} <span class="stock-card-th-note">(SQTY)</span></th>`;
+                    return `<th class="qty-col stock-card-expand">${escapeHtml(group.label)} <span class="stock-card-th-note">(${stockCardSingleUomLabel()})</span></th>`;
                 }).join('');
                 thead.innerHTML = `
                     <tr>
@@ -1595,45 +1631,85 @@
                         ${defaultColumns}
                     </tr>
                 `;
+                if (thead) {
+                    thead.className = 'stock-card-thead stock-card-thead--no-locs';
+                }
                 return;
             }
 
+            if (thead) {
+                thead.className = `stock-card-thead ${sub === 1 ? 'stock-card-thead--solo-uom' : 'stock-card-thead--dual-uom'}`;
+            }
+
             const L = locationColumns.length;
-            const perGroupColspan = sub === 2 ? L * 2 : L;
-            const groupHeaders = stockCardMetricGroups
-                .map((group) => `<th colspan="${perGroupColspan}" class="qty-group-col">${escapeHtml(group.label)}</th>`)
-                .join('');
+            const colsPerGroup = L * sub;
+            const soloUomClass = stockCardUomDisplayMode === 'suom_only'
+                ? 'stock-card-metric-group-uom--su'
+                : 'stock-card-metric-group-uom--sq';
 
-            let row2 = '';
-            if (sub === 2) {
-                locationColumns.forEach((locationCode, idx) => {
-                    const extra = idx === 0 ? ' location-first' : (idx === L - 1 ? ' location-last' : '');
-                    row2 += `<th colspan="2" class="qty-col location-bg-${(idx % 10) + 1}${extra}">${escapeHtml(locationCode)}</th>`;
-                });
-            } else {
-                locationColumns.forEach((locationCode, idx) => {
-                    const extra = idx === 0 ? ' location-first' : (idx === L - 1 ? ' location-last' : '');
-                    row2 += `<th class="qty-col location-bg-${(idx % 10) + 1}${extra}">${escapeHtml(locationCode)}</th>`;
-                });
-            }
+            const buildLocationSoloUomTh = (locationCode, idx) => {
+                const bg = (idx % 10) + 1;
+                const isFirst = idx === 0;
+                const isLast = idx === L - 1;
+                const edge = `${isFirst ? ' location-first' : ''}${isLast ? ' location-last' : ''}`;
+                return `<th class="qty-col location-bg-${bg}${edge} stock-card-header-cell stock-card-header-loccell">
+                    <div class="stock-card-hdr-stack stock-card-hdr-locrow-solo">
+                        <span class="stock-card-hdr-loc">${escapeHtml(locationCode)}</span>
+                    </div>
+                </th>`;
+            };
 
-            let row3 = '';
-            if (sub === 2) {
-                for (let i = 0; i < L; i += 1) {
-                    row3 += '<th class="qty-col stock-card-th-uom">SQTY</th><th class="qty-col stock-card-th-uom">SUOMQTY</th>';
+            const buildLocationUomOnlyTh = (locationCode, idx, uomKind) => {
+                const bg = (idx % 10) + 1;
+                const isFirstBandCol = idx === 0 && (sub !== 2 || uomKind === 'SQ');
+                const isLastBandCol = idx === L - 1 && (sub !== 2 || uomKind === 'SU');
+                const edge = `${isFirstBandCol ? ' location-first' : ''}${isLastBandCol ? ' location-last' : ''}`;
+                const uomHtml = uomKind === 'SQ'
+                    ? '<span class="stock-card-hdr-uom stock-card-hdr-uom--sq">SQTY</span>'
+                    : uomKind === 'SU'
+                        ? '<span class="stock-card-hdr-uom stock-card-hdr-uom--su">SUOMQTY</span>'
+                        : '';
+                return `<th class="qty-col location-bg-${bg}${edge} stock-card-header-cell stock-card-header-loccell">
+                    <div class="stock-card-hdr-stack stock-card-hdr-stack--subrow">
+                        <span class="stock-card-hdr-loc">${escapeHtml(locationCode)}</span>
+                        ${uomHtml}
+                    </div>
+                </th>`;
+            };
+
+            let rowMetric = '<th class="code-col" rowspan="2">ST_ITEM.CODE</th>';
+            stockCardMetricGroups.forEach((group) => {
+                if (sub === 1) {
+                    rowMetric += `<th class="qty-group-col stock-card-metric-group-th" colspan="${colsPerGroup}">
+                        <div class="stock-card-metric-group-stack">
+                            <span class="stock-card-metric-group-label">${escapeHtml(group.label)}</span>
+                            <span class="stock-card-metric-group-uom ${soloUomClass}">${escapeHtml(stockCardSingleUomLabel())}</span>
+                        </div>
+                    </th>`;
+                } else {
+                    rowMetric += `<th class="qty-group-col stock-card-metric-group-th" colspan="${colsPerGroup}"><span class="stock-card-metric-group-label">${escapeHtml(group.label)}</span></th>`;
                 }
-            }
+            });
+
+            let rowLoc = '';
+            stockCardMetricGroups.forEach(() => {
+                locationColumns.forEach((locationCode, idx) => {
+                    if (sub === 2) {
+                        rowLoc += buildLocationUomOnlyTh(locationCode, idx, 'SQ');
+                        rowLoc += buildLocationUomOnlyTh(locationCode, idx, 'SU');
+                    } else {
+                        rowLoc += buildLocationSoloUomTh(locationCode, idx);
+                    }
+                });
+            });
 
             thead.innerHTML = `
-                <tr>
-                    <th rowspan="${sub === 2 ? 3 : 2}" class="code-col">ST_ITEM.CODE</th>
-                    ${groupHeaders}
-                </tr>
-                <tr>
-                    ${stockCardMetricGroups.map(() => row2).join('')}
-                </tr>
-                ${sub === 2 ? `<tr>${stockCardMetricGroups.map(() => row3).join('')}</tr>` : ''}
+                <tr>${rowMetric}</tr>
+                <tr>${rowLoc}</tr>
             `;
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => syncStockCardHeaderStickyOffset());
+            });
         }
 
         function renderLocationFilters() {
@@ -1678,7 +1754,7 @@
         function goToCreateProcurement() {
             const selectedEntries = Object.entries(stockCardBuySelections)
                 .map(([key, value]) => ({ key, ...value }))
-                .filter((entry) => entry && entry.selected && Number(entry.quantity || 0) > 0);
+                .filter((entry) => entry && entry.selected);
 
 
             if (!selectedEntries.length) {
@@ -1695,6 +1771,7 @@
                     quantity: 1,
                     unitPrice: 0,
                     deliveryDate: today,
+                    stockQtyUom: defaultPrStockQtyUom(),
                 }];
                 showTab('create');
                 renderPurchaseRequestLineItems();
@@ -1723,6 +1800,7 @@
                     quantity: Number(entry.quantity || 0),
                     unitPrice: 0,
                     deliveryDate: prTodayIso(),
+                    stockQtyUom: defaultPrStockQtyUom(),
                 };
             });
 
@@ -1747,12 +1825,19 @@
             current.selected = !!checkboxEl.checked;
             current.itemCode = itemCode;
             current.locationCode = locationCode || '';
-            if (!(Number(current.quantity) > 0)) {
+            if (current.quantity == null || Number.isNaN(Number(current.quantity))) {
                 current.quantity = Number(defaultQty || 0);
             }
             stockCardBuySelections[key] = current;
             if (td) {
                 td.classList.toggle('need-buy-selected', current.selected);
+                const sq = td.classList && td.classList.contains('need-buy-td--su') && td.previousElementSibling
+                    && td.previousElementSibling.classList.contains('need-buy-td--sq')
+                    ? td.previousElementSibling
+                    : null;
+                if (sq) {
+                    sq.classList.toggle('need-buy-selected', current.selected);
+                }
             }
         }
 
@@ -1766,7 +1851,43 @@
             };
             const v = parseFloat(String(inputEl.value || '').replace(/,/g, ''));
             current.quantity = Number.isFinite(v) && v >= 0 ? v : 0;
+            current.itemCode = itemCode;
+            current.locationCode = locationCode || '';
             stockCardBuySelections[key] = current;
+        }
+
+        function stockCardSetBuyQtySu(itemCode, locationCode, defaultSu, defaultSq, inputEl) {
+            const key = buySelectionKey(itemCode, locationCode);
+            const v = parseFloat(String(inputEl.value || '').replace(/,/g, ''));
+            const prev = stockCardBuySelections[key] || {
+                itemCode,
+                locationCode: locationCode || '',
+                selected: false,
+                quantity: Number(defaultSu || 0),
+                quantitySq: Number(defaultSq || 0),
+            };
+            prev.quantity = Number.isFinite(v) && v >= 0 ? v : 0;
+            if (prev.quantitySq == null || Number.isNaN(prev.quantitySq)) prev.quantitySq = Number(defaultSq || 0);
+            prev.itemCode = itemCode;
+            prev.locationCode = locationCode || '';
+            stockCardBuySelections[key] = prev;
+        }
+
+        function stockCardSetBuyQtySq(itemCode, locationCode, defaultSq, defaultSu, inputEl) {
+            const key = buySelectionKey(itemCode, locationCode);
+            const v = parseFloat(String(inputEl.value || '').replace(/,/g, ''));
+            const prev = stockCardBuySelections[key] || {
+                itemCode,
+                locationCode: locationCode || '',
+                selected: false,
+                quantity: Number(defaultSu || 0),
+                quantitySq: Number(defaultSq || 0),
+            };
+            prev.quantitySq = Number.isFinite(v) && v >= 0 ? v : 0;
+            if (prev.quantity == null || Number.isNaN(prev.quantity)) prev.quantity = Number(defaultSu || 0);
+            prev.itemCode = itemCode;
+            prev.locationCode = locationCode || '';
+            stockCardBuySelections[key] = prev;
         }
 
         function stockCardNeedBuyCellClick(event, tdEl) {
@@ -1975,9 +2096,14 @@
             el.innerHTML = cards.map((c) => {
                 const tSq = sumMapAllRows(c.maps.sqty);
                 const tSu = sumMapAllRows(c.maps.suom);
-                const valueHtml = sub === 2
-                    ? `<div class="report-summary-card-value report-summary-card-value--dual"><span>${formatStockCardNumber(tSq)}</span><span class="report-summary-card-sep">/</span><span>${formatStockCardNumber(tSu)}</span></div><div class="report-summary-card-sublabel">SQTY / SUOMQTY</div>`
-                    : `<div class="report-summary-card-value">${formatStockCardNumber(tSq)}</div>`;
+                let valueHtml;
+                if (sub === 2) {
+                    valueHtml = `<div class="report-summary-card-value report-summary-card-value--dual"><span>${formatStockCardNumber(tSq)}</span><span class="report-summary-card-sep">/</span><span>${formatStockCardNumber(tSu)}</span></div><div class="report-summary-card-sublabel">SQTY / SUOMQTY</div>`;
+                } else if (stockCardUomDisplayMode === 'suom_only') {
+                    valueHtml = `<div class="report-summary-card-value">${formatStockCardNumber(tSu)}</div><div class="report-summary-card-sublabel">SUOMQTY</div>`;
+                } else {
+                    valueHtml = `<div class="report-summary-card-value">${formatStockCardNumber(tSq)}</div><div class="report-summary-card-sublabel">SQTY</div>`;
+                }
                 return `
                 <div class="report-summary-card" style="background:${c.bg};color:${c.color};">
                     <div class="report-summary-card-label">${escapeHtml(String(c.label || '').toUpperCase())}</div>
@@ -2012,36 +2138,56 @@
                 const bgClass = noLocations ? 'qty-col stock-card-expand' : `qty-col location-bg-${(idx % 10) + 1}`;
                 const shortageSqNum = Math.max(0, Number(shortageSq || 0));
                 const shortageSuNum = Math.max(0, Number(shortageSu || 0));
-                const useForPr = sub === 2 ? shortageSuNum : shortageSqNum;
+                const soloIsSu = stockCardUomDisplayMode === 'suom_only';
+                const useForPr = sub === 2 ? shortageSuNum : (soloIsSu ? shortageSuNum : shortageSqNum);
                 const key = buySelectionKey(itemCode, locationCode || '');
                 const selection = stockCardBuySelections[key] || {
                     itemCode,
                     locationCode: locationCode || '',
                     selected: false,
                     quantity: useForPr,
+                    quantitySq: shortageSqNum,
                 };
-                const qtyVal = Number(selection.quantity != null ? selection.quantity : useForPr);
-                const qtyStr = Number.isFinite(qtyVal) ? String(qtyVal) : String(useForPr);
+                if (selection.quantitySq == null) selection.quantitySq = shortageSqNum;
+                const qtyValSu = Number(selection.quantity != null ? selection.quantity : useForPr);
+                const qtyStrSu = Number.isFinite(qtyValSu) ? String(qtyValSu) : String(useForPr);
+                const qtyValSq = selection.quantitySq != null ? Number(selection.quantitySq) : shortageSqNum;
+                const qtyStrSq = Number.isFinite(qtyValSq) ? String(qtyValSq) : String(shortageSqNum);
+                const qtySolo = Number.isFinite(Number(selection.quantity)) ? Number(selection.quantity) : useForPr;
+                const qtyStrSolo = String(qtySolo);
                 const selectedClass = selection.selected ? ' need-buy-selected' : '';
                 const jc = escapeJs(itemCode);
                 const jl = escapeJs(locationCode || '');
                 const dataItem = escapeHtml(itemCode);
                 const dataLoc = escapeHtml(locationCode || '');
-                const defPr = sub === 2 ? shortageSuNum : shortageSqNum;
+                const defPr = sub === 2 ? shortageSuNum : (soloIsSu ? shortageSuNum : shortageSqNum);
                 if (sub === 2) {
-                    const sqTd = `<td class="${bgClass} stock-card-clickable-cell need-buy-sq" title="Need (SQTY stack)" onclick="openStockCardBreakdown('${jc}','${jl}','need_to_buy_by_location','SQTY')">${formatStockCardNumber(shortageSqNum)}</td>`;
+                    const sqTd = `
+                        <td class="${bgClass} need-buy-td need-buy-td--sq${selectedClass}"
+                            data-buy-item="${dataItem}" data-buy-loc="${dataLoc}"
+                            title="SQTY need — double-click for breakdown; value used for display / planning"
+                            ondblclick="openStockCardBreakdown('${jc}','${jl}','need_to_buy_by_location','SQTY')">
+                            <div class="need-buy-editor need-buy-editor--solo">
+                                <input type="number" class="need-buy-qty-input" min="0" step="any" value="${escapeHtml(qtyStrSq)}"
+                                    title="SQTY need to buy"
+                                    aria-label="SQTY need to buy"
+                                    onclick="event.stopPropagation();" onkeydown="event.stopPropagation();"
+                                    oninput="stockCardSetBuyQtySq('${jc}', '${jl}', ${shortageSqNum}, ${shortageSuNum}, this)" />
+                            </div>
+                        </td>`;
                     const editorTd = `
-                        <td class="${bgClass} need-buy-td need-buy-hitbox${selectedClass}"
+                        <td class="${bgClass} need-buy-td need-buy-td--su need-buy-hitbox${selectedClass}"
                             data-buy-item="${dataItem}" data-buy-loc="${dataLoc}" data-buy-default="${defPr}"
                             onclick="stockCardNeedBuyCellClick(event, this)"
                             onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();stockCardNeedBuyCellClick(event, this);}"
                             tabindex="0"
-                            title="Click cell to select for e-PR; edit quantity in the field">
-                            <div class="need-buy-suom-line">${formatStockCardNumber(shortageSuNum)}</div>
-                            <div class="need-buy-editor">
-                                <input type="number" class="need-buy-qty-input" min="0" step="any" value="${escapeHtml(qtyStr)}"
+                            title="SUOMQTY for e-PR: click cell to include; edit quantity; PR uses this column">
+                            <div class="need-buy-editor need-buy-editor--solo need-buy-editor--with-cb">
+                                <input type="number" class="need-buy-qty-input" min="0" step="any" value="${escapeHtml(qtyStrSu)}"
+                                    title="SUOMQTY need to buy (used for purchase request quantity)"
+                                    aria-label="SUOMQTY need to buy"
                                     onclick="event.stopPropagation();" onkeydown="event.stopPropagation();"
-                                    oninput="stockCardSetBuyQty('${jc}', '${jl}', ${shortageSuNum}, this)" />
+                                    oninput="stockCardSetBuyQtySu('${jc}', '${jl}', ${shortageSuNum}, ${shortageSqNum}, this)" />
                                 <input type="checkbox" class="need-buy-cb need-buy-cb--visual-off" title="Selected for PR" ${selection.selected ? 'checked' : ''}
                                     aria-label="Selected for purchase request"
                                     onclick="event.stopPropagation(); stockCardSetBuyCheckbox('${jc}', '${jl}', ${shortageSuNum}, this)" />
@@ -2049,15 +2195,35 @@
                         </td>`;
                     return sqTd + editorTd;
                 }
+                if (stockCardUomDisplayMode === 'suom_only') {
+                    return `
+                    <td class="${bgClass} need-buy-td need-buy-td--su need-buy-hitbox${selectedClass}"
+                        data-buy-item="${dataItem}" data-buy-loc="${dataLoc}" data-buy-default="${defPr}"
+                        onclick="stockCardNeedBuyCellClick(event, this)"
+                        onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();stockCardNeedBuyCellClick(event, this);}"
+                        tabindex="0"
+                        title="SUOMQTY for e-PR: click to include; edit quantity">
+                        <div class="need-buy-editor need-buy-editor--solo need-buy-editor--with-cb">
+                            <input type="number" class="need-buy-qty-input" min="0" step="any" value="${escapeHtml(qtyStrSolo)}"
+                                title="SUOMQTY need to buy (used for purchase request quantity)"
+                                aria-label="SUOMQTY need to buy"
+                                onclick="event.stopPropagation();" onkeydown="event.stopPropagation();"
+                                oninput="stockCardSetBuyQtySu('${jc}', '${jl}', ${shortageSuNum}, ${shortageSqNum}, this)" />
+                            <input type="checkbox" class="need-buy-cb need-buy-cb--visual-off" title="Selected for PR" ${selection.selected ? 'checked' : ''}
+                                aria-label="Selected for purchase request"
+                                onclick="event.stopPropagation(); stockCardSetBuyCheckbox('${jc}', '${jl}', ${shortageSuNum}, this)" />
+                        </div>
+                    </td>`;
+                }
                 return `
                     <td class="${bgClass} need-buy-td need-buy-hitbox${selectedClass}"
                         data-buy-item="${dataItem}" data-buy-loc="${dataLoc}" data-buy-default="${defPr}"
                         onclick="stockCardNeedBuyCellClick(event, this)"
                         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();stockCardNeedBuyCellClick(event, this);}"
                         tabindex="0"
-                        title="Click cell to select; edit quantity before New e-Purchase Request">
+                        title="Click cell to select; edit quantity before New e-Purchase Request (SQTY basis)">
                         <div class="need-buy-editor">
-                            <input type="number" class="need-buy-qty-input" min="0" step="any" value="${escapeHtml(qtyStr)}"
+                            <input type="number" class="need-buy-qty-input" min="0" step="any" value="${escapeHtml(qtyStrSolo)}"
                                 onclick="event.stopPropagation();" onkeydown="event.stopPropagation();"
                                 oninput="stockCardSetBuyQty('${jc}', '${jl}', ${shortageSqNum}, this)" />
                             <input type="checkbox" class="need-buy-cb need-buy-cb--visual-off" title="Selected for PR" ${selection.selected ? 'checked' : ''}
@@ -2096,6 +2262,9 @@
                         if (sub === 2) {
                             return `<td class="qty-col stock-card-expand stock-card-cell-pair"><span class="stock-card-pair-line">${formatStockCardNumber(tSq)}</span><span class="stock-card-pair-line">${formatStockCardNumber(tSu)}</span></td>`;
                         }
+                        if (stockCardUomDisplayMode === 'suom_only') {
+                            return `<td class="qty-col stock-card-expand">${formatStockCardNumber(tSu)}</td>`;
+                        }
                         return `<td class="qty-col stock-card-expand">${formatStockCardNumber(tSq)}</td>`;
                     }
                     let html = '';
@@ -2105,6 +2274,8 @@
                         const vSu = Number((row[suKey] || {})[locationCode] || 0);
                         if (sub === 2) {
                             html += stockCardClickableQtyCell(bg, vSq, row.code, locationCode, group.key, 'SQTY');
+                            html += stockCardClickableQtyCell(bg, vSu, row.code, locationCode, group.key, 'SUOMQTY');
+                        } else if (stockCardUomDisplayMode === 'suom_only') {
                             html += stockCardClickableQtyCell(bg, vSu, row.code, locationCode, group.key, 'SUOMQTY');
                         } else {
                             html += stockCardClickableQtyCell(bg, vSq, row.code, locationCode, group.key, 'SQTY');
@@ -2119,6 +2290,9 @@
                     if (sub === 2) {
                         return `<td class="qty-col stock-card-expand stock-card-cell-pair"><span class="stock-card-pair-line">${formatStockCardNumber(tSq)}</span><span class="stock-card-pair-line">${formatStockCardNumber(tSu)}</span></td>`;
                     }
+                    if (stockCardUomDisplayMode === 'suom_only') {
+                        return `<td class="qty-col stock-card-expand">${formatStockCardNumber(tSu)}</td>`;
+                    }
                     return `<td class="qty-col stock-card-expand">${formatStockCardNumber(tSq)}</td>`;
                 }
 
@@ -2129,6 +2303,8 @@
                     const vSu = Number((row[suKey] || {})[locationCode] || 0);
                     if (sub === 2) {
                         html += stockCardClickableQtyCell(bg, vSq, row.code, locationCode, group.key, 'SQTY');
+                        html += stockCardClickableQtyCell(bg, vSu, row.code, locationCode, group.key, 'SUOMQTY');
+                    } else if (stockCardUomDisplayMode === 'suom_only') {
                         html += stockCardClickableQtyCell(bg, vSu, row.code, locationCode, group.key, 'SUOMQTY');
                     } else {
                         html += stockCardClickableQtyCell(bg, vSq, row.code, locationCode, group.key, 'SQTY');
@@ -2159,7 +2335,7 @@
                 query.set('from_date', fromDate);
                 query.set('to_date', prTodayIso());
             }
-            query.set('qty_mode', 'SUOMQTY');
+            query.set('qty_mode', stockCardUomDisplayMode === 'sqty_only' ? 'SQTY' : 'SUOMQTY');
 
             const requestUrl = query.toString()
                 ? `/api/admin/procurement/stock-card?${query.toString()}`
@@ -2466,7 +2642,7 @@
                 const selectedProjectCode = getSelectedProjectCode();
                 const defLoc = getDefaultLineLocation();
                 const today = prTodayIso();
-                window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: defLoc, description: '', udfReason: '', project: selectedProjectCode, quantity: 1, unitPrice: 0, deliveryDate: today }];
+                window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: defLoc, description: '', udfReason: '', project: selectedProjectCode, quantity: 1, unitPrice: 0, deliveryDate: today, stockQtyUom: defaultPrStockQtyUom() }];
             }
 
             body.innerHTML = window.purchaseRequestItems.map((item, idx) => {
@@ -2542,6 +2718,7 @@
                 quantity: 1,
                 unitPrice: 0,
                 deliveryDate: today,
+                stockQtyUom: defaultPrStockQtyUom(),
             });
             renderPurchaseRequestLineItems();
         }
@@ -2596,6 +2773,7 @@
                 deliveryDate: String(item.deliveryDate || '').trim(),
                 tax: 0,
                 amount: Number((Number(item.quantity || 0) * Number(item.unitPrice || 0)).toFixed(2)),
+                stockQtyUom: item.stockQtyUom || defaultPrStockQtyUom(),
             }));
 
             return {
@@ -2619,11 +2797,19 @@
             if (!payload.requestDate) return 'requestDate is required';
             if (!Array.isArray(payload.lineItems) || !payload.lineItems.length) return 'At least one line item is required';
 
+            const isSubmit = String(payload.status || '').toUpperCase() === 'SUBMITTED';
+
             for (let i = 0; i < payload.lineItems.length; i += 1) {
                 const item = payload.lineItems[i];
                 if (!item.itemCode) return `line ${i + 1}: itemCode is required`;
                 if (!item.itemName) return `line ${i + 1}: itemName is required`;
-                if (!(Number(item.quantity) > 0)) return `line ${i + 1}: quantity must be > 0`;
+                const q = Number(item.quantity);
+                if (Number.isNaN(q) || q < 0) {
+                    return `line ${i + 1}: quantity must be a number >= 0`;
+                }
+                if (isSubmit && !(q > 0)) {
+                    return `line ${i + 1}: quantity must be greater than 0 to submit the purchase request`;
+                }
                 if (!(Number(item.unitPrice) >= 0)) return `line ${i + 1}: unitPrice must be >= 0`;
             }
 
@@ -2645,20 +2831,27 @@
                     quantity: Number(item.quantity || 0),
                     unitPrice: Number(item.unitPrice || 0),
                     deliveryDate: String(item.deliveryDate || '').trim(),
+                    stockQtyUom: (item.stockQtyUom && String(item.stockQtyUom).toUpperCase() === 'SQTY') ? 'SQTY' : 'SUOMQTY',
                 }));
 
                 if (!editLineItems.length) {
                     showPurchaseRequestMessage('At least one line item is required', 'error');
                     return;
                 }
+                const isSubmitFromEdit = String(status || '').toUpperCase() === 'SUBMITTED';
                 for (let i = 0; i < editLineItems.length; i += 1) {
                     const line = editLineItems[i];
                     if (!(line.detailId > 0)) {
                         showPurchaseRequestMessage(`line ${i + 1}: detailId is required for edit mode`, 'error');
                         return;
                     }
-                    if (!(line.quantity > 0)) {
-                        showPurchaseRequestMessage(`line ${i + 1}: quantity must be > 0`, 'error');
+                    const q = Number(line.quantity);
+                    if (Number.isNaN(q) || q < 0) {
+                        showPurchaseRequestMessage(`line ${i + 1}: quantity must be a number >= 0`, 'error');
+                        return;
+                    }
+                    if (isSubmitFromEdit && !(q > 0)) {
+                        showPurchaseRequestMessage(`line ${i + 1}: quantity must be greater than 0 to submit`, 'error');
                         return;
                     }
                     if (!(line.unitPrice >= 0)) {
@@ -2688,7 +2881,6 @@
                         draftBtn.disabled = true;
                     }
                     btn.textContent = 'Saving...';
-                    const isSubmitFromEdit = String(status || '').toUpperCase() === 'SUBMITTED';
                     showPurchaseRequestMessage(
                         isSubmitFromEdit ? 'Saving changes and submitting purchase request...' : 'Saving purchase request changes...',
                         'info'
@@ -3009,6 +3201,7 @@
                 quantity: 1,
                 unitPrice: 0,
                 deliveryDate: today,
+                stockQtyUom: defaultPrStockQtyUom(),
             }];
             selectedSuppliers = [];
             _renderChips();

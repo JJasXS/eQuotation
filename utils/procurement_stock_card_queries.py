@@ -434,6 +434,157 @@ def _docdate_filter_sql(
     return " AND " + " AND ".join(parts), tuple(params)
 
 
+def _outstanding_pair(total_sq: float, total_su: float, moved_sq: float, moved_su: float) -> tuple[float, float]:
+    def _o(t: float, m: float) -> float:
+        v = t - m
+        return v if v > 0 else 0.0
+
+    return _o(total_sq, moved_sq), _o(total_su, moved_su)
+
+
+def _fetch_one_sum_pair(cur: Any, sql: str, params: tuple[Any, ...]) -> tuple[float, float]:
+    cur.execute(sql, params)
+    row = cur.fetchone()
+    if not row or len(row) < 2:
+        return 0.0, 0.0
+    return _to_float(row[0]), _to_float(row[1])
+
+
+def _stock_card_aggregate_totals_for_item_location(
+    cur: Any,
+    item: str,
+    location: str,
+    from_date: date | None,
+    to_date: date | None,
+) -> dict[str, float]:
+    """
+    Component totals (SQ and SUOM stacks) for one item+location, matching
+    :func:`fetch_procurement_stock_card_data` without running document-level
+    per-line GROUP BYs. Used to avoid repeated full breakdowns for the same
+    key (e.g. need_to_buy and qty summary rows).
+    """
+    item = _clean_str(item)
+    location = _clean_str(location)
+    date_filter, date_params = _docdate_filter_sql(from_date, to_date)
+
+    _sodtl_cols = _get_table_columns(cur, "SL_SODTL")
+    _podtl_cols = _get_table_columns(cur, "PH_PODTL")
+    _jodtl_cols = _get_table_columns(cur, "PD_JODTL")
+    _sttr_cols = _get_table_columns(cur, "ST_TR")
+    _xtrans_cols = _get_table_columns(cur, "ST_XTRANS")
+
+    so_sl_sq = _doc_line_sqty_priority_expr(_sodtl_cols, "SL_SODTL")
+    so_sl_su = _doc_line_stock_qty_expr(_sodtl_cols, "SL_SODTL")
+    so_d_sq = _doc_line_sqty_priority_expr(_sodtl_cols, "D")
+    so_d_su = _doc_line_stock_qty_expr(_sodtl_cols, "D")
+    _po_d_sq = _doc_line_sqty_priority_expr(_podtl_cols, "D")
+    _po_d_su = _doc_line_stock_qty_expr(_podtl_cols, "D")
+    _jo_d_sq = _doc_line_sqty_priority_expr(_jodtl_cols, "D")
+    _jo_d_su = _doc_line_stock_qty_expr(_jodtl_cols, "D")
+    _avail_sq = _st_tr_sqty_bare_expr_for_aggregate(_sttr_cols)
+    _avail_su = _st_tr_qty_bare_expr_for_aggregate(_sttr_cols)
+    _x_sq = _xtrans_sqty_priority_expr(_xtrans_cols, "X")
+    _x_su = _xtrans_moved_qty_expr(_xtrans_cols, "X")
+
+    il2 = (item, location)
+    a_sq, a_su = _fetch_one_sum_pair(
+        cur,
+        f"""
+        SELECT CAST(SUM(CAST(({_avail_sq}) AS DOUBLE PRECISION)) AS DOUBLE PRECISION),
+               CAST(SUM(CAST(({_avail_su}) AS DOUBLE PRECISION)) AS DOUBLE PRECISION)
+        FROM ST_TR
+        WHERE ITEMCODE = ? AND LOCATION = ?
+        """,
+        il2,
+    )
+
+    so_t_sq, so_t_su = _fetch_one_sum_pair(
+        cur,
+        f"""
+        SELECT CAST(SUM(CAST(({so_sl_sq}) AS DOUBLE PRECISION)) AS DOUBLE PRECISION),
+               CAST(SUM(CAST(({so_sl_su}) AS DOUBLE PRECISION)) AS DOUBLE PRECISION)
+        FROM SL_SODTL
+        JOIN SL_SO H ON H.DOCKEY = SL_SODTL.DOCKEY
+        WHERE SL_SODTL.ITEMCODE = ? AND SL_SODTL.LOCATION = ?{date_filter}
+        """,
+        il2 + date_params,
+    )
+    so_m_sq, so_m_su = _fetch_one_sum_pair(
+        cur,
+        f"""
+        SELECT CAST(SUM(CAST(({_x_sq}) AS DOUBLE PRECISION)) AS DOUBLE PRECISION),
+               CAST(SUM(CAST(({_x_su}) AS DOUBLE PRECISION)) AS DOUBLE PRECISION)
+        FROM ST_XTRANS X
+        JOIN SL_SODTL D ON D.DOCKEY = X.FROMDOCKEY AND D.DTLKEY = X.FROMDTLKEY
+        JOIN SL_SO H ON H.DOCKEY = D.DOCKEY
+        WHERE X.FROMDOCTYPE = 'SO' AND D.ITEMCODE = ? AND D.LOCATION = ?{date_filter}
+        """,
+        il2 + date_params,
+    )
+    so_o_sq, so_o_su = _outstanding_pair(so_t_sq, so_t_su, so_m_sq, so_m_su)
+
+    po_t_sq, po_t_su = _fetch_one_sum_pair(
+        cur,
+        f"""
+        SELECT CAST(SUM(CAST(({_po_d_sq}) AS DOUBLE PRECISION)) AS DOUBLE PRECISION),
+               CAST(SUM(CAST(({_po_d_su}) AS DOUBLE PRECISION)) AS DOUBLE PRECISION)
+        FROM PH_PODTL D
+        JOIN PH_PO H ON H.DOCKEY = D.DOCKEY
+        WHERE D.ITEMCODE = ? AND D.LOCATION = ?{date_filter}
+        """,
+        il2 + date_params,
+    )
+    po_m_sq, po_m_su = _fetch_one_sum_pair(
+        cur,
+        f"""
+        SELECT CAST(SUM(CAST(({_x_sq}) AS DOUBLE PRECISION)) AS DOUBLE PRECISION),
+               CAST(SUM(CAST(({_x_su}) AS DOUBLE PRECISION)) AS DOUBLE PRECISION)
+        FROM ST_XTRANS X
+        JOIN PH_PODTL D ON D.DOCKEY = X.FROMDOCKEY AND D.DTLKEY = X.FROMDTLKEY
+        JOIN PH_PO H ON H.DOCKEY = D.DOCKEY
+        WHERE X.FROMDOCTYPE = 'PO' AND D.ITEMCODE = ? AND D.LOCATION = ?{date_filter}
+        """,
+        il2 + date_params,
+    )
+    po_o_sq, po_o_su = _outstanding_pair(po_t_sq, po_t_su, po_m_sq, po_m_su)
+
+    jo_t_sq, jo_t_su = _fetch_one_sum_pair(
+        cur,
+        f"""
+        SELECT CAST(SUM(CAST(({_jo_d_sq}) AS DOUBLE PRECISION)) AS DOUBLE PRECISION),
+               CAST(SUM(CAST(({_jo_d_su}) AS DOUBLE PRECISION)) AS DOUBLE PRECISION)
+        FROM PD_JODTL D
+        JOIN PD_JO H ON H.DOCKEY = D.DOCKEY
+        WHERE D.ITEMCODE = ? AND D.LOCATION = ?{date_filter}
+        """,
+        il2 + date_params,
+    )
+    jo_m_sq, jo_m_su = _fetch_one_sum_pair(
+        cur,
+        f"""
+        SELECT CAST(SUM(CAST(({_x_sq}) AS DOUBLE PRECISION)) AS DOUBLE PRECISION),
+               CAST(SUM(CAST(({_x_su}) AS DOUBLE PRECISION)) AS DOUBLE PRECISION)
+        FROM ST_XTRANS X
+        JOIN PD_JODTL D ON D.DOCKEY = X.FROMDOCKEY AND D.DTLKEY = X.FROMDTLKEY
+        JOIN PD_JO H ON H.DOCKEY = D.DOCKEY
+        WHERE X.FROMDOCTYPE = 'JO' AND D.ITEMCODE = ? AND D.LOCATION = ?{date_filter}
+        """,
+        il2 + date_params,
+    )
+    jo_o_sq, jo_o_su = _outstanding_pair(jo_t_sq, jo_t_su, jo_m_sq, jo_m_su)
+
+    return {
+        "avail_sq": a_sq,
+        "avail_su": a_su,
+        "so_o_sq": so_o_sq,
+        "so_o_su": so_o_su,
+        "po_o_sq": po_o_sq,
+        "po_o_su": po_o_su,
+        "jo_o_sq": jo_o_sq,
+        "jo_o_su": jo_o_su,
+    }
+
+
 def _uom_expressions_for_breakdown(cur: Any, use_suom: bool) -> dict[str, str]:
     """Line qty and ST_XTRANS moved qty for SO, PO, JO breakdowns (aligns with stock card report)."""
     sodtl = _get_table_columns(cur, "SL_SODTL")
@@ -807,31 +958,22 @@ def fetch_procurement_metric_breakdown(
         }
 
     if metric_key == "need_to_buy":
-        ad = fetch_procurement_metric_breakdown(
-            cur,
-            "avail_qty",
-            item,
-            location,
-            from_date=from_date,
-            to_date=to_date,
-            qty_mode=qty_mode,
+        agg = _stock_card_aggregate_totals_for_item_location(
+            cur, item, location, from_date, to_date
         )
-        avail_value = _to_float(ad["summary"].get("value"))
-        so_d = fetch_procurement_metric_breakdown(
-            cur, "so_qty", item, location, from_date=from_date, to_date=to_date, qty_mode=qty_mode
-        )
-        po_d = fetch_procurement_metric_breakdown(
-            cur, "po_qty", item, location, from_date=from_date, to_date=to_date, qty_mode=qty_mode
-        )
-        jo_d = fetch_procurement_metric_breakdown(
-            cur, "jo_qty", item, location, from_date=from_date, to_date=to_date, qty_mode=qty_mode
-        )
-        so_v = _to_float(so_d["summary"].get("value"))
-        po_v = _to_float(po_d["summary"].get("value"))
-        jo_v = _to_float(jo_d["summary"].get("value"))
+        use_suom_nb = _clean_str(qty_mode).upper() == "SUOMQTY"
+        if use_suom_nb:
+            avail_value = agg["avail_su"]
+            so_v = agg["so_o_su"]
+            po_v = agg["po_o_su"]
+            jo_v = agg["jo_o_su"]
+        else:
+            avail_value = agg["avail_sq"]
+            so_v = agg["so_o_sq"]
+            po_v = agg["po_o_sq"]
+            jo_v = agg["jo_o_sq"]
         pqdtl_cols_nb = _get_table_columns(cur, "PH_PQDTL")
         xtrans_cols_nb = _get_table_columns(cur, "ST_XTRANS")
-        use_suom_nb = _clean_str(qty_mode).upper() == "SUOMQTY"
         if use_suom_nb:
             pr_map = _fetch_pr_qty_map(
                 cur,
@@ -913,23 +1055,19 @@ def fetch_procurement_metric_breakdown(
         }
 
     if metric_key == "qty":
-        so_data = fetch_procurement_metric_breakdown(
-            cur, "so_qty", item, location, from_date=from_date, to_date=to_date, qty_mode=qty_mode
+        agg = _stock_card_aggregate_totals_for_item_location(
+            cur, item, location, from_date, to_date
         )
-        po_data = fetch_procurement_metric_breakdown(
-            cur, "po_qty", item, location, from_date=from_date, to_date=to_date, qty_mode=qty_mode
-        )
-        jo_data = fetch_procurement_metric_breakdown(
-            cur, "jo_qty", item, location, from_date=from_date, to_date=to_date, qty_mode=qty_mode
-        )
-        avail_data = fetch_procurement_metric_breakdown(
-            cur, "avail_qty", item, location, from_date=from_date, to_date=to_date, qty_mode=qty_mode
-        )
-
-        avail_value = _to_float(avail_data["summary"].get("value"))
-        so_value = _to_float(so_data["summary"].get("value"))
-        po_value = _to_float(po_data["summary"].get("value"))
-        jo_value = _to_float(jo_data["summary"].get("value"))
+        if use_suom:
+            avail_value = agg["avail_su"]
+            so_value = agg["so_o_su"]
+            po_value = agg["po_o_su"]
+            jo_value = agg["jo_o_su"]
+        else:
+            avail_value = agg["avail_sq"]
+            so_value = agg["so_o_sq"]
+            po_value = agg["po_o_sq"]
+            jo_value = agg["jo_o_sq"]
         qty_value = avail_value + so_value - po_value + jo_value
 
         return {

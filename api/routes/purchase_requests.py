@@ -145,6 +145,8 @@ def _fetch_detail_rows(cur: Any, dockey: int, detail_cols: set[str]) -> list[dic
     approved_col = _pick_existing(detail_cols, "UDF_PQAPPROVED")
     reason_col = _pick_existing(detail_cols, "UDF_REASON")
     delivery_date_col = _pick_existing(detail_cols, "DELIVERYDATE", "DELIVERY_DATE")
+    sqty_extra_col = _pick_existing(detail_cols, "SQTY")
+    suom_extra_col = _pick_existing(detail_cols, "SUOMQTY")
 
     if not detail_fk_col:
         return []
@@ -165,6 +167,8 @@ def _fetch_detail_rows(cur: Any, dockey: int, detail_cols: set[str]) -> list[dic
         f"D.{delivery_date_col} AS DELIVERYDATE" if delivery_date_col else "NULL AS DELIVERYDATE",
         f"D.{approved_col} AS UDF_PQAPPROVED" if approved_col else "NULL AS UDF_PQAPPROVED",
         f"D.{reason_col} AS UDF_REASON" if reason_col else "NULL AS UDF_REASON",
+        f"D.{sqty_extra_col} AS SQTY_EXTRA" if sqty_extra_col else "NULL AS SQTY_EXTRA",
+        f"D.{suom_extra_col} AS SUOMQTY_EXTRA" if suom_extra_col else "NULL AS SUOMQTY_EXTRA",
     ]
 
     order_col = seq_col or detail_key_col or detail_fk_col
@@ -198,6 +202,14 @@ def _fetch_detail_rows(cur: Any, dockey: int, detail_cols: set[str]) -> list[dic
         item_code = _to_text(r[3])
         st_item_name = _lookup_st_item(item_code or "")
         detail_unit_price = _to_number(r[9])
+        sqty_val = _to_number(r[15])
+        suom_val = _to_number(r[16])
+        if suom_val > 0 and sqty_val == 0:
+            stock_basis = "SUOMQTY"
+        elif sqty_val > 0 and suom_val == 0:
+            stock_basis = "SQTY"
+        else:
+            stock_basis = "SUOMQTY"
 
         details.append(
             {
@@ -217,6 +229,9 @@ def _fetch_detail_rows(cur: Any, dockey: int, detail_cols: set[str]) -> list[dic
                 "deliverydate": _to_text(r[12]),
                 "udf_pqapproved": r[13],
                 "udf_reason": _to_text(r[14]),
+                "sqty": str(sqty_val),
+                "suomqty": str(suom_val),
+                "stockQtyUom": stock_basis,
             }
         )
     return details

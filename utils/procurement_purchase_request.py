@@ -116,6 +116,67 @@ def _pick_existing(columns: set[str], *candidates: str) -> str:
     return ""
 
 
+def _normalize_stock_qty_uom(value: Any) -> str:
+    u = _clean_text(value).upper()
+    if u in ("SQTY", "SUOMQTY"):
+        return u
+    return "SUOMQTY"
+
+
+def _apply_pqdtl_sqty_suom_columns(
+    detail_values: dict[str, Any],
+    detail_cols: set[str],
+    quantity: float,
+    stock_qty_uom: str,
+) -> None:
+    """Align PH_PQDTL SQTY/SUOMQTY with the stock-card basis used for the line (SQ vs SUOM)."""
+    uom = _normalize_stock_qty_uom(stock_qty_uom)
+    sqty_c = _pick_existing(detail_cols, "SQTY")
+    suom_c = _pick_existing(detail_cols, "SUOMQTY")
+    if not sqty_c and not suom_c:
+        return
+    q = float(quantity)
+    if uom == "SUOMQTY":
+        if suom_c:
+            detail_values[suom_c] = q
+        if sqty_c:
+            detail_values[sqty_c] = 0.0
+    else:
+        if sqty_c:
+            detail_values[sqty_c] = q
+        if suom_c:
+            detail_values[suom_c] = 0.0
+
+
+def _append_pqdtl_sqty_suom_update(
+    line_updates: list[str],
+    line_values: list[Any],
+    detail_cols: set[str],
+    quantity: float,
+    stock_qty_uom: str,
+) -> None:
+    uom = _normalize_stock_qty_uom(stock_qty_uom)
+    sqty_c = _pick_existing(detail_cols, "SQTY")
+    suom_c = _pick_existing(detail_cols, "SUOMQTY")
+    if not sqty_c and not suom_c:
+        return
+    q = float(quantity)
+    if uom == "SUOMQTY":
+        if suom_c:
+            line_updates.append(f"{suom_c} = ?")
+            line_values.append(q)
+        if sqty_c:
+            line_updates.append(f"{sqty_c} = ?")
+            line_values.append(0.0)
+    else:
+        if sqty_c:
+            line_updates.append(f"{sqty_c} = ?")
+            line_values.append(q)
+        if suom_c:
+            line_updates.append(f"{suom_c} = ?")
+            line_values.append(0.0)
+
+
 def _next_key(cur: Any, table_name: str, key_column: str, generator_candidates: list[str]) -> int:
     for generator_name in generator_candidates:
         try:
@@ -330,6 +391,9 @@ def _normalize_sql_api_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 "tax": float(_money(tax)),
                 "amount": float(line_amount),
                 "deliveryDate": effective_delivery_date.isoformat() if effective_delivery_date else "",
+                "stockQtyUom": _normalize_stock_qty_uom(
+                    item.get("stockQtyUom") or item.get("stock_qty_uom") or "SUOMQTY"
+                ),
             }
         )
 
@@ -406,6 +470,14 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
     if required_date < request_date:
         errors.append("requiredDate cannot be before requestDate")
 
+    raw_status = payload.get("status")
+    if isinstance(raw_status, (int, float)):
+        pr_status = _clean_text(_decode_status(int(raw_status))).upper()
+    else:
+        pr_status = _clean_text(raw_status).upper() if raw_status is not None else ""
+    if not pr_status:
+        pr_status = "DRAFT"
+
     items = payload.get("lineItems")
     if not isinstance(items, list) or not items:
         errors.append("At least one line item is required")
@@ -437,8 +509,10 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
         delivery_date_raw = _clean_text(item.get("deliveryDate") or item.get("deliverydate"))
         delivery_date = _as_date(delivery_date_raw)
 
-        if quantity <= 0:
-            errors.append(f"lineItems[{idx}].quantity must be > 0")
+        if quantity < 0:
+            errors.append(f"lineItems[{idx}].quantity must be >= 0")
+        if quantity <= 0 and pr_status == "SUBMITTED":
+            errors.append(f"lineItems[{idx}].quantity must be > 0 when submitting")
         if unit_price < 0:
             errors.append(f"lineItems[{idx}].unitPrice must be >= 0")
         if tax < 0:
@@ -466,6 +540,9 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
                 "tax": float(_money(tax)),
                 "amount": float(line_amount),
                 "deliveryDate": effective_delivery_date.isoformat() if effective_delivery_date else "",
+                "stockQtyUom": _normalize_stock_qty_uom(
+                    item.get("stockQtyUom") or item.get("stock_qty_uom") or "SUOMQTY"
+                ),
             }
         )
 
@@ -476,11 +553,7 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
         errors.append("totalAmount must equal sum of line items plus taxes")
 
     request_number = _clean_text(payload.get("requestNumber"))
-    raw_status = payload.get("status")
-    if isinstance(raw_status, (int, float)):
-        status = _decode_status(int(raw_status))
-    else:
-        status = _clean_text(raw_status).upper()
+    status = pr_status
     if status and status not in {"DRAFT", "SUBMITTED"}:
         errors.append("status must be DRAFT or SUBMITTED for create")
 
@@ -717,6 +790,12 @@ def create_purchase_request(
                     detail_key_col,
                     ["GEN_PH_PQDTL_ID", "GEN_PH_PQDTL_DTLKEY", "GEN_PH_PQDTL", "SEQ_PH_PQDTL_DTLKEY"],
                 )
+            _apply_pqdtl_sqty_suom_columns(
+                detail_values,
+                detail_cols,
+                float(item["quantity"]),
+                str(item.get("stockQtyUom") or "SUOMQTY"),
+            )
             _insert_dynamic(cur, "PH_PQDTL", detail_values, detail_cols)
 
         if status == "SUBMITTED":
@@ -1064,8 +1143,8 @@ def update_purchase_request(
 
         quantity = _money(_as_decimal(line.get("quantity"), "0"))
         unit_price = _money(_as_decimal(line.get("unitPrice"), "0"))
-        if quantity <= 0:
-            raise PurchaseRequestValidationError(f"lineItems[{idx}].quantity must be > 0")
+        if quantity < 0:
+            raise PurchaseRequestValidationError(f"lineItems[{idx}].quantity must be >= 0")
         if unit_price < 0:
             raise PurchaseRequestValidationError(f"lineItems[{idx}].unitPrice must be >= 0")
 
@@ -1076,6 +1155,7 @@ def update_purchase_request(
         line_amount = _money(quantity * unit_price)
         subtotal += line_amount
 
+        stock_uom_raw = _clean_text(line.get("stockQtyUom") or line.get("stock_qty_uom"))
         normalized_lines.append(
             {
                 "detailId": detail_id,
@@ -1087,6 +1167,7 @@ def update_purchase_request(
                 "tax": 0.0,
                 "amount": float(line_amount),
                 "deliveryDate": delivery_date.isoformat() if delivery_date else None,
+                "stockQtyUom": _normalize_stock_qty_uom(stock_uom_raw) if stock_uom_raw else None,
             }
         )
 
@@ -1211,6 +1292,15 @@ def update_purchase_request(
             if detail_project_col:
                 line_updates.append(f"{detail_project_col} = ?")
                 line_values.append(line["project"])
+
+            if line.get("stockQtyUom"):
+                _append_pqdtl_sqty_suom_update(
+                    line_updates,
+                    line_values,
+                    detail_cols,
+                    line["quantity"],
+                    str(line["stockQtyUom"]),
+                )
 
             if not line_updates:
                 continue

@@ -4653,6 +4653,16 @@ def api_admin_purchase_request_details_fallback():
             except Exception:
                 transferred_qty = 0.0
             remaining_qty = max(0.0, quantity - transferred_qty)
+            sqty_v = _num(row.get('sqty'))
+            suom_v = _num(row.get('suomqty'))
+            basis = str(row.get('stockQtyUom') or '').strip().upper()
+            if basis not in ('SQTY', 'SUOMQTY'):
+                if suom_v > 0 and sqty_v == 0:
+                    basis = 'SUOMQTY'
+                elif sqty_v > 0 and suom_v == 0:
+                    basis = 'SQTY'
+                else:
+                    basis = 'SUOMQTY'
             details.append({
                 'id': detail_id,
                 'seq': row.get('seq') if row.get('seq') is not None else idx,
@@ -4671,6 +4681,9 @@ def api_admin_purchase_request_details_fallback():
                 'transferredQty': transferred_qty,
                 'remainingQty': remaining_qty,
                 'isFinalChosenPrice': False,
+                'stockQtyUom': basis,
+                'sqty': sqty_v,
+                'suomqty': suom_v,
             })
         try:
             resolved_request_id = int(request_id)
