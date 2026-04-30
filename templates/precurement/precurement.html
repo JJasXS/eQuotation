@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="/static/css/app_page_header.css">
     <link rel="stylesheet" href="/static/css/orderQuotation.css">
     <link rel="stylesheet" href="/static/css/adminViewQuotations.css?v=20260430">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr59">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr60">
 </head>
 <body class="procurement-warm-ui">
 
@@ -162,12 +162,22 @@
                                     <div class="quotation-page-header-controls pr-view-header-row">
                                         <h2 class="pr-view-title">View e-Purchase Request</h2>
                                         <div class="view-pr-actions">
+                                            <div class="view-pr-search-wrap">
+                                                <label class="view-pr-search-label" for="view-pr-search-input">Search PR</label>
+                                                <input
+                                                    type="search"
+                                                    id="view-pr-search-input"
+                                                    class="view-pr-search-input"
+                                                    placeholder="PR code..."
+                                                    oninput="onViewPrSearchChange(this.value)"
+                                                />
+                                            </div>
                                             <div class="view-pr-actions-right">
                                                 <button type="button" class="view-pr-refresh-btn" onclick="loadViewPurchaseRequests(true)">Refresh</button>
                                                 <button type="button" class="view-pr-refresh-btn" id="view-pr-update-btn" onclick="saveViewDetailApprovals()" disabled>Update Details</button>
                                             </div>
                                         </div>
-                                        <p id="view-pr-list-perf" class="view-pr-list-perf" aria-live="polite"></p>
+                                        <p id="view-pr-list-perf" class="view-pr-list-perf" aria-live="polite" hidden></p>
                                     </div>
                                     <div class="approvals-tabs quotation-page-header-tabs" id="view-pr-filter-tabs" role="group" aria-label="Filter by UDF status">
                                         <button type="button" class="approval-tab view-pr-filter-tab" data-status="APPROVED" onclick="toggleViewStatusFilter('APPROVED')">APPROVED</button>
@@ -559,6 +569,7 @@
         let viewApprovalSaving = false;
         const VIEW_UDF_STATUS_OPTIONS = ['APPROVED', 'PENDING', 'CANCELLED'];
         let viewStatusFilters = new Set(['PENDING']);
+        let viewPrSearchText = '';
         let prEditState = null;
         let prFormEditState = null;
         const PROCUREMENT_PAGE_TITLES = {
@@ -725,6 +736,7 @@
 
         function getFilteredViewPurchaseRequests() {
             const filters = viewStatusFilters instanceof Set ? viewStatusFilters : new Set(['PENDING']);
+            const searchText = String(viewPrSearchText || '').trim().toUpperCase();
             const sortLatest = (rows) => (rows || []).slice().sort((a, b) => {
                 const ad = new Date(a.requestDate || a.requiredDate || 0).getTime();
                 const bd = new Date(b.requestDate || b.requiredDate || 0).getTime();
@@ -733,10 +745,19 @@
                 if (bTime !== aTime) return bTime - aTime;
                 return Number(b.id || 0) - Number(a.id || 0);
             });
-            if (!filters.size) {
-                return sortLatest(viewPurchaseRequests);
+            let rows = viewPurchaseRequests || [];
+            if (filters.size) {
+                rows = rows.filter((row) => filters.has(normalizeUdfStatus(row.udfStatus)));
             }
-            return sortLatest((viewPurchaseRequests || []).filter((row) => filters.has(normalizeUdfStatus(row.udfStatus))));
+            if (searchText) {
+                rows = rows.filter((row) => String(row.requestNumber || '').toUpperCase().includes(searchText));
+            }
+            return sortLatest(rows);
+        }
+
+        function onViewPrSearchChange(value) {
+            viewPrSearchText = String(value || '');
+            renderFilteredViewPurchaseRequests();
         }
 
         function syncViewStatusFilterTabClasses() {
@@ -1418,6 +1439,7 @@
         function updateViewPrListPerfBanner(clientMs, perf, pageRows, loadedCount, totalCount, append) {
             const el = document.getElementById('view-pr-list-perf');
             if (!el) return;
+            el.hidden = true;
             const p = perf && typeof perf === 'object' ? perf : {};
             const srv = Number(p.totalMs);
             const upstream = Number(p.upstreamMs);
