@@ -1803,11 +1803,68 @@ body {
 
 .view-pr-detail-panel-head {
     display: flex;
-    align-items: baseline;
+    align-items: flex-start;
+    justify-content: space-between;
     gap: 10px;
     flex-wrap: wrap;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
     flex-shrink: 0;
+}
+
+.view-pr-detail-head-main {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+}
+
+.view-pr-detail-head-meta {
+    display: flex;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    align-items: flex-end;
+    gap: 4px;
+    min-width: 0;
+    color: #9ba7b6;
+    font-size: 11px;
+    line-height: 1.25;
+}
+
+.view-pr-detail-head-meta span,
+.view-pr-detail-head-meta em {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.view-pr-detail-head-meta strong {
+    color: inherit;
+    font-weight: 700;
+    margin-right: 4px;
+}
+
+.view-pr-detail-suppliers {
+    display: grid;
+    gap: 3px;
+    justify-items: end;
+}
+
+.view-pr-detail-supplier-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 4px 7px;
+    text-align: right;
+}
+
+.view-pr-detail-supplier-row em {
+    font-style: normal;
+    color: inherit;
+    opacity: 0.85;
+}
+
+.view-pr-detail-date {
+    text-align: right;
 }
 
 .view-pr-detail-panel-title {
@@ -1822,6 +1879,11 @@ body {
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: #9ba7b6;
+}
+
+.view-pr-detail-table .col-unit-price.is-approved-bid-price {
+    color: #22c55e;
+    font-weight: 700;
 }
 
 .view-pr-detail-host--panel {
@@ -3748,6 +3810,14 @@ body.procurement-warm-ui .view-pr-detail-panel-sub {
     color: #7a6a52;
 }
 
+body.procurement-warm-ui .view-pr-detail-head-meta {
+    color: #7a6a52;
+}
+
+body.procurement-warm-ui .view-pr-detail-table .col-unit-price.is-approved-bid-price {
+    color: #18864a;
+}
+
 body.procurement-warm-ui .view-pr-card.is-selected {
     border-left-color: #8b5a1f;
     box-shadow: inset 3px 0 0 #8b5a1f;
@@ -4205,17 +4275,20 @@ body.procurement-warm-ui #panel-view .pr-view-quotation-card {
     padding: 7px 8px !important;
     margin-bottom: 7px !important;
     border-radius: 7px !important;
+    align-items: center !important;
 }
 
 body.procurement-warm-ui #panel-view .quotation-card__header-layout {
-    grid-template-columns: minmax(0, 1fr) 74px 154px;
-    gap: 6px;
+    grid-template-columns: minmax(0, 1fr) 76px 214px;
+    gap: 8px;
+    align-items: center;
     margin-bottom: 0;
 }
 
 body.procurement-warm-ui #panel-view .quotation-card__info-grid {
-    grid-template-columns: 82px minmax(110px, 1fr) 74px minmax(74px, 92px);
-    gap: 5px;
+    grid-template-columns: minmax(132px, 1fr) 86px;
+    gap: 8px;
+    align-items: center;
 }
 
 body.procurement-warm-ui #panel-view .quotation-card__field-label {
@@ -4230,6 +4303,11 @@ body.procurement-warm-ui #panel-view .quotation-card__field-value {
     line-height: 1.18;
 }
 
+body.procurement-warm-ui #panel-view .pr-view-card-pr-code .quotation-card__field-value {
+    font-size: 13px;
+    font-weight: 700;
+}
+
 body.procurement-warm-ui #panel-view .quotation-card__amount {
     padding: 2px 6px;
     font-size: 10px;
@@ -4239,11 +4317,14 @@ body.procurement-warm-ui #panel-view .quotation-card__amount {
 body.procurement-warm-ui #panel-view .quotation-card__amount-col,
 body.procurement-warm-ui #panel-view .quotation-card__button-col {
     gap: 5px;
+    align-content: center;
 }
 
 body.procurement-warm-ui #panel-view .quotation-card__side-actions {
     gap: 4px;
     justify-content: flex-end;
+    flex-wrap: nowrap;
+    align-items: center;
 }
 
 body.procurement-warm-ui #panel-view .view-pr-udf-status {

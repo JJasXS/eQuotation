@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="/static/css/app_page_header.css">
     <link rel="stylesheet" href="/static/css/orderQuotation.css">
     <link rel="stylesheet" href="/static/css/adminViewQuotations.css?v=20260430">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr56">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr59">
 </head>
 <body class="procurement-warm-ui">
 
@@ -725,10 +725,18 @@
 
         function getFilteredViewPurchaseRequests() {
             const filters = viewStatusFilters instanceof Set ? viewStatusFilters : new Set(['PENDING']);
+            const sortLatest = (rows) => (rows || []).slice().sort((a, b) => {
+                const ad = new Date(a.requestDate || a.requiredDate || 0).getTime();
+                const bd = new Date(b.requestDate || b.requiredDate || 0).getTime();
+                const aTime = Number.isFinite(ad) ? ad : 0;
+                const bTime = Number.isFinite(bd) ? bd : 0;
+                if (bTime !== aTime) return bTime - aTime;
+                return Number(b.id || 0) - Number(a.id || 0);
+            });
             if (!filters.size) {
-                return viewPurchaseRequests || [];
+                return sortLatest(viewPurchaseRequests);
             }
-            return (viewPurchaseRequests || []).filter((row) => filters.has(normalizeUdfStatus(row.udfStatus)));
+            return sortLatest((viewPurchaseRequests || []).filter((row) => filters.has(normalizeUdfStatus(row.udfStatus))));
         }
 
         function syncViewStatusFilterTabClasses() {
@@ -1035,6 +1043,21 @@
             const isTransferring = viewTransferSavingHeaderIds.has(headerId);
             const canTransfer = isPurchaseRequestTransferReady(header);
             const transferTitle = getPurchaseRequestTransferTitle(header);
+            const suppliers = Array.isArray(header._suppliers) && header._suppliers.length
+                ? header._suppliers
+                : [{ name: header.supplierName || header.supplierId || '-', email: header.supplierEmail || '' }];
+            const supplierRowsHtml = suppliers.map((supplier, idx) => {
+                const name = String(supplier.name || supplier.companyname || supplier.code || '-').trim() || '-';
+                const email = String(supplier.email || supplier.udf_email || '').trim();
+                const label = suppliers.length > 1 ? `Supplier ${idx + 1}` : 'Supplier';
+                return `
+                    <div class="view-pr-detail-supplier-row">
+                        <strong>${escapeHtml(label)}</strong>
+                        <span>${escapeHtml(name)}</span>
+                        ${email ? `<em>${escapeHtml(email)}</em>` : ''}
+                    </div>
+                `;
+            }).join('');
             const detailRows = details.map((detail, idx) => `
             <tr>
                 <td class="col-line">${escapeHtml(detail.seq || (idx + 1))}</td>
@@ -1057,9 +1080,8 @@
                     <span class="view-pr-transfer-ratio-total">${formatStockCardNumber(detail.quantity || 0)}</span>
                 </td>
 
-                <td class="view-pr-num col-unit-price">
+                <td class="view-pr-num col-unit-price${detail.isFinalChosenPrice ? ' is-approved-bid-price' : ''}">
                     ${formatMoney(detail.unitPrice || 0)}
-                    ${detail.isFinalChosenPrice ? '<div style="font-size:11px;color:#14532d;font-weight:600;">Final (approved bid)</div>' : ''}
                 </td>
 
                 <td class="col-approved view-pr-approved-cell">
@@ -1077,8 +1099,14 @@
 
             return `
             <div class="view-pr-detail-panel-head">
-                <span class="view-pr-detail-panel-title">${escapeHtml(header.requestNumber || '-')}</span>
-                <span class="view-pr-detail-panel-sub">${escapeHtml(String(header.status || '').toUpperCase())}</span>
+                <div class="view-pr-detail-head-main">
+                    <span class="view-pr-detail-panel-title">${escapeHtml(header.requestNumber || '-')}</span>
+                    <span class="view-pr-detail-panel-sub">${escapeHtml(String(header.status || '').toUpperCase())}</span>
+                </div>
+                <div class="view-pr-detail-head-meta">
+                    <div class="view-pr-detail-suppliers">${supplierRowsHtml}</div>
+                    <div class="view-pr-detail-date"><strong>Date</strong> ${formatPrDate(header.requestDate || header.requiredDate || '-')}</div>
+                </div>
             </div>
             <div class="view-pr-detail-host view-pr-detail-host--panel">
                 <div class="view-pr-detail-actions">
@@ -1190,15 +1218,6 @@
                 const canEditDraft = prStatus === 'DRAFT';
                 const isSelected = viewSelectedHeaderId != null && Number(viewSelectedHeaderId) === headerId;
                 const udfLocked = ['APPROVED', 'CANCELLED'].includes(normalizeUdfStatus(header._originalUdfStatus));
-                const supplierRaw = String(header.supplierName || header.supplierId || '-').trim();
-                const supplierParts = supplierRaw
-                    .split(',')
-                    .map((part) => String(part || '').trim())
-                    .filter(Boolean);
-                const supplierDisplay = supplierParts.length > 1
-                    ? `Multiple suppliers (${supplierParts.length})`
-                    : (supplierRaw || '-');
-                const rawEmail = (header.supplierEmail && String(header.supplierEmail).trim()) ? String(header.supplierEmail).trim() : '';
                 const savedUdf = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
                 const pendingUdf = getHeaderPendingUdfStatus(header);
                 const udf = savedUdf;
@@ -1208,9 +1227,6 @@
                 const pendingStatusHtml = pendingUdf
                     ? `<span class="view-pr-pending-status" title="Pending status change. Press Update Details to save.">→ ${escapeHtml(pendingUdf)}</span>`
                     : '';
-                const emailVal = rawEmail
-                    ? `<span class="pr-view-v" title="${escapeHtml(rawEmail)}">${escapeHtml(rawEmail)}</span>`
-                    : '<span class="pr-view-v pr-view-field-val--empty">—</span>';
                 const showPrStatus = !(prStatus === 'SUBMITTED' && ['APPROVED', 'CANCELLED'].includes(udf));
                 const prStatusHtml = showPrStatus
                     ? `<span class="pr-status-pill" style="background: #4b6e9e; color: #fff; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 6px; white-space: nowrap;">${escapeHtml(prStatus)}</span>`
@@ -1225,23 +1241,15 @@
                     <div class="quotation-card__header-layout">
                         <div class="quotation-card__info">
                             <div class="quotation-card__info-grid">
-                                <div class="quotation-card__field">
+                                <div class="quotation-card__field pr-view-card-pr-code">
                                     <span class="quotation-card__field-label">PR Code</span>
                                     <div class="quotation-card__field-value">
                                         <span>${escapeHtml(header.requestNumber || '-')}</span>
                                     </div>
                                 </div>
-                                <div class="quotation-card__field">
-                                    <span class="quotation-card__field-label">Supplier Name</span>
-                                    <div class="quotation-card__field-value quotation-card__field-value--wrap" title="${escapeHtml(supplierRaw || '-')}">${escapeHtml(supplierDisplay)}</div>
-                                </div>
-                                <div class="quotation-card__field">
+                                <div class="quotation-card__field pr-view-card-date">
                                     <span class="quotation-card__field-label">Date</span>
-                                    <div class="quotation-card__field-value">${formatPrDate(header.requestDate)}</div>
-                                </div>
-                                <div class="quotation-card__field">
-                                    <span class="quotation-card__field-label">Email</span>
-                                    <div class="quotation-card__field-value quotation-card__field-value--wrap">${emailVal}</div>
+                                    <div class="quotation-card__field-value">${formatPrDate(header.requestDate || '-')}</div>
                                 </div>
                             </div>
                         </div>
@@ -1317,6 +1325,20 @@
         function hydrateViewPurchaseRequestDetails(record, payload) {
             record.details = Array.isArray(payload.details) ? payload.details : [];
             record._suppliers = Array.isArray(payload.suppliers) ? payload.suppliers : [];
+            if (record._suppliers.length) {
+                const supplierNames = record._suppliers
+                    .map((s) => String(s.name || s.companyname || s.code || '').trim())
+                    .filter(Boolean);
+                const supplierEmails = record._suppliers
+                    .map((s) => String(s.email || s.udf_email || '').trim())
+                    .filter(Boolean);
+                if (supplierNames.length) {
+                    record.supplierName = supplierNames.join(', ');
+                }
+                if (supplierEmails.length) {
+                    record.supplierEmail = supplierEmails.join(', ');
+                }
+            }
             const resolvedTotal = Number(payload.totalAmount);
             if (Number.isFinite(resolvedTotal)) {
                 record.totalAmount = resolvedTotal;

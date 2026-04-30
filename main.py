@@ -3806,6 +3806,18 @@ def _list_selected_suppliers(request_dockey):
                 'name': str((row[1] if len(row) > 1 else '') or '').strip(),
                 'email': str((row[2] if len(row) > 2 else '') or '').strip(),
             })
+        codes = [row.get('code') or '' for row in result]
+        master = _fetch_supplier_master_from_sql_api(codes)
+        for row in result:
+            hit = master.get(str(row.get('code') or '').strip().upper())
+            if not isinstance(hit, dict):
+                continue
+            company_name = str(hit.get('companyname') or '').strip()
+            udf_email = str(hit.get('udf_email') or '').strip()
+            if company_name:
+                row['name'] = company_name
+            if udf_email:
+                row['email'] = udf_email
         return result
     except Exception as exc:
         print(f"[PROCUREMENT SELECTED SUPPLIERS] list warning: {exc}", flush=True)
@@ -4543,6 +4555,27 @@ def api_admin_list_purchase_requests():
                         rec['supplierEmail'] = email_by_code.get(cid.upper()) or ''
                     elif not existing:
                         rec['supplierEmail'] = ''
+            except Exception as em_exc:
+                print(f"[PROCUREMENT LIST PR] supplier master/email enrichment warning: {em_exc}", flush=True)
+
+        if fast_mode:
+            try:
+                supplier_codes = list(
+                    {str(r.get('supplierId') or '').strip() for r in records if str(r.get('supplierId') or '').strip()}
+                )
+                api_master = _fetch_supplier_master_from_sql_api(supplier_codes)
+                for rec in records:
+                    cid = str(rec.get('supplierId') or '').strip()
+                    if not cid:
+                        continue
+                    master = api_master.get(cid.upper())
+                    if isinstance(master, dict):
+                        company_name = str(master.get('companyname') or '').strip()
+                        udf_email = str(master.get('udf_email') or '').strip()
+                        if company_name:
+                            rec['supplierName'] = company_name
+                        if udf_email:
+                            rec['supplierEmail'] = udf_email
             except Exception as em_exc:
                 print(f"[PROCUREMENT LIST PR] supplier master/email enrichment warning: {em_exc}", flush=True)
 
