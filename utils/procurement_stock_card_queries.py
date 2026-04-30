@@ -396,8 +396,16 @@ def _st_tr_suom_stack_expr(table_alias: str, st_tr_cols: set[str]) -> str:
 
 
 def _xtrans_moved_qty_expr(xtrans_cols: set[str], alias: str = "X") -> str:
-    """ST_XTRANS moved qty for reporting (PQ/SO/PO/JO links), robust when SUOMQTY is 0 but QTY/SQTY hold the move."""
-    return _pick_line_qty_skip_zero_suom_sqty(alias, xtrans_cols)
+    """
+    ST_XTRANS moved qty for SUOM reporting.
+
+    SUOMQTY is distinct from SQTY/QTY. If a movement has no true SUOMQTY, it
+    contributes 0 to the SUOM movement total instead of falling back to SQTY/QTY.
+    """
+    upper = {c.upper() for c in xtrans_cols}
+    if "SUOMQTY" in upper:
+        return f"COALESCE({alias}.SUOMQTY, 0)"
+    return "0"
 
 
 def _doc_line_stock_qty_expr(detail_cols: set[str], alias: str = "D") -> str:

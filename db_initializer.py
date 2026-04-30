@@ -1157,39 +1157,29 @@ def _ensure_st_xtrans_suomqty_column(conn):
 
 def _backfill_st_xtrans_suomqty(conn):
     """
-    Backfill ST_XTRANS.SUOMQTY to match reporting (same order as COALESCE(SUOMQTY, SQTY, QTY) in app):
-    prefer SQTY (stock UOM), then QTY*RATE if both exist, else QTY.
+    Backfill missing ST_XTRANS.SUOMQTY values to 0.
+
+    SUOMQTY is a distinct quantity and must not be inferred from SQTY/QTY.
+    Missing true SUOM quantity is stored as 0.
     """
     fields = _get_relation_field_names(conn, 'ST_XTRANS')
     if 'SUOMQTY' not in fields:
-        print("[DB INIT WARNING] ST_XTRANS.SUOMQTY is missing; backfill skipped")
-        return False
-
-    if 'SQTY' in fields and 'QTY' in fields:
-        expression = 'COALESCE(SQTY, QTY, 0)'
-    elif 'SQTY' in fields:
-        expression = 'SQTY'
-    elif {'QTY', 'RATE'}.issubset(fields):
-        expression = 'COALESCE(QTY, 0) * COALESCE(RATE, 1)'
-    elif 'QTY' in fields:
-        expression = 'QTY'
-    else:
-        print("[DB INIT WARNING] No suitable source column found to backfill ST_XTRANS.SUOMQTY")
+        print("[DB INIT WARNING] ST_XTRANS.SUOMQTY is missing; zero backfill skipped")
         return False
 
     cur = conn.cursor()
     try:
-        cur.execute(f'''
+        cur.execute('''
             UPDATE ST_XTRANS
-            SET SUOMQTY = {expression}
+            SET SUOMQTY = 0
             WHERE SUOMQTY IS NULL
         ''')
         conn.commit()
-        print(f"[DB INIT] Backfilled ST_XTRANS.SUOMQTY from {expression}")
+        print("[DB INIT] Backfilled ST_XTRANS.SUOMQTY NULL values to 0")
         return True
     except Exception as e:
         conn.rollback()
-        print(f"[DB INIT WARNING] Could not backfill ST_XTRANS.SUOMQTY: {e}")
+        print(f"[DB INIT WARNING] Could not zero-fill ST_XTRANS.SUOMQTY: {e}")
         return False
     finally:
         cur.close()
@@ -1197,33 +1187,15 @@ def _backfill_st_xtrans_suomqty(conn):
 
 def _ensure_st_xtrans_suomqty_sync_trigger(conn):
     """
-    Ensure ST_XTRANS.SUOMQTY is populated automatically.
+    Ensure ST_XTRANS.SUOMQTY defaults to 0 when omitted.
 
-    Safe rule:
-    - Do not overwrite SUOMQTY if your app already provides it.
-    - If SUOMQTY is empty, use SQTY first.
-    - If SQTY is unavailable/empty, fallback to QTY * RATE when those columns exist.
+    SUOMQTY is not interchangeable with SQTY/QTY, so the trigger must not infer
+    from those fields. It only converts NULL to 0.
     """
     fields = _get_relation_field_names(conn, 'ST_XTRANS')
     if 'SUOMQTY' not in fields:
         print("[DB INIT WARNING] ST_XTRANS.SUOMQTY is missing; trigger skipped")
         return False
-
-    # Match app reporting: SUOMQTY then SQTY then QTY (RATE*QTY when both present for UOM convert)
-    fallback_parts = []
-    if 'SQTY' in fields:
-        fallback_parts.append('NEW.SQTY')
-    if {'QTY', 'RATE'}.issubset(fields):
-        fallback_parts.append('COALESCE(NEW.QTY, 0) * COALESCE(NEW.RATE, 1)')
-    elif 'QTY' in fields:
-        fallback_parts.append('NEW.QTY')
-
-    if not fallback_parts:
-        print("[DB INIT WARNING] No suitable source column found for ST_XTRANS.SUOMQTY trigger")
-        return False
-
-    # Prefer stock-UOM line qty (SQTY) over raw QTY when both exist
-    fallback_expr = 'COALESCE(' + ', '.join(fallback_parts + ['0']) + ')'
 
     cur = conn.cursor()
     try:
@@ -1233,18 +1205,17 @@ def _ensure_st_xtrans_suomqty_sync_trigger(conn):
         except Exception:
             pass
 
-        trigger_sql = f'''
+        cur.execute('''
         CREATE TRIGGER TRG_ST_XTRANS_SUOMQTY_SYNC FOR ST_XTRANS
         ACTIVE BEFORE INSERT OR UPDATE POSITION 0
         AS
         BEGIN
           IF (NEW.SUOMQTY IS NULL) THEN
-            NEW.SUOMQTY = {fallback_expr};
+            NEW.SUOMQTY = 0;
         END
-        '''
-        cur.execute(trigger_sql)
+        ''')
         conn.commit()
-        print(f"[DB INIT] Trigger TRG_ST_XTRANS_SUOMQTY_SYNC created: SUOMQTY defaults from {fallback_expr}")
+        print("[DB INIT] Trigger TRG_ST_XTRANS_SUOMQTY_SYNC created: NULL SUOMQTY defaults to 0 only")
         return True
     except Exception as e:
         error_msg = str(e).lower()

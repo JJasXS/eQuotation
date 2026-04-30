@@ -416,9 +416,6 @@ function renderQuotationList(list, options = {}, tabKey = 'active', hasMore = fa
         const isActive = filterTab === 'active';
         const amount = Number(qt.DOCAMT || 0).toFixed(2);
         const docDate = formatDateForDisplay(qt.DOCDATE);
-        const validity = formatDateForDisplay(qt.VALIDITY);
-        const companyName = qt.COMPANYNAME || 'N/A';
-        const customerCode = qt.CODE || 'N/A';
         const borderColor = isPending ? '#b0892f' : (isCancelled ? '#a65c5c' : '#4b6e9e');
         const badgeColor = isPending ? '#b0892f' : (isCancelled ? '#a65c5c' : '#4b6e9e');
         const isSelected = Number(qt.DOCKEY) === Number(selectedQuotationDockey);
@@ -439,16 +436,8 @@ function renderQuotationList(list, options = {}, tabKey = 'active', hasMore = fa
                                     </div>
                                 </div>
                                 <div class="quotation-card__field">
-                                    <span class="quotation-card__field-label">Customer Name</span>
-                                    <div class="quotation-card__field-value quotation-card__field-value--wrap">${companyName} (${customerCode})</div>
-                                </div>
-                                <div class="quotation-card__field">
                                     <span class="quotation-card__field-label">Date</span>
                                     <div class="quotation-card__field-value">${docDate}</div>
-                                </div>
-                                <div class="quotation-card__field">
-                                    <span class="quotation-card__field-label">Valid Until</span>
-                                    <div class="quotation-card__field-value">${validity}</div>
                                 </div>
                             </div>
                         </div>
