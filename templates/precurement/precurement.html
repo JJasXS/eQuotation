@@ -9,8 +9,8 @@
     <link rel="stylesheet" href="/static/css/hamburger_menu.css">
     <link rel="stylesheet" href="/static/css/app_page_header.css">
     <link rel="stylesheet" href="/static/css/orderQuotation.css">
-    <link rel="stylesheet" href="/static/css/adminViewQuotations.css">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr49">
+    <link rel="stylesheet" href="/static/css/adminViewQuotations.css?v=20260430">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr56">
 </head>
 <body class="procurement-warm-ui">
 
@@ -18,7 +18,14 @@
     <div class="container procurement-warm-container">
         <div class="main-content">
 
-            {% set page_header_title = "Procurement" %}
+            {% set procurement_tab = (request.args.get('tab') or 'report') | lower %}
+            {% if procurement_tab == 'create' %}
+                {% set page_header_title = "Purchase > Create e-PR" %}
+            {% elif procurement_tab == 'view' %}
+                {% set page_header_title = "Purchase > View e-PR" %}
+            {% else %}
+                {% set page_header_title = "Purchase > Dashboard" %}
+            {% endif %}
             {% set page_header_subtitle = "Welcome, " ~ (user_email or "—") %}
             {% include 'components/app_page_header.html' %}
 
@@ -28,57 +35,60 @@
                     <div class="procurement-panel">
                         <div id="panel-report" class="panel-content">
                             <div class="procurement-report-title-row">
-                                <h2 class="procurement-warm-section-title">Dashboard</h2>
                             </div>
                             <div id="stock-dashboard-layout" class="stock-dashboard-layout" data-layout="vertical">
-                                <div class="stock-dashboard-cutoff-strip">
-                                    <div class="stock-dashboard-cutoff-strip__left">
-                                        <div class="location-filter-main">
-                                            <div class="location-filter-row location-filter-row--actions">
-                                                <label class="pr-field location-filter-date-field">
-                                                    <span>Last Cutoff Date</span>
-                                                    <input type="date" id="stock-card-from-date" />
-                                                </label>
-                                                <div class="location-filter-actions">
-                                                    <button type="button" class="view-pr-refresh-btn" onclick="applyStockCardDateFilter()">Apply Cutoff</button>
-                                                    <button type="button" class="view-pr-refresh-btn" onclick="clearStockCardDateFilter()">Clear Cutoff</button>
-                                                    <button type="button" class="location-buy-btn" onclick="goToCreateProcurement()">New e-Purchase Request</button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="stock-dashboard-cutoff-strip__right">
-                                        <div class="stock-dashboard-layout-toggle" role="group" aria-label="Dashboard layout">
-                                            <span class="stock-dashboard-layout-toggle__label">Orientation</span>
-                                            <label class="stock-dashboard-layout-toggle__opt">
-                                                <input type="radio" name="stock-dashboard-layout" value="vertical" checked onchange="onStockDashboardLayoutChange(this)" />
-                                                Vertical
-                                            </label>
-                                            <label class="stock-dashboard-layout-toggle__opt">
-                                                <input type="radio" name="stock-dashboard-layout" value="split" onchange="onStockDashboardLayoutChange(this)" />
-                                                Split (report | breakdown)
-                                            </label>
-                                        </div>
-                                    </div>
-                                </div>
                                 <div class="stock-dashboard-body">
                                     <div class="stock-dashboard-report-pane">
                                         <div class="location-filter-shell location-filter-shell--below-cutoff">
                                             <div class="location-filter-locations">
-                                                <div class="location-filter-row location-filter-row--stack">
-                                                    <span class="location-filter-label">Selected Locations</span>
-                                                    <div id="selected-location-list" class="location-pill-list"></div>
+                                                <div class="location-filter-locations__main">
+                                                    <div class="location-filter-row location-filter-row--stack">
+                                                        <span class="location-filter-label">Selected Locations</span>
+                                                        <div id="selected-location-list" class="location-pill-list"></div>
+                                                    </div>
+                                                    <div class="location-filter-row location-filter-row--stack">
+                                                        <span class="location-filter-label">Add Location</span>
+                                                        <div id="available-location-list" class="location-pill-list"></div>
+                                                    </div>
                                                 </div>
-                                                <div class="location-filter-row location-filter-row--stack">
-                                                    <span class="location-filter-label">Add Location</span>
-                                                    <div id="available-location-list" class="location-pill-list"></div>
+                                                <div class="location-filter-locations__settings">
+                                                    <div class="location-filter-row location-filter-row--stack">
+                                                        <span class="location-filter-label">Report qty</span>
+                                                        <div class="stock-card-uom-toggle" role="group" aria-label="Stock quantity columns">
+                                                            <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="sqty_only" onchange="onStockCardUomDisplayChange(this)" /> SQTY only</label>
+                                                            <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="suom_only" checked onchange="onStockCardUomDisplayChange(this)" /> SUOMQTY only</label>
+                                                            <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="both" onchange="onStockCardUomDisplayChange(this)" /> SQTY + SUOMQTY</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="location-filter-row location-filter-row--stack">
+                                                        <span class="location-filter-label">Orientation</span>
+                                                        <div class="stock-dashboard-layout-toggle" role="group" aria-label="Dashboard layout">
+                                                            <label class="stock-dashboard-layout-toggle__opt">
+                                                                <input type="radio" name="stock-dashboard-layout" value="vertical" checked onchange="onStockDashboardLayoutChange(this)" />
+                                                                Vertical
+                                                            </label>
+                                                            <label class="stock-dashboard-layout-toggle__opt">
+                                                                <input type="radio" name="stock-dashboard-layout" value="split" onchange="onStockDashboardLayoutChange(this)" />
+                                                                Split
+                                                            </label>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                                <div class="location-filter-row location-filter-row--stack">
-                                                    <span class="location-filter-label">Report qty</span>
-                                                    <div class="stock-card-uom-toggle" role="group" aria-label="Stock quantity columns">
-                                                        <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="sqty_only" onchange="onStockCardUomDisplayChange(this)" /> SQTY only</label>
-                                                        <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="suom_only" checked onchange="onStockCardUomDisplayChange(this)" /> SUOMQTY only</label>
-                                                        <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="both" onchange="onStockCardUomDisplayChange(this)" /> SQTY + SUOMQTY</label>
+                                                <div class="stock-dashboard-cutoff-strip">
+                                                    <div class="stock-dashboard-cutoff-strip__left">
+                                                        <div class="location-filter-main">
+                                                            <div class="location-filter-row location-filter-row--actions">
+                                                                <label class="pr-field location-filter-date-field">
+                                                                    <span>Last Cutoff Date</span>
+                                                                    <input type="date" id="stock-card-from-date" />
+                                                                </label>
+                                                                <div class="location-filter-actions">
+                                                                    <button type="button" class="view-pr-refresh-btn" onclick="applyStockCardDateFilter()">Apply Cutoff</button>
+                                                                    <button type="button" class="view-pr-refresh-btn" onclick="clearStockCardDateFilter()">Clear Cutoff</button>
+                                                                    <button type="button" class="location-buy-btn" onclick="goToCreateProcurement()">New e-Purchase Request</button>
+                                                                </div>
+                                                            </div>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
@@ -157,6 +167,7 @@
                                                 <button type="button" class="view-pr-refresh-btn" id="view-pr-update-btn" onclick="saveViewDetailApprovals()" disabled>Update Details</button>
                                             </div>
                                         </div>
+                                        <p id="view-pr-list-perf" class="view-pr-list-perf" aria-live="polite"></p>
                                     </div>
                                     <div class="approvals-tabs quotation-page-header-tabs" id="view-pr-filter-tabs" role="group" aria-label="Filter by UDF status">
                                         <button type="button" class="approval-tab view-pr-filter-tab" data-status="APPROVED" onclick="toggleViewStatusFilter('APPROVED')">APPROVED</button>
@@ -168,6 +179,9 @@
                                     <div class="quotation-list-pane pr-view-quotation-list" id="view-pr-list-outer" aria-label="Purchase request list">
                                         <div id="view-pr-list" class="view-pr-list view-pr-list--cards">
                                             <div class="view-pr-empty">Loading e-Purchase Request records...</div>
+                                        </div>
+                                        <div id="view-pr-load-more-wrap" class="view-pr-load-more-wrap" style="display: none;">
+                                            <button type="button" class="view-pr-refresh-btn view-pr-load-more-btn" id="view-pr-load-more-btn" onclick="loadMoreViewPurchaseRequests()">Load more</button>
                                         </div>
                                     </div>
                                     <div class="quotation-detail-pane pr-view-quotation-detail" id="view-pr-items-panel" aria-label="Line items for selected request">
@@ -526,6 +540,13 @@
         let stockCardBuySelections = {};
         let viewPurchaseRequestsLoaded = false;
         let viewPurchaseRequests = [];
+        const VIEW_PR_LIST_PAGE_SIZE = 50;
+        const VIEW_PR_LIST_CACHE_KEY = 'procurementViewPrFirstPageV1';
+        const VIEW_PR_LIST_CACHE_TTL_MS = 5 * 60 * 1000;
+        let viewPrListTotal = null;
+        let viewPrListHasMore = false;
+        let viewPrListLoadingMore = false;
+        let viewPrPrevListPerf = null;
         let viewSelectedHeaderId = null;
         let viewLoadingDetailIds = new Set();
         let viewDetailFetchControllers = new Map();
@@ -540,11 +561,24 @@
         let viewStatusFilters = new Set(['PENDING']);
         let prEditState = null;
         let prFormEditState = null;
+        const PROCUREMENT_PAGE_TITLES = {
+            report: 'Purchase > Dashboard',
+            view: 'Purchase > View e-PR',
+            create: 'Purchase > Create e-PR'
+        };
+
+        function updateProcurementPageTitle(tabName) {
+            const titleEl = document.querySelector('.app-page-header__title');
+            if (titleEl) {
+                titleEl.textContent = PROCUREMENT_PAGE_TITLES[tabName] || PROCUREMENT_PAGE_TITLES.report;
+            }
+        }
 
         function showTab(tabName) {
             const target = String(tabName || 'report').toLowerCase();
             const tabs = ['report', 'view', 'create'];
             const selected = tabs.includes(target) ? target : 'report';
+            updateProcurementPageTitle(selected);
 
             tabs.forEach((name) => {
                 const tabButton = document.getElementById(`tab-${name}`);
@@ -1177,28 +1211,55 @@
                 const emailVal = rawEmail
                     ? `<span class="pr-view-v" title="${escapeHtml(rawEmail)}">${escapeHtml(rawEmail)}</span>`
                     : '<span class="pr-view-v pr-view-field-val--empty">—</span>';
+                const showPrStatus = !(prStatus === 'SUBMITTED' && ['APPROVED', 'CANCELLED'].includes(udf));
+                const prStatusHtml = showPrStatus
+                    ? `<span class="pr-status-pill" style="background: #4b6e9e; color: #fff; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 6px; white-space: nowrap;">${escapeHtml(prStatus)}</span>`
+                    : '';
+                const editButtonHtml = canEditDraft
+                    ? `<button type="button" class="edit-button view-pr-edit-inline-btn" onclick="openPurchaseRequestEdit(${headerId});" title="Edit draft purchase request">Edit</button>`
+                    : '';
 
                 htmlParts.push(`
-            <div class="quotation-card pr-view-quotation-card pr-view-card-single-row${isSelected ? ' is-selected' : ''}" data-header-id="${headerId}" style="background: #fffaf0; padding: 10px 12px; margin-bottom: 10px; border-radius: 8px; border-left: 3px solid ${borderColor}; border: 1px solid #ead8b5; border-left-width: 3px;">
-                <div class="pr-view-card-row">
-                    <div class="pr-view-card-row__main" role="button" tabindex="0" onclick="selectViewPurchaseRequest(${headerId})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectViewPurchaseRequest(${headerId});}">
-                        <div class="pr-view-kv" title="PR number"><span class="pr-view-k">PR</span><span class="pr-view-v pr-view-v--pr">${escapeHtml(header.requestNumber || '-')}</span></div>
-                        <div class="pr-view-kv pr-view-kv--grow" title="${escapeHtml(supplierRaw || '-')}"><span class="pr-view-k">Supplier</span><span class="pr-view-v">${escapeHtml(supplierDisplay)}</span></div>
-                        <div class="pr-view-kv" title="Request date"><span class="pr-view-k">Date</span><span class="pr-view-v">${formatPrDate(header.requestDate)}</span></div>
-                        <div class="pr-view-kv pr-view-kv--email" title="Supplier email"><span class="pr-view-k">Email</span>${emailVal}</div>
-                    </div>
-                    <div class="pr-view-card-row__amount">
-                        <span class="pr-view-amount-pill" style="background: ${badgeColor};">RM ${formatMoney(header.totalAmount || 0)}</span>
-                    </div>
-                    <div class="pr-view-card-row__actions" onclick="event.stopPropagation();">
-                        <span class="pr-status-pill" style="background: #4b6e9e; color: #fff; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 6px; white-space: nowrap;">${escapeHtml(prStatus)}</span>
-                        <select class="view-pr-udf-status" onchange="onHeaderUdfStatusChange(${headerId}, this.value)" ${udfLocked ? 'disabled title="Status cannot be changed after APPROVED or CANCELLED"' : ''}>
-                            <option value="APPROVED" ${selectUdf === 'APPROVED' ? 'selected' : ''}>APPROVED</option>
-                            <option value="CANCELLED" ${selectUdf === 'CANCELLED' ? 'selected' : ''}>CANCELLED</option>
-                            <option value="PENDING" ${selectUdf === 'PENDING' ? 'selected' : ''}>PENDING</option>
-                        </select>
-                        ${pendingStatusHtml}
-                        <button type="button" class="view-pr-refresh-btn view-pr-edit-inline-btn" onclick="openPurchaseRequestEdit(${headerId});" ${canEditDraft ? '' : 'disabled'} title="${escapeHtml(canEditDraft ? 'Edit draft purchase request' : 'Only draft purchase requests can be edited')}">Edit</button>
+            <div class="quotation-card pr-view-quotation-card${isSelected ? ' is-selected' : ''}" data-header-id="${headerId}" style="background: #fffaf0; padding: 12px; margin-bottom: 12px; border-radius: 8px; border-left: 3px solid ${borderColor}; cursor: pointer; display: flex; gap: 12px; align-items: flex-start; border: 1px solid #ead8b5;">
+                <div style="flex: 1; min-width: 0;" role="button" tabindex="0" onclick="selectViewPurchaseRequest(${headerId})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectViewPurchaseRequest(${headerId});}">
+                    <div class="quotation-card__header-layout">
+                        <div class="quotation-card__info">
+                            <div class="quotation-card__info-grid">
+                                <div class="quotation-card__field">
+                                    <span class="quotation-card__field-label">PR Code</span>
+                                    <div class="quotation-card__field-value">
+                                        <span>${escapeHtml(header.requestNumber || '-')}</span>
+                                    </div>
+                                </div>
+                                <div class="quotation-card__field">
+                                    <span class="quotation-card__field-label">Supplier Name</span>
+                                    <div class="quotation-card__field-value quotation-card__field-value--wrap" title="${escapeHtml(supplierRaw || '-')}">${escapeHtml(supplierDisplay)}</div>
+                                </div>
+                                <div class="quotation-card__field">
+                                    <span class="quotation-card__field-label">Date</span>
+                                    <div class="quotation-card__field-value">${formatPrDate(header.requestDate)}</div>
+                                </div>
+                                <div class="quotation-card__field">
+                                    <span class="quotation-card__field-label">Email</span>
+                                    <div class="quotation-card__field-value quotation-card__field-value--wrap">${emailVal}</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="quotation-card__amount-col">
+                            <span class="quotation-card__amount" style="background: ${badgeColor};">RM ${formatMoney(header.totalAmount || 0)}</span>
+                        </div>
+                        <div class="quotation-card__button-col" onclick="event.stopPropagation();">
+                            <div class="quotation-card__side-actions pr-view-card-actions">
+                                ${prStatusHtml}
+                                <select class="view-pr-udf-status" onchange="onHeaderUdfStatusChange(${headerId}, this.value)" ${udfLocked ? 'disabled title="Status cannot be changed after APPROVED or CANCELLED"' : ''}>
+                                    <option value="APPROVED" ${selectUdf === 'APPROVED' ? 'selected' : ''}>APPROVED</option>
+                                    <option value="CANCELLED" ${selectUdf === 'CANCELLED' ? 'selected' : ''}>CANCELLED</option>
+                                    <option value="PENDING" ${selectUdf === 'PENDING' ? 'selected' : ''}>PENDING</option>
+                                </select>
+                                ${pendingStatusHtml}
+                                ${editButtonHtml}
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1332,62 +1393,274 @@
             return fetchPromise;
         }
 
+        function updateViewPrListPerfBanner(clientMs, perf, pageRows, loadedCount, totalCount, append) {
+            const el = document.getElementById('view-pr-list-perf');
+            if (!el) return;
+            const p = perf && typeof perf === 'object' ? perf : {};
+            const srv = Number(p.totalMs);
+            const upstream = Number(p.upstreamMs);
+            const sup = Number(p.supplierMs);
+            const qty = Number(p.qtyMs);
+            const hadQty = Boolean(p.includeQty);
+            const parts = [];
+            parts.push(`Fetch ${Math.round(clientMs)} ms (browser round-trip)`);
+            if (Number.isFinite(srv)) {
+                parts.push(`server ${srv} ms`);
+            }
+            if (Number.isFinite(upstream)) {
+                parts.push(`SQL API ${upstream} ms`);
+            }
+            const api = p.sqlApi && typeof p.sqlApi === 'object' ? p.sqlApi : {};
+            if (p.cacheHit) {
+                const age = Number(p.cacheAgeMs);
+                parts.push(Number.isFinite(age) ? `cache hit age ${Math.round(age)} ms` : 'cache hit');
+            }
+            if (Number.isFinite(Number(api.dataQueryMs))) {
+                parts.push(`FB data ${Number(api.dataQueryMs)} ms`);
+            }
+            if (Number.isFinite(Number(api.countQueryMs)) && Number(api.countQueryMs) > 0.05) {
+                parts.push(`FB count ${Number(api.countQueryMs)} ms`);
+            }
+            if (api.skippedFullTableCount) {
+                parts.push('no full-table COUNT');
+            }
+            const rmap = Number(p.recordsMapMs);
+            if (Number.isFinite(rmap) && rmap > 0.5) {
+                parts.push(`Flask map ${rmap} ms`);
+            }
+            if (Number.isFinite(sup)) {
+                parts.push(`supplier map ${sup} ms`);
+            }
+            if (hadQty && Number.isFinite(qty)) {
+                parts.push(`balance qty ${qty} ms`);
+            } else {
+                parts.push('balance qty omitted on list (faster; open a PR for line detail)');
+            }
+            const tot = Number.isFinite(Number(totalCount)) ? Number(totalCount) : null;
+            parts.push(append ? `+${pageRows} rows` : `${pageRows} rows this request`);
+            if (tot != null) {
+                parts.push(`${loadedCount} loaded / ${tot} total`);
+            }
+            el.textContent = parts.join(' · ');
+            if (!append && viewPrPrevListPerf && Number.isFinite(srv)) {
+                const prev = viewPrPrevListPerf;
+                const prevSrv = Number(prev.serverMs);
+                if (Number.isFinite(prevSrv) && prevSrv > 0) {
+                    const delta = Math.round(srv - prevSrv);
+                    el.textContent += ` — vs previous first-page server load: ${delta >= 0 ? '+' : ''}${delta} ms`;
+                }
+            }
+            if (!append) {
+                viewPrPrevListPerf = { serverMs: srv, clientMs: Math.round(clientMs), at: Date.now() };
+            }
+        }
+
+        function syncViewPrLoadMoreUi() {
+            const wrap = document.getElementById('view-pr-load-more-wrap');
+            const btn = document.getElementById('view-pr-load-more-btn');
+            if (!wrap || !btn) return;
+            const show = Boolean(viewPrListHasMore && viewPurchaseRequests.length);
+            wrap.style.display = show ? '' : 'none';
+            btn.disabled = viewPrListLoadingMore;
+            btn.textContent = viewPrListLoadingMore ? 'Loading…' : 'Load more';
+            if (show && viewPrListTotal != null) {
+                btn.title = `Load next page (${viewPurchaseRequests.length} of ${viewPrListTotal} in memory)`;
+            }
+        }
+
+        function saveViewPrListInstantCache(payload) {
+            try {
+                if (!payload || !payload.success || !Array.isArray(payload.data)) return;
+                sessionStorage.setItem(VIEW_PR_LIST_CACHE_KEY, JSON.stringify({
+                    at: Date.now(),
+                    payload,
+                }));
+            } catch (e) { /* ignore storage limits/private mode */ }
+        }
+
+        function applyViewPrFirstPagePayload(payload, clientMs, isInstantCache) {
+            const rows = Array.isArray(payload.data) ? payload.data : [];
+            const pg = payload.pagination && typeof payload.pagination === 'object' ? payload.pagination : {};
+            const totalRaw = pg.total;
+            const totalNum = Number(totalRaw);
+
+            viewPurchaseRequests = rows;
+            viewPurchaseRequests.forEach((row) => {
+                row.udfStatus = normalizeUdfStatus(row.udfStatus);
+                row._originalUdfStatus = row.udfStatus;
+            });
+            viewPrListTotal = Number.isFinite(totalNum) ? totalNum : viewPurchaseRequests.length;
+            viewPrListHasMore = Number.isFinite(totalNum)
+                ? viewPurchaseRequests.length < totalNum
+                : rows.length >= VIEW_PR_LIST_PAGE_SIZE;
+            viewSelectedHeaderId = null;
+            viewStatusFilters = new Set(['PENDING']);
+            viewLoadingDetailIds = new Set();
+            viewDetailFetchControllers.forEach((controller) => {
+                try {
+                    controller.abort();
+                } catch (e) {
+                    // no-op
+                }
+            });
+            viewDetailFetchControllers = new Map();
+            viewDetailFetchPromises = new Map();
+            viewTransferSavingHeaderIds = new Set();
+            viewApprovalPendingChanges = new Map();
+            viewHeaderStatusPendingChanges = new Map();
+            viewApprovalSaving = false;
+            viewPurchaseRequestsLoaded = true;
+            const currentIds = new Set(viewPurchaseRequests.map((row) => Number(row.id || 0)).filter(Boolean));
+            viewDetailCache.forEach((_value, key) => {
+                if (!currentIds.has(Number(key))) {
+                    viewDetailCache.delete(key);
+                }
+            });
+            updateViewPrListPerfBanner(clientMs, payload.perf, rows.length, viewPurchaseRequests.length, viewPrListTotal, false);
+            if (isInstantCache) {
+                const perfEl = document.getElementById('view-pr-list-perf');
+                if (perfEl) {
+                    perfEl.textContent = `Instant cached view · ${perfEl.textContent}`;
+                }
+            }
+            updateViewApprovalButtonState();
+            renderFilteredViewPurchaseRequests();
+            syncViewPrLoadMoreUi();
+        }
+
+        function paintCachedViewPrListForInstantLoad() {
+            try {
+                const raw = sessionStorage.getItem(VIEW_PR_LIST_CACHE_KEY);
+                if (!raw) return false;
+                const cached = JSON.parse(raw);
+                const ageMs = Date.now() - Number(cached?.at || 0);
+                const payload = cached?.payload;
+                if (!payload || !payload.success || !Array.isArray(payload.data) || ageMs > VIEW_PR_LIST_CACHE_TTL_MS) {
+                    sessionStorage.removeItem(VIEW_PR_LIST_CACHE_KEY);
+                    return false;
+                }
+                const copy = JSON.parse(JSON.stringify(payload));
+                copy.perf = {
+                    ...(copy.perf || {}),
+                    cacheHit: true,
+                    cacheAgeMs: Math.round(ageMs),
+                    totalMs: 0,
+                    upstreamMs: 0,
+                };
+                applyViewPrFirstPagePayload(copy, 0, true);
+                return true;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        function loadMoreViewPurchaseRequests() {
+            if (!viewPrListHasMore || viewPrListLoadingMore) {
+                return Promise.resolve();
+            }
+            const list = document.getElementById('view-pr-list');
+            const offset = viewPurchaseRequests.length;
+            viewPrListLoadingMore = true;
+            syncViewPrLoadMoreUi();
+
+            const startedAt = performance.now();
+            const url = `/api/admin/procurement/purchase-requests?offset=${offset}&limit=${VIEW_PR_LIST_PAGE_SIZE}&fast=1&include_qty=0`;
+            return fetch(url)
+                .then((res) => res.json())
+                .then((payload) => {
+                    if (!payload.success) {
+                        throw new Error(payload.error || 'Failed to load more');
+                    }
+                    const clientMs = performance.now() - startedAt;
+                    const rows = Array.isArray(payload.data) ? payload.data : [];
+                    const pg = payload.pagination && typeof payload.pagination === 'object' ? payload.pagination : {};
+                    const totalRaw = pg.total;
+                    const totalNum = Number(totalRaw);
+                    const existing = new Set(viewPurchaseRequests.map((r) => Number(r.id || 0)).filter(Boolean));
+                    rows.forEach((row) => {
+                        const id = Number(row.id || 0);
+                        if (id && existing.has(id)) {
+                            return;
+                        }
+                        if (id) {
+                            existing.add(id);
+                        }
+                        row.udfStatus = normalizeUdfStatus(row.udfStatus);
+                        row._originalUdfStatus = row.udfStatus;
+                        viewPurchaseRequests.push(row);
+                    });
+                    if (Number.isFinite(totalNum)) {
+                        viewPrListTotal = totalNum;
+                    }
+                    viewPrListHasMore = Number.isFinite(totalNum)
+                        ? viewPurchaseRequests.length < totalNum
+                        : rows.length >= VIEW_PR_LIST_PAGE_SIZE;
+                    console.log(`[VIEW PR PERF] list append offset=${offset} in ${Math.round(clientMs)}ms`);
+                    updateViewPrListPerfBanner(clientMs, payload.perf, rows.length, viewPurchaseRequests.length, viewPrListTotal, true);
+                    updateViewApprovalButtonState();
+                    renderFilteredViewPurchaseRequests();
+                })
+                .catch((error) => {
+                    console.error(error);
+                    alert(error.message || 'Failed to load more');
+                })
+                .finally(() => {
+                    viewPrListLoadingMore = false;
+                    syncViewPrLoadMoreUi();
+                });
+        }
+
         function loadViewPurchaseRequests(forceReload) {
             if (viewPurchaseRequestsLoaded && !forceReload) {
                 return Promise.resolve();
             }
 
             const list = document.getElementById('view-pr-list');
-            if (list) {
+            const perfEl = document.getElementById('view-pr-list-perf');
+            const paintedFromCache = !forceReload && paintCachedViewPrListForInstantLoad();
+            if (list && !paintedFromCache) {
                 list.innerHTML = '<div class="view-pr-empty">Loading e-Purchase Request records...</div>';
             }
+            if (perfEl && !paintedFromCache) {
+                perfEl.textContent = '';
+            }
+            viewPrListHasMore = false;
+            viewPrListTotal = null;
+            syncViewPrLoadMoreUi();
 
             const startedAt = performance.now();
-            return fetch('/api/admin/procurement/purchase-requests?offset=0&limit=50&fast=1&include_qty=1')
+            const cacheBust = forceReload ? '&no_cache=1' : '';
+            const url = `/api/admin/procurement/purchase-requests?offset=0&limit=${VIEW_PR_LIST_PAGE_SIZE}&fast=1&include_qty=0${cacheBust}`;
+            return fetch(url)
                 .then((res) => res.json())
                 .then((payload) => {
                     if (!payload.success) {
                         throw new Error(payload.error || 'Failed to load e-Purchase Request records');
                     }
-                    console.log(`[VIEW PR PERF] list loaded in ${Math.round(performance.now() - startedAt)}ms`);
-                    viewPurchaseRequests = Array.isArray(payload.data) ? payload.data : [];
-                    viewPurchaseRequests.forEach((row) => {
-                        row.udfStatus = normalizeUdfStatus(row.udfStatus);
-                        row._originalUdfStatus = row.udfStatus;
-                    });
-                    viewSelectedHeaderId = null;
-                    viewStatusFilters = new Set(['PENDING']);
-                    viewLoadingDetailIds = new Set();
-                    viewDetailFetchControllers.forEach((controller) => {
-                        try {
-                            controller.abort();
-                        } catch (e) {
-                            // no-op
-                        }
-                    });
-                    viewDetailFetchControllers = new Map();
-                    viewDetailFetchPromises = new Map();
-                    viewTransferSavingHeaderIds = new Set();
-                    viewApprovalPendingChanges = new Map();
-                    viewHeaderStatusPendingChanges = new Map();
-                    viewApprovalSaving = false;
-                    viewPurchaseRequestsLoaded = true;
-                    const currentIds = new Set(viewPurchaseRequests.map((row) => Number(row.id || 0)).filter(Boolean));
-                    viewDetailCache.forEach((_value, key) => {
-                        if (!currentIds.has(Number(key))) {
-                            viewDetailCache.delete(key);
-                        }
-                    });
-                    updateViewApprovalButtonState();
-                    renderFilteredViewPurchaseRequests();
+                    const clientMs = performance.now() - startedAt;
+                    console.log(`[VIEW PR PERF] list first page in ${Math.round(clientMs)}ms (include_qty=0)`);
+                    applyViewPrFirstPagePayload(payload, clientMs, false);
+                    saveViewPrListInstantCache(payload);
                 })
                 .catch((error) => {
+                    if (paintedFromCache) {
+                        if (perfEl) {
+                            perfEl.textContent = `Instant cached view · fresh refresh failed: ${escapeHtml(error.message || 'Failed to refresh')}`;
+                        }
+                        return;
+                    }
                     viewPurchaseRequestsLoaded = false;
+                    viewPrListHasMore = false;
+                    viewPrListTotal = null;
                     viewApprovalPendingChanges = new Map();
                     viewHeaderStatusPendingChanges = new Map();
                     viewTransferSavingHeaderIds = new Set();
                     viewApprovalSaving = false;
                     updateViewApprovalButtonState();
+                    if (perfEl) {
+                        perfEl.textContent = '';
+                    }
+                    syncViewPrLoadMoreUi();
                     if (list) {
                         list.innerHTML = `<div class="view-pr-empty">${escapeHtml(error.message || 'Failed to load e-Purchase Request records.')}</div>`;
                     }
@@ -2698,7 +2971,14 @@
                         </td>
                         <td><input type="text" value="${escapeHtml(item.udfReason || '')}" oninput="updatePurchaseRequestItem(${idx}, 'udfReason', this.value)" /></td>
                         <td class="pr-qty-cell"><input type="number" class="pr-input-qty" min="0.0001" step="0.0001" value="${escapeHtml(item.quantity || 0)}" oninput="updatePurchaseRequestItem(${idx}, 'quantity', this.value)" /></td>
-                        <td class="pr-stock-uom-cell"><span class="pr-stock-uom-badge pr-stock-uom-badge--${stockQtyUom === 'SQTY' ? 'sq' : 'su'}">${escapeHtml(stockQtyUom)}</span></td>
+                        <td class="pr-stock-uom-cell">
+                            <select class="pr-stock-uom-select pr-stock-uom-select--${stockQtyUom === 'SQTY' ? 'sq' : 'su'}"
+                                onchange="updatePurchaseRequestItem(${idx}, 'stockQtyUom', this.value)"
+                                aria-label="Quantity basis for line ${idx + 1}">
+                                <option value="SQTY"${stockQtyUom === 'SQTY' ? ' selected' : ''}>SQTY</option>
+                                <option value="SUOMQTY"${stockQtyUom === 'SUOMQTY' ? ' selected' : ''}>SUOMQTY</option>
+                            </select>
+                        </td>
                         <td><input type="number" min="0" step="0.01" value="${escapeHtml(item.unitPrice || 0)}" oninput="updatePurchaseRequestItem(${idx}, 'unitPrice', this.value)" /></td>
                         <td><input type="date" value="${escapeHtml(item.deliveryDate || '')}" oninput="updatePurchaseRequestItem(${idx}, 'deliveryDate', this.value)" /></td>
                         <td class="pr-amount-cell" id="pr-amount-${idx}">${formatMoney(amount)}</td>
@@ -2715,6 +2995,10 @@
             if (key === 'quantity' || key === 'unitPrice') {
                 const num = Number(value);
                 window.purchaseRequestItems[index][key] = Number.isFinite(num) ? num : 0;
+            } else if (key === 'stockQtyUom') {
+                window.purchaseRequestItems[index][key] = String(value || '').toUpperCase() === 'SQTY' ? 'SQTY' : 'SUOMQTY';
+                renderPurchaseRequestLineItems();
+                return;
             } else {
                 window.purchaseRequestItems[index][key] = value;
             }

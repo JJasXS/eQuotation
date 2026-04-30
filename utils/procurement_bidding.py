@@ -1,6 +1,7 @@
 """Procurement bidding service: supplier bid submission + admin approval workflow."""
 from __future__ import annotations
 
+import time
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
@@ -730,11 +731,25 @@ def map_approved_bid_suppliers_by_request_ids(request_ids: list[int]) -> dict[in
         con.close()
 
 
+_AWARDED_SUPPLIERS_CACHE: dict[tuple[int, ...], tuple[float, dict[int, dict[str, str]]]] = {}
+_AWARDED_SUPPLIERS_TTL_SEC = 45.0
+_AWARDED_SUPPLIERS_CACHE_MAX = 48
+
+
 def map_awarded_suppliers_by_request_ids(request_ids: list[int]) -> dict[int, dict[str, str]]:
     """Batch-load awarded suppliers (supports mixed item awards) per request dockey."""
     cleaned = sorted({int(x) for x in request_ids if x and int(x) > 0})
     if not cleaned:
         return {}
+
+    key = tuple(cleaned)
+    now = time.monotonic()
+    stale_keys = [k for k, (t, _) in _AWARDED_SUPPLIERS_CACHE.items() if now - t > _AWARDED_SUPPLIERS_TTL_SEC]
+    for k in stale_keys:
+        _AWARDED_SUPPLIERS_CACHE.pop(k, None)
+    hit = _AWARDED_SUPPLIERS_CACHE.get(key)
+    if hit and now - hit[0] < _AWARDED_SUPPLIERS_TTL_SEC:
+        return hit[1]
 
     con = _connect_db()
     try:
@@ -777,10 +792,19 @@ def map_awarded_suppliers_by_request_ids(request_ids: list[int]) -> dict[int, di
                         "supplierCode": ", ".join(codes),
                         "supplierName": ", ".join(names),
                     }
+                if len(_AWARDED_SUPPLIERS_CACHE) >= _AWARDED_SUPPLIERS_CACHE_MAX:
+                    oldest = min(_AWARDED_SUPPLIERS_CACHE, key=lambda k: _AWARDED_SUPPLIERS_CACHE[k][0])
+                    _AWARDED_SUPPLIERS_CACHE.pop(oldest, None)
+                _AWARDED_SUPPLIERS_CACHE[key] = (now, out)
                 return out
 
         # Fallback: old single-bid flow.
-        return map_approved_bid_suppliers_by_request_ids(cleaned)
+        out = map_approved_bid_suppliers_by_request_ids(cleaned)
+        if len(_AWARDED_SUPPLIERS_CACHE) >= _AWARDED_SUPPLIERS_CACHE_MAX:
+            oldest = min(_AWARDED_SUPPLIERS_CACHE, key=lambda k: _AWARDED_SUPPLIERS_CACHE[k][0])
+            _AWARDED_SUPPLIERS_CACHE.pop(oldest, None)
+        _AWARDED_SUPPLIERS_CACHE[key] = (now, out)
+        return out
     finally:
         con.close()
 

@@ -352,6 +352,19 @@ body {
     border-left: 1px solid #4a5568;
 }
 
+.location-filter-locations__main,
+.location-filter-locations__settings {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+
+.location-filter-locations__settings {
+    padding-left: 12px;
+    border-left: 1px solid #4a5568;
+}
+
 .location-filter-row {
     display: flex;
     align-items: flex-start;
@@ -983,8 +996,15 @@ body {
     .location-filter-shell--below-cutoff .location-filter-locations {
         grid-column: 1;
         grid-row: 1;
+        grid-template-columns: 1fr;
         border-top: none;
         padding-top: 0;
+    }
+
+    .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip {
+        padding: 10px 0 0 0;
+        border-left: none;
+        border-top: 1px solid #343b46;
     }
 
     .location-filter-shell--below-cutoff .report-summary-cards {
@@ -1311,9 +1331,23 @@ body {
 .location-filter-shell--below-cutoff .location-filter-locations {
     grid-column: 1;
     grid-row: 1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(210px, 24%) minmax(280px, 32%);
+    gap: 12px;
+    align-items: stretch;
     margin-left: 0;
     padding-left: 0;
     border-left: none;
+}
+
+.location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip {
+    margin-bottom: 0;
+    padding: 0 0 0 12px;
+    background: transparent;
+    border: none;
+    border-left: 1px solid #4a5568;
+    border-radius: 0;
+    box-shadow: none;
 }
 
 .location-filter-shell--below-cutoff .report-summary-cards {
@@ -1501,6 +1535,23 @@ body {
     white-space: nowrap;
 }
 
+.pr-line-items-table select.pr-stock-uom-select {
+    min-width: 6.4rem;
+    width: auto;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-align: center;
+}
+
+.pr-stock-uom-select--sq {
+    color: #9bd0ff;
+}
+
+.pr-stock-uom-select--su {
+    color: #c9b4f0;
+}
+
 .pr-stock-uom-badge {
     display: inline-flex;
     align-items: center;
@@ -1579,6 +1630,22 @@ body {
     align-items: center;
     gap: 8px;
     flex-wrap: wrap;
+}
+
+.view-pr-list-perf {
+    margin: 0 0 10px 0;
+    font-size: 11px;
+    line-height: 1.45;
+    color: #8a9aaf;
+}
+
+.view-pr-load-more-wrap {
+    padding: 8px 0 4px;
+    text-align: center;
+}
+
+.view-pr-load-more-btn {
+    min-width: 140px;
 }
 
 .view-pr-filter-label {
@@ -2536,6 +2603,17 @@ body.procurement-warm-ui .location-filter-shell--below-cutoff .location-filter-l
     border-radius: 12px;
 }
 
+body.procurement-warm-ui .location-filter-locations__settings {
+    border-left-color: #ddd8cc;
+}
+
+body.procurement-warm-ui .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip {
+    background: transparent;
+    border: none;
+    border-left: 1px solid #ddd8cc;
+    box-shadow: none;
+}
+
 body.procurement-warm-ui .stock-dashboard-cutoff-strip {
     background: #fffef9;
     border: 1px solid #dccfb8;
@@ -2555,6 +2633,40 @@ body.procurement-warm-ui .stock-dashboard-layout-toggle__label {
 
 body.procurement-warm-ui .stock-dashboard-layout-toggle__opt {
     color: #2a241b;
+}
+
+@media (max-width: 900px) {
+    .location-filter-shell--below-cutoff .location-filter-locations {
+        grid-template-columns: 1fr;
+    }
+
+    .location-filter-locations__settings {
+        padding: 10px 0 0 0;
+        border-left: none;
+        border-top: 1px solid #343b46;
+    }
+
+    .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip {
+        flex-direction: column;
+        align-items: stretch;
+        padding: 10px 0 0 0;
+        border-left: none;
+        border-top: 1px solid #343b46;
+    }
+
+    body.procurement-warm-ui .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip {
+        border-left: none;
+        border-top: 1px solid #ddd8cc;
+    }
+
+    body.procurement-warm-ui .location-filter-locations__settings {
+        border-left: none;
+        border-top: 1px solid #ddd8cc;
+    }
+
+    .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip__right {
+        align-self: stretch;
+    }
 }
 
 body.procurement-warm-ui .location-filter-shell .report-summary-cards {
@@ -3458,6 +3570,14 @@ body.procurement-warm-ui .pr-stock-uom-badge--su {
     color: #5a3d7a;
 }
 
+body.procurement-warm-ui .pr-stock-uom-select--sq {
+    color: #1a5f8a;
+}
+
+body.procurement-warm-ui .pr-stock-uom-select--su {
+    color: #5a3d7a;
+}
+
 body.procurement-warm-ui .pr-supplier-table-wrap {
     background: #fffef9;
 }
@@ -4063,8 +4183,13 @@ body.procurement-warm-ui .pr-panel-view-quotation-like .pr-view-title {
     color: #5c4028;
 }
 
+body.procurement-warm-ui .pr-panel-view-quotation-like .view-pr-list-perf {
+    color: #7b6a52;
+}
+
 body.procurement-warm-ui .pr-procurement-split {
     min-height: 420px;
+    grid-template-columns: minmax(420px, 45%) minmax(420px, 55%);
 }
 
 body.procurement-warm-ui .pr-view-quotation-list {
@@ -4076,14 +4201,147 @@ body.procurement-warm-ui .pr-view-quotation-detail {
     color: #4f3b2a;
 }
 
+body.procurement-warm-ui #panel-view .pr-view-quotation-card {
+    padding: 7px 8px !important;
+    margin-bottom: 7px !important;
+    border-radius: 7px !important;
+}
+
+body.procurement-warm-ui #panel-view .quotation-card__header-layout {
+    grid-template-columns: minmax(0, 1fr) 74px 154px;
+    gap: 6px;
+    margin-bottom: 0;
+}
+
+body.procurement-warm-ui #panel-view .quotation-card__info-grid {
+    grid-template-columns: 82px minmax(110px, 1fr) 74px minmax(74px, 92px);
+    gap: 5px;
+}
+
+body.procurement-warm-ui #panel-view .quotation-card__field-label {
+    margin-bottom: 1px;
+    font-size: 8.5px;
+    letter-spacing: 0.02em;
+}
+
+body.procurement-warm-ui #panel-view .quotation-card__field-value {
+    gap: 4px;
+    font-size: 10.5px;
+    line-height: 1.18;
+}
+
+body.procurement-warm-ui #panel-view .quotation-card__amount {
+    padding: 2px 6px;
+    font-size: 10px;
+    border-radius: 5px;
+}
+
+body.procurement-warm-ui #panel-view .quotation-card__amount-col,
+body.procurement-warm-ui #panel-view .quotation-card__button-col {
+    gap: 5px;
+}
+
+body.procurement-warm-ui #panel-view .quotation-card__side-actions {
+    gap: 4px;
+    justify-content: flex-end;
+}
+
+body.procurement-warm-ui #panel-view .view-pr-udf-status {
+    max-width: 92px;
+    height: 26px;
+    padding: 2px 5px;
+    font-size: 10px;
+}
+
+body.procurement-warm-ui #panel-view .pr-status-pill {
+    font-size: 9px !important;
+    padding: 2px 6px !important;
+}
+
+body.procurement-warm-ui #panel-view .view-pr-edit-inline-btn {
+    min-width: 38px;
+    padding: 4px 8px !important;
+    font-size: 10px !important;
+}
+
 body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-table {
     border-color: #e2cfab;
+    width: max(100%, 760px);
+    font-size: 11px;
+    table-layout: fixed;
 }
 
 body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-table th,
 body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-table td {
     color: #4f3b2a;
     border-color: #ead8b5;
+    padding: 6px 7px;
+    font-size: 11px;
+    line-height: 1.22;
+}
+
+body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-table .col-line {
+    min-width: 28px;
+    width: 30px;
+}
+
+body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-table .col-item-name {
+    min-width: 145px;
+    max-width: 180px;
+}
+
+body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-table .col-location {
+    min-width: 42px;
+    width: 48px;
+}
+
+body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-table .col-delivery-date {
+    min-width: 72px;
+    width: 74px;
+}
+
+body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-table .col-qty {
+    min-width: 92px;
+    width: 96px;
+}
+
+body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-table .col-unit-price,
+body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-table .col-amount {
+    min-width: 62px;
+    width: 68px;
+}
+
+body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-table .col-approved {
+    min-width: 40px;
+    width: 42px;
+}
+
+body.procurement-warm-ui .pr-view-quotation-detail .view-pr-transfer-qty-input--inline {
+    width: 48px;
+    padding: 3px 4px;
+    font-size: 10px;
+}
+
+body.procurement-warm-ui .pr-view-quotation-detail .view-pr-transfer-ratio-sep {
+    margin: 0 2px;
+}
+
+body.procurement-warm-ui .pr-view-quotation-detail .view-pr-transfer-ratio-total {
+    min-width: 1.8rem;
+}
+
+@media (max-width: 1080px) {
+    body.procurement-warm-ui .pr-procurement-split {
+        grid-template-columns: 1fr;
+    }
+
+    body.procurement-warm-ui #panel-view .quotation-card__header-layout {
+        grid-template-columns: 1fr;
+    }
+
+    body.procurement-warm-ui #panel-view .quotation-card__info-grid {
+        grid-template-columns: 1fr 1fr;
+    }
 }
 
 /* View PR list — one horizontal row: PR, Supplier, Date, Email, amount, status/UDF/Edit */

@@ -285,3 +285,141 @@
 .admin-quotations-view .quotation-items-table .quotation-items-total td:first-child {
     text-align: right;
 }
+
+/* Active tab bulk delete (view quotations) + quotation list card header grid
+   (shared by /admin/view-quotations and procurement View e-PR — was inline in adminViewQuotations.html) */
+.active-tab-controls {
+    display: none;
+    gap: 15px;
+    align-items: center;
+    padding: 12px;
+    background: #f8efdd;
+    border-radius: 6px;
+    margin-bottom: 12px;
+    border: 1px solid #e2cfab;
+}
+
+.active-tab-controls.show {
+    display: flex;
+}
+
+.btn-delete-active {
+    padding: 8px 16px;
+    background-color: #dc3545;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.btn-delete-active:disabled {
+    background-color: #4a4f5a;
+    opacity: 0.65;
+}
+
+.quotation-card__header-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 96px 132px;
+    gap: 10px;
+    align-items: start;
+    margin-bottom: 6px;
+}
+
+.quotation-card__info {
+    min-width: 0;
+}
+
+.quotation-card__info-grid {
+    display: grid;
+    grid-template-columns: 108px minmax(140px, 1fr) 96px 96px;
+    gap: 8px;
+    align-items: start;
+}
+
+.quotation-card__field {
+    min-width: 0;
+}
+
+.quotation-card__field-label {
+    display: block;
+    margin-bottom: 2px;
+    color: #6f5238;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+.quotation-card__field-value {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    color: #4f341e;
+    font-size: 12px;
+}
+
+.quotation-card__field-value--wrap {
+    display: block;
+    word-break: break-word;
+}
+
+.quotation-card__amount-col,
+.quotation-card__button-col {
+    display: grid;
+    justify-items: end;
+    align-content: start;
+    gap: 10px;
+    min-width: 0;
+}
+
+.quotation-card__button-col {
+    justify-items: stretch;
+}
+
+.quotation-card__amount {
+    background: #4b6e9e;
+    color: #fff;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    text-align: right;
+}
+
+.quotation-card__side-actions {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+}
+
+@media (max-width: 900px) {
+    .quotation-card__header-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .quotation-card__info-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .quotation-card__amount-col,
+    .quotation-card__button-col {
+        justify-items: start;
+    }
+
+    .quotation-card__side-actions {
+        align-items: flex-start;
+    }
+}
+
+@media (max-width: 640px) {
+    .quotation-card__info-grid {
+        grid-template-columns: 1fr;
+    }
+}

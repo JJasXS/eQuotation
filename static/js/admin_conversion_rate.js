@@ -10,6 +10,7 @@ function escapeHtml(value) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+}
 
 function toDisplayDate(value) {
     if (!value) {
@@ -208,6 +209,7 @@ function filterByRange(items, range) {
     return items.filter(row => row.conversion_pct >= min && row.conversion_pct < max);
 }
 
+function updateConversionView() {
     const filtered = filterByRange(allConversionItems, currentFilter);
     renderStats(filtered);
     renderConversionList(filtered);

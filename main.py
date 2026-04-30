@@ -125,6 +125,12 @@ DB_PATH = os.getenv('DB_PATH')
 # Runtime hints to avoid re-trying slow/invalid upstream variants on every request.
 PURCHASE_REQUEST_LIST_ENDPOINT_HINT = None
 PURCHASE_REQUEST_DETAIL_ENDPOINT_HINT = None
+PURCHASE_REQUEST_LIST_CACHE = {}
+PURCHASE_REQUEST_LIST_CACHE_LOCK = threading.Lock()
+PURCHASE_REQUEST_LIST_CACHE_TTL_SEC = 15.0
+ADMIN_DASHBOARD_API_CACHE = {}
+ADMIN_DASHBOARD_API_CACHE_LOCK = threading.Lock()
+ADMIN_DASHBOARD_API_CACHE_TTL_SEC = 60.0
 DB_HOST = os.getenv('DB_HOST')
 DB_USER = os.getenv('DB_USER', 'sysdba')
 DB_PASSWORD = os.getenv('DB_PASSWORD', 'masterkey')
@@ -150,6 +156,31 @@ set_db_config(DB_PATH, DB_USER, DB_PASSWORD, DB_HOST)
 # Helper configuration (moved up to ensure ENDPOINT_PATHS is defined before use)
 from config.endpoints_config import ENDPOINT_PATHS
 set_api_config(BASE_API_URL, ENDPOINT_PATHS)
+
+
+def _dashboard_cache_get(key):
+    with ADMIN_DASHBOARD_API_CACHE_LOCK:
+        cached = ADMIN_DASHBOARD_API_CACHE.get(key)
+    if not cached:
+        return None
+    cached_at, payload = cached
+    if (time.perf_counter() - cached_at) > ADMIN_DASHBOARD_API_CACHE_TTL_SEC:
+        with ADMIN_DASHBOARD_API_CACHE_LOCK:
+            ADMIN_DASHBOARD_API_CACHE.pop(key, None)
+        return None
+    out = json.loads(json.dumps(payload, default=str))
+    out.setdefault('perf', {})['cacheHit'] = True
+    out['perf']['cacheAgeMs'] = round((time.perf_counter() - cached_at) * 1000, 1)
+    return out
+
+
+def _dashboard_cache_set(key, payload):
+    with ADMIN_DASHBOARD_API_CACHE_LOCK:
+        if len(ADMIN_DASHBOARD_API_CACHE) >= 12:
+            oldest_key = min(ADMIN_DASHBOARD_API_CACHE, key=lambda k: ADMIN_DASHBOARD_API_CACHE[k][0])
+            ADMIN_DASHBOARD_API_CACHE.pop(oldest_key, None)
+        ADMIN_DASHBOARD_API_CACHE[key] = (time.perf_counter(), payload)
+
 
 # Configure email utils
 SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
@@ -888,6 +919,9 @@ def _fetch_all_customers_from_sql_api():
 @api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
 def customer_status_summary():
     """Return customer status distribution from SQL API /customer endpoint."""
+    cached = _dashboard_cache_get('customer_status_summary')
+    if cached:
+        return jsonify(cached), 200
     status_order = ['A', 'AWO', 'I', 'S', 'P', 'N']
     status_labels = {
         'A': 'Active',
@@ -929,7 +963,7 @@ def customer_status_summary():
             if counts[code] > 0
         ]
 
-        return jsonify({
+        payload_out = {
             'success': True,
             'data': {
                 'items': items,
@@ -937,7 +971,9 @@ def customer_status_summary():
                 'processed_customers': len(customers),
                 'customers': customers,
             }
-        }), 200
+        }
+        _dashboard_cache_set('customer_status_summary', payload_out)
+        return jsonify(payload_out), 200
     except requests.exceptions.RequestException as exc:
         return jsonify({'success': False, 'error': f'Failed to reach SQL API /customer: {exc}'}), 502
     except RuntimeError as exc:
@@ -1086,6 +1122,9 @@ def sales_cycle_summary():
 @api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
 def sales_cycle_details():
     """Return detailed sales cycle rows from FastAPI dashboard endpoint."""
+    cached = _dashboard_cache_get('sales_cycle_details')
+    if cached:
+        return jsonify(cached), 200
     headers = _build_sql_api_auth_headers()
     try:
         response = requests.get(
@@ -1106,7 +1145,9 @@ def sales_cycle_details():
     if not isinstance(payload, dict):
         return jsonify({'success': False, 'error': 'Unexpected sales cycle details response format'}), 502
 
-    return jsonify({'success': True, 'data': payload}), 200
+    payload_out = {'success': True, 'data': payload}
+    _dashboard_cache_set('sales_cycle_details', payload_out)
+    return jsonify(payload_out), 200
 
 
 @app.route('/api/admin/qt_iv_conversion_report', methods=['GET'])
@@ -1115,6 +1156,9 @@ def sales_cycle_details():
 @api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
 def qt_iv_conversion_report():
     """Return QT->IV conversion report from FastAPI dashboard endpoint."""
+    cached = _dashboard_cache_get('qt_iv_conversion_report')
+    if cached:
+        return jsonify(cached), 200
     headers = _build_sql_api_auth_headers()
     try:
         response = requests.get(
@@ -1135,7 +1179,9 @@ def qt_iv_conversion_report():
     if not isinstance(payload, dict):
         return jsonify({'success': False, 'error': 'Unexpected QT->IV report response format'}), 502
 
-    return jsonify({'success': True, 'data': payload}), 200
+    payload_out = {'success': True, 'data': payload}
+    _dashboard_cache_set('qt_iv_conversion_report', payload_out)
+    return jsonify(payload_out), 200
 
 # ============================================
 # ROUTE: Delete Order Detail
@@ -4175,6 +4221,10 @@ def api_admin_list_purchase_requests():
     raw_fast = request.args.get('fast')
     raw_include_qty = request.args.get('include_qty')
     raw_debug_suppliers = request.args.get('debug_suppliers')
+    raw_include_total = request.args.get('include_total')
+    raw_no_cache = request.args.get('no_cache')
+    include_total_upstream = str(raw_include_total or '').strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
+    no_cache = str(raw_no_cache or '').strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
     debug_suppliers = str(raw_debug_suppliers or '').strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
     include_qty = str(raw_include_qty or '').strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
     if raw_fast is None:
@@ -4278,6 +4328,31 @@ def api_admin_list_purchase_requests():
             except Exception:
                 pass
 
+    cache_key = (offset, limit, int(fast_mode), int(include_qty), int(include_total_upstream), int(debug_suppliers))
+    if not no_cache:
+        with PURCHASE_REQUEST_LIST_CACHE_LOCK:
+            cached = PURCHASE_REQUEST_LIST_CACHE.get(cache_key)
+        if cached:
+            cached_at, cached_payload = cached
+            age_ms = round((time.perf_counter() - cached_at) * 1000, 1)
+            if age_ms <= PURCHASE_REQUEST_LIST_CACHE_TTL_SEC * 1000:
+                response_payload = json.loads(json.dumps(cached_payload, default=str))
+                perf = response_payload.setdefault('perf', {})
+                perf['cacheHit'] = True
+                perf['cacheAgeMs'] = age_ms
+                perf['totalMs'] = round((time.perf_counter() - started_total) * 1000, 1)
+                perf['upstreamMs'] = 0.0
+                print(
+                    f"[PROCUREMENT LIST PR PERF] cache_hit=1 total_ms={perf['totalMs']} age_ms={age_ms} "
+                    f"rows={len(response_payload.get('data') or [])}",
+                    flush=True
+                )
+                return jsonify(response_payload)
+            with PURCHASE_REQUEST_LIST_CACHE_LOCK:
+                current = PURCHASE_REQUEST_LIST_CACHE.get(cache_key)
+                if current and current[0] == cached_at:
+                    PURCHASE_REQUEST_LIST_CACHE.pop(cache_key, None)
+
     try:
         headers = _build_sql_api_auth_headers()
         global PURCHASE_REQUEST_LIST_ENDPOINT_HINT
@@ -4294,11 +4369,18 @@ def api_admin_list_purchase_requests():
         last_status = None
         tried = []
 
+        list_params = {
+            'offset': offset,
+            'limit': limit,
+            # Fast list: skip full-table COUNT in SQL API; optional exact total via ?include_total=1
+            'include_total': '1' if include_total_upstream else '0',
+            'fields': 'minimal',
+        }
         upstream_started = time.perf_counter()
         for url in candidates:
             resp = requests.get(
                 url,
-                params={'offset': offset, 'limit': limit},
+                params=list_params,
                 headers=headers or None,
                 timeout=8,
             )
@@ -4317,6 +4399,7 @@ def api_admin_list_purchase_requests():
 
         rows = payload.get('data', []) if isinstance(payload, dict) else []
         pagination = payload.get('pagination', {}) if isinstance(payload, dict) else {}
+        sql_api_perf = payload.get('perf') if isinstance(payload.get('perf'), dict) else {}
         if not isinstance(rows, list):
             return jsonify({'success': False, 'error': f'Unexpected SQL API format: missing data[] (last status: {last_status})'}), 502
 
@@ -4333,6 +4416,7 @@ def api_admin_list_purchase_requests():
         balance_qty_map = _fetch_pr_balance_qty_map(header_ids) if should_load_qty else {}
         qty_ms = round((time.perf_counter() - qty_started) * 1000, 1)
 
+        map_started = time.perf_counter()
         records = []
         for row in rows:
             if not isinstance(row, dict):
@@ -4354,7 +4438,6 @@ def api_admin_list_purchase_requests():
                 'departmentId': str(row.get('businessunit') or row.get('area') or '').strip(),
                 'costCenter': str(row.get('businessunit') or '').strip(),
                 'project': str(row.get('project') or '').strip() or '----',
-                # Keep supplier empty until bid award exists (requested UX behavior).
                 'supplierId': '',
                 'supplierName': '',
                 'supplierEmail': '',
@@ -4371,6 +4454,7 @@ def api_admin_list_purchase_requests():
                 'balanceQty': _num(qty_summary.get('balanceQty')),
                 'details': None,
             })
+        records_map_ms = round((time.perf_counter() - map_started) * 1000, 1)
 
         supplier_started = time.perf_counter()
         try:
@@ -4471,16 +4555,31 @@ def api_admin_list_purchase_requests():
 
         total_ms = round((time.perf_counter() - started_total) * 1000, 1)
         print(
-            f"[PROCUREMENT LIST PR PERF] total_ms={total_ms} upstream_ms={upstream_ms} qty_ms={qty_ms} supplier_ms={supplier_ms} "
+            f"[PROCUREMENT LIST PR PERF] total_ms={total_ms} upstream_ms={upstream_ms} "
+            f"sql_api_data_ms={sql_api_perf.get('dataQueryMs')} sql_api_count_ms={sql_api_perf.get('countQueryMs')} "
+            f"qty_ms={qty_ms} supplier_ms={supplier_ms} map_ms={records_map_ms} "
             f"rows={len(records)} fast_mode={int(fast_mode)} include_qty={int(should_load_qty)}",
             flush=True
         )
+
+        pg_out = dict(pagination) if isinstance(pagination, dict) else {'offset': offset, 'limit': limit, 'count': len(records)}
 
         response_payload = {
             'success': True,
             'data': records,
             'count': len(records),
-            'pagination': pagination if isinstance(pagination, dict) else {'offset': offset, 'limit': limit, 'count': len(records)},
+            'pagination': pg_out,
+            'perf': {
+                'totalMs': total_ms,
+                'upstreamMs': upstream_ms,
+                'qtyMs': qty_ms,
+                'supplierMs': supplier_ms,
+                'includeQty': bool(should_load_qty),
+                'fastMode': bool(fast_mode),
+                'rowCount': len(records),
+                'recordsMapMs': records_map_ms,
+                'sqlApi': sql_api_perf,
+            },
         }
         if debug_suppliers:
             response_payload['debugSuppliers'] = {
@@ -4488,6 +4587,12 @@ def api_admin_list_purchase_requests():
                 'rows': debug_supplier_rows,
                 'awardedCount': len(awarded_suppliers) if isinstance(awarded_suppliers, dict) else 0,
             }
+        if not no_cache:
+            with PURCHASE_REQUEST_LIST_CACHE_LOCK:
+                if len(PURCHASE_REQUEST_LIST_CACHE) >= 16:
+                    oldest_key = min(PURCHASE_REQUEST_LIST_CACHE, key=lambda k: PURCHASE_REQUEST_LIST_CACHE[k][0])
+                    PURCHASE_REQUEST_LIST_CACHE.pop(oldest_key, None)
+                PURCHASE_REQUEST_LIST_CACHE[cache_key] = (time.perf_counter(), response_payload)
         return jsonify(response_payload)
     except requests.exceptions.Timeout:
         return jsonify({'success': False, 'error': 'Purchase request list request timed out'}), 504

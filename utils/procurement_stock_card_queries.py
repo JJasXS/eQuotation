@@ -384,6 +384,17 @@ def _pick_line_qty_skip_zero_suom_sqty(table_alias: str, column_set: set[str]) -
     return "COALESCE(" + ", ".join(parts) + ", 0)"
 
 
+def _st_tr_suom_stack_expr(table_alias: str, st_tr_cols: set[str]) -> str:
+    """
+    ST_TR on-hand in the SUOM report stack.
+    UDF_SUOMQTY is authoritative: NULL is 0, and 0 remains 0.
+    """
+    upper = {c.upper() for c in st_tr_cols}
+    if "UDF_SUOMQTY" in upper:
+        return f"COALESCE({table_alias}.UDF_SUOMQTY, 0)"
+    return "0"
+
+
 def _xtrans_moved_qty_expr(xtrans_cols: set[str], alias: str = "X") -> str:
     """ST_XTRANS moved qty for reporting (PQ/SO/PO/JO links), robust when SUOMQTY is 0 but QTY/SQTY hold the move."""
     return _pick_line_qty_skip_zero_suom_sqty(alias, xtrans_cols)
@@ -395,25 +406,16 @@ def _doc_line_stock_qty_expr(detail_cols: set[str], alias: str = "D") -> str:
 
 
 def _st_tr_line_qty_expr(st_tr_cols: set[str], alias: str = "S") -> str:
-    """ST_TR on-hand (same pick logic as transfers)."""
-    return _pick_line_qty_skip_zero_suom_sqty(alias, st_tr_cols)
+    """ST_TR on-hand SUOM stack: UDF_SUOMQTY only."""
+    return _st_tr_suom_stack_expr(alias, st_tr_cols)
 
 
 def _st_tr_qty_bare_expr_for_aggregate(st_tr_cols: set[str]) -> str:
-    """ST_TR quantity with no table alias (SELECT ... FROM ST_TR GROUP BY)."""
+    """ST_TR SUOM quantity with no table alias; UDF_SUOMQTY only."""
     upper = {c.upper() for c in st_tr_cols}
-    parts: list[str] = []
-    if "SUOMQTY" in upper:
-        parts.append("NULLIF(SUOMQTY, 0)")
-    if "SQTY" in upper:
-        parts.append("NULLIF(SQTY, 0)")
-    if "QTY" in upper:
-        parts.append("COALESCE(QTY, 0)")
-    if not parts:
-        return "0"
-    if len(parts) == 1:
-        return f"COALESCE({parts[0]}, 0)"
-    return "COALESCE(" + ", ".join(parts) + ", 0)"
+    if "UDF_SUOMQTY" in upper:
+        return "COALESCE(UDF_SUOMQTY, 0)"
+    return "0"
 
 
 def _docdate_filter_sql(

@@ -22,6 +22,14 @@ function formatDisplayDate(value) {
     }).format(date);
 }
 
+function sortedSalesCycleItems(items) {
+    return [...items].sort((a, b) => {
+        const aMinutes = Number(a.sales_cycle_minutes || 0);
+        const bMinutes = Number(b.sales_cycle_minutes || 0);
+        return salesCycleSort === 'asc' ? aMinutes - bMinutes : bMinutes - aMinutes;
+    });
+}
+
 function renderSalesCycleList(items) {
     const container = document.getElementById('sales-cycle-list');
     if (!container) {
@@ -39,7 +47,7 @@ function renderSalesCycleList(items) {
         const quotationLabel = item.quotation_docno || '-';
         const qtDate = formatDisplayDate(item.quotation_docdate);
         const ivDate = formatDisplayDate(item.invoice_docdate);
-        const company = item.company_name ? `<span class="company-pill">${item.company_name}</span>` : '';
+        const company = item.company_name ? `<span class="company-pill">${escapeHtml(item.company_name)}</span>` : '';
         const invoiceItems = Array.isArray(item.invoice_items) ? item.invoice_items : [];
         const invoiceItemsRows = invoiceItems.length
             ? invoiceItems.map(line => `
@@ -114,7 +122,6 @@ function setupSalesCycleAccordion() {
 }
 
 function renderSalesCycleView() {
-    renderSalesCycleChart(salesCycleItems);
     renderSalesCycleList(salesCycleItems);
 }
 

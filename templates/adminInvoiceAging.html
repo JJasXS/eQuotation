@@ -8,15 +8,16 @@
     <link rel="stylesheet" href="/static/css/hamburger_menu.css">
     <link rel="stylesheet" href="/static/css/app_page_header.css">
 </head>
-<body>
+<body class="admin-report-ui">
     <div class="admin-container">
-        {% set page_header_title = "Admin Dashboard" %}
+        {% set page_header_title = "Admin > Invoice Aging" %}
         {% include 'components/app_page_header.html' %}
 
         <div class="analytics-page">
             <div class="analytics-shell">
-                <div class="analytics-toolbar">
+                <div class="analytics-toolbar analytics-toolbar--hero">
                     <div class="analytics-title">
+                        <span class="analytics-eyebrow">Report Detail</span>
                         <h1>Invoice Aging</h1>
                         <p>Latest SL_IV.DOCDATE per SL_IV.CODE, compared against today's date.</p>
                     </div>
@@ -52,7 +53,7 @@
                         <div>
                             <h3>Company Invoice Aging</h3>
                             <p>Horizontal bar graph by company, based on the latest SL_IV.DOCDATE for each code.</p>
-                            <div class="invoice-aging-filter-wrap">
+                            <div class="invoice-aging-filter-wrap analytics-inline-control">
                                 <label for="invoice-aging-filter" class="invoice-aging-filter-label">Aging Filter:</label>
                                 <select id="invoice-aging-filter">
                                     <option value="all">All latest company codes</option>
@@ -68,8 +69,8 @@
                     <div class="analytics-chart-wrap">
                         <canvas id="invoice-aging-chart" aria-label="Invoice aging bar chart"></canvas>
                     </div>
-                    <div style="text-align:center; margin-top:16px;">
-                        <button id="invoice-aging-more-btn" style="display:none; padding:8px 24px; font-size:1rem; border-radius:6px; background:#6a8fc7; color:#fff; border:none; cursor:pointer;">Show More</button>
+                    <div class="analytics-more-wrap">
+                        <button id="invoice-aging-more-btn" class="analytics-more-btn" style="display:none;">Show More</button>
                     </div>
                 </div>
 

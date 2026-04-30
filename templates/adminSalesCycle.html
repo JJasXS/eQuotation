@@ -8,15 +8,16 @@
     <link rel="stylesheet" href="/static/css/hamburger_menu.css">
     <link rel="stylesheet" href="/static/css/app_page_header.css">
 </head>
-<body>
+<body class="admin-report-ui">
     <div class="admin-container">
-        {% set page_header_title = "Admin Dashboard" %}
+        {% set page_header_title = "Admin > Sales Cycle" %}
         {% include 'components/app_page_header.html' %}
 
         <div class="analytics-page">
             <div class="analytics-shell">
-                <div class="analytics-toolbar">
+                <div class="analytics-toolbar analytics-toolbar--hero">
                     <div class="analytics-title">
+                        <span class="analytics-eyebrow">Report Detail</span>
                         <h1>Sales Cycle</h1>
                         <p>Time from earliest related quotation (SL_QT) to sales invoice (SL_IV).</p>
                     </div>
@@ -54,6 +55,11 @@
                             <h3>Sales Cycle Details</h3>
                             <p>Per-invoice breakdown showing quotation and invoice dates. Click a row to expand details.</p>
                         </div>
+                        <button type="button" class="toggle-switch analytics-sort-toggle" id="sales-cycle-sort-toggle" aria-pressed="false" aria-label="Toggle sales cycle sort">
+                            <span class="toggle-label toggle-label-left">Long</span>
+                            <span class="toggle-slider"></span>
+                            <span class="toggle-label toggle-label-right">Short</span>
+                        </button>
                     </div>
                     <div class="analytics-list" id="sales-cycle-list">
                         <div class="analytics-empty">Loading sales cycle details...</div>

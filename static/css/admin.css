@@ -1009,3 +1009,251 @@ body {
     color: #5a432d;
 }
 
+/* Report detail pages */
+body.admin-report-ui {
+    background: #f6efe2;
+    color: #4f3b2a;
+    height: 100vh;
+    overflow: hidden;
+}
+
+body.admin-report-ui .analytics-page {
+    background:
+        radial-gradient(circle at 12% 4%, rgba(255, 255, 255, 0.75) 0%, rgba(255, 255, 255, 0) 28%),
+        linear-gradient(135deg, #fbf4e6 0%, #f1e1c5 100%);
+    padding: 24px;
+}
+
+body.admin-report-ui .analytics-shell {
+    width: min(1280px, 100%);
+    gap: 18px;
+}
+
+body.admin-report-ui .analytics-toolbar--hero {
+    background: linear-gradient(180deg, #fffdf8 0%, #f8f0df 100%);
+    border: 1px solid #e1cfab;
+    border-radius: 22px;
+    padding: 22px;
+    box-shadow: 0 14px 30px rgba(112, 86, 45, 0.12);
+}
+
+body.admin-report-ui .analytics-eyebrow {
+    display: inline-flex;
+    margin-bottom: 8px;
+    color: #8f6a34;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+body.admin-report-ui .analytics-title h1 {
+    color: #4f3b2a;
+    font-size: clamp(28px, 4vw, 42px);
+    line-height: 1.05;
+}
+
+body.admin-report-ui .analytics-title p {
+    color: #87684d;
+    max-width: 720px;
+}
+
+body.admin-report-ui .analytics-back-link,
+body.admin-report-ui .analytics-more-btn {
+    background: #6d4f2f;
+    border: 1px solid #6d4f2f;
+    color: #fff8ed;
+    box-shadow: 0 8px 18px rgba(109, 79, 47, 0.18);
+    transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+body.admin-report-ui .analytics-back-link:hover,
+body.admin-report-ui .analytics-more-btn:hover {
+    background: #5c4028;
+    box-shadow: 0 12px 24px rgba(109, 79, 47, 0.22);
+    transform: translateY(-1px);
+}
+
+body.admin-report-ui .analytics-card,
+body.admin-report-ui .analytics-chart-panel {
+    background: linear-gradient(180deg, #fffdf8 0%, #f8f0df 100%);
+    border-color: #e1cfab;
+    box-shadow: 0 14px 30px rgba(112, 86, 45, 0.12);
+}
+
+body.admin-report-ui .analytics-stats {
+    max-width: none;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-rows: none;
+}
+
+body.admin-report-ui .analytics-stat {
+    background: #fffaf0;
+    border-color: #ead8b5;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+body.admin-report-ui .analytics-stat-label,
+body.admin-report-ui .analytics-stat-note,
+body.admin-report-ui .dashboard-widget-header p,
+body.admin-report-ui .conversion-detail-grid {
+    color: #87684d;
+}
+
+body.admin-report-ui .analytics-stat-value,
+body.admin-report-ui .dashboard-widget-header h3 {
+    color: #4f3b2a;
+}
+
+body.admin-report-ui .analytics-list {
+    gap: 12px;
+}
+
+body.admin-report-ui .analytics-list-item,
+body.admin-report-ui .conversion-detail-card {
+    background: #fffaf0;
+    border-color: #ead8b5;
+    color: #4f3b2a;
+    box-shadow: 0 8px 18px rgba(112, 86, 45, 0.08);
+}
+
+body.admin-report-ui .conversion-detail-toggle {
+    color: #4f3b2a;
+    border-radius: 14px;
+}
+
+body.admin-report-ui .conversion-detail-toggle:hover {
+    background: rgba(223, 193, 138, 0.18);
+}
+
+body.admin-report-ui .conversion-detail-panel {
+    background: #fffdf8;
+    border-top-color: #ead8b5;
+}
+
+body.admin-report-ui .conversion-caret {
+    color: #8f6a34;
+}
+
+body.admin-report-ui .conversion-detail-table {
+    color: #4f3b2a;
+}
+
+body.admin-report-ui .conversion-detail-table th,
+body.admin-report-ui .conversion-detail-table td {
+    border-bottom-color: #ead8b5;
+}
+
+body.admin-report-ui .conversion-detail-table th {
+    background: #f4e4c3;
+    color: #6d4f2f;
+}
+
+body.admin-report-ui .company-pill,
+body.admin-report-ui .dashboard-widget-badge {
+    background: #f4e4c3;
+    border-color: #dfc18a;
+    color: #6d4f2f;
+}
+
+body.admin-report-ui .analytics-inline-control,
+body.admin-report-ui .conversion-filter-tabs {
+    justify-content: flex-start;
+}
+
+body.admin-report-ui .invoice-aging-filter-label {
+    color: #6d4f2f;
+}
+
+body.admin-report-ui #invoice-aging-filter,
+body.admin-report-ui #sales-cycle-sort,
+body.admin-report-ui .conversion-filter-tab,
+body.admin-report-ui .toggle-switch {
+    background: #fffaf0;
+    border-color: #dfc18a;
+    color: #6d4f2f;
+    box-shadow: 0 4px 12px rgba(112, 86, 45, 0.08);
+}
+
+body.admin-report-ui #invoice-aging-filter:focus,
+body.admin-report-ui #sales-cycle-sort:focus,
+body.admin-report-ui .conversion-filter-tab:focus,
+body.admin-report-ui .toggle-switch:focus {
+    border-color: #b98237;
+    box-shadow: 0 0 0 3px rgba(185, 130, 55, 0.18);
+}
+
+body.admin-report-ui .conversion-filter-tab.active {
+    background: #6d4f2f;
+    border-color: #6d4f2f;
+    color: #fff8ed;
+}
+
+body.admin-report-ui .toggle-label {
+    color: #87684d;
+}
+
+body.admin-report-ui .toggle-slider {
+    background: #dfc18a;
+}
+
+body.admin-report-ui .toggle-slider::before {
+    background: #fffdf8;
+}
+
+body.admin-report-ui .toggle-switch[aria-pressed="true"] .toggle-slider {
+    background: #6d4f2f;
+}
+
+body.admin-report-ui .toggle-switch[aria-pressed="true"] .toggle-label-left,
+body.admin-report-ui .toggle-switch:not([aria-pressed="true"]) .toggle-label-right {
+    color: #4f3b2a;
+}
+
+body.admin-report-ui .analytics-empty {
+    color: #87684d;
+}
+
+.analytics-more-wrap {
+    margin-top: 16px;
+    text-align: center;
+}
+
+.analytics-more-btn {
+    border-radius: 999px;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 700;
+    padding: 9px 26px;
+}
+
+.analytics-sort-toggle {
+    flex: 0 0 auto;
+}
+
+@media (max-width: 900px) {
+    body.admin-report-ui .analytics-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 560px) {
+    body.admin-report-ui .analytics-page {
+        padding: 14px;
+    }
+
+    body.admin-report-ui .analytics-toolbar--hero,
+    body.admin-report-ui .analytics-card {
+        border-radius: 16px;
+        padding: 16px;
+    }
+
+    body.admin-report-ui .analytics-stats {
+        grid-template-columns: 1fr;
+    }
+
+    body.admin-report-ui .dashboard-widget-header {
+        flex-direction: column;
+    }
+}
+

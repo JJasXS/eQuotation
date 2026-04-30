@@ -544,8 +544,20 @@ async function renderQuotationDetail(currentList, options = {}) {
             const discount = Number(item.DISC || 0).toFixed(2);
             const amountRow = Math.max(0, (item.QTY * item.UNITPRICE) - (item.DISC || 0)).toFixed(2);
             total += parseFloat(amountRow);
+            // SL_QTDTL.ITEMCODE can be NULL when the line is description-only; JSON null must not render as the string "null".
+            const itemCode = item.ITEMCODE != null ? String(item.ITEMCODE).trim() : '';
+            const description = item.DESCRIPTION != null ? String(item.DESCRIPTION).trim() : '';
+            const codeLine = itemCode
+                ? `<div style="font-weight: 600; color:#4f3b2a;">${itemCode.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`
+                : '';
+            const descLine = description
+                ? `<div style="color: #6d5238; font-size: 11px;">${description.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`
+                : '';
+            const itemCell = codeLine || descLine
+                ? `<td>${codeLine}${descLine}</td>`
+                : '<td><span style="color:#6d5238;">—</span></td>';
             itemsHtml += '<tr>';
-            itemsHtml += `<td><div style="font-weight: 600; color:#4f3b2a;">${item.ITEMCODE}</div><div style="color: #6d5238; font-size: 11px;">${item.DESCRIPTION}</div></td>`;
+            itemsHtml += itemCell;
             itemsHtml += `<td>RM ${price}</td><td>${qty}</td><td>RM ${discount}</td><td style="font-weight: 600;">RM ${amountRow}</td>`;
             itemsHtml += '</tr>';
         });

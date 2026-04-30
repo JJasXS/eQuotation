@@ -853,6 +853,276 @@ def _get_relation_field_names(conn, relation_name):
         cur.close()
 
 
+def _ensure_st_tr_udf_suomqty_column(conn):
+    """Ensure ST_TR.UDF_SUOMQTY exists (parallel to SQTY; same NUMERIC(18,4) as common SQTY columns)."""
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT 1
+            FROM RDB$RELATIONS
+            WHERE RDB$RELATION_NAME = 'ST_TR'
+              AND COALESCE(RDB$SYSTEM_FLAG, 0) = 0
+            """
+        )
+        if not cur.fetchone():
+            print("[DB INIT] ST_TR not found; UDF_SUOMQTY ensure skipped")
+            return False
+
+        cur.execute(
+            """
+            SELECT f.RDB$FIELD_NAME
+            FROM RDB$RELATION_FIELDS f
+            WHERE f.RDB$RELATION_NAME = 'ST_TR' AND f.RDB$FIELD_NAME = 'UDF_SUOMQTY'
+            """
+        )
+        if cur.fetchone():
+            print("[DB INIT] UDF_SUOMQTY column already exists in ST_TR")
+            return True
+
+        conn.commit()
+        cur.execute("ALTER TABLE ST_TR ADD UDF_SUOMQTY NUMERIC(18, 4)")
+        conn.commit()
+        print("[DB INIT] UDF_SUOMQTY column added to ST_TR")
+        return True
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "already exists" in error_msg or "duplicate" in error_msg:
+            print("[DB INIT] UDF_SUOMQTY column already exists in ST_TR")
+            return True
+        print(f"[DB INIT WARNING] Could not add UDF_SUOMQTY to ST_TR: {e}")
+        return False
+    finally:
+        cur.close()
+
+
+def _relation_exists(conn, relation_name):
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT 1
+            FROM RDB$RELATIONS
+            WHERE RDB$RELATION_NAME = ?
+              AND COALESCE(RDB$SYSTEM_FLAG, 0) = 0
+            """,
+            (relation_name.upper(),)
+        )
+        return cur.fetchone() is not None
+    except Exception:
+        return False
+    finally:
+        cur.close()
+
+
+def _st_tr_direction_column(st_tr_fields):
+    """Use ST_TR.SQTY when available; SQL Accounting DBs commonly only have ST_TR.QTY."""
+    if 'SQTY' in st_tr_fields:
+        return 'SQTY'
+    if 'QTY' in st_tr_fields:
+        return 'QTY'
+    return ''
+
+
+def _stock_source_raw_expr(fields, alias='D'):
+    parts = []
+    if 'SUOMQTY' in fields:
+        parts.append(f'{alias}.SUOMQTY')
+    if 'SQTY' in fields:
+        parts.append(f'{alias}.SQTY')
+    if 'QTY' in fields:
+        parts.append(f'{alias}.QTY')
+    if not parts:
+        return ''
+    return 'COALESCE(' + ', '.join(parts + ['0']) + ')'
+
+
+def _st_tr_source_specs(conn):
+    """Source tables used to populate ST_TR.UDF_SUOMQTY from the posted document row."""
+    candidates = [
+        ('GR', 'PH_GRDTL', 'DETAIL'),
+        ('PI', 'PH_PIDTL', 'DETAIL'),
+        ('RC', 'ST_RCDTL', 'DETAIL'),
+        ('RC', 'ST_RCDRL', 'DETAIL'),
+        ('DO', 'SL_DODTL', 'DETAIL'),
+        ('IV', 'SL_IVDTL', 'DETAIL'),
+        ('IS', 'ST_ISDTL', 'DETAIL'),
+        ('AS', 'ST_ASDTL', 'DETAIL'),
+        ('AS', 'ST_AS', 'HEADER'),
+        ('DS', 'ST_DSDTL', 'DETAIL'),
+        ('AJ', 'ST_AJDTL', 'DETAIL'),
+        ('XF', 'ST_XFDTL', 'DETAIL'),
+    ]
+
+    specs = []
+    seen = set()
+    for doctype, table_name, row_kind in candidates:
+        key = (doctype, table_name)
+        if key in seen or not _relation_exists(conn, table_name):
+            continue
+        seen.add(key)
+        fields = _get_relation_field_names(conn, table_name)
+        expr = _stock_source_raw_expr(fields, 'D')
+        if not expr or 'DOCKEY' not in fields:
+            continue
+        if row_kind == 'DETAIL' and 'DTLKEY' not in fields:
+            continue
+        specs.append({
+            'doctype': doctype,
+            'table': table_name,
+            'kind': row_kind,
+            'expr': expr,
+            'fields': fields,
+        })
+    return specs
+
+
+def _st_tr_source_join_condition(spec, st_alias='S', src_alias='D'):
+    if spec['kind'] == 'HEADER':
+        return (
+            f"{src_alias}.DOCKEY = {st_alias}.DOCKEY "
+            f"AND COALESCE({st_alias}.DTLKEY, 0) = 0"
+        )
+    return f"{src_alias}.DOCKEY = {st_alias}.DOCKEY AND {src_alias}.DTLKEY = {st_alias}.DTLKEY"
+
+
+def _backfill_st_tr_udf_suomqty(conn):
+    """Backfill ST_TR.UDF_SUOMQTY from source SUOMQTY/SQTY using ST_TR direction."""
+    st_fields = _get_relation_field_names(conn, 'ST_TR')
+    if 'UDF_SUOMQTY' not in st_fields:
+        print("[DB INIT WARNING] ST_TR.UDF_SUOMQTY is missing; backfill skipped")
+        return False
+
+    direction_col = _st_tr_direction_column(st_fields)
+    if not direction_col:
+        print("[DB INIT WARNING] ST_TR has no SQTY/QTY direction column; UDF_SUOMQTY backfill skipped")
+        return False
+
+    specs = _st_tr_source_specs(conn)
+    if not specs:
+        print("[DB INIT WARNING] No source tables found for ST_TR.UDF_SUOMQTY backfill")
+        return False
+
+    cur = conn.cursor()
+    total_updated = 0
+    try:
+        for spec in specs:
+            join_condition = _st_tr_source_join_condition(spec)
+            raw_subquery = (
+                f"(SELECT FIRST 1 {spec['expr']} "
+                f"FROM {spec['table']} D "
+                f"WHERE {join_condition})"
+            )
+            cur.execute(
+                f"""
+                UPDATE ST_TR S
+                SET UDF_SUOMQTY =
+                    CASE
+                        WHEN COALESCE(S.{direction_col}, 0) < 0 THEN -ABS({raw_subquery})
+                        ELSE ABS({raw_subquery})
+                    END
+                WHERE S.DOCTYPE = ?
+                  AND S.UDF_SUOMQTY IS NULL
+                  AND EXISTS (
+                      SELECT 1
+                      FROM {spec['table']} D
+                      WHERE {join_condition}
+                  )
+                """,
+                (spec['doctype'],)
+            )
+            total_updated += int(cur.rowcount or 0)
+        conn.commit()
+        print(f"[DB INIT] Backfilled ST_TR.UDF_SUOMQTY for {total_updated} rows")
+        return True
+    except Exception as e:
+        conn.rollback()
+        print(f"[DB INIT WARNING] Could not backfill ST_TR.UDF_SUOMQTY: {e}")
+        return False
+    finally:
+        cur.close()
+
+
+def _ensure_st_tr_udf_suomqty_sync_trigger(conn):
+    """Populate ST_TR.UDF_SUOMQTY for future stock postings."""
+    st_fields = _get_relation_field_names(conn, 'ST_TR')
+    if 'UDF_SUOMQTY' not in st_fields:
+        print("[DB INIT WARNING] ST_TR.UDF_SUOMQTY is missing; trigger skipped")
+        return False
+
+    direction_col = _st_tr_direction_column(st_fields)
+    if not direction_col:
+        print("[DB INIT WARNING] ST_TR has no SQTY/QTY direction column; trigger skipped")
+        return False
+
+    specs = _st_tr_source_specs(conn)
+    if not specs:
+        print("[DB INIT WARNING] No source tables found for ST_TR.UDF_SUOMQTY trigger")
+        return False
+
+    blocks = []
+    for spec in specs:
+        if spec['kind'] == 'HEADER':
+            condition = f"NEW.DOCTYPE = '{spec['doctype']}' AND COALESCE(NEW.DTLKEY, 0) = 0"
+            where = "D.DOCKEY = NEW.DOCKEY"
+        else:
+            condition = f"NEW.DOCTYPE = '{spec['doctype']}'"
+            where = "D.DOCKEY = NEW.DOCKEY AND D.DTLKEY = NEW.DTLKEY"
+        blocks.append(
+            f"""
+          IF ({condition}) THEN
+            SELECT FIRST 1 {spec['expr']}
+            FROM {spec['table']} D
+            WHERE {where}
+            INTO :V_RAW;
+            """
+        )
+
+    trigger_sql = f"""
+        CREATE TRIGGER TRG_ST_TR_UDF_SUOMQTY_SYNC FOR ST_TR
+        ACTIVE BEFORE INSERT OR UPDATE POSITION 0
+        AS
+        DECLARE VARIABLE V_RAW NUMERIC(18, 4);
+        BEGIN
+          V_RAW = NULL;
+          {"".join(blocks)}
+
+          IF (V_RAW IS NULL) THEN
+            V_RAW = 0;
+
+          IF (COALESCE(NEW.{direction_col}, 0) < 0) THEN
+            NEW.UDF_SUOMQTY = -ABS(V_RAW);
+          ELSE
+            NEW.UDF_SUOMQTY = ABS(V_RAW);
+        END
+    """
+
+    cur = conn.cursor()
+    try:
+        try:
+            cur.execute("DROP TRIGGER TRG_ST_TR_UDF_SUOMQTY_SYNC")
+            conn.commit()
+        except Exception:
+            pass
+
+        cur.execute(trigger_sql)
+        conn.commit()
+        print(
+            "[DB INIT] Trigger TRG_ST_TR_UDF_SUOMQTY_SYNC created: "
+            f"UDF_SUOMQTY follows ST_TR.{direction_col} sign"
+        )
+        return True
+    except Exception as e:
+        error_msg = str(e).lower()
+        if 'already exists' in error_msg or 'name in use' in error_msg:
+            print("[DB INIT] Trigger TRG_ST_TR_UDF_SUOMQTY_SYNC already exists")
+            return True
+        print(f"[DB INIT WARNING] Could not create TRG_ST_TR_UDF_SUOMQTY_SYNC: {e}")
+        return False
+    finally:
+        cur.close()
+
+
 def _ensure_st_xtrans_suomqty_column(conn):
     """Ensure ST_XTRANS table has SUOMQTY column for stock/UOM quantity tracking."""
     cur = conn.cursor()
@@ -1661,6 +1931,11 @@ def initialize_database(db_path, db_user, db_password):
 
         # Keep SL_QTDTL.LOCALAMOUNT in sync with AMOUNT * SL_QT.CURRENCYRATE
         _ensure_sl_qtdtl_localamount_sync_trigger(conn)
+
+        # ST_TR: optional UDF for secondary-UOM qty (populated alongside SQTY by stock posting)
+        _ensure_st_tr_udf_suomqty_column(conn)
+        _backfill_st_tr_udf_suomqty(conn)
+        _ensure_st_tr_udf_suomqty_sync_trigger(conn)
 
         # Ensure ST_XTRANS has SUOMQTY and can populate it safely from SQTY / QTY * RATE
         _ensure_st_xtrans_suomqty_column(conn)

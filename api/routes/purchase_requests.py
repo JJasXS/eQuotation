@@ -2,13 +2,20 @@
 from __future__ import annotations
 
 import os
+import time
 from typing import Any
 
 import fdb
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, HTTPException, Query, Body
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from api.routes.customers import verify_api_keys
+
+# PH_PQ column metadata is stable per process; avoid RDB$RELATION_FIELDS on every list call.
+_PH_PQ_COLS_FROZEN: frozenset[str] | None = None
+
+# Firebird: skipping SELECT COUNT(*) FROM PH_PQ avoids a full-table scan on large PH_PQ.
+# Recommended: CREATE INDEX IDX_PH_PQ_DOCDATE ON PH_PQ (DOCDATE DESC); index DOCKEY for detail joins.
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '../../.env'))
 DB_PATH = os.getenv('DB_PATH')
@@ -23,6 +30,17 @@ def _connect_db() -> fdb.Connection:
     if not DB_PATH or not DB_HOST or not DB_USER:
         raise RuntimeError("DB connection environment is not fully configured")
     return fdb.connect(dsn=f"{DB_HOST}:{DB_PATH}", user=DB_USER, password=DB_PASSWORD, charset='UTF8')
+
+
+def _cached_ph_pq_columns(cur: Any) -> set[str]:
+    """Resolve PH_PQ columns once per process (cleared only on worker restart)."""
+    global _PH_PQ_COLS_FROZEN
+    if _PH_PQ_COLS_FROZEN is not None:
+        return set(_PH_PQ_COLS_FROZEN)
+    cols = _get_table_columns(cur, "PH_PQ")
+    if cols:
+        _PH_PQ_COLS_FROZEN = frozenset(cols)
+    return cols or set()
 
 
 def _get_table_columns(cur: Any, table_name: str) -> set[str]:
@@ -126,6 +144,36 @@ def _header_to_payload(row: dict[str, Any]) -> dict[str, Any]:
         "udf_status": _to_text(row.get("UDF_STATUS")),
         "udf_pqapproved": row.get("UDF_PQAPPROVED"),
         "udf_reason": _to_text(row.get("UDF_REASON")),
+    }
+
+
+def _minimal_tuple_to_row_map(r: tuple[Any, ...]) -> dict[str, Any]:
+    """Map slim 16-column list SELECT row to the shape expected by _header_to_payload."""
+    return {
+        "DOCKEY": r[0],
+        "DOCNO": r[1],
+        "DOCNOEX": None,
+        "DOCDATE": r[2],
+        "POSTDATE": r[3],
+        "TAXDATE": None,
+        "CODE": r[4],
+        "COMPANYNAME": r[5],
+        "AREA": r[7],
+        "AGENT": None,
+        "PROJECT": r[8],
+        "CURRENCYCODE": r[9],
+        "CURRENCYRATE": None,
+        "DESCRIPTION": None,
+        "CANCELLED": r[15],
+        "STATUS": r[11],
+        "DOCAMT": r[10],
+        "BUSINESSUNIT": r[6],
+        "NOTE": None,
+        "TRANSFERABLE": r[14],
+        "LASTMODIFIED": None,
+        "UDF_STATUS": r[12],
+        "UDF_PQAPPROVED": None,
+        "UDF_REASON": r[13],
     }
 
 
@@ -245,15 +293,28 @@ def list_purchase_requests(
     id: int | None = Query(None),
     docno: str | None = Query(None),
     requestno: str | None = Query(None),
+    include_total: bool = Query(
+        False,
+        description="If true, run COUNT(*) for pagination.total. Default false skips full-table count (fast).",
+    ),
+    fields: str = Query(
+        "minimal",
+        description="minimal = columns needed for admin list; full = all header fields.",
+    ),
     _: None = Depends(verify_api_keys),
 ):
     """List purchase request headers with pagination and optional filtering."""
     con = None
     cur = None
+    t_route = time.perf_counter()
+    perf: dict[str, Any] = {"endpoint": "list_purchase_requests", "fields": fields.strip().lower() or "minimal"}
+    use_minimal = fields.strip().lower() != "full"
     try:
         con = _connect_db()
         cur = con.cursor()
-        header_cols = _get_table_columns(cur, "PH_PQ")
+        t0 = time.perf_counter()
+        header_cols = _cached_ph_pq_columns(cur)
+        perf["columnResolveMs"] = round((time.perf_counter() - t0) * 1000, 3)
 
         if not header_cols:
             raise HTTPException(status_code=404, detail="PH_PQ table not found")
@@ -286,7 +347,7 @@ def list_purchase_requests(
         if not key_col:
             raise HTTPException(status_code=500, detail="PH_PQ key column not found")
 
-        select_cols = [
+        select_cols_full = [
             f"H.{key_col} AS DOCKEY",
             f"H.{docno_col} AS DOCNO" if docno_col else "NULL AS DOCNO",
             f"H.{docnoex_col} AS DOCNOEX" if docnoex_col else "NULL AS DOCNOEX",
@@ -313,6 +374,27 @@ def list_purchase_requests(
             f"H.{udf_reason_col} AS UDF_REASON" if udf_reason_col else "NULL AS UDF_REASON",
         ]
 
+        select_cols_min = [
+            f"H.{key_col} AS DOCKEY",
+            f"H.{docno_col} AS DOCNO" if docno_col else "NULL AS DOCNO",
+            f"H.{docdate_col} AS DOCDATE" if docdate_col else "NULL AS DOCDATE",
+            f"H.{postdate_col} AS POSTDATE" if postdate_col else "NULL AS POSTDATE",
+            f"H.{code_col} AS CODE" if code_col else "NULL AS CODE",
+            f"H.{company_col} AS COMPANYNAME" if company_col else "NULL AS COMPANYNAME",
+            f"H.{businessunit_col} AS BUSINESSUNIT" if businessunit_col else "NULL AS BUSINESSUNIT",
+            f"H.{area_col} AS AREA" if area_col else "NULL AS AREA",
+            f"H.{project_col} AS PROJECT" if project_col else "NULL AS PROJECT",
+            f"H.{currency_col} AS CURRENCYCODE" if currency_col else "NULL AS CURRENCYCODE",
+            f"H.{docamt_col} AS DOCAMT" if docamt_col else "NULL AS DOCAMT",
+            f"H.{status_col} AS STATUS" if status_col else "NULL AS STATUS",
+            f"H.{udf_status_col} AS UDF_STATUS" if udf_status_col else "NULL AS UDF_STATUS",
+            f"H.{udf_reason_col} AS UDF_REASON" if udf_reason_col else "NULL AS UDF_REASON",
+            f"H.{transferable_col} AS TRANSFERABLE" if transferable_col else "NULL AS TRANSFERABLE",
+            f"H.{cancelled_col} AS CANCELLED" if cancelled_col else "NULL AS CANCELLED",
+        ]
+
+        select_cols = select_cols_min if use_minimal else select_cols_full
+
         filters = []
         params: list[Any] = []
         query_key = dockey if dockey is not None else id
@@ -320,60 +402,78 @@ def list_purchase_requests(
             filters.append(f"H.{key_col} = ?")
             params.append(int(query_key))
 
-        doc_filter = (docno or requestno or '').strip()
+        doc_filter = (docno or requestno or "").strip()
         if doc_filter and docno_col:
             filters.append(f"H.{docno_col} = ?")
             params.append(doc_filter)
 
         where_sql = f" WHERE {' AND '.join(filters)}" if filters else ""
+        order_col = docdate_col or key_col
+        run_count = bool(filters) or include_total
+        perf["includeTotal"] = run_count
+        perf["skippedFullTableCount"] = not bool(filters) and not include_total
 
-        if filters:
+        total: int | None = None
+        count_ms = 0.0
+        if run_count:
+            t_count = time.perf_counter()
             cur.execute(f"SELECT COUNT(*) FROM PH_PQ H{where_sql}", tuple(params))
             total = int((cur.fetchone() or [0])[0] or 0)
-            order_col = docdate_col or key_col
+            count_ms = (time.perf_counter() - t_count) * 1000
+        perf["countQueryMs"] = round(count_ms, 3)
+
+        t_data = time.perf_counter()
+        if filters:
             cur.execute(
-                f"SELECT {', '.join(select_cols)} FROM PH_PQ H{where_sql} ORDER BY H.{order_col} DESC",
-                tuple(params),
+                f"SELECT FIRST ? SKIP ? {', '.join(select_cols)} FROM PH_PQ H{where_sql} ORDER BY H.{order_col} DESC",
+                (limit, offset, *params),
             )
         else:
-            cur.execute("SELECT COUNT(*) FROM PH_PQ")
-            total = int((cur.fetchone() or [0])[0] or 0)
-            order_col = docdate_col or key_col
             cur.execute(
                 f"SELECT FIRST ? SKIP ? {', '.join(select_cols)} FROM PH_PQ H ORDER BY H.{order_col} DESC",
                 (limit, offset),
             )
+        data_query_ms = (time.perf_counter() - t_data) * 1000
+        perf["dataQueryMs"] = round(data_query_ms, 3)
 
         rows = cur.fetchall() or []
+        t_ser = time.perf_counter()
         data = []
-        for r in rows:
-            row_map = {
-                "DOCKEY": r[0],
-                "DOCNO": r[1],
-                "DOCNOEX": r[2],
-                "DOCDATE": r[3],
-                "POSTDATE": r[4],
-                "TAXDATE": r[5],
-                "CODE": r[6],
-                "COMPANYNAME": r[7],
-                "AREA": r[8],
-                "AGENT": r[9],
-                "PROJECT": r[10],
-                "CURRENCYCODE": r[11],
-                "CURRENCYRATE": r[12],
-                "DESCRIPTION": r[13],
-                "CANCELLED": r[14],
-                "STATUS": r[15],
-                "DOCAMT": r[16],
-                "BUSINESSUNIT": r[17],
-                "NOTE": r[18],
-                "TRANSFERABLE": r[19],
-                "LASTMODIFIED": r[20],
-                "UDF_STATUS": r[21],
-                "UDF_PQAPPROVED": r[22],
-                "UDF_REASON": r[23],
-            }
-            data.append(_header_to_payload(row_map))
+        if use_minimal:
+            for r in rows:
+                data.append(_header_to_payload(_minimal_tuple_to_row_map(r)))
+        else:
+            for r in rows:
+                row_map = {
+                    "DOCKEY": r[0],
+                    "DOCNO": r[1],
+                    "DOCNOEX": r[2],
+                    "DOCDATE": r[3],
+                    "POSTDATE": r[4],
+                    "TAXDATE": r[5],
+                    "CODE": r[6],
+                    "COMPANYNAME": r[7],
+                    "AREA": r[8],
+                    "AGENT": r[9],
+                    "PROJECT": r[10],
+                    "CURRENCYCODE": r[11],
+                    "CURRENCYRATE": r[12],
+                    "DESCRIPTION": r[13],
+                    "CANCELLED": r[14],
+                    "STATUS": r[15],
+                    "DOCAMT": r[16],
+                    "BUSINESSUNIT": r[17],
+                    "NOTE": r[18],
+                    "TRANSFERABLE": r[19],
+                    "LASTMODIFIED": r[20],
+                    "UDF_STATUS": r[21],
+                    "UDF_PQAPPROVED": r[22],
+                    "UDF_REASON": r[23],
+                }
+                data.append(_header_to_payload(row_map))
+        perf["serializeMs"] = round((time.perf_counter() - t_ser) * 1000, 3)
+        perf["rowCount"] = len(data)
+        perf["totalMs"] = round((time.perf_counter() - t_route) * 1000, 3)
 
         return {
             "pagination": {
@@ -383,6 +483,7 @@ def list_purchase_requests(
                 "total": total,
             },
             "data": data,
+            "perf": perf,
         }
     except HTTPException:
         raise

@@ -1,4 +1,28 @@
 let customerStatusChart = null;
+const ADMIN_DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000;
+
+function readDashboardCache(key) {
+    try {
+        const raw = sessionStorage.getItem(key);
+        if (!raw) return null;
+        const cached = JSON.parse(raw);
+        if (!cached || Date.now() - Number(cached.at || 0) > ADMIN_DASHBOARD_CACHE_TTL_MS) {
+            sessionStorage.removeItem(key);
+            return null;
+        }
+        return cached.data || null;
+    } catch {
+        return null;
+    }
+}
+
+function writeDashboardCache(key, data) {
+    try {
+        sessionStorage.setItem(key, JSON.stringify({ at: Date.now(), data }));
+    } catch {
+        // Ignore browser storage limits/private mode.
+    }
+}
 
 function attachDashboardNavigation() {
     const widgets = document.querySelectorAll('.dashboard-widget--interactive[data-href]');
@@ -98,8 +122,109 @@ function renderCustomerStatusChart(items) {
     }
 }
 
+function renderSalesCycleWidget(data) {
+    const convertedEl = document.getElementById('sales-cycle-converted');
+    const avgEl = document.getElementById('sales-cycle-avg');
+    const shortestEl = document.getElementById('sales-cycle-shortest');
+    const longestEl = document.getElementById('sales-cycle-longest');
+    const breakdownEl = document.getElementById('sales-cycle-breakdown');
+    const totalInvoices = Number(data.total_converted_invoices || 0);
+    const avgDays = Number(data.avg_sales_cycle_days || 0);
+
+    const validDays = (Array.isArray(data.items) ? data.items : [])
+        .map(item => Number(item.sales_cycle_days || 0))
+        .filter(days => Number.isFinite(days) && days > 0);
+
+    const shortestDays = validDays.length ? Math.min(...validDays) : 0;
+    const longestDays = validDays.length ? Math.max(...validDays) : 0;
+
+    if (convertedEl) convertedEl.textContent = String(totalInvoices);
+    if (avgEl) avgEl.textContent = `${avgDays.toFixed(2)} days`;
+    if (shortestEl) shortestEl.textContent = `${Math.round(shortestDays)} day(s)`;
+    if (longestEl) longestEl.textContent = `${Math.round(longestDays)} day(s)`;
+    if (breakdownEl) breakdownEl.textContent = 'Click this card for detail view.';
+}
+
+function renderQtIvConversionWidget(data) {
+    const totalEl = document.getElementById('conversion-total-qt');
+    const avgEl = document.getElementById('conversion-avg');
+    const topEl = document.getElementById('conversion-top');
+    const lowEl = document.getElementById('conversion-low');
+    const breakdownEl = document.getElementById('qt-iv-conversion-breakdown');
+    const lines = Array.isArray(data.items) ? data.items : [];
+
+    const pick = (obj, ...keys) => {
+        for (const key of keys) {
+            if (obj && Object.prototype.hasOwnProperty.call(obj, key)) {
+                return obj[key];
+            }
+        }
+        return undefined;
+    };
+
+    const grouped = lines.reduce((acc, item) => {
+        const key = String(
+            pick(item, 'qt_docno', 'QT_DOCNO', 'qt_dockey', 'QT_DOCKEY') || ''
+        ).trim();
+        if (!key) {
+            return acc;
+        }
+
+        if (!acc[key]) {
+            acc[key] = {
+                qt_qty: 0,
+                iv_qty: 0,
+            };
+        }
+
+        acc[key].qt_qty += Number(pick(item, 'qt_qty', 'QT_QTY') || 0);
+        acc[key].iv_qty += Number(pick(item, 'iv_qty', 'IV_QTY') || 0);
+        return acc;
+    }, {});
+
+    const rows = Object.values(grouped).map(row => {
+        const qtQty = Number(row.qt_qty || 0);
+        const ivQty = Number(row.iv_qty || 0);
+        const pct = qtQty > 0 ? (ivQty / qtQty) * 100 : 0;
+        return {
+            qt_qty: qtQty,
+            iv_qty: ivQty,
+            conversion_pct: Number(pct.toFixed(2)),
+        };
+    });
+
+    const totalQt = rows.length;
+    const groupedQtQty = rows.reduce((sum, row) => sum + row.qt_qty, 0);
+    const groupedIvQty = rows.reduce((sum, row) => sum + row.iv_qty, 0);
+    const apiQtQty = Number(data.total_qt_qty || data.TOTAL_QT_QTY || 0);
+    const apiIvQty = Number(data.total_iv_qty || data.TOTAL_IV_QTY || 0);
+    const totalQtQty = groupedQtQty > 0 ? groupedQtQty : apiQtQty;
+    const totalIvQty = groupedIvQty > 0 ? groupedIvQty : apiIvQty;
+    const weightedAvg = totalQtQty > 0 ? (totalIvQty / totalQtQty) * 100 : 0;
+    const top = rows.length ? Math.max(...rows.map(row => row.conversion_pct)) : 0;
+    const nonzeroRows = rows.filter(row => row.conversion_pct > 0);
+    const low = nonzeroRows.length ? Math.min(...nonzeroRows.map(row => row.conversion_pct)) : 0;
+
+    if (totalEl) totalEl.textContent = String(totalQt);
+    if (avgEl) avgEl.textContent = `${weightedAvg.toFixed(2)}%`;
+    if (topEl) topEl.textContent = `${top.toFixed(2)}%`;
+    if (lowEl) lowEl.textContent = `${low.toFixed(2)}%`;
+
+    if (breakdownEl) {
+        const totalLines = Number(data.total_qt_lines || data.TOTAL_QT_LINES || lines.length || 0);
+        const notInvoiced = Number(data.not_invoiced_lines || data.NOT_INVOICED_LINES || 0);
+        const partial = Number(data.partial_lines || data.PARTIAL_LINES || 0);
+        const fullOrOver = Number(data.full_or_over_lines || data.FULL_OR_OVER_LINES || 0);
+        breakdownEl.innerHTML = `QT lines: <strong>${totalLines}</strong>. QT qty: <strong>${totalQtQty.toFixed(2)}</strong>. IV qty: <strong>${totalIvQty.toFixed(2)}</strong>. Not invoiced: <strong>${notInvoiced}</strong>, partial: <strong>${partial}</strong>, full/over: <strong>${fullOrOver}</strong>.`;
+    }
+}
+
 async function loadCustomerStatusWidget() {
     const summary = document.getElementById('customer-status-summary');
+    const cached = readDashboardCache('adminDashboard.customerStatus');
+    if (cached && Array.isArray(cached.items)) {
+        renderCustomerStatusChart(cached.items);
+    }
     try {
         const response = await fetch('/api/admin/customer_status_summary');
         const payload = await response.json();
@@ -109,8 +234,9 @@ async function loadCustomerStatusWidget() {
         }
 
         renderCustomerStatusChart(payload.data.items);
+        writeDashboardCache('adminDashboard.customerStatus', { items: payload.data.items });
     } catch (error) {
-        if (summary) {
+        if (summary && !cached) {
             summary.textContent = error.message || 'Failed to load customer status summary.';
         }
     }
@@ -122,6 +248,10 @@ async function loadSalesCycleWidget() {
     const shortestEl = document.getElementById('sales-cycle-shortest');
     const longestEl = document.getElementById('sales-cycle-longest');
     const breakdownEl = document.getElementById('sales-cycle-breakdown');
+    const cached = readDashboardCache('adminDashboard.salesCycle');
+    if (cached) {
+        renderSalesCycleWidget(cached);
+    }
 
     try {
         const response = await fetch('/api/admin/sales_cycle_details');
@@ -131,23 +261,10 @@ async function loadSalesCycleWidget() {
             throw new Error(payload.error || 'Failed to load sales cycle metrics');
         }
 
-        const data = payload.data;
-        const totalInvoices = Number(data.total_converted_invoices || 0);
-        const avgDays = Number(data.avg_sales_cycle_days || 0);
-
-        const validDays = data.items
-            .map(item => Number(item.sales_cycle_days || 0))
-            .filter(days => Number.isFinite(days) && days > 0);
-
-        const shortestDays = validDays.length ? Math.min(...validDays) : 0;
-        const longestDays = validDays.length ? Math.max(...validDays) : 0;
-
-        if (convertedEl) convertedEl.textContent = String(totalInvoices);
-        if (avgEl) avgEl.textContent = `${avgDays.toFixed(2)} days`;
-        if (shortestEl) shortestEl.textContent = `${Math.round(shortestDays)} day(s)`;
-        if (longestEl) longestEl.textContent = `${Math.round(longestDays)} day(s)`;
-        if (breakdownEl) breakdownEl.textContent = 'Click this card for detail view.';
+        renderSalesCycleWidget(payload.data);
+        writeDashboardCache('adminDashboard.salesCycle', payload.data);
     } catch (error) {
+        if (cached) return;
         if (convertedEl) convertedEl.textContent = '0';
         if (avgEl) avgEl.textContent = '0.00 days';
         if (shortestEl) shortestEl.textContent = '0 day(s)';
@@ -162,6 +279,10 @@ async function loadQtIvConversionWidget() {
     const topEl = document.getElementById('conversion-top');
     const lowEl = document.getElementById('conversion-low');
     const breakdownEl = document.getElementById('qt-iv-conversion-breakdown');
+    const cached = readDashboardCache('adminDashboard.qtIvConversion');
+    if (cached) {
+        renderQtIvConversionWidget(cached);
+    }
 
     try {
         const candidateUrls = [
@@ -222,73 +343,10 @@ async function loadQtIvConversionWidget() {
             throw lastError || new Error('Failed to load QT->IV conversion report');
         }
 
-        const lines = Array.isArray(data.items) ? data.items : [];
-
-        const pick = (obj, ...keys) => {
-            for (const key of keys) {
-                if (obj && Object.prototype.hasOwnProperty.call(obj, key)) {
-                    return obj[key];
-                }
-            }
-            return undefined;
-        };
-
-        const grouped = lines.reduce((acc, item) => {
-            const key = String(
-                pick(item, 'qt_docno', 'QT_DOCNO', 'qt_dockey', 'QT_DOCKEY') || ''
-            ).trim();
-            if (!key) {
-                return acc;
-            }
-
-            if (!acc[key]) {
-                acc[key] = {
-                    qt_qty: 0,
-                    iv_qty: 0,
-                };
-            }
-
-            acc[key].qt_qty += Number(pick(item, 'qt_qty', 'QT_QTY') || 0);
-            acc[key].iv_qty += Number(pick(item, 'iv_qty', 'IV_QTY') || 0);
-            return acc;
-        }, {});
-
-        const rows = Object.values(grouped).map(row => {
-            const qtQty = Number(row.qt_qty || 0);
-            const ivQty = Number(row.iv_qty || 0);
-            const pct = qtQty > 0 ? (ivQty / qtQty) * 100 : 0;
-            return {
-                qt_qty: qtQty,
-                iv_qty: ivQty,
-                conversion_pct: Number(pct.toFixed(2)),
-            };
-        });
-
-        const totalQt = rows.length;
-        const groupedQtQty = rows.reduce((sum, row) => sum + row.qt_qty, 0);
-        const groupedIvQty = rows.reduce((sum, row) => sum + row.iv_qty, 0);
-        const apiQtQty = Number(data.total_qt_qty || data.TOTAL_QT_QTY || 0);
-        const apiIvQty = Number(data.total_iv_qty || data.TOTAL_IV_QTY || 0);
-        const totalQtQty = groupedQtQty > 0 ? groupedQtQty : apiQtQty;
-        const totalIvQty = groupedIvQty > 0 ? groupedIvQty : apiIvQty;
-        const weightedAvg = totalQtQty > 0 ? (totalIvQty / totalQtQty) * 100 : 0;
-        const top = rows.length ? Math.max(...rows.map(row => row.conversion_pct)) : 0;
-        const nonzeroRows = rows.filter(row => row.conversion_pct > 0);
-        const low = nonzeroRows.length ? Math.min(...nonzeroRows.map(row => row.conversion_pct)) : 0;
-
-        if (totalEl) totalEl.textContent = String(totalQt);
-        if (avgEl) avgEl.textContent = `${weightedAvg.toFixed(2)}%`;
-        if (topEl) topEl.textContent = `${top.toFixed(2)}%`;
-        if (lowEl) lowEl.textContent = `${low.toFixed(2)}%`;
-
-        if (breakdownEl) {
-            const totalLines = Number(data.total_qt_lines || data.TOTAL_QT_LINES || lines.length || 0);
-            const notInvoiced = Number(data.not_invoiced_lines || data.NOT_INVOICED_LINES || 0);
-            const partial = Number(data.partial_lines || data.PARTIAL_LINES || 0);
-            const fullOrOver = Number(data.full_or_over_lines || data.FULL_OR_OVER_LINES || 0);
-            breakdownEl.innerHTML = `QT lines: <strong>${totalLines}</strong>. QT qty: <strong>${totalQtQty.toFixed(2)}</strong>. IV qty: <strong>${totalIvQty.toFixed(2)}</strong>. Not invoiced: <strong>${notInvoiced}</strong>, partial: <strong>${partial}</strong>, full/over: <strong>${fullOrOver}</strong>.`;
-        }
+        renderQtIvConversionWidget(data);
+        writeDashboardCache('adminDashboard.qtIvConversion', data);
     } catch (error) {
+        if (cached) return;
         if (totalEl) totalEl.textContent = '0';
         if (avgEl) avgEl.textContent = '0.00%';
         if (topEl) topEl.textContent = '0.00%';

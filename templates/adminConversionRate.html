@@ -8,19 +8,20 @@
     <link rel="stylesheet" href="/static/css/hamburger_menu.css">
     <link rel="stylesheet" href="/static/css/app_page_header.css">
 </head>
-<body>
+<body class="admin-report-ui">
     <div class="admin-container">
-        {% set page_header_title = "Admin Dashboard" %}
+        {% set page_header_title = "Admin > Conversion Rate" %}
         {% include 'components/app_page_header.html' %}
 
         <div class="analytics-page">
             <div class="analytics-shell">
-                <div class="analytics-toolbar">
+                <div class="analytics-toolbar analytics-toolbar--hero">
                     <div class="analytics-title">
+                        <span class="analytics-eyebrow">Report Detail</span>
                         <h1>Conversion Rate</h1>
                         <p>Quotation-to-invoice conversion percentage by quotation document.</p>
                     </div>
-                    <a class="analytics-back-link" href="/admin"><- Back to Dashboard</a>
+                    <a class="analytics-back-link" href="/admin">← Back to Dashboard</a>
                 </div>
 
                 <div class="analytics-stats">
@@ -54,6 +55,12 @@
                             <h3>Conversion Detail</h3>
                             <p>Per quotation totals with company name and IV-first quantity view.</p>
                         </div>
+                    </div>
+                    <div class="conversion-filter-tabs" role="group" aria-label="Filter conversion percentage">
+                        <button type="button" class="conversion-filter-tab active" data-range="all">All</button>
+                        <button type="button" class="conversion-filter-tab" data-range="0-50">0-49%</button>
+                        <button type="button" class="conversion-filter-tab" data-range="50-100">50-99%</button>
+                        <button type="button" class="conversion-filter-tab" data-range="100+">100%+</button>
                     </div>
                     <div class="analytics-list" id="conversion-rate-list">
                         <div class="analytics-empty">Loading conversion details...</div>

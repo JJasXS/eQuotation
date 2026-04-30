@@ -136,8 +136,8 @@ function renderInvoiceAgingChart(items) {
             datasets: [{
                 label: 'Days Ago',
                 data: counts,
-                backgroundColor: '#6a8fc7',
-                borderColor: '#9bb8ea',
+                backgroundColor: '#b98237',
+                borderColor: '#dfc18a',
                 borderWidth: 1,
                 borderRadius: 8,
                 maxBarThickness: 42,
@@ -153,27 +153,27 @@ function renderInvoiceAgingChart(items) {
                     beginAtZero: true,
                     max: xAxisMax,
                     ticks: {
-                        color: '#d8deea',
+                        color: '#5a432d',
                         precision: 0,
                     },
                     grid: {
-                        color: 'rgba(255, 255, 255, 0.05)',
+                        color: 'rgba(112, 86, 45, 0.12)',
                     },
                 },
                 y: {
                     ticks: {
-                        color: '#d8deea',
+                        color: '#5a432d',
                         autoSkip: false,
                     },
                     grid: {
-                        color: 'rgba(255, 255, 255, 0.06)',
+                        color: 'rgba(112, 86, 45, 0.10)',
                     },
                 },
             },
             plugins: {
                 legend: {
                     labels: {
-                        color: '#d8deea',
+                        color: '#5a432d',
                     },
                 },
                 tooltip: {
@@ -287,8 +287,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Optionally, reset pagination on filter change
             // loadInvoiceAging(true);
             // For now, just filter loaded items
-            renderInvoiceAgingChart(allInvoiceAgingItems);
-            renderInvoiceAgingList(allInvoiceAgingItems);
+            applyAgingFilter();
         });
     }
     const moreBtn = document.getElementById('invoice-aging-more-btn');
