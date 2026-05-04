@@ -1255,6 +1255,73 @@ def _backfill_st_xtrans_suomqty_from_st_tr_udf(conn):
         cur.close()
 
 
+def sync_st_xtrans_suomqty_from_st_tr_udf(conn):
+    """Re-run the ST_TR → ST_XTRANS.SUOMQTY overlay (same SQL as DB init). Safe to call from an admin API."""
+    return _backfill_st_xtrans_suomqty_from_st_tr_udf(conn)
+
+
+def _ensure_st_tr_push_suomqty_to_xtrans_trigger(conn):
+    """
+    When ``ST_TR`` rows are inserted/updated, refresh ``ST_XTRANS.SUOMQTY`` for transfer rows whose
+    *to* document line (TODOCTYPE / TODOCKEY / TODTLKEY) matches that stock line.
+
+    This keeps procurement SO/PO outstanding (which read ``ST_XTRANS.SUOMQTY``) current without
+    restarting the app to re-run the one-time backfill.
+    """
+    st_fields = _get_relation_field_names(conn, "ST_TR")
+    if not {"UDF_SUOMQTY", "DOCTYPE", "DOCKEY", "DTLKEY"}.issubset(st_fields):
+        print("[DB INIT WARNING] ST_TR missing UDF_SUOMQTY or keys; TRG_ST_TR_PUSH_SUOMQTY_TO_XTRANS skipped")
+        return False
+    x_fields = _get_relation_field_names(conn, "ST_XTRANS")
+    if not {"SUOMQTY", "TODOCTYPE", "TODOCKEY", "TODTLKEY"}.issubset(x_fields):
+        print("[DB INIT WARNING] ST_XTRANS missing TODO* / SUOMQTY; TRG_ST_TR_PUSH_SUOMQTY_TO_XTRANS skipped")
+        return False
+
+    cur = conn.cursor()
+    try:
+        try:
+            cur.execute("DROP TRIGGER TRG_ST_TR_PUSH_SUOMQTY_TO_XTRANS")
+            conn.commit()
+        except Exception:
+            pass
+
+        cur.execute(
+            """
+            CREATE TRIGGER TRG_ST_TR_PUSH_SUOMQTY_TO_XTRANS FOR ST_TR
+            ACTIVE AFTER INSERT OR UPDATE POSITION 20
+            AS
+            BEGIN
+              UPDATE ST_XTRANS X
+              SET X.SUOMQTY = COALESCE((
+                SELECT CAST(SUM(CAST(COALESCE(S2.UDF_SUOMQTY, 0) AS DOUBLE PRECISION)) AS DOUBLE PRECISION)
+                FROM ST_TR S2
+                WHERE TRIM(UPPER(COALESCE(S2.DOCTYPE, ''))) = TRIM(UPPER(COALESCE(X.TODOCTYPE, '')))
+                  AND S2.DOCKEY = X.TODOCKEY
+                  AND S2.DTLKEY = X.TODTLKEY
+              ), 0)
+              WHERE X.TODOCKEY IS NOT NULL
+                AND X.TODTLKEY IS NOT NULL
+                AND TRIM(COALESCE(X.TODOCTYPE, '')) <> ''
+                AND TRIM(UPPER(COALESCE(X.TODOCTYPE, ''))) = TRIM(UPPER(COALESCE(NEW.DOCTYPE, '')))
+                AND X.TODOCKEY = NEW.DOCKEY
+                AND X.TODTLKEY = NEW.DTLKEY;
+            END
+            """
+        )
+        conn.commit()
+        print(
+            "[DB INIT] TRG_ST_TR_PUSH_SUOMQTY_TO_XTRANS: ST_TR postings refresh ST_XTRANS.SUOMQTY "
+            "on matching TODOCTYPE/TODOCKEY/TODTLKEY"
+        )
+        return True
+    except Exception as e:
+        conn.rollback()
+        print(f"[DB INIT WARNING] Could not create TRG_ST_TR_PUSH_SUOMQTY_TO_XTRANS: {e}")
+        return False
+    finally:
+        cur.close()
+
+
 def _ensure_st_xtrans_suomqty_sync_trigger(conn):
     """
     Ensure ST_XTRANS.SUOMQTY defaults to 0 when omitted.
@@ -1982,6 +2049,7 @@ def initialize_database(db_path, db_user, db_password):
         _ensure_st_xtrans_suomqty_column(conn)
         _backfill_st_xtrans_suomqty(conn)
         _backfill_st_xtrans_suomqty_from_st_tr_udf(conn)
+        _ensure_st_tr_push_suomqty_to_xtrans_trigger(conn)
         _ensure_st_xtrans_suomqty_sync_trigger(conn)
 
         # Ensure pricing priority rule settings table exists and is seeded

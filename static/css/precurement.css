@@ -396,6 +396,55 @@ body {
     margin-bottom: 0;
 }
 
+/* Stock report: column visibility + collapsed advanced (qty / layout) */
+.stock-column-filter-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+
+.stock-column-filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    align-items: center;
+}
+
+.stock-column-filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: #e2e8f0;
+    cursor: pointer;
+    user-select: none;
+}
+
+.stock-column-filter-chip input {
+    margin: 0;
+    cursor: pointer;
+}
+
+.stock-report-advanced-btn {
+    align-self: flex-start;
+}
+
+.stock-report-advanced-settings {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 4px;
+}
+
+.stock-report-advanced-settings--collapsed {
+    display: none;
+}
+
+.stock-report-settings-group {
+    min-width: 0;
+}
+
 .location-filter-actions {
     display: flex;
     flex-wrap: wrap;
@@ -2697,6 +2746,10 @@ body.procurement-warm-ui .location-filter-shell--below-cutoff .location-filter-l
 
 body.procurement-warm-ui .location-filter-locations__settings {
     border-left-color: #ddd8cc;
+}
+
+body.procurement-warm-ui .stock-column-filter-chip {
+    color: #4a4338;
 }
 
 body.procurement-warm-ui .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip {

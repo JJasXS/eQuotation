@@ -19,7 +19,7 @@ import fdb
 import openai
 import requests
 from dotenv import load_dotenv
-from db_initializer import initialize_database
+from db_initializer import initialize_database, sync_st_xtrans_suomqty_from_st_tr_udf
 from api.services.local_customer_sync import LocalCustomerSyncRequest, sync_local_customer_fields
 
 # Import utility modules
@@ -3333,6 +3333,28 @@ def api_admin_procurement_stock_card():
             con.close()
 
 
+@app.route('/api/admin/procurement/sync-st-xtrans-suomqty', methods=['POST'])
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_procurement_sync_st_xtrans_suomqty():
+    """Re-apply ST_TR.UDF_SUOMQTY → ST_XTRANS.SUOMQTY overlay (same as db init backfill)."""
+    con = None
+    try:
+        con = get_db_connection()
+        ok = sync_st_xtrans_suomqty_from_st_tr_udf(con)
+        if not ok:
+            return jsonify({
+                'success': False,
+                'error': 'Sync skipped or failed (check server log for ST_TR/ST_XTRANS column warnings).',
+            }), 500
+        return jsonify({'success': True, 'message': 'ST_XTRANS.SUOMQTY refreshed from ST_TR.UDF_SUOMQTY.'})
+    except Exception as e:
+        print(f"[PROCUREMENT SYNC SUOMQTY] {e}", flush=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if con:
+            con.close()
+
+
 @app.route('/api/admin/procurement/stock-card-breakdown')
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_procurement_stock_card_breakdown():
@@ -4291,7 +4313,7 @@ def api_admin_list_purchase_requests():
             con = get_db_connection()
             cur = con.cursor()
             placeholders = ', '.join(['?'] * len(request_ids))
-            params = tuple(['PQ', *request_ids, *request_ids])
+            params = tuple([*request_ids, *request_ids])
             cur.execute(
                 f"""
                 SELECT D.DOCKEY,
@@ -4302,7 +4324,7 @@ def api_admin_list_purchase_requests():
                     SELECT FROMDOCKEY,
                            CAST(SUM(CAST(COALESCE(SQTY, QTY, 0) AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TRANSFERRED_QTY
                     FROM ST_XTRANS
-                    WHERE FROMDOCTYPE = ?
+                    WHERE TRIM(UPPER(COALESCE(FROMDOCTYPE, ''))) IN ('PQ', 'PH_PQ')
                       AND FROMDOCKEY IN ({placeholders})
                     GROUP BY FROMDOCKEY
                 ) T ON T.FROMDOCKEY = D.DOCKEY
@@ -4749,12 +4771,12 @@ def api_admin_purchase_request_details_fallback():
                 SELECT FROMDTLKEY,
                        CAST(SUM(CAST({quantity_expr} AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TRANSFERRED_QTY
                 FROM ST_XTRANS
-                WHERE FROMDOCTYPE = ?
+                WHERE TRIM(UPPER(COALESCE(FROMDOCTYPE, ''))) IN ('PQ', 'PH_PQ')
                   AND FROMDOCKEY = ?
                   AND FROMDTLKEY IN ({placeholders})
                 GROUP BY FROMDTLKEY
                 """,
-                tuple(['PQ', int(request_id), *[int(x) for x in detail_ids]]),
+                tuple([int(request_id), *[int(x) for x in detail_ids]]),
             )
             rows = cur.fetchall() or []
             transferred = {}

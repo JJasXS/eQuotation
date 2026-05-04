@@ -91,6 +91,18 @@ def _pick_existing(columns: set[str], *candidates: str) -> str:
     return ""
 
 
+# SQL Accounting often stores table-prefixed FROMDOCTYPE (e.g. SL_SO) while eProcurement uses SO.
+_ST_XTRANS_FROM_SO_SQL = "TRIM(UPPER(COALESCE(X.FROMDOCTYPE, ''))) IN ('SO', 'SL_SO')"
+_ST_XTRANS_FROM_PO_SQL = "TRIM(UPPER(COALESCE(X.FROMDOCTYPE, ''))) IN ('PO', 'PH_PO')"
+_ST_XTRANS_FROM_JO_SQL = "TRIM(UPPER(COALESCE(X.FROMDOCTYPE, ''))) IN ('JO', 'PD_JO')"
+
+
+def _st_xtrans_from_pq_sql(x_from_doctype_col: str) -> str:
+    """Match PR/PQ moves whether stored as PQ or PH_PQ."""
+    col = _clean_str(x_from_doctype_col).upper() or "FROMDOCTYPE"
+    return f"TRIM(UPPER(COALESCE(X.{col}, ''))) IN ('PQ', 'PH_PQ')"
+
+
 def _status_filter_tokens(statuses: list[str]) -> list[str]:
     status_map = {
         "DRAFT": ["DRAFT", "0"],
@@ -218,7 +230,7 @@ def _fetch_pr_qty_map(
                        X.{x_fromdtlkey_col} AS FROMDTLKEY,
                        CAST(SUM(CAST({x_qty_expr} AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TRANSFERRED_QTY
                 FROM ST_XTRANS X
-                WHERE X.{x_fromdoctype_col} = ?
+                WHERE ({_st_xtrans_from_pq_sql(x_fromdoctype_col)})
                 GROUP BY X.{x_fromdockey_col}, X.{x_fromdtlkey_col}
             ) T
               ON T.FROMDOCKEY = D.{detail_fk_col}
@@ -226,7 +238,7 @@ def _fetch_pr_qty_map(
             WHERE {full_where}
             GROUP BY D.{item_col}, {location_expr}
             """,
-            tuple(["PQ", *params]),
+            params,
         )
     else:
         d_sum = d_line_qty if d_line_qty != "0" else f"COALESCE(D.{qty_col}, 0)"
@@ -342,14 +354,23 @@ def _doc_line_sqty_priority_expr(detail_cols: set[str], alias: str = "D") -> str
 
 
 def _xtrans_sqty_priority_expr(xtrans_cols: set[str], alias: str = "X") -> str:
+    """
+    Magnitude of transfer qty on ``ST_XTRANS`` (SQ stack).
+
+    Values copied from ``ST_TR`` (or stock direction) can be negative; ``ABS`` ensures
+    outstanding = line − sum(moved) subtracts a positive moved amount.
+    """
     upper = {c.upper() for c in xtrans_cols}
+    inner = "0"
     if "SQTY" in upper and "QTY" in upper:
-        return f"COALESCE(NULLIF({alias}.SQTY, 0), COALESCE({alias}.QTY, 0), 0)"
-    if "SQTY" in upper:
-        return f"COALESCE(NULLIF({alias}.SQTY, 0), 0)"
-    if "QTY" in upper:
-        return f"COALESCE({alias}.QTY, 0)"
-    return "0"
+        inner = f"COALESCE(NULLIF({alias}.SQTY, 0), COALESCE({alias}.QTY, 0), 0)"
+    elif "SQTY" in upper:
+        inner = f"COALESCE(NULLIF({alias}.SQTY, 0), 0)"
+    elif "QTY" in upper:
+        inner = f"COALESCE({alias}.QTY, 0)"
+    if inner == "0":
+        return "0"
+    return f"ABS(CAST(({inner}) AS DOUBLE PRECISION))"
 
 
 def _st_tr_sqty_bare_expr_for_aggregate(st_tr_cols: set[str]) -> str:
@@ -362,26 +383,6 @@ def _st_tr_sqty_bare_expr_for_aggregate(st_tr_cols: set[str]) -> str:
     if "QTY" in upper:
         return "COALESCE(QTY, 0)"
     return "0"
-
-
-def _pick_line_qty_skip_zero_suom_sqty(table_alias: str, column_set: set[str]) -> str:
-    """
-    Prefer SUOMQTY then SQTY then QTY, but treat 0 in SUOMQTY/SQTY as unset so COALESCE does not
-    swallow real quantities in SQTY/QTY (common after PR→PO when SUOMQTY was defaulted to 0).
-    """
-    upper = {c.upper() for c in column_set}
-    parts: list[str] = []
-    if "SUOMQTY" in upper:
-        parts.append(f"NULLIF({table_alias}.SUOMQTY, 0)")
-    if "SQTY" in upper:
-        parts.append(f"NULLIF({table_alias}.SQTY, 0)")
-    if "QTY" in upper:
-        parts.append(f"COALESCE({table_alias}.QTY, 0)")
-    if not parts:
-        return "0"
-    if len(parts) == 1:
-        return f"COALESCE({parts[0]}, 0)"
-    return "COALESCE(" + ", ".join(parts) + ", 0)"
 
 
 def _st_tr_suom_stack_expr(table_alias: str, st_tr_cols: set[str]) -> str:
@@ -397,20 +398,23 @@ def _st_tr_suom_stack_expr(table_alias: str, st_tr_cols: set[str]) -> str:
 
 def _xtrans_moved_qty_expr(xtrans_cols: set[str], alias: str = "X") -> str:
     """
-    ST_XTRANS moved qty for SUOM reporting.
+    Magnitude of ``ST_XTRANS.SUOMQTY`` for the SUOMQTY report stack (no SQTY/QTY fallback).
 
-    SUOMQTY is distinct from SQTY/QTY. If a movement has no true SUOMQTY, it
-    contributes 0 to the SUOM movement total instead of falling back to SQTY/QTY.
+    ``SUOMQTY`` may be negative when aligned with signed ``ST_TR`` postings; ``ABS`` keeps
+    the summed moved quantity positive for line − moved outstanding.
     """
     upper = {c.upper() for c in xtrans_cols}
     if "SUOMQTY" in upper:
-        return f"COALESCE({alias}.SUOMQTY, 0)"
+        return f"ABS(CAST(COALESCE({alias}.SUOMQTY, 0) AS DOUBLE PRECISION))"
     return "0"
 
 
 def _doc_line_stock_qty_expr(detail_cols: set[str], alias: str = "D") -> str:
-    """Document detail qty aligned with ST_XTRANS pick order."""
-    return _pick_line_qty_skip_zero_suom_sqty(alias, detail_cols)
+    """Document detail quantity for the SUOMQTY stack: ``SUOMQTY`` only (no SQTY/QTY fallback)."""
+    upper = {c.upper() for c in detail_cols}
+    if "SUOMQTY" in upper:
+        return f"COALESCE({alias}.SUOMQTY, 0)"
+    return "0"
 
 
 def _st_tr_line_qty_expr(st_tr_cols: set[str], alias: str = "S") -> str:
@@ -527,7 +531,7 @@ def _stock_card_aggregate_totals_for_item_location(
         FROM ST_XTRANS X
         JOIN SL_SODTL D ON D.DOCKEY = X.FROMDOCKEY AND D.DTLKEY = X.FROMDTLKEY
         JOIN SL_SO H ON H.DOCKEY = D.DOCKEY
-        WHERE X.FROMDOCTYPE = 'SO' AND D.ITEMCODE = ? AND D.LOCATION = ?{date_filter}
+        WHERE ({_ST_XTRANS_FROM_SO_SQL}) AND D.ITEMCODE = ? AND D.LOCATION = ?{date_filter}
         """,
         il2 + date_params,
     )
@@ -552,7 +556,7 @@ def _stock_card_aggregate_totals_for_item_location(
         FROM ST_XTRANS X
         JOIN PH_PODTL D ON D.DOCKEY = X.FROMDOCKEY AND D.DTLKEY = X.FROMDTLKEY
         JOIN PH_PO H ON H.DOCKEY = D.DOCKEY
-        WHERE X.FROMDOCTYPE = 'PO' AND D.ITEMCODE = ? AND D.LOCATION = ?{date_filter}
+        WHERE ({_ST_XTRANS_FROM_PO_SQL}) AND D.ITEMCODE = ? AND D.LOCATION = ?{date_filter}
         """,
         il2 + date_params,
     )
@@ -577,7 +581,7 @@ def _stock_card_aggregate_totals_for_item_location(
         FROM ST_XTRANS X
         JOIN PD_JODTL D ON D.DOCKEY = X.FROMDOCKEY AND D.DTLKEY = X.FROMDTLKEY
         JOIN PD_JO H ON H.DOCKEY = D.DOCKEY
-        WHERE X.FROMDOCTYPE = 'JO' AND D.ITEMCODE = ? AND D.LOCATION = ?{date_filter}
+        WHERE ({_ST_XTRANS_FROM_JO_SQL}) AND D.ITEMCODE = ? AND D.LOCATION = ?{date_filter}
         """,
         il2 + date_params,
     )
@@ -596,7 +600,10 @@ def _stock_card_aggregate_totals_for_item_location(
 
 
 def _uom_expressions_for_breakdown(cur: Any, use_suom: bool) -> dict[str, str]:
-    """Line qty and ST_XTRANS moved qty for SO, PO, JO breakdowns (aligns with stock card report)."""
+    """Line qty and ST_XTRANS moved qty for SO, PO, JO breakdowns (aligns with stock card report).
+
+    When ``use_suom`` is true, both sides use ``SUOMQTY`` only (no SQTY/QTY fallback).
+    """
     sodtl = _get_table_columns(cur, "SL_SODTL")
     podtl = _get_table_columns(cur, "PH_PODTL")
     jodtl = _get_table_columns(cur, "PD_JODTL")
@@ -612,7 +619,7 @@ def _uom_expressions_for_breakdown(cur: Any, use_suom: bool) -> dict[str, str]:
         "so_d": _sql_coalesce_chain_from_columns("D", sodtl, "SQTY", "QTY"),
         "po_d": _sql_coalesce_chain_from_columns("D", podtl, "SQTY", "QTY"),
         "jo_d": _sql_coalesce_chain_from_columns("D", jodtl, "SQTY", "QTY"),
-        "x": _sql_coalesce_chain_from_columns("X", xtrans, "SQTY", "QTY"),
+        "x": _xtrans_sqty_priority_expr(xtrans, "X"),
     }
 
 
@@ -675,6 +682,19 @@ def fetch_procurement_metric_breakdown(
     use_suom = _clean_str(qty_mode).upper() == "SUOMQTY"
     uom = _uom_expressions_for_breakdown(cur, use_suom)
 
+    def _breakdown_outstanding_note(from_doctype: str) -> str:
+        suf = " Filtered by order date if a report cutoff is set."
+        type_hint = {
+            "SO": "FROMDOCTYPE SO or SL_SO",
+            "PO": "FROMDOCTYPE PO or PH_PO",
+            "JO": "FROMDOCTYPE JO or PD_JO",
+        }.get(from_doctype, f"FROMDOCTYPE={from_doctype}")
+        if use_suom:
+            return f"Outstanding = detail SUOMQTY minus sum(ST_XTRANS.SUOMQTY) ({type_hint})." + suf
+        return (
+            f"Outstanding = detail SQTY/QTY (priority) minus sum(ST_XTRANS SQ stack) ({type_hint})." + suf
+        )
+
     def _m_out(key: str) -> str:
         if original_metric == "suom_qty" and key == "qty":
             return "suom_qty"
@@ -708,7 +728,7 @@ def fetch_procurement_metric_breakdown(
             JOIN SL_SO H
               ON H.DOCKEY = D.DOCKEY
             LEFT JOIN ST_XTRANS X
-              ON X.FROMDOCTYPE = 'SO'
+              ON ({_ST_XTRANS_FROM_SO_SQL})
              AND X.FROMDOCKEY = D.DOCKEY
              AND X.FROMDTLKEY = D.DTLKEY
             WHERE D.ITEMCODE = ?
@@ -730,7 +750,7 @@ def fetch_procurement_metric_breakdown(
             "rows": rows,
             "summary": {
                 "value": sum(_to_float(row.get("outstanding_qty")) for row in rows),
-                "note": "Outstanding = document line UOM/SUOM quantity minus same-UOM sum on ST_XTRANS (FROMDOCTYPE=SO) for that line. Filtered by order date if a report cutoff is set.",
+                "note": _breakdown_outstanding_note("SO"),
             },
         }
 
@@ -754,7 +774,7 @@ def fetch_procurement_metric_breakdown(
             JOIN PH_PO H
               ON H.DOCKEY = D.DOCKEY
             LEFT JOIN ST_XTRANS X
-              ON X.FROMDOCTYPE = 'PO'
+              ON ({_ST_XTRANS_FROM_PO_SQL})
              AND X.FROMDOCKEY = D.DOCKEY
              AND X.FROMDTLKEY = D.DTLKEY
             WHERE D.ITEMCODE = ?
@@ -775,7 +795,7 @@ def fetch_procurement_metric_breakdown(
             "rows": rows,
             "summary": {
                 "value": sum(_to_float(row.get("outstanding_qty")) for row in rows),
-                "note": "Outstanding = line qty minus ST_XTRANS moves (FROMDOCTYPE=PO).",
+                "note": _breakdown_outstanding_note("PO"),
             },
         }
 
@@ -799,7 +819,7 @@ def fetch_procurement_metric_breakdown(
             JOIN PD_JO H
               ON H.DOCKEY = D.DOCKEY
             LEFT JOIN ST_XTRANS X
-              ON X.FROMDOCTYPE = 'JO'
+              ON ({_ST_XTRANS_FROM_JO_SQL})
              AND X.FROMDOCKEY = D.DOCKEY
              AND X.FROMDTLKEY = D.DTLKEY
             WHERE D.ITEMCODE = ?
@@ -820,7 +840,7 @@ def fetch_procurement_metric_breakdown(
             "rows": rows,
             "summary": {
                 "value": sum(_to_float(row.get("outstanding_qty")) for row in rows),
-                "note": "Outstanding = line qty minus ST_XTRANS moves (FROMDOCTYPE=JO).",
+                "note": _breakdown_outstanding_note("JO"),
             },
         }
 
@@ -1152,8 +1172,7 @@ def fetch_st_tr_udf_suomqty_summary(cur: Any) -> dict[str, Any]:
     total = _to_float(row[0] if len(row) > 0 else 0)
     return {
         "udf_column_present": True,
-        "total": total,
-        "note": "Sum of COALESCE(UDF_SUOMQTY,0) over all ST_TR rows (SUOM on-hand basis).",
+        "total": total
     }
 
 
@@ -1257,7 +1276,7 @@ def fetch_procurement_stock_card_data(
          AND D.DTLKEY = X.FROMDTLKEY
                 JOIN SL_SO H
                     ON H.DOCKEY = D.DOCKEY
-        WHERE X.FROMDOCTYPE = 'SO'
+        WHERE ({_ST_XTRANS_FROM_SO_SQL})
                 """
         + ("\n          AND H.DOCDATE >= ?" if normalized_from else "")
         + ("\n          AND H.DOCDATE <= ?" if normalized_to else "")
@@ -1299,7 +1318,7 @@ def fetch_procurement_stock_card_data(
          AND D.DTLKEY = X.FROMDTLKEY
         JOIN PH_PO H
           ON H.DOCKEY = D.DOCKEY
-        WHERE X.FROMDOCTYPE = 'PO'
+        WHERE ({_ST_XTRANS_FROM_PO_SQL})
                 """
         + ("\n          AND H.DOCDATE >= ?" if normalized_from else "")
         + ("\n          AND H.DOCDATE <= ?" if normalized_to else "")
@@ -1341,7 +1360,7 @@ def fetch_procurement_stock_card_data(
          AND D.DTLKEY = X.FROMDTLKEY
         JOIN PD_JO H
           ON H.DOCKEY = D.DOCKEY
-        WHERE X.FROMDOCTYPE = 'JO'
+        WHERE ({_ST_XTRANS_FROM_JO_SQL})
                 """
         + ("\n          AND H.DOCDATE >= ?" if normalized_from else "")
         + ("\n          AND H.DOCDATE <= ?" if normalized_to else "")
