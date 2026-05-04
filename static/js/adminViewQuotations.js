@@ -74,7 +74,18 @@ function isPendingQuotation(qt) {
     return cancelledUnset || updateCountUnset;
 }
 
+function hideQuotationStatusActionsFromPage() {
+    return (
+        typeof document !== 'undefined' &&
+        document.body &&
+        document.body.dataset.hideQuotationActions === 'true'
+    );
+}
+
 window.toggleCancelledStatus = async function(dockey, isCancelled) {
+    if (hideQuotationStatusActionsFromPage()) {
+        return;
+    }
     console.log('[DEBUG] toggleCancelledStatus called - dockey:', dockey, 'isCancelled:', isCancelled);
     
     try {
@@ -104,6 +115,9 @@ window.toggleCancelledStatus = async function(dockey, isCancelled) {
 };
 
 window.activateQuotation = async function(dockey) {
+    if (hideQuotationStatusActionsFromPage()) {
+        return;
+    }
     console.log('[DEBUG] activateQuotation called - dockey:', dockey);
     
     if (!confirm('Are you sure you want to activate this quotation?')) {
@@ -391,9 +405,10 @@ function renderQuotationList(list, options = {}, tabKey = 'active', hasMore = fa
         return '<div style="padding: 12px; text-align: center; color: #7b5a36;">No quotations</div>';
     }
 
+    const hideStatus = hideQuotationStatusActionsFromPage();
     const hasActiveInList = list.some((qt) => (qt._filterTab || 'active') === 'active');
     let controlsHtml = '';
-    if (hasActiveInList) {
+    if (hasActiveInList && !hideStatus) {
         controlsHtml = `
             <div class="active-tab-controls show">
                 <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; user-select: none; color: #5c4028;">
@@ -420,7 +435,10 @@ function renderQuotationList(list, options = {}, tabKey = 'active', hasMore = fa
         const badgeColor = isPending ? '#b0892f' : (isCancelled ? '#a65c5c' : '#4b6e9e');
         const isSelected = Number(qt.DOCKEY) === Number(selectedQuotationDockey);
         
-        const checkboxHtml = isActive ? `<input type="checkbox" class="quotation-checkbox-active" data-dockey="${qt.DOCKEY}" ${selectedActiveQuotations.has(Number(qt.DOCKEY)) ? 'checked' : ''} onchange="handleActiveCheckboxChange(); event.stopPropagation();" style="width: 18px; height: 18px; cursor: pointer; accent-color: #dc3545; flex-shrink: 0;">` : '';
+        const checkboxHtml =
+            !hideStatus && isActive
+                ? `<input type="checkbox" class="quotation-checkbox-active" data-dockey="${qt.DOCKEY}" ${selectedActiveQuotations.has(Number(qt.DOCKEY)) ? 'checked' : ''} onchange="handleActiveCheckboxChange(); event.stopPropagation();" style="width: 18px; height: 18px; cursor: pointer; accent-color: #dc3545; flex-shrink: 0;">`
+                : '';
 
         html += `
             <div class="quotation-card ${isSelected ? 'is-selected' : ''}" data-dockey="${qt.DOCKEY}" style="background: #fffaf0; padding: 12px; margin-bottom: 12px; border-radius: 8px; border-left: 3px solid ${borderColor}; cursor: pointer; display: flex; gap: 12px; align-items: flex-start; border: 1px solid #ead8b5;">
@@ -446,10 +464,10 @@ function renderQuotationList(list, options = {}, tabKey = 'active', hasMore = fa
                         </div>
                         <div class="quotation-card__button-col">
                             <div class="quotation-card__side-actions">
-                                ${isPending ? `<button class="edit-button" onclick="editQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #5a8fc4; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Edit</button>` : ''}
-                                ${isPending ? `<button class="activate-btn" onclick="activateQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #4b9e6e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Activate</button>` : ''}
-                                ${!isPending && !isCancelled ? `<button class="toggle-cancelled-btn" onclick="console.log('[BUTTON CLICK] DOCKEY:', ${qt.DOCKEY}, 'isCancelled param:', ${isCancelled}); event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, ${isCancelled});" style="background: #a65c5c; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Cancel</button>` : ''}
-                                ${isCancelled ? `<button class="toggle-cancelled-btn" onclick="console.log('[BUTTON CLICK] DOCKEY:', ${qt.DOCKEY}, 'isCancelled param:', ${isCancelled}); event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, ${isCancelled});" style="background: #4b6e9e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Restore</button>` : ''}
+                                ${isPending && !hideStatus ? `<button class="edit-button" onclick="editQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #5a8fc4; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Edit</button>` : ''}
+                                ${isPending && !hideStatus ? `<button class="activate-btn" onclick="activateQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #4b9e6e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Activate</button>` : ''}
+                                ${!isPending && !isCancelled && !hideStatus ? `<button class="toggle-cancelled-btn" onclick="console.log('[BUTTON CLICK] DOCKEY:', ${qt.DOCKEY}, 'isCancelled param:', ${isCancelled}); event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, ${isCancelled});" style="background: #a65c5c; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Cancel</button>` : ''}
+                                ${isCancelled && !hideStatus ? `<button class="toggle-cancelled-btn" onclick="console.log('[BUTTON CLICK] DOCKEY:', ${qt.DOCKEY}, 'isCancelled param:', ${isCancelled}); event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, ${isCancelled});" style="background: #4b6e9e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Restore</button>` : ''}
                             </div>
                         </div>
                     </div>
@@ -471,6 +489,7 @@ async function renderQuotationDetail(currentList, options = {}) {
         return;
     }
 
+    const hideStatus = hideQuotationStatusActionsFromPage();
     const filterTab = selected._filterTab || 'active';
     const isPending = filterTab === 'pending';
     const isCancelled = filterTab === 'cancelled';
@@ -493,10 +512,10 @@ async function renderQuotationDetail(currentList, options = {}) {
             <span><strong>Valid Until:</strong> ${validity}</span>
         </div>
         <div class="quotation-detail-actions">
-            ${isPending ? `<button class="edit-button" onclick="editQuotation(${selected.DOCKEY})">Edit</button>` : ''}
-            ${isPending ? `<button class="activate-btn" onclick="activateQuotation(${selected.DOCKEY})">Activate</button>` : ''}
-            ${!isPending && !isCancelled ? `<button class="toggle-cancelled-btn" onclick="toggleCancelledStatus(${selected.DOCKEY}, false)">Cancel</button>` : ''}
-            ${isCancelled ? `<button class="toggle-cancelled-btn" onclick="toggleCancelledStatus(${selected.DOCKEY}, true)">Restore</button>` : ''}
+            ${isPending && !hideStatus ? `<button class="edit-button" onclick="editQuotation(${selected.DOCKEY})">Edit</button>` : ''}
+            ${isPending && !hideStatus ? `<button class="activate-btn" onclick="activateQuotation(${selected.DOCKEY})">Activate</button>` : ''}
+            ${!isPending && !isCancelled && !hideStatus ? `<button class="toggle-cancelled-btn" onclick="toggleCancelledStatus(${selected.DOCKEY}, false)">Cancel</button>` : ''}
+            ${isCancelled && !hideStatus ? `<button class="toggle-cancelled-btn" onclick="toggleCancelledStatus(${selected.DOCKEY}, true)">Restore</button>` : ''}
         </div>
         <div class="quotation-detail-items" id="quotation-detail-items">
             <div class="quotation-detail-loading">Loading items...</div>
@@ -560,7 +579,9 @@ async function renderQuotationDetail(currentList, options = {}) {
 }
 
 function editQuotation(dockey) {
-    // Redirect to update quotation page
+    if (hideQuotationStatusActionsFromPage()) {
+        return;
+    }
     window.location.href = `/admin/update-quotation?dockey=${dockey}`;
 }
 
@@ -612,6 +633,9 @@ function updateActiveDeleteControls() {
 }
 
 function showDeleteConfirmActive() {
+    if (hideQuotationStatusActionsFromPage()) {
+        return;
+    }
     if (selectedActiveQuotations.size === 0) return;
     
     const modal = document.getElementById('delete-modal-active');
@@ -633,6 +657,9 @@ function closeDeleteModalActive() {
 }
 
 async function performBulkDeleteActive() {
+    if (hideQuotationStatusActionsFromPage()) {
+        return;
+    }
     const dockeyArray = Array.from(selectedActiveQuotations);
     closeDeleteModalActive();
     

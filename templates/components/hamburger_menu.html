@@ -1,8 +1,13 @@
-{# Single reusable hamburger for all roles (customer, supplier, admin). Uses session.user_type. #}
+{# Hamburger menu: visibility driven by SY_USER UDF_* (see utils/role_permissions.py), not SY_USER.CODE. #}
 {% set _ut = (session.get('user_type') or '') %}
-{% set is_admin = (_ut == 'admin') %}
 {% set is_supplier = (_ut == 'supplier') %}
-{% set view_quotation_href = '/admin/view-quotations' if is_admin else '/view-quotation' %}
+{% set perm_admin_dashboard = perm_admin_dashboard | default(false) %}
+{% set perm_purchase_menu = perm_purchase_menu | default(false) %}
+{% set perm_pricing_priority = perm_pricing_priority | default(false) %}
+{% set perm_create_quotation = perm_create_quotation | default(false) %}
+{% set perm_view_quotation_ui = perm_view_quotation_ui | default(false) %}
+{% set perm_admin_view_quotations = perm_admin_view_quotations | default(false) %}
+{% set view_quotation_href = '/admin/view-quotations' if perm_admin_view_quotations else '/view-quotation' %}
 <div class="hamburger-menu-container">
     <button class="hamburger-btn" type="button" onclick="toggleHamburgerMenu()" aria-label="Menu">
         <span></span>
@@ -11,9 +16,11 @@
     </button>
     <div class="hamburger-overlay" id="hamburger-overlay"></div>
     <div class="hamburger-dropdown" id="hamburger-dropdown">
-        {% if is_admin %}
+        {% if perm_admin_dashboard %}
         <a href="/admin">Admin Dashboard</a>
+        {% endif %}
 
+        {% if perm_purchase_menu %}
         <div class="menu-item-with-submenu">
             <a href="#" onclick="toggleSubmenu(event, 'admin-purchase-submenu')" class="has-submenu">
                 Purchase <span class="submenu-arrow">›</span>
@@ -27,14 +34,18 @@
         </div>
         {% endif %}
 
-        {% if not is_supplier %}
+        {% if not is_supplier and (perm_create_quotation or perm_view_quotation_ui) %}
         <div class="menu-item-with-submenu">
             <a href="#" onclick="toggleSubmenu(event, 'quotation-submenu')" class="has-submenu">
                 Quotation <span class="submenu-arrow">›</span>
             </a>
             <div class="submenu" id="quotation-submenu">
+                {% if perm_create_quotation %}
                 <a href="/create-quotation" id="menu-create-quotation">Create Quotation</a>
+                {% endif %}
+                {% if perm_view_quotation_ui %}
                 <a href="{{ view_quotation_href }}">View Quotation</a>
+                {% endif %}
             </div>
         </div>
         {% endif %}
@@ -43,7 +54,7 @@
         <a href="/supplier/bidding">Supplier Bidding</a>
         {% endif %}
 
-        {% if is_admin %}
+        {% if perm_pricing_priority %}
         <a href="/admin/pricing-priority-rules">Set Priority Rules</a>
         {% endif %}
 

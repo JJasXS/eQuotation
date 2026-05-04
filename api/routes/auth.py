@@ -1,11 +1,25 @@
 """Authentication helper endpoints backed by Firebird lookups."""
 import os
+import sys
 
 import fdb
 from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException, Query
 
 from api.routes.suppliers import _external_supplier_url, _make_sigv4_get
+
+# Reuse Flask role helpers (same repo); FastAPI runs as separate process with same cwd.
+_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+from utils.role_permissions import (  # noqa: E402
+    ACCESS_TIER_CUSTOMER,
+    ACCESS_TIER_SUPPLIER,
+    compute_access_tier,
+    staff_has_any_mapped_role_udf,
+    staff_udf_from_sy_user_row,
+    user_type_for_session,
+)
 
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "../../.env"))
@@ -75,6 +89,38 @@ def _connect_db():
     return fdb.connect(dsn=f"{DB_HOST}:{DB_PATH}", user=DB_USER, password=DB_PASSWORD, charset="UTF8")
 
 
+def _fetch_sy_user_profile_with_udfs(cur, normalized_email: str):
+    """
+    Return (row_dict, staff_udf) for SY_USER row matching email, including all UDF_* columns if present.
+    row_dict is None when no SY_USER row.
+    """
+    cur.execute(
+        """
+        SELECT TRIM(RDB$FIELD_NAME)
+        FROM RDB$RELATION_FIELDS
+        WHERE RDB$RELATION_NAME = 'SY_USER' AND RDB$FIELD_NAME STARTING WITH 'UDF_'
+        """,
+    )
+    udf_cols = [str(r[0]).strip() for r in (cur.fetchall() or []) if r and r[0]]
+
+    base_cols = ["CODE", "NAME", "EMAIL", "ISACTIVE"]
+    select_cols = base_cols + [c for c in udf_cols if c.upper() not in {x.upper() for x in base_cols}]
+    col_sql = ", ".join(select_cols)
+    cur.execute(
+        f"""
+        SELECT {col_sql}
+        FROM SY_USER
+        WHERE UPPER(TRIM(EMAIL)) = UPPER(TRIM(?))
+        """,
+        [normalized_email],
+    )
+    row = cur.fetchone()
+    if not row:
+        return None, {}
+    row_dict = {select_cols[i]: row[i] for i in range(len(select_cols))}
+    return row_dict, staff_udf_from_sy_user_row(row_dict)
+
+
 def _table_has_column(cur, table_name: str, column_name: str) -> bool:
     cur.execute(
         """
@@ -106,22 +152,29 @@ def lookup_email_identity(email: str = Query(..., min_length=3, max_length=255))
         customer_code = None
         supplier_code = None
 
-        # Admin lookup
-        cur.execute(
-            """
-            SELECT CODE, NAME, EMAIL, ISACTIVE
-            FROM SY_USER
-            WHERE UPPER(TRIM(EMAIL)) = UPPER(TRIM(?))
-            """,
-            [normalized_email],
-        )
-        admin_row = cur.fetchone()
-        if admin_row:
+        # Admin / internal staff lookup (SY_USER + UDF_* flags; role not tied to CODE)
+        admin_row = None
+        admin = None
+        staff_udf: dict = {}
+        sy_user_profile = None
+        try:
+            sy_user_profile, staff_udf = _fetch_sy_user_profile_with_udfs(cur, normalized_email)
+        except Exception as exc:
+            print(f"[AUTH] SY_USER profile read failed: {exc}", flush=True)
+            sy_user_profile, staff_udf = None, {}
+        if sy_user_profile:
+            admin_row = (
+                sy_user_profile.get("CODE"),
+                sy_user_profile.get("NAME"),
+                sy_user_profile.get("EMAIL"),
+                sy_user_profile.get("ISACTIVE"),
+            )
             admin = {
-                "code": admin_row[0],
-                "name": admin_row[1],
-                "email": admin_row[2],
-                "isactive": admin_row[3],
+                "code": sy_user_profile.get("CODE"),
+                "name": sy_user_profile.get("NAME"),
+                "email": sy_user_profile.get("EMAIL"),
+                "isactive": sy_user_profile.get("ISACTIVE"),
+                "staff_udf": staff_udf,
             }
 
         # Supplier lookup via whichever supplier table exists in this Firebird schema.
@@ -227,15 +280,38 @@ def lookup_email_identity(email: str = Query(..., min_length=3, max_length=255))
             except Exception:
                 pass
 
-        is_admin = bool(admin)
+        is_admin_sy = bool(admin)
         is_user = bool(user)
-        is_supplier = bool(supplier) and not is_admin
+        is_supplier = bool(supplier) and not is_admin_sy
+
+        staff_any = staff_has_any_mapped_role_udf(staff_udf)
+        if is_supplier:
+            access_tier = ACCESS_TIER_SUPPLIER
+        elif is_user:
+            if staff_any and is_admin_sy:
+                access_tier = compute_access_tier(
+                    is_supplier=False,
+                    is_customer=True,
+                    staff_udf=staff_udf,
+                    sy_user_row_present=True,
+                )
+            else:
+                access_tier = ACCESS_TIER_CUSTOMER
+        else:
+            access_tier = compute_access_tier(
+                is_supplier=False,
+                is_customer=False,
+                staff_udf=staff_udf if is_admin_sy else {},
+                sy_user_row_present=is_admin_sy,
+            )
+
+        user_type_hint = user_type_for_session(access_tier)
 
         return {
             "success": True,
             "email": normalized_email,
-            "found": bool(is_admin or is_user or is_supplier),
-            "is_admin": is_admin,
+            "found": bool(is_admin_sy or is_user or is_supplier),
+            "is_admin": is_admin_sy,
             "is_user": is_user,
             "is_customer": is_user,
             "is_supplier": is_supplier,
@@ -244,6 +320,10 @@ def lookup_email_identity(email: str = Query(..., min_length=3, max_length=255))
             "admin": admin,
             "user": user,
             "supplier": supplier,
+            "staff_udf": staff_udf,
+            "access_tier": access_tier,
+            "user_type_hint": user_type_hint,
+            "is_full_management_admin": bool(staff_udf.get("management")),
         }
     except HTTPException:
         raise

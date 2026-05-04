@@ -69,6 +69,24 @@ from utils.procurement_bidding import (
     submit_supplier_bid,
     validate_transfer_against_line_awards,
 )
+from utils.role_permissions import (
+    ACCESS_TIER_FULL_ADMIN,
+    ACCESS_TIER_NO_ROLE,
+    ACCESS_TIER_PURCH_MGMT,
+    ACCESS_TIER_PURCH_STAFF,
+    ACCESS_TIER_SALES_MGMT,
+    ACCESS_TIER_SALES_STAFF,
+    can_access_admin_dashboard,
+    can_access_admin_view_quotations,
+    can_access_create_quotation,
+    can_access_pending_approvals_admin,
+    can_access_purchase_menu,
+    can_access_view_quotation_customer_ui,
+    can_update_pr_approvals_and_header_status,
+    infer_access_tier_from_session,
+    is_full_management_admin,
+    template_permission_context,
+)
 from utils.sql_query_helpers import (
     fetch_stock_items,
     find_customer_code_by_email,
@@ -365,12 +383,24 @@ def run_firebird_sql_script(sql_file_path, db_path, db_user, db_password):
             conn.close()
 
 
-def require_page_access(require_admin=False, block_admin=False, admin_redirect='/admin'):
+def require_page_access(
+    require_admin=False,
+    require_full_management_admin=False,
+    block_admin=False,
+    admin_redirect='/admin',
+):
     """Return redirect response for unauthorized page access, or None if access is allowed."""
     if 'user_email' not in session:
         return redirect('/login')
 
+    if infer_access_tier_from_session(session) == ACCESS_TIER_NO_ROLE:
+        return redirect('/login')
+
     user_type = session.get('user_type')
+    if require_full_management_admin:
+        if not is_full_management_admin(session):
+            return redirect('/admin')
+        return None
     if require_admin and user_type != 'admin':
         return redirect('/chat')
     if block_admin and user_type == 'admin':
@@ -378,10 +408,27 @@ def require_page_access(require_admin=False, block_admin=False, admin_redirect='
     return None
 
 
-def render_protected_template(template_name, *, require_admin=False, block_admin=False, admin_redirect='/admin', **context):
+def _redirect_purchasing_roles_from_sales_analytics_pages():
+    """Purchasing roles use procurement; block analytics/sales-only admin pages."""
+    tier = session.get('access_tier')
+    if tier in (ACCESS_TIER_PURCH_MGMT, ACCESS_TIER_PURCH_STAFF):
+        return redirect('/admin/precurement/precurement?tab=view')
+    return None
+
+
+def render_protected_template(
+    template_name,
+    *,
+    require_admin=False,
+    require_full_management_admin=False,
+    block_admin=False,
+    admin_redirect='/admin',
+    **context,
+):
     """Render a template after applying shared page access checks and default session context."""
     page_error = require_page_access(
         require_admin=require_admin,
+        require_full_management_admin=require_full_management_admin,
         block_admin=block_admin,
         admin_redirect=admin_redirect,
     )
@@ -392,6 +439,7 @@ def render_protected_template(template_name, *, require_admin=False, block_admin
         'user_email': session.get('user_email', ''),
         'user_type': session.get('user_type', ''),
     }
+    template_context.update(template_permission_context(session))
     template_context.update(context)
     return render_template(template_name, **template_context)
 
@@ -2175,29 +2223,64 @@ def api_verify_otp():
                 'error': 'Failed to verify customer credentials'
             }), 500
 
-        if identity.get('is_admin'):
-            user_type = 'admin'
-            redirect_url = '/admin'
-            customer_code = None
-            print(f"[AUTH] Admin user detected: {email}")
-        elif identity.get('is_supplier'):
+        access_tier = str(identity.get('access_tier') or '').strip()
+        staff_udf = identity.get('staff_udf') if isinstance(identity.get('staff_udf'), dict) else {}
+        user_type_hint = str(identity.get('user_type_hint') or 'user').strip()
+
+        if identity.get('is_supplier'):
             user_type = 'supplier'
             redirect_url = '/supplier/bidding'
             customer_code = identity.get('supplier_code')
             print(f"[AUTH] Supplier user detected: {email} -> Supplier: {customer_code}")
         elif identity.get('is_user') or identity.get('is_customer'):
-            user_type = 'user'
-            redirect_url = '/create-quotation'
             customer_code = identity.get('customer_code')
-            print(f"[AUTH] Regular user detected: {email} -> Customer: {customer_code}")
+            user_type = user_type_hint if user_type_hint in ('admin', 'user') else 'user'
+            if access_tier == ACCESS_TIER_SALES_STAFF:
+                user_type = 'user'
+            if user_type == 'admin' and access_tier in (ACCESS_TIER_FULL_ADMIN, ACCESS_TIER_SALES_MGMT):
+                redirect_url = '/admin'
+            elif user_type == 'admin':
+                redirect_url = '/admin/precurement/precurement?tab=view'
+            else:
+                redirect_url = '/create-quotation'
+            print(f"[AUTH] Customer path: {email} tier={access_tier} user_type={user_type}")
+        elif identity.get('is_admin'):
+            if access_tier == ACCESS_TIER_NO_ROLE:
+                return jsonify({
+                    'success': False,
+                    'error': (
+                        'No role is assigned for this account. '
+                        'Ask an administrator to set one of UDF_MANAGEMENT, UDF_SMANAGEMENT, UDF_PMANAGEMENT, '
+                        'UDF_SSTAFF, UDF_SUSER, or UDF_PUSER on SY_USER.'
+                    ),
+                }), 403
+            customer_code = identity.get('customer_code')
+            user_type = user_type_hint if user_type_hint in ('admin', 'user') else 'admin'
+            if access_tier == ACCESS_TIER_SALES_STAFF:
+                user_type = 'user'
+                redirect_url = '/create-quotation'
+            elif access_tier in (ACCESS_TIER_FULL_ADMIN, ACCESS_TIER_SALES_MGMT):
+                user_type = 'admin'
+                redirect_url = '/admin'
+            elif access_tier in (ACCESS_TIER_PURCH_MGMT, ACCESS_TIER_PURCH_STAFF):
+                user_type = 'admin'
+                redirect_url = '/admin/precurement/precurement?tab=view'
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': 'Unrecognized access profile for this account. Contact an administrator.',
+                }), 403
+            print(f"[AUTH] SY_USER-only path: {email} tier={access_tier} user_type={user_type}")
         else:
             return jsonify({
                 'success': False,
                 'error': 'Email not found in customer or supplier records, please contact administrator'
             }), 401
-        
+
         # OTP is valid - create session
         session['user_email'] = email
+        session['access_tier'] = access_tier or ('supplier' if user_type == 'supplier' else 'customer')
+        session['staff_udf'] = staff_udf
         session['user_type'] = user_type
         session['customer_code'] = customer_code  # Store customer/supplier code in session
         if user_type == 'supplier':
@@ -2350,14 +2433,26 @@ def proxy_update_draft_quotation():
 
 @app.route('/admin')
 def admin():
-    """Display admin dashboard (requires authentication and admin role)"""
-    return render_protected_template('admin.html', require_admin=True)
+    """Display admin dashboard (full admin + sales management only)."""
+    page_error = require_page_access()
+    if page_error:
+        return page_error
+    if not can_access_admin_dashboard(session):
+        if can_access_purchase_menu(session):
+            return redirect('/admin/precurement/precurement?tab=view')
+        return redirect('/chat')
+    return render_protected_template('admin.html', require_admin=False)
 
 
 @app.route('/admin/pending-approvals')
 def admin_pending_approvals():
-    """Display pending approvals page (admin only)."""
-    return render_protected_template('adminApproval.html', require_admin=True, user_type='admin')
+    """Pending approvals (full admin + purchasing roles)."""
+    page_error = require_page_access(require_admin=True)
+    if page_error:
+        return page_error
+    if not can_access_pending_approvals_admin(session):
+        return redirect('/admin')
+    return render_protected_template('adminApproval.html', require_admin=False, user_type='admin')
 
 
 
@@ -2381,7 +2476,16 @@ def create_order_page():
 
 @app.route('/create-quotation')
 def create_quotation_page():
-    """Display create quotation page (regular users)."""
+    """Create quotation (customers + sales-capable staff + full admin; not supplier / purchasing-only)."""
+    page_error = require_page_access()
+    if page_error:
+        return page_error
+    if not can_access_create_quotation(session):
+        if session.get('user_type') == 'supplier':
+            return redirect('/supplier/bidding')
+        if can_access_purchase_menu(session):
+            return redirect('/admin/precurement/precurement?tab=view')
+        return redirect('/chat')
     dockey = request.args.get('dockey', '')
     draft_dockey = request.args.get('draftDockey', '')
     return render_protected_template(
@@ -2389,62 +2493,90 @@ def create_quotation_page():
         dockey=dockey,
         draft_dockey=draft_dockey,
         php_base_url=BASE_API_URL,
+        require_admin=False,
     )
 
 
 @app.route('/view-quotation')
 def view_quotation_page():
-    """Display quotation listing page (regular users)."""
+    """Customer quotation list (not purchasing-only roles)."""
+    page_error = require_page_access()
+    if page_error:
+        return page_error
+    if session.get('user_type') == 'admin':
+        return redirect('/admin/view-quotations')
+    if not can_access_view_quotation_customer_ui(session):
+        if can_access_purchase_menu(session):
+            return redirect('/admin/precurement/precurement?tab=view')
+        return redirect('/chat')
     return render_protected_template(
         'viewQuotation.html',
-        block_admin=True,
-        admin_redirect='/admin/view-quotations',
+        require_admin=False,
         user_type=session.get('user_type', ''),
     )
 
 @app.route('/admin/view-quotations')
 def admin_view_quotations():
-    """Display all quotations page (admin only)."""
+    """List all quotations (full admin + sales management)."""
+    page_error = require_page_access(require_admin=True)
+    if page_error:
+        return page_error
+    if not can_access_admin_view_quotations(session):
+        return redirect('/admin')
     return render_protected_template(
         'adminViewQuotations.html',
-        require_admin=True,
+        require_admin=False,
         user_type=session.get('user_type', ''),
     )
 
 
 @app.route('/admin/delete-quotations')
 def admin_delete_quotations():
-    """Display delete quotations page (admin only)."""
+    """Delete quotations UI (full admin + sales management)."""
+    page_error = require_page_access(require_admin=True)
+    if page_error:
+        return page_error
+    if not can_access_admin_view_quotations(session):
+        return redirect('/admin')
     return render_protected_template(
         'deleteQuotations.html',
-        require_admin=True,
+        require_admin=False,
         user_type=session.get('user_type', ''),
     )
 
 
 @app.route('/admin/pricing-priority-rules')
 def admin_pricing_priority_rules():
-    """Display pricing priority rule settings page (admin only)."""
+    """Pricing priority rules (UDF_MANAGEMENT full admin only)."""
     return render_protected_template(
         'pricingPriorityRules.html',
         require_admin=True,
+        require_full_management_admin=True,
         user_type=session.get('user_type', 'admin')
     )
 
 @app.route('/admin/precurement/precurement')
 def admin_procurement_module():
-    """Display procurement module page (no validation, open access)."""
-    return render_template(
-        'precurement/precurement.html',
-        user_type=session.get('user_type', ''),
-        user_email=session.get('user_email', '')
-    )
+    """Procurement module (login + purchase-capable roles)."""
+    page_error = require_page_access()
+    if page_error:
+        return page_error
+    if not can_access_purchase_menu(session):
+        return redirect('/admin' if can_access_admin_dashboard(session) else '/chat')
+    ctx = {'user_type': session.get('user_type', ''), 'user_email': session.get('user_email', '')}
+    ctx.update(template_permission_context(session))
+    return render_template('precurement/precurement.html', **ctx)
 @app.route('/admin/procurement/bidding')
 def admin_procurement_bidding_page():
     """Display admin supplier bidding management page."""
+    page_error = require_page_access(require_admin=True)
+    if page_error:
+        return page_error
+    if not can_access_purchase_menu(session) and not can_access_admin_dashboard(session):
+        return redirect('/chat')
     return render_protected_template(
         'adminBidding.html',
-        require_admin=True,
+        require_admin=False,
         user_type=session.get('user_type', 'admin'),
         user_name=session.get('user_email', ''),
     )
@@ -2466,6 +2598,9 @@ def supplier_bidding_page():
 @app.route('/admin/invoice-aging')
 def admin_invoice_aging():
     """Display invoice aging analytics page (admin only)."""
+    r = _redirect_purchasing_roles_from_sales_analytics_pages()
+    if r:
+        return r
     return render_protected_template(
         'adminInvoiceAging.html',
         require_admin=True,
@@ -2476,6 +2611,9 @@ def admin_invoice_aging():
 @app.route('/admin/sales-cycle')
 def admin_sales_cycle():
     """Display sales cycle analytics page (admin only)."""
+    r = _redirect_purchasing_roles_from_sales_analytics_pages()
+    if r:
+        return r
     return render_protected_template(
         'adminSalesCycle.html',
         require_admin=True,
@@ -2486,6 +2624,9 @@ def admin_sales_cycle():
 @app.route('/admin/conversion-rate')
 def admin_conversion_rate():
     """Display quotation-to-invoice conversion rate analytics page (admin only)."""
+    r = _redirect_purchasing_roles_from_sales_analytics_pages()
+    if r:
+        return r
     return render_protected_template(
         'adminConversionRate.html',
         require_admin=True,
@@ -2496,21 +2637,28 @@ def admin_conversion_rate():
 @app.route('/admin/update-quotation')
 def admin_update_quotation():
     """Display update quotation page (admin only)."""
-    page_error = require_page_access(require_admin=True)
-    if page_error:
-        return page_error
+    r = _redirect_purchasing_roles_from_sales_analytics_pages()
+    if r:
+        return r
     dockey = request.args.get('dockey', '')
     if not dockey:
         return "Missing dockey parameter", 400
-    return render_template('updateQuotation.html',
-                         user_email=session.get('user_email', ''),
-                         dockey=dockey)
+    return render_protected_template(
+        'updateQuotation.html',
+        require_admin=True,
+        dockey=dockey,
+    )
 
 
 @app.route('/admin/pending-approvals/edit/<int:orderid>')
 def admin_edit_approval(orderid):
     """Display admin edit approval page."""
-    return render_protected_template('admin_edit_approval.html', require_admin=True, orderid=orderid)
+    page_error = require_page_access(require_admin=True)
+    if page_error:
+        return page_error
+    if not can_access_pending_approvals_admin(session):
+        return redirect('/admin')
+    return render_protected_template('admin_edit_approval.html', require_admin=False, orderid=orderid)
 
 
 @app.route('/admin/api/update-order', methods=['POST'])
@@ -2661,10 +2809,15 @@ def view_order_proof(orderid):
 @app.route('/')
 def index():
     if 'user_email' in session:
-        # Check user type and redirect accordingly
         user_type = session.get('user_type', 'user')
+        if user_type == 'supplier':
+            return redirect('/supplier/bidding')
         if user_type == 'admin':
-            return redirect('/admin')
+            if can_access_admin_dashboard(session):
+                return redirect('/admin')
+            if can_access_purchase_menu(session):
+                return redirect('/admin/precurement/precurement?tab=view')
+            return redirect('/chat')
         return redirect('/create-quotation')
     return redirect('/login')
 
@@ -6026,6 +6179,8 @@ def api_admin_edit_purchase_request(request_id):
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_purchase_request_detail_approval_update():
     """Update UDF_PQAPPROVED for purchase request detail rows."""
+    if not can_update_pr_approvals_and_header_status(session):
+        return jsonify({'success': False, 'error': 'Insufficient permissions to update PR line approvals'}), 403
     payload = request.get_json(silent=True) or {}
 
     try:
@@ -6098,6 +6253,8 @@ def api_create_order():
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_purchase_request_header_status_update():
     """Update UDF_STATUS for purchase request headers."""
+    if not can_update_pr_approvals_and_header_status(session):
+        return jsonify({'success': False, 'error': 'Insufficient permissions to update PR header status'}), 403
     payload = request.get_json(silent=True) or {}
 
     try:
@@ -6918,12 +7075,164 @@ def api_admin_update_quotation():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+def _customer_info_has_meaningful_data(info):
+    """True if at least one of company / address / phone is non-empty and not a placeholder."""
+    if not isinstance(info, dict):
+        return False
+    company = str(info.get('COMPANYNAME', '')).strip().upper()
+    addr1 = str(info.get('ADDRESS1', '')).strip().upper()
+    phone1 = str(info.get('PHONE1', '')).strip().upper()
+    return any([
+        company not in ('', 'N/A'),
+        addr1 not in ('', 'N/A'),
+        phone1 not in ('', 'N/A'),
+    ])
+
+
+def _fetch_customer_info_from_local_ar(customer_code):
+    """
+    Load customer profile from local Firebird AR_CUSTOMER + AR_CUSTOMERBRANCH
+    (same tables used at sign-in). Used when SQL API is down, misconfigured, or returns no usable fields.
+    """
+    if not customer_code:
+        return None
+    code = str(customer_code).strip()
+    if not code:
+        return None
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+
+        company = ''
+        credit = ''
+        phone_master = ''
+        udf_email = ''
+        row = None
+        try:
+            cur.execute(
+                """
+                SELECT FIRST 1 COMPANYNAME, CREDITTERM, PHONE1, UDF_EMAIL
+                FROM AR_CUSTOMER
+                WHERE CODE = ?
+                """,
+                (code,),
+            )
+            row = cur.fetchone()
+        except Exception:
+            try:
+                cur.execute(
+                    """
+                    SELECT FIRST 1 COMPANYNAME, CREDITTERM
+                    FROM AR_CUSTOMER
+                    WHERE CODE = ?
+                    """,
+                    (code,),
+                )
+                row = cur.fetchone()
+            except Exception as cust_err:
+                print(f"[DEBUG] get_user_info local: AR_CUSTOMER read failed: {cust_err}", flush=True)
+                return None
+        if row:
+            company = str(row[0] or '').strip()
+            credit = str(row[1] or '').strip()
+            if len(row) > 2 and row[2] is not None:
+                phone_master = str(row[2] or '').strip()
+            if len(row) > 3 and row[3] is not None:
+                udf_email = str(row[3] or '').strip()
+
+        branch_row = None
+        try:
+            cur.execute(
+                """
+                SELECT FIRST 1 ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, PHONE1, EMAIL
+                FROM AR_CUSTOMERBRANCH
+                WHERE CODE = ? AND TRIM(BRANCHTYPE) = 'B'
+                ORDER BY DTLKEY
+                """,
+                (code,),
+            )
+            branch_row = cur.fetchone()
+        except Exception as branch_err:
+            print(f"[DEBUG] get_user_info local: billing branch query failed ({branch_err}); trying any branch", flush=True)
+
+        if not branch_row:
+            cur.execute(
+                """
+                SELECT FIRST 1 ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, PHONE1, EMAIL
+                FROM AR_CUSTOMERBRANCH
+                WHERE CODE = ?
+                ORDER BY DTLKEY
+                """,
+                (code,),
+            )
+            branch_row = cur.fetchone()
+
+        a1 = a2 = a3 = a4 = ''
+        phone_branch = ''
+        branch_email = ''
+        if branch_row:
+            a1 = str(branch_row[0] or '').strip()
+            a2 = str(branch_row[1] or '').strip()
+            a3 = str(branch_row[2] or '').strip()
+            a4 = str(branch_row[3] or '').strip()
+            phone_branch = str(branch_row[4] or '').strip()
+            branch_email = str(branch_row[5] or '').strip()
+
+        phone = phone_branch or phone_master
+        if not udf_email and branch_email:
+            udf_email = branch_email
+        if not udf_email:
+            udf_email = str(session.get('user_email') or '').strip()
+
+        def nz(val, placeholder='N/A'):
+            s = str(val or '').strip()
+            return s if s else placeholder
+
+        payload = {
+            'CODE': code,
+            'COMPANYNAME': nz(company),
+            'CREDITTERM': nz(credit),
+            'ADDRESS1': nz(a1),
+            'ADDRESS2': nz(a2),
+            'ADDRESS3': a3,
+            'ADDRESS4': a4,
+            'PHONE1': nz(phone),
+            'UDF_EMAIL': udf_email,
+        }
+        return payload if _customer_info_has_meaningful_data(payload) else None
+    except Exception as exc:
+        print(f"[DEBUG] get_user_info: local AR_CUSTOMER lookup failed: {exc}", flush=True)
+        return None
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
+
+
 @app.route('/api/get_user_info')
 @api_login_required(unauth_message='Unauthorized')
 def api_get_user_info():
-    """Return customer info for create-quotation from SQL API only."""
+    """Return customer info for create-quotation: SQL API when configured, else local Firebird AR_* tables."""
     customer_code = get_current_customer_code(resolve_missing=True)
     if not customer_code:
+        if can_access_create_quotation(session) and session.get('user_type') == 'admin':
+            em = str(session.get('user_email') or '').strip()
+            label = (em.split('@')[0] or 'Staff').replace('.', ' ').title()
+            placeholder = {
+                'CODE': '',
+                'COMPANYNAME': label or 'Internal',
+                'CREDITTERM': 'N/A',
+                'ADDRESS1': 'N/A',
+                'ADDRESS2': 'N/A',
+                'ADDRESS3': '',
+                'ADDRESS4': '',
+                'PHONE1': 'N/A',
+                'UDF_EMAIL': em,
+            }
+            return jsonify({'success': True, 'data': placeholder, 'source': 'internal_staff_placeholder'})
         print("[DEBUG] get_user_info: customer_code not in session", flush=True)
         return jsonify({'success': False, 'error': 'Customer code not found'}), 400
 
@@ -7018,27 +7327,24 @@ def api_get_user_info():
 
         return {
             'CODE': pick('CODE', 'code', default=customer_code),
-            'COMPANYNAME': pick('COMPANYNAME', 'companyName', 'companyname', default='N/A'),
-            'CREDITTERM': pick('CREDITTERM', 'creditTerm', 'creditterm', default='N/A'),
+            'COMPANYNAME': pick(
+                'COMPANYNAME', 'companyName', 'companyname', 'DESCRIPTION', 'description',
+                'CompanyName', 'custname', 'CUSTNAME', default='N/A',
+            ),
+            'CREDITTERM': pick(
+                'CREDITTERM', 'creditTerm', 'creditterm', 'TERMS', 'terms', 'CnTerms', 'CNTERMS',
+                default='N/A',
+            ),
             'ADDRESS1': pick('ADDRESS1', 'address1', 'addr1', 'line1', 'street1', default='N/A'),
             'ADDRESS2': pick('ADDRESS2', 'address2', 'addr2', 'line2', 'street2', default='N/A'),
             'ADDRESS3': pick('ADDRESS3', 'address3', 'addr3', 'line3', 'city', default=''),
             'ADDRESS4': pick('ADDRESS4', 'address4', 'addr4', 'line4', 'state', 'country', default=''),
-            'PHONE1': pick('PHONE1', 'phone', 'phone1', 'tel', 'telephone', default='N/A'),
+            'PHONE1': pick(
+                'PHONE1', 'phone', 'phone1', 'tel', 'telephone', 'TEL', 'MOBILE', 'mobile',
+                'FAX1', 'fax1', default='N/A',
+            ),
             'UDF_EMAIL': pick('UDF_EMAIL', 'udf_email', 'EMAIL', 'email', default=''),
         }
-
-    def _has_meaningful_customer_data(info):
-        if not isinstance(info, dict):
-            return False
-        company = str(info.get('COMPANYNAME', '')).strip().upper()
-        addr1 = str(info.get('ADDRESS1', '')).strip().upper()
-        phone1 = str(info.get('PHONE1', '')).strip().upper()
-        return any([
-            company not in ('', 'N/A'),
-            addr1 not in ('', 'N/A'),
-            phone1 not in ('', 'N/A'),
-        ])
 
     def _debug_log_user_info_payload(source, payload):
         if not isinstance(payload, dict):
@@ -7164,7 +7470,7 @@ def api_get_user_info():
                     print(f"[DEBUG] get_user_info: SQL JSON list length: {len(sql_json)}", flush=True)
 
                 normalized = _normalize_customer_info(sql_json)
-                if not normalized or not _has_meaningful_customer_data(normalized):
+                if not normalized or not _customer_info_has_meaningful_data(normalized):
                     continue
 
                 # Keep first valid result as baseline, but prefer one that has address/phone.
@@ -7182,6 +7488,11 @@ def api_get_user_info():
                 _debug_log_user_info_payload(best_source or 'sql_api', best_normalized)
                 return jsonify({'success': True, 'data': best_normalized, 'source': best_source or 'sql_api'})
 
+            local_payload = _fetch_customer_info_from_local_ar(customer_code)
+            if local_payload:
+                _debug_log_user_info_payload('local_firebird_ar', local_payload)
+                return jsonify({'success': True, 'data': local_payload, 'source': 'local_firebird_ar'})
+
             # Upstream errors (e.g. 500 "Regenerate views are required") are not "not found"; use 502 for 5xx.
             fail_status = 502 if (last_sql_status and last_sql_status >= 500) else 404
             err_msg = 'No SQL API customer data returned'
@@ -7194,7 +7505,11 @@ def api_get_user_info():
                 fail_body['upstream_http_status'] = last_sql_status
             return jsonify(fail_body), fail_status
 
-        return jsonify({'success': False, 'error': 'No SQL API customer data returned'}), 404
+        local_only = _fetch_customer_info_from_local_ar(customer_code)
+        if local_only:
+            _debug_log_user_info_payload('local_firebird_ar', local_only)
+            return jsonify({'success': True, 'data': local_only, 'source': 'local_firebird_ar'})
+        return jsonify({'success': False, 'error': 'No customer data from SQL API or local database'}), 404
     except Exception as e:
         print(f"[DEBUG] get_user_info: Exception occurred: {str(e)}", flush=True)
         import traceback

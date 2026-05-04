@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="/static/css/orderQuotation.css">
     <link rel="stylesheet" href="/static/css/adminViewQuotations.css?v=20260430b">
 </head>
-<body class="admin-quotations-view-page">
+<body class="admin-quotations-view-page" data-hide-quotation-actions="{% if perm_hide_quotation_status_actions | default(false) %}true{% else %}false{% endif %}">
     <div class="container">
         <div class="main-content">
             {% set page_header_title = "Quotation > View Quotation" %}
@@ -51,6 +51,6 @@
     </div>
 
     <script src="/static/js/hamburger_menu.js"></script>
-    <script src="/static/js/adminViewQuotations.js?v=20260430b"></script>
+    <script src="/static/js/adminViewQuotations.js?v=20260504_perm"></script>
 </body>
 </html>

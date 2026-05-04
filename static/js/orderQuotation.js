@@ -707,7 +707,7 @@ async function loadUserInfo() {
             // Populate company name
             const companyInput = document.getElementById('quotation-company');
             if (companyInput) {
-                companyInput.value = pickValue('COMPANYNAME', 'companyName', 'companyname') || 'N/A';
+                companyInput.value = pickValue('COMPANYNAME', 'companyName', 'companyname', 'DESCRIPTION', 'description') || 'N/A';
             }
 
             // Populate addresses
@@ -734,13 +734,13 @@ async function loadUserInfo() {
             // Populate phone 1
             const phoneInput = document.getElementById('quotation-phone');
             if (phoneInput) {
-                phoneInput.value = pickValue('PHONE1', 'phone1', 'PHONE', 'phone', 'tel', 'telephone') || 'N/A';
+                phoneInput.value = pickValue('PHONE1', 'phone1', 'PHONE', 'phone', 'tel', 'telephone', 'MOBILE', 'mobile') || 'N/A';
             }
 
             // Populate credit terms
             const termsInput = document.getElementById('quotation-terms');
             if (termsInput) {
-                termsInput.value = pickValue('CREDITTERM', 'creditTerm', 'creditterm') || 'N/A';
+                termsInput.value = pickValue('CREDITTERM', 'creditTerm', 'creditterm', 'TERMS', 'terms') || 'N/A';
             }
 
             // Prefer SQL API udf_email for display if available.

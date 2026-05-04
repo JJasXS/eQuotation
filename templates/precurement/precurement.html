@@ -10,9 +10,9 @@
     <link rel="stylesheet" href="/static/css/app_page_header.css">
     <link rel="stylesheet" href="/static/css/orderQuotation.css">
     <link rel="stylesheet" href="/static/css/adminViewQuotations.css?v=20260430">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr60">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr61">
 </head>
-<body class="procurement-warm-ui">
+<body class="procurement-warm-ui{% if perm_hide_pr_transfer | default(false) %} procurement-hide-transfer{% endif %}{% if perm_hide_pr_approval_edits | default(false) %} procurement-hide-pr-approval-edits{% endif %}">
 
 
     <div class="container procurement-warm-container">
@@ -55,7 +55,7 @@
                                                     <div id="stock-column-filter-panel" class="stock-column-filter-panel">
                                                         <div class="location-filter-row location-filter-row--stack">
                                                             <span class="location-filter-label">Table columns</span>
-                                                            <div id="stock-column-filter-chips" class="stock-column-filter-chips" aria-label="Show or hide quantity columns"></div>
+                                                            <div id="stock-column-filter-chips" class="stock-column-filter-chips" aria-label="Show or hide quantity columns in the stock table (summary row above is not filtered)"></div>
                                                         </div>
                                                         <div class="location-filter-row">
                                                             <button type="button" class="view-pr-refresh-btn stock-report-advanced-btn" id="stock-report-advanced-toggle" aria-expanded="false" aria-controls="stock-report-advanced-settings" onclick="toggleStockReportAdvancedSettings()">Report qty &amp; layout…</button>
@@ -700,7 +700,6 @@
         ];
 
         const STOCK_METRIC_FILTER_LS_KEY = 'procurement-stock-card-metric-filter-v1';
-        const STOCK_CARD_ST_TR_UDF_FILTER_KEY = '__st_tr_udf';
         let stockCardMetricFilter = null;
 
         function loadStockMetricFilter() {
@@ -735,10 +734,6 @@
                     changed = true;
                 }
             });
-            if (stockCardMetricFilter[STOCK_CARD_ST_TR_UDF_FILTER_KEY] === undefined) {
-                stockCardMetricFilter[STOCK_CARD_ST_TR_UDF_FILTER_KEY] = true;
-                changed = true;
-            }
             if (changed) {
                 saveStockMetricFilter();
             }
@@ -750,10 +745,6 @@
                 return true;
             }
             return stockCardMetricFilter[key] !== false;
-        }
-
-        function isStTrUdfSummaryVisible() {
-            return isMetricGroupVisible(STOCK_CARD_ST_TR_UDF_FILTER_KEY);
         }
 
         function getVisibleStockCardMetricGroups() {
@@ -775,10 +766,6 @@
                     `<label class="stock-column-filter-chip"><input type="checkbox" id="stock-col-filter-${safeId}" ${on ? 'checked' : ''} onchange="onStockColumnMetricFilterChange('${escapeJs(g.key)}', this.checked)" /> ${escapeHtml(g.label)}</label>`,
                 );
             });
-            const udfOn = isMetricGroupVisible(STOCK_CARD_ST_TR_UDF_FILTER_KEY);
-            parts.push(
-                `<label class="stock-column-filter-chip"><input type="checkbox" id="stock-col-filter-st-tr-udf" ${udfOn ? 'checked' : ''} onchange="onStockColumnMetricFilterChange('${escapeJs(STOCK_CARD_ST_TR_UDF_FILTER_KEY)}', this.checked)" /> ST_TR UDF Σ</label>`,
-            );
             host.innerHTML = parts.join('');
         }
 
@@ -817,6 +804,9 @@
             const locs = Array.isArray(locations) ? locations : [];
             const visibleGroups = getVisibleStockCardMetricGroups();
             const G = visibleGroups.length;
+            if (G === 0) {
+                return 2;
+            }
             if (!locs.length) {
                 return 1 + G;
             }
@@ -824,6 +814,15 @@
             const L = locs.length;
             const perGroup = sub === 2 ? L * 2 : L;
             return 1 + G * perGroup;
+        }
+
+        function setStockCardTableNoMetricColsClass() {
+            const table = document.getElementById('stock-card-table');
+            if (!table) {
+                return;
+            }
+            const empty = getVisibleStockCardMetricGroups().length === 0;
+            table.classList.toggle('stock-card-table--no-metric-cols', empty);
         }
 
         function normalizeUdfStatus(value) {
@@ -859,8 +858,9 @@
         function updateViewApprovalButtonState() {
             const btn = document.getElementById('view-pr-update-btn');
             if (!btn) return;
+            const hideAppr = document.body.classList.contains('procurement-hide-pr-approval-edits');
             const hasChanges = viewApprovalPendingChanges.size > 0 || viewHeaderStatusPendingChanges.size > 0;
-            btn.disabled = viewApprovalSaving || !hasChanges;
+            btn.disabled = hideAppr || viewApprovalSaving || !hasChanges;
             btn.textContent = viewApprovalSaving ? 'Saving...' : 'Update Details';
         }
 
@@ -989,6 +989,9 @@
         }
 
         async function onTransferPurchaseRequest(headerId) {
+            if (document.body.classList.contains('procurement-hide-transfer')) {
+                return;
+            }
             const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(headerId));
             if (!header) {
                 return;
@@ -1064,6 +1067,9 @@
         }
 
         function onHeaderUdfStatusChange(requestId, value) {
+            if (document.body.classList.contains('procurement-hide-pr-approval-edits')) {
+                return;
+            }
             const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(requestId));
             if (!header) return;
 
@@ -1090,6 +1096,9 @@
         }
 
         function onDetailApprovalChange(headerId, detailId, checked) {
+            if (document.body.classList.contains('procurement-hide-pr-approval-edits')) {
+                return;
+            }
             const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(headerId));
             if (!header || !Array.isArray(header.details)) {
                 return;
@@ -1117,6 +1126,9 @@
         }
 
         async function saveViewDetailApprovals() {
+            if (document.body.classList.contains('procurement-hide-pr-approval-edits')) {
+                return;
+            }
             if (viewApprovalSaving || (viewApprovalPendingChanges.size === 0 && viewHeaderStatusPendingChanges.size === 0)) {
                 return;
             }
@@ -2077,9 +2089,28 @@
             const locationColumns = Array.isArray(locations) ? locations : [];
             const thead = document.getElementById('stock-card-table-head');
             const sub = stockCardSubcolsPerLocation();
+            const visibleMetricGroups = getVisibleStockCardMetricGroups();
+
+            if (!visibleMetricGroups.length) {
+                thead.innerHTML = `
+                    <tr>
+                        <th class="code-col stock-card-code-col--fixed" scope="col">ST_ITEM.CODE</th>
+                        <th class="stock-card-no-cols-msg stock-card-no-cols-msg--head" scope="col"></th>
+                    </tr>
+                `;
+                thead.className = locationColumns.length
+                    ? 'stock-card-thead stock-card-thead--one-row stock-card-thead--no-metric-cols'
+                    : 'stock-card-thead stock-card-thead--no-locs stock-card-thead--no-metric-cols';
+                if (locationColumns.length) {
+                    requestAnimationFrame(() => {
+                        requestAnimationFrame(() => syncStockCardHeaderStickyOffset());
+                    });
+                }
+                return;
+            }
 
             if (!locationColumns.length) {
-                const defaultColumns = getVisibleStockCardMetricGroups().map((group) => {
+                const defaultColumns = visibleMetricGroups.map((group) => {
                     if (sub === 2) {
                         return `<th class="qty-col stock-card-expand"><div class="stock-card-th-stacked"><span class="stock-card-th-main">${escapeHtml(group.label)}</span><span class="stock-card-th-subpair"><span>SQTY</span><span>SUOMQTY</span></span></div></th>`;
                     }
@@ -2127,7 +2158,7 @@
                 <div class="stock-card-hdr-code">ST_ITEM.CODE</div>
             </th>`;
 
-            getVisibleStockCardMetricGroups().forEach((group) => {
+            visibleMetricGroups.forEach((group) => {
                 locationColumns.forEach((locationCode, idx) => {
                     if (sub === 2) {
                         oneRow += buildCondensedTh(group, locationCode, idx, 'SQ');
@@ -2350,6 +2381,7 @@
             renderLocationFilters();
             renderStockCardHeader(selectedStockCardLocations);
             renderStockCardRows(stockCardRows, selectedStockCardLocations, stockCardStTrUdfSummary);
+            setStockCardTableNoMetricColsClass();
             afterStockCardTableRender();
         }
 
@@ -2536,7 +2568,7 @@
         function updateReportSummaryCards(rows, locations, stTrUdfSummary) {
             const el = document.getElementById('report-summary-cards');
             if (!el) return;
-            const udfCardEarly = isStTrUdfSummaryVisible() ? buildStTrUdfSuomqtySummaryCard(stTrUdfSummary) : '';
+            const udfCardEarly = buildStTrUdfSuomqtySummaryCard(stTrUdfSummary);
             if (!rows || !rows.length) {
                 el.innerHTML = udfCardEarly || '';
                 return;
@@ -2544,16 +2576,16 @@
             const locationColumns = Array.isArray(locations) ? locations : [];
             const sub = stockCardSubcolsPerLocation();
             const sumMapAllRows = (mapKey) => rows.reduce((acc, row) => acc + sumStockCardMapAcrossLocations(row, mapKey, locationColumns), 0);
-            const cardDefs = [
-                { metricKey: 'avail_qty_by_location', label: 'Qty on Hand', maps: { sqty: 'avail_qty_sqty_by_location', suom: 'avail_qty_suom_by_location' }, bg: '#dff2f6', color: '#124a5c' },
-                { metricKey: 'po_qty_by_location', label: 'P.O Qty', maps: { sqty: 'po_qty_sqty_by_location', suom: 'po_qty_suom_by_location' }, bg: '#faf0d8', color: '#6b4e0f' },
-                { metricKey: 'so_qty_by_location', label: 'S.O Qty', maps: { sqty: 'so_qty_sqty_by_location', suom: 'so_qty_suom_by_location' }, bg: '#e3eef9', color: '#153d66' },
-                { metricKey: 'jo_qty_by_location', label: 'J.O Qty', maps: { sqty: 'jo_qty_sqty_by_location', suom: 'jo_qty_suom_by_location' }, bg: '#dff3e6', color: '#14532a' },
-                { metricKey: 'qty_by_location', label: 'Avail. Qty', maps: { sqty: 'qty_sqty_by_location', suom: 'qty_suom_by_location' }, bg: '#ede6f7', color: '#4a3168' },
-                { metricKey: 'need_to_buy_by_location', label: 'Shortage Qty', maps: { sqty: 'need_to_buy_sqty_by_location', suom: 'need_to_buy_suom_by_location' }, bg: '#fce4e8', color: '#7a2222' },
-                { metricKey: 'pending_pr_by_location', label: 'Pending PR', maps: { sqty: 'pending_pr_sqty_by_location', suom: 'pending_pr_suom_by_location' }, bg: '#fff2d6', color: '#6d5200' },
+            /* Summary cards always show full totals; table columns use Table columns checkboxes only. */
+            const cards = [
+                { label: 'Qty on Hand', maps: { sqty: 'avail_qty_sqty_by_location', suom: 'avail_qty_suom_by_location' }, bg: '#dff2f6', color: '#124a5c' },
+                { label: 'P.O Qty', maps: { sqty: 'po_qty_sqty_by_location', suom: 'po_qty_suom_by_location' }, bg: '#faf0d8', color: '#6b4e0f' },
+                { label: 'S.O Qty', maps: { sqty: 'so_qty_sqty_by_location', suom: 'so_qty_suom_by_location' }, bg: '#e3eef9', color: '#153d66' },
+                { label: 'J.O Qty', maps: { sqty: 'jo_qty_sqty_by_location', suom: 'jo_qty_suom_by_location' }, bg: '#dff3e6', color: '#14532a' },
+                { label: 'Avail. Qty', maps: { sqty: 'qty_sqty_by_location', suom: 'qty_suom_by_location' }, bg: '#ede6f7', color: '#4a3168' },
+                { label: 'Shortage Qty', maps: { sqty: 'need_to_buy_sqty_by_location', suom: 'need_to_buy_suom_by_location' }, bg: '#fce4e8', color: '#7a2222' },
+                { label: 'Pending PR', maps: { sqty: 'pending_pr_sqty_by_location', suom: 'pending_pr_suom_by_location' }, bg: '#fff2d6', color: '#6d5200' },
             ];
-            const cards = cardDefs.filter((c) => isMetricGroupVisible(c.metricKey));
             const metricCards = cards.map((c) => {
                 const tSq = sumMapAllRows(c.maps.sqty);
                 const tSu = sumMapAllRows(c.maps.suom);
@@ -2589,6 +2621,16 @@
             const noLocations = !locationColumns.length;
             const totalColumns = getStockCardTotalColumns(locationColumns);
             const sub = stockCardSubcolsPerLocation();
+            const visibleMetricGroups = getVisibleStockCardMetricGroups();
+
+            if (!visibleMetricGroups.length) {
+                if (!rows || !rows.length) {
+                    tbody.innerHTML = `<tr><td class="code-col stock-card-code-col--fixed">—</td><td class="stock-card-no-cols-msg stock-card-status">No stock items found.</td></tr>`;
+                } else {
+                    tbody.innerHTML = `<tr><td class="code-col stock-card-code-col--fixed">&nbsp;</td><td class="stock-card-no-cols-msg">No table column is selected</td></tr>`;
+                }
+                return;
+            }
 
             if (!rows || !rows.length) {
                 tbody.innerHTML = `<tr><td colspan="${totalColumns}" class="stock-card-status">No stock items found.</td></tr>`;
@@ -2806,7 +2848,7 @@
             tbody.innerHTML = rows.map((row) => `
                 <tr>
                     <td class="code-col${noLocations ? ' stock-card-expand' : ''}">${escapeHtml(row.code || '')}</td>
-                    ${getVisibleStockCardMetricGroups().map((g) => renderMetricGroup(row, g)).join('')}
+                    ${visibleMetricGroups.map((g) => renderMetricGroup(row, g)).join('')}
                 </tr>
             `).join('');
         }
@@ -2815,7 +2857,12 @@
             initStockCardUomDisplay();
             const tbody = document.getElementById('stock-card-table-body');
             const loadingColumns = getStockCardTotalColumns(selectedStockCardLocations);
-            tbody.innerHTML = `<tr><td colspan="${loadingColumns}" class="stock-card-status">Loading stock items...</td></tr>`;
+            if (getVisibleStockCardMetricGroups().length === 0) {
+                tbody.innerHTML = `<tr><td class="code-col stock-card-code-col--fixed">…</td><td class="stock-card-no-cols-msg stock-card-status">Loading stock items...</td></tr>`;
+            } else {
+                tbody.innerHTML = `<tr><td colspan="${loadingColumns}" class="stock-card-status">Loading stock items...</td></tr>`;
+            }
+            setStockCardTableNoMetricColsClass();
 
             const fromDateInput = document.getElementById('stock-card-from-date');
             const fromDate = fromDateInput ? String(fromDateInput.value || '').trim() : '';
@@ -2865,7 +2912,13 @@
                     console.error('Failed to load stock card rows:', error);
                     stockCardStTrUdfSummary = null;
                     const totalColumns = getStockCardTotalColumns(selectedStockCardLocations);
-                    tbody.innerHTML = `<tr><td colspan="${totalColumns}" class="stock-card-status">${escapeHtml(error.message || 'Failed to load stock items.')}</td></tr>`;
+                    const msg = escapeHtml(error.message || 'Failed to load stock items.');
+                    if (getVisibleStockCardMetricGroups().length === 0) {
+                        tbody.innerHTML = `<tr><td class="code-col stock-card-code-col--fixed">—</td><td class="stock-card-no-cols-msg stock-card-status">${msg}</td></tr>`;
+                    } else {
+                        tbody.innerHTML = `<tr><td colspan="${totalColumns}" class="stock-card-status">${msg}</td></tr>`;
+                    }
+                    setStockCardTableNoMetricColsClass();
                 });
         }
 

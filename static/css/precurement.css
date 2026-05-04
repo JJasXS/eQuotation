@@ -426,6 +426,29 @@ body {
     cursor: pointer;
 }
 
+/* PSTAFF (purchase_staff): hide PR → PO transfer UI (role from utils/role_permissions.py) */
+body.procurement-hide-transfer .view-pr-detail-actions {
+    display: none !important;
+}
+body.procurement-hide-transfer .view-pr-transfer-qty-input,
+body.procurement-hide-transfer .view-pr-transfer-ratio-sep,
+body.procurement-hide-transfer .view-pr-transfer-ratio-total {
+    display: none !important;
+}
+
+/* PSTAFF: cannot change PR header UDF_STATUS or line UDF_PQAPPROVED (server also returns 403). */
+body.procurement-hide-pr-approval-edits #view-pr-update-btn {
+    display: none !important;
+}
+body.procurement-hide-pr-approval-edits .view-pr-udf-status {
+    pointer-events: none;
+    opacity: 0.55;
+}
+body.procurement-hide-pr-approval-edits .view-pr-approved-cell input[type="checkbox"] {
+    pointer-events: none;
+    opacity: 0.55;
+}
+
 .stock-report-advanced-btn {
     align-self: flex-start;
 }
@@ -663,6 +686,43 @@ body {
     min-width: 100%;
     margin: 0 auto;
     /* --stock-card-hdr1-h: set from JS to match row 1 height (two-row thead sticky) */
+}
+
+/* No metric columns selected: same shrink-wrap behavior as the wide grid — table width = columns only, no full-bleed message bar */
+.stock-card-table.stock-card-table--no-metric-cols {
+    min-width: 0;
+    width: max-content;
+    max-width: 100%;
+    table-layout: auto;
+    margin: 0;
+}
+
+.stock-card-table.stock-card-table--no-metric-cols th.code-col.stock-card-code-col--fixed,
+.stock-card-table.stock-card-table--no-metric-cols td.code-col.stock-card-code-col--fixed {
+    width: 10.5rem !important;
+    min-width: 10.5rem !important;
+    max-width: 10.5rem !important;
+}
+
+.stock-card-table--no-metric-cols th.stock-card-no-cols-msg--head,
+.stock-card-table--no-metric-cols td.stock-card-no-cols-msg {
+    position: static;
+    left: auto;
+    z-index: 0;
+    width: max-content;
+    max-width: min(28rem, calc(100vw - 14rem));
+    text-align: left;
+    white-space: normal;
+    background: #23293a;
+    color: #9aa7b8;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 10px 14px;
+    border-left: 1px solid #3a4558;
+}
+
+.stock-card-table--no-metric-cols .stock-card-no-cols-msg.stock-card-status {
+    color: #b9c4d1;
 }
 
 /* When no locations, allow the base columns to stretch within fixed table width */
@@ -3123,6 +3183,17 @@ body.procurement-warm-ui .stock-card-table td.qty-col.location-bg-10 {
 body.procurement-warm-ui .report-summary-card {
     border: 1px solid #cfb587;
     box-shadow: 0 1px 4px rgba(84, 64, 32, 0.1);
+}
+
+body.procurement-warm-ui .stock-card-table--no-metric-cols th.stock-card-no-cols-msg--head,
+body.procurement-warm-ui .stock-card-table--no-metric-cols td.stock-card-no-cols-msg {
+    background: #faf6ee;
+    color: #5c4a32;
+    border-left-color: #dccfb8;
+}
+
+body.procurement-warm-ui .stock-card-table--no-metric-cols .stock-card-no-cols-msg.stock-card-status {
+    color: #6b5c48;
 }
 
 body.procurement-warm-ui .stock-card-table th.code-col,
