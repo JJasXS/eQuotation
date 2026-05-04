@@ -100,6 +100,44 @@ def get_st_item_udf_stdprice(cur: Any, item_code: str) -> float | None:
     return None
 
 
+def get_st_item_quotation_display_fields(cur: Any, item_code: str) -> dict[str, str]:
+    """ST_ITEM UDF_MOQ, UDF_DLEADTIME, UDF_BUNDLE for create-quotation line (read-only); missing columns yield empty."""
+    out: dict[str, str] = {"udfMoq": "", "udfDleadtime": "", "udfBundle": ""}
+    code = _clean_str(item_code)
+    if not code:
+        return out
+    cur.execute(
+        """
+        SELECT TRIM(RF.RDB$FIELD_NAME)
+        FROM RDB$RELATION_FIELDS RF
+        WHERE RF.RDB$RELATION_NAME = 'ST_ITEM'
+        """
+    )
+    existing = {_clean_str(row[0]).upper() for row in (cur.fetchall() or []) if row and row[0]}
+    col_map = [
+        ("UDF_MOQ", "udfMoq"),
+        ("UDF_DLEADTIME", "udfDleadtime"),
+        ("UDF_BUNDLE", "udfBundle"),
+    ]
+    selected = [(c, key) for c, key in col_map if c.upper() in existing]
+    if not selected:
+        return out
+    sql_cols = ", ".join(c for c, _ in selected)
+    cur.execute(f"SELECT {sql_cols} FROM ST_ITEM WHERE CODE = ?", (code,))
+    row = cur.fetchone()
+    if not row:
+        return out
+    for idx, (_, key) in enumerate(selected):
+        val = row[idx]
+        if val is None:
+            out[key] = ""
+        elif isinstance(val, str):
+            out[key] = val.strip()
+        else:
+            out[key] = str(val).strip()
+    return out
+
+
 def find_price_seed_item(cur: Any, description: str) -> dict[str, Any] | None:
     """Find best seed item row used by pricing flow from ST_ITEM."""
     cur.execute(

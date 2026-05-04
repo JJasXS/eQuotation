@@ -92,6 +92,7 @@ from utils.sql_query_helpers import (
     find_customer_code_by_email,
     find_draft_order_id_by_chatid,
     find_price_seed_item,
+    get_st_item_quotation_display_fields,
     get_st_item_udf_stdprice,
     has_user_draft_orders,
 )
@@ -6012,22 +6013,27 @@ def api_get_product_price():
         local_st_item_price = price_item.get('UDF_STDPRICE', None)
         no_match_message = None
 
-        # Fetch ST_ITEM.UDF_STDPRICE for Suggested Price field when not provided.
+        st_item_extras = {'udfMoq': '', 'udfDleadtime': '', 'udfBundle': ''}
+
+        # Fetch ST_ITEM.UDF_STDPRICE for Suggested Price field when not provided; always load MOQ / lead / bundle when CODE known.
         st_item_udf_stdprice = None
         if local_st_item_price is not None:
             try:
                 st_item_udf_stdprice = float(local_st_item_price)
             except Exception:
                 st_item_udf_stdprice = None
-        elif item_code:
+
+        if item_code:
             con = None
             cur = None
             try:
                 con = get_db_connection()
                 cur = con.cursor()
-                st_item_udf_stdprice = get_st_item_udf_stdprice(cur, item_code)
+                st_item_extras = get_st_item_quotation_display_fields(cur, item_code)
+                if st_item_udf_stdprice is None:
+                    st_item_udf_stdprice = get_st_item_udf_stdprice(cur, item_code)
             except Exception as st_item_error:
-                print(f"[PRICING WARNING] Failed to fetch ST_ITEM.UDF_STDPRICE for {item_code}: {st_item_error}", flush=True)
+                print(f"[PRICING WARNING] Failed to fetch ST_ITEM fields for {item_code}: {st_item_error}", flush=True)
             finally:
                 if cur:
                     cur.close()
@@ -6051,6 +6057,9 @@ def api_get_product_price():
                         'message': pricing_result.get('Message'),
                         'itemCode': item_code,
                         'matchType': match_type,
+                        'udfMoq': st_item_extras.get('udfMoq', ''),
+                        'udfDleadtime': st_item_extras.get('udfDleadtime', ''),
+                        'udfBundle': st_item_extras.get('udfBundle', ''),
                     })
                 no_match_message = pricing_result.get('Message')
             except Exception as pricing_error:
@@ -6073,6 +6082,9 @@ def api_get_product_price():
             'suggestedReason': no_match_message or 'No prioritized price found for current customer/item',
             'itemCode': item_code,
             'matchType': match_type,
+            'udfMoq': st_item_extras.get('udfMoq', ''),
+            'udfDleadtime': st_item_extras.get('udfDleadtime', ''),
+            'udfBundle': st_item_extras.get('udfBundle', ''),
         })
 
     try:

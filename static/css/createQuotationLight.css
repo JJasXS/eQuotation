@@ -38,6 +38,121 @@ body.create-quotation-page .form-container h3 {
     color: #4f3b2a;
 }
 
+/* Two-column layout: customer (left) + quotation lines (right) */
+body.create-quotation-page .create-quotation-layout {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 24px;
+    margin-top: 8px;
+}
+
+body.create-quotation-page .create-quotation-customer-panel {
+    flex: 0 1 300px;
+    min-width: 220px;
+    padding: 16px 18px;
+    background: #fffef8;
+    border: 1px solid #e2cfab;
+    border-radius: 10px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+body.create-quotation-page .create-quotation-lines-panel {
+    flex: 1 1 420px;
+    min-width: 0;
+    padding: 16px 18px;
+    background: #fffef8;
+    border: 1px solid #e2cfab;
+    border-radius: 10px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Keep line grid from crushing: horizontal scroll on narrow viewports */
+/* Match sum of grid minmax mins (~978px) + column gaps (~120px) so tracks are not squeezed */
+body.create-quotation-page #quotation-form .quotation-item-row-header,
+body.create-quotation-page #quotation-items-list .item-row {
+    min-width: 1120px;
+}
+
+body.create-quotation-page #quotation-items-list .item-row input,
+body.create-quotation-page #quotation-items-list .item-row select {
+    padding: 8px 10px;
+    font-size: 13px;
+}
+
+body.create-quotation-page #quotation-items-list .item-row select {
+    padding-right: 32px;
+    background-position: right 10px center;
+}
+
+body.create-quotation-page .create-quotation-panel-title {
+    margin: 0 0 14px 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: #4f3b2a;
+    letter-spacing: 0.02em;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e2cfab;
+}
+
+/* Customer details: compact label + plain text (no textboxes) */
+body.create-quotation-page .customer-details-readonly {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+body.create-quotation-page .customer-detail-row {
+    display: grid;
+    grid-template-columns: 108px minmax(0, 1fr);
+    gap: 8px 12px;
+    align-items: baseline;
+    font-size: 14px;
+}
+
+body.create-quotation-page .customer-detail-label {
+    color: #6b5a45;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+body.create-quotation-page .customer-detail-value {
+    color: #3d2f1f;
+    word-break: break-word;
+    line-height: 1.45;
+    min-height: 1.2em;
+}
+
+body.create-quotation-page .create-quotation-customer-panel .customer-validity-field {
+    margin-top: 4px;
+    margin-bottom: 0;
+}
+
+body.create-quotation-page .create-quotation-lines-panel .btn-add-item {
+    margin-top: 12px;
+}
+
+body.create-quotation-page .create-quotation-lines-panel .total-section {
+    margin-top: 16px;
+}
+
+@media (max-width: 960px) {
+    body.create-quotation-page .create-quotation-layout {
+        flex-direction: column;
+    }
+
+    body.create-quotation-page .create-quotation-customer-panel,
+    body.create-quotation-page .create-quotation-lines-panel {
+        flex-basis: 100%;
+        min-width: 0;
+    }
+}
+
 body.create-quotation-page .form-group label {
     color: #6b5a45;
 }
@@ -113,6 +228,14 @@ body.create-quotation-page .item-row-header {
     border-bottom: 1px solid #e2cfab;
     padding-bottom: 8px;
     margin-bottom: 4px;
+}
+
+body.create-quotation-page #quotation-form .quotation-item-row-header {
+    color: #6b5a45;
+}
+
+body.create-quotation-page #quotation-form .quotation-item-row-header span.item-header-ref-price {
+    color: #6b5a45;
 }
 
 body.create-quotation-page .total-section {
@@ -242,4 +365,11 @@ body.create-quotation-page .hamburger-menu-container .hamburger-btn {
     background: #fffef8;
     border: 1px solid #d4c4a8;
     border-radius: 8px;
+}
+
+body.create-quotation-page #quotation-items-list .item-row .item-udf-moq,
+body.create-quotation-page #quotation-items-list .item-row .item-udf-dleadtime,
+body.create-quotation-page #quotation-items-list .item-row .item-udf-bundle {
+    font-size: 12px;
+    text-align: center;
 }

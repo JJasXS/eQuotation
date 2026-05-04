@@ -204,6 +204,89 @@
     align-items: center;
 }
 
+/* Create quotation: header sits above #quotation-items-list — balanced columns, aligned with row */
+#quotation-form .quotation-item-row-header {
+    grid-template-columns:
+        minmax(118px, 1fr)
+        minmax(168px, 2.1fr)
+        minmax(56px, 0.55fr)
+        minmax(56px, 0.55fr)
+        minmax(60px, 0.55fr)
+        minmax(68px, 0.6fr)
+        minmax(76px, 0.65fr)
+        minmax(104px, 0.85fr)
+        minmax(96px, 0.85fr)
+        minmax(132px, 1fr)
+        44px;
+    gap: 12px;
+    align-items: center;
+    padding-left: 0;
+    padding-right: 0;
+}
+
+#quotation-form .quotation-item-row-header span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    min-height: 2.2em;
+    padding: 0 4px;
+    line-height: 1.25;
+    hyphens: auto;
+}
+
+#quotation-form .quotation-item-row-header span:first-child {
+    justify-content: flex-start;
+    text-align: left;
+}
+
+#quotation-form .quotation-item-row-header span.item-header-ref-price {
+    flex-direction: column;
+    gap: 0;
+    line-height: 1.15;
+    font-size: 11px;
+}
+
+#quotation-form .quotation-item-row-header span.item-header-actions {
+    min-width: 40px;
+}
+
+#quotation-items-list .item-row {
+    grid-template-columns:
+        minmax(118px, 1fr)
+        minmax(168px, 2.1fr)
+        minmax(56px, 0.55fr)
+        minmax(56px, 0.55fr)
+        minmax(60px, 0.55fr)
+        minmax(68px, 0.6fr)
+        minmax(76px, 0.65fr)
+        minmax(104px, 0.85fr)
+        minmax(96px, 0.85fr)
+        minmax(132px, 1fr)
+        44px;
+    gap: 12px;
+    align-items: center;
+}
+
+#quotation-items-list .item-row .item-product,
+#quotation-items-list .item-row .item-product-custom {
+    min-width: 0;
+    width: 100%;
+}
+
+#quotation-items-list .item-row select.item-product {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#quotation-items-list .item-row .item-udf-moq,
+#quotation-items-list .item-row .item-udf-dleadtime,
+#quotation-items-list .item-row .item-udf-bundle {
+    font-size: 12px;
+    text-align: center;
+}
+
 .item-row input,
 .item-row select {
     padding: 10px 12px;

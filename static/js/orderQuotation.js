@@ -205,18 +205,40 @@ function buildQuotationPayload() {
     return {
         description: 'Quotation',
         validUntil: document.getElementById('quotation-validity').value,
-        companyName: document.getElementById('quotation-company').value.trim(),
-        address1: document.getElementById('quotation-address1').value.trim(),
-        address2: document.getElementById('quotation-address2').value.trim(),
-        address3: document.getElementById('quotation-address3').value.trim(),
-        address4: document.getElementById('quotation-address4').value.trim(),
-        phone1: document.getElementById('quotation-phone').value.trim(),
+        companyName: readQuotationCustomerField('quotation-company'),
+        address1: readQuotationCustomerField('quotation-address1'),
+        address2: readQuotationCustomerField('quotation-address2'),
+        address3: readQuotationCustomerField('quotation-address3'),
+        address4: readQuotationCustomerField('quotation-address4'),
+        phone1: readQuotationCustomerField('quotation-phone'),
         remarks: document.getElementById('quotation-remarks')?.value.trim() || '',
 
 
 
         items: items
     };
+}
+
+function readQuotationCustomerField(id) {
+    const el = document.getElementById(id);
+    if (!el) return '';
+    const tag = (el.tagName || '').toUpperCase();
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+        return String(el.value || '').trim();
+    }
+    return String(el.textContent || '').trim();
+}
+
+function writeQuotationCustomerField(id, displayText) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const tag = (el.tagName || '').toUpperCase();
+    const text = displayText == null ? '' : String(displayText);
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+        el.value = text;
+        return;
+    }
+    el.textContent = text.trim();
 }
 
 // Add Quotation Item
@@ -235,9 +257,12 @@ function addQuotationItem() {
                 <option value="">Select product...</option>
             </select>
             <input type="text" class="item-product-custom" placeholder="Custom product" style="display:none;" onchange="fetchProductPrice(this)">
+            <input type="text" class="item-udf-moq" placeholder="—" readonly title="MOQ from ST_ITEM (catalog)">
+            <input type="text" class="item-udf-dleadtime" placeholder="—" readonly title="UDF_DLEADTIME from ST_ITEM (catalog)">
+            <input type="text" class="item-udf-bundle" placeholder="—" readonly title="UDF_BUNDLE from ST_ITEM (catalog)">
             <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
             <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
-            <input type="number" class="item-suggested-price" placeholder="Suggested Price" step="0.01" min="0" readonly>
+            <input type="number" class="item-suggested-price" placeholder="Reference price" step="0.01" min="0" readonly>
             <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" onchange="calculateQuotationTotal()">
             <input type="date" class="item-delivery-date" value="${today}">
             <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
@@ -266,6 +291,7 @@ function onProductSourceChange(selectElement) {
         suggestedPriceInput.value = '';
         priceInput.readOnly = false;
         priceInput.value = '';
+        clearQuotationLineStItemExtras(row);
     } else {
         catalogSelect.style.display = 'inline-block';
         customInput.style.display = 'none';
@@ -274,6 +300,7 @@ function onProductSourceChange(selectElement) {
         priceInput.readOnly = true;
         priceInput.value = '';
         suggestedPriceInput.value = '';
+        clearQuotationLineStItemExtras(row);
     }
 }
 
@@ -319,6 +346,32 @@ function calculateQuotationTotal() {
     document.getElementById('quotation-total').textContent = `RM ${total.toFixed(2)}`;
 }
 
+function clearQuotationLineStItemExtras(row) {
+    if (!row) {
+        return;
+    }
+    row.querySelectorAll('.item-udf-moq, .item-udf-dleadtime, .item-udf-bundle').forEach((el) => {
+        el.value = '';
+    });
+}
+
+function applyQuotationLineStItemExtras(row, data) {
+    if (!row) {
+        return;
+    }
+    const src = data || {};
+    const pick = (key) => {
+        const v = src[key];
+        return v != null && String(v).trim() !== '' ? String(v).trim() : '';
+    };
+    const moq = row.querySelector('.item-udf-moq');
+    const lead = row.querySelector('.item-udf-dleadtime');
+    const bundle = row.querySelector('.item-udf-bundle');
+    if (moq) moq.value = pick('udfMoq');
+    if (lead) lead.value = pick('udfDleadtime');
+    if (bundle) bundle.value = pick('udfBundle');
+}
+
 // Clear Order Form
 function clearOrderForm() {
     if (confirm('Are you sure you want to clear the form?')) {
@@ -358,9 +411,12 @@ function clearQuotationForm() {
                         <option value="">Select product...</option>
                     </select>
                     <input type="text" class="item-product-custom" placeholder="Custom product" style="display:none;" onchange="fetchProductPrice(this)">
+                    <input type="text" class="item-udf-moq" placeholder="—" readonly title="MOQ from ST_ITEM (catalog)">
+                    <input type="text" class="item-udf-dleadtime" placeholder="—" readonly title="UDF_DLEADTIME from ST_ITEM (catalog)">
+                    <input type="text" class="item-udf-bundle" placeholder="—" readonly title="UDF_BUNDLE from ST_ITEM (catalog)">
                     <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
                     <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
-                    <input type="number" class="item-suggested-price" placeholder="Suggested Price" step="0.01" min="0" readonly>
+                    <input type="number" class="item-suggested-price" placeholder="Reference price" step="0.01" min="0" readonly>
                     <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" onchange="calculateQuotationTotal()">
                     <input type="date" class="item-delivery-date" value="${new Date().toISOString().split('T')[0]}">
                     <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
@@ -371,6 +427,7 @@ function clearQuotationForm() {
         const select = container.querySelector('.item-product');
         populateProductSelect(select);
         calculateQuotationTotal();
+        loadUserInfo();
     }
 }
 
@@ -380,11 +437,16 @@ async function fetchProductPrice(input) {
     if (input.classList.contains('item-product-custom')) {
         return;
     }
-    
-    const productName = input.value.trim();
-    if (!productName) return;
-    
+
     const row = input.closest('.item-row');
+    const productName = input.value.trim();
+    if (!productName) {
+        if (row && input.closest('#quotation-items-list')) {
+            clearQuotationLineStItemExtras(row);
+        }
+        return;
+    }
+
     const orderItem = input.closest('.order-item');
     if (orderItem) {
         orderItem.dataset.productDescription = productName;
@@ -422,9 +484,21 @@ async function fetchProductPrice(input) {
             } else {
                 calculateQuotationTotal();
             }
+            if (row && input.closest('#quotation-items-list')) {
+                applyQuotationLineStItemExtras(row, {
+                    udfMoq: data.udfMoq,
+                    udfDleadtime: data.udfDleadtime,
+                    udfBundle: data.udfBundle,
+                });
+            }
+        } else if (row && input.closest('#quotation-items-list')) {
+            clearQuotationLineStItemExtras(row);
         }
     } catch (error) {
         console.error('Failed to fetch product price:', error);
+        if (row && input.closest('#quotation-items-list')) {
+            clearQuotationLineStItemExtras(row);
+        }
     }
 }
 
@@ -704,52 +778,44 @@ async function loadUserInfo() {
                 );
             };
 
-            // Populate company name
-            const companyInput = document.getElementById('quotation-company');
-            if (companyInput) {
-                companyInput.value = pickValue('COMPANYNAME', 'companyName', 'companyname', 'DESCRIPTION', 'description') || 'N/A';
-            }
+            writeQuotationCustomerField(
+                'quotation-company',
+                pickValue('COMPANYNAME', 'companyName', 'companyname', 'DESCRIPTION', 'description') || 'N/A',
+            );
 
-            // Populate addresses
-            const address1Input = document.getElementById('quotation-address1');
-            if (address1Input) {
-                address1Input.value = pickValue('ADDRESS1', 'address1', 'addr1', 'line1', 'street1') || 'N/A';
-            }
+            writeQuotationCustomerField(
+                'quotation-address1',
+                pickValue('ADDRESS1', 'address1', 'addr1', 'line1', 'street1') || 'N/A',
+            );
 
-            const address2Input = document.getElementById('quotation-address2');
-            if (address2Input) {
-                address2Input.value = pickValue('ADDRESS2', 'address2', 'addr2', 'line2', 'street2') || 'N/A';
-            }
+            writeQuotationCustomerField(
+                'quotation-address2',
+                pickValue('ADDRESS2', 'address2', 'addr2', 'line2', 'street2') || 'N/A',
+            );
 
-            const address3Input = document.getElementById('quotation-address3');
-            if (address3Input) {
-                address3Input.value = pickValue('ADDRESS3', 'address3', 'addr3', 'line3', 'city') || '';
-            }
+            writeQuotationCustomerField(
+                'quotation-address3',
+                pickValue('ADDRESS3', 'address3', 'addr3', 'line3', 'city') || '',
+            );
 
-            const address4Input = document.getElementById('quotation-address4');
-            if (address4Input) {
-                address4Input.value = pickValue('ADDRESS4', 'address4', 'addr4', 'line4', 'state', 'country') || '';
-            }
+            writeQuotationCustomerField(
+                'quotation-address4',
+                pickValue('ADDRESS4', 'address4', 'addr4', 'line4', 'state', 'country') || '',
+            );
 
-            // Populate phone 1
-            const phoneInput = document.getElementById('quotation-phone');
-            if (phoneInput) {
-                phoneInput.value = pickValue('PHONE1', 'phone1', 'PHONE', 'phone', 'tel', 'telephone', 'MOBILE', 'mobile') || 'N/A';
-            }
+            writeQuotationCustomerField(
+                'quotation-phone',
+                pickValue('PHONE1', 'phone1', 'PHONE', 'phone', 'tel', 'telephone', 'MOBILE', 'mobile') || 'N/A',
+            );
 
-            // Populate credit terms
-            const termsInput = document.getElementById('quotation-terms');
-            if (termsInput) {
-                termsInput.value = pickValue('CREDITTERM', 'creditTerm', 'creditterm', 'TERMS', 'terms') || 'N/A';
-            }
+            writeQuotationCustomerField(
+                'quotation-terms',
+                pickValue('CREDITTERM', 'creditTerm', 'creditterm', 'TERMS', 'terms') || 'N/A',
+            );
 
-            // Prefer SQL API udf_email for display if available.
-            const customerEmailInput = document.getElementById('quotation-customer');
-            if (customerEmailInput) {
-                const apiEmail = pickValue('UDF_EMAIL', 'udf_email', 'EMAIL', 'email');
-                if (apiEmail) {
-                    customerEmailInput.value = apiEmail;
-                }
+            const apiEmail = pickValue('UDF_EMAIL', 'udf_email', 'EMAIL', 'email');
+            if (apiEmail) {
+                writeQuotationCustomerField('quotation-customer', apiEmail);
             }
         } else {
             // Set default N/A values if data not found
@@ -764,13 +830,10 @@ async function loadUserInfo() {
 
 // Helper function to set all customer fields to N/A
 function setDefaultCustomerInfo() {
-    const fields = ['quotation-company', 'quotation-address1', 'quotation-address2', 'quotation-address3', 'quotation-address4', 'quotation-phone', 'quotation-terms'];
-    fields.forEach(fieldId => {
-        const field = document.getElementById(fieldId);
-        if (field) {
-            field.value = 'N/A';
-        }
-    });
+    const fields = ['quotation-company', 'quotation-address1', 'quotation-address2', 'quotation-phone', 'quotation-terms'];
+    fields.forEach((fieldId) => writeQuotationCustomerField(fieldId, 'N/A'));
+    writeQuotationCustomerField('quotation-address3', '');
+    writeQuotationCustomerField('quotation-address4', '');
 }
 
 // Load draft quotation data if dockey is present
@@ -797,42 +860,13 @@ async function loadDraftQuotation(dockey) {
                 validityField.value = validityDate;
             }
             
-            // Populate credit terms
-            const termsInput = document.getElementById('quotation-terms');
-            if (termsInput && quotation.TERMS) {
-                termsInput.value = quotation.TERMS;
-            }
-            
-            // Populate customer info fields
-            const companyInput = document.getElementById('quotation-company');
-            if (companyInput && quotation.COMPANYNAME) {
-                companyInput.value = quotation.COMPANYNAME;
-            }
-            
-            const address1Input = document.getElementById('quotation-address1');
-            if (address1Input && quotation.ADDRESS1) {
-                address1Input.value = quotation.ADDRESS1;
-            }
-            
-            const address2Input = document.getElementById('quotation-address2');
-            if (address2Input && quotation.ADDRESS2) {
-                address2Input.value = quotation.ADDRESS2;
-            }
-            
-            const address3Input = document.getElementById('quotation-address3');
-            if (address3Input && quotation.ADDRESS3) {
-                address3Input.value = quotation.ADDRESS3;
-            }
-            
-            const address4Input = document.getElementById('quotation-address4');
-            if (address4Input && quotation.ADDRESS4) {
-                address4Input.value = quotation.ADDRESS4;
-            }
-            
-            const phoneInput = document.getElementById('quotation-phone');
-            if (phoneInput && quotation.PHONE1) {
-                phoneInput.value = quotation.PHONE1;
-            }
+            writeQuotationCustomerField('quotation-terms', quotation.TERMS || '');
+            writeQuotationCustomerField('quotation-company', quotation.COMPANYNAME || '');
+            writeQuotationCustomerField('quotation-address1', quotation.ADDRESS1 || '');
+            writeQuotationCustomerField('quotation-address2', quotation.ADDRESS2 || '');
+            writeQuotationCustomerField('quotation-address3', quotation.ADDRESS3 || '');
+            writeQuotationCustomerField('quotation-address4', quotation.ADDRESS4 || '');
+            writeQuotationCustomerField('quotation-phone', quotation.PHONE1 || '');
             
             // Populate items
             if (quotation.items && quotation.items.length > 0) {
@@ -860,9 +894,12 @@ async function loadDraftQuotation(dockey) {
                                 <option value="">Select product...</option>
                             </select>
                             <input type="text" class="item-product-custom" placeholder="Custom product" style="display:${isCustom ? 'inline-block' : 'none'};" value="${isCustom ? (item.DESCRIPTION || '') : ''}" onchange="fetchProductPrice(this)">
+                            <input type="text" class="item-udf-moq" placeholder="—" readonly title="MOQ from ST_ITEM (catalog)">
+                            <input type="text" class="item-udf-dleadtime" placeholder="—" readonly title="UDF_DLEADTIME from ST_ITEM (catalog)">
+                            <input type="text" class="item-udf-bundle" placeholder="—" readonly title="UDF_BUNDLE from ST_ITEM (catalog)">
                             <input type="number" class="item-qty" placeholder="Qty" min="1" value="${item.QTY || 1}" onchange="calculateQuotationTotal()">
                             <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="${item.DISC || 0}" onchange="calculateQuotationTotal()">
-                            <input type="number" class="item-suggested-price" placeholder="Suggested Price" step="0.01" min="0" value="${item.UDF_STDPRICE || 0}" readonly>
+                            <input type="number" class="item-suggested-price" placeholder="Reference price" step="0.01" min="0" value="${item.UDF_STDPRICE || 0}" readonly>
                             <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" value="${item.UNITPRICE || 0}" onchange="calculateQuotationTotal()">
                             <input type="date" class="item-delivery-date" value="${item.DELIVERYDATE || new Date().toISOString().split('T')[0]}">
                             <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
@@ -878,6 +915,9 @@ async function loadDraftQuotation(dockey) {
                         option.textContent = item.DESCRIPTION;
                         option.selected = true;
                         productSelect.appendChild(option);
+                    }
+                    if (!isCustom && item.DESCRIPTION && productSelect) {
+                        fetchProductPrice(productSelect);
                     }
                 });
                 
@@ -913,7 +953,16 @@ async function loadSlQtDraftForEdit(draftDockey) {
             return;
         }
         const draft = data.data;
-        const fillField = (id, val) => { const el = document.getElementById(id); if (el && val != null) el.value = val; };
+        const fillField = (id, val) => {
+            const el = document.getElementById(id);
+            if (!el || val == null) return;
+            const tag = (el.tagName || '').toUpperCase();
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+                el.value = val;
+            } else {
+                el.textContent = String(val).trim();
+            }
+        };
         fillField('quotation-description', draft.DESCRIPTION);
         if (draft.VALIDITY) {
             fillField('quotation-validity', draft.VALIDITY.split(' ')[0]);
@@ -950,9 +999,12 @@ async function loadSlQtDraftForEdit(draftDockey) {
                             <option value="">Select product...</option>
                         </select>
                         <input type="text" class="item-product-custom" placeholder="Custom product" style="display:${isCustom ? 'inline-block' : 'none'};" value="${isCustom ? (item.DESCRIPTION || '') : ''}" onchange="fetchProductPrice(this)">
+                        <input type="text" class="item-udf-moq" placeholder="—" readonly title="MOQ from ST_ITEM (catalog)">
+                        <input type="text" class="item-udf-dleadtime" placeholder="—" readonly title="UDF_DLEADTIME from ST_ITEM (catalog)">
+                        <input type="text" class="item-udf-bundle" placeholder="—" readonly title="UDF_BUNDLE from ST_ITEM (catalog)">
                         <input type="number" class="item-qty" placeholder="Qty" min="1" value="${item.QTY || 1}" onchange="calculateQuotationTotal()">
                         <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="${item.DISC || 0}" onchange="calculateQuotationTotal()">
-                        <input type="number" class="item-suggested-price" placeholder="Suggested Price" step="0.01" min="0" value="${item.UDF_STDPRICE || 0}" readonly>
+                        <input type="number" class="item-suggested-price" placeholder="Reference price" step="0.01" min="0" value="${item.UDF_STDPRICE || 0}" readonly>
                         <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" value="${item.UNITPRICE || 0}" onchange="calculateQuotationTotal()">
                         <input type="date" class="item-delivery-date" value="${item.DELIVERYDATE || new Date().toISOString().split('T')[0]}">
                         <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
@@ -968,6 +1020,9 @@ async function loadSlQtDraftForEdit(draftDockey) {
                     option.textContent = item.DESCRIPTION;
                     option.selected = true;
                     productSelect.appendChild(option);
+                }
+                if (!isCustom && item.DESCRIPTION && productSelect) {
+                    fetchProductPrice(productSelect);
                 }
             });
             calculateQuotationTotal();

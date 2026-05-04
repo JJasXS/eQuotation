@@ -161,7 +161,7 @@ function addQuotationItem() {
             <input type="text" class="item-product-custom" placeholder="Custom product" style="display:none;" onchange="fetchProductPrice(this)">
             <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
             <input type="number" class="item-discount" placeholder="Discount (RM)" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
-            <input type="number" class="item-suggested-price" placeholder="Suggested Price" step="0.01" min="0" readonly>
+            <input type="number" class="item-suggested-price" placeholder="Reference price" step="0.01" min="0" readonly>
             <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" onchange="calculateQuotationTotal()">
             <input type="date" class="item-delivery-date" value="${today}">
             <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
@@ -390,7 +390,7 @@ async function loadQuotationData(dockey) {
                         <input type="text" class="item-product-custom" placeholder="Custom product" style="display:none;" value="" onchange="fetchProductPrice(this)">
                         <input type="number" class="item-qty" placeholder="Qty" min="1" value="${item.QTY || 1}" onchange="calculateQuotationTotal()">
                         <input type="number" class="item-discount" placeholder="Discount (RM)" step="0.01" min="0" value="${item.DISC || 0}" onchange="calculateQuotationTotal()">
-                        <input type="number" class="item-suggested-price" placeholder="Suggested Price" step="0.01" min="0" readonly value="${Number(item.UDF_STDPRICE || 0).toFixed(2)}">
+                        <input type="number" class="item-suggested-price" placeholder="Reference price" step="0.01" min="0" readonly value="${Number(item.UDF_STDPRICE || 0).toFixed(2)}">
                         <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" value="${Number(item.UNITPRICE || 0).toFixed(2)}" onchange="calculateQuotationTotal()">
                         <input type="date" class="item-delivery-date" value="${delivery}">
                         <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
