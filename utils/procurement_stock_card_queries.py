@@ -1132,6 +1132,31 @@ def fetch_procurement_metric_breakdown(
     raise ValueError(f"Unsupported metric: {metric}")
 
 
+def fetch_st_tr_udf_suomqty_summary(cur: Any) -> dict[str, Any]:
+    """Totals ``ST_TR.UDF_SUOMQTY`` (same SUOM basis as stock-card on-hand SUOM stack)."""
+    st_cols = _get_table_columns(cur, "ST_TR")
+    upper = {c.upper() for c in st_cols}
+    if "UDF_SUOMQTY" not in upper:
+        return {
+            "udf_column_present": False,
+            "total": 0.0,
+            "note": "ST_TR has no UDF_SUOMQTY column.",
+        }
+    cur.execute(
+        """
+        SELECT CAST(COALESCE(SUM(CAST(COALESCE(UDF_SUOMQTY, 0) AS DOUBLE PRECISION)), 0) AS DOUBLE PRECISION)
+        FROM ST_TR
+        """
+    )
+    row = cur.fetchone() or ()
+    total = _to_float(row[0] if len(row) > 0 else 0)
+    return {
+        "udf_column_present": True,
+        "total": total,
+        "note": "Sum of COALESCE(UDF_SUOMQTY,0) over all ST_TR rows (SUOM on-hand basis).",
+    }
+
+
 def fetch_procurement_stock_card_data(
     cur: Any,
     from_date: date | None = None,

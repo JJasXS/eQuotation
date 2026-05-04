@@ -1,5 +1,36 @@
 (function() {
     let previewTimer = null;
+    let quotationChatId = null;
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    async function ensureQuotationChatSession() {
+        if (quotationChatId) {
+            return quotationChatId;
+        }
+        const response = await fetch('/api/insert_chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chatname: 'Quotation Assistant Chat' })
+        });
+        if (response.status === 401) {
+            window.location.href = '/login';
+            return null;
+        }
+        const data = await response.json();
+        if (data && data.success && data.chat && data.chat.CHATID) {
+            quotationChatId = data.chat.CHATID;
+            return quotationChatId;
+        }
+        throw new Error((data && data.error) || 'Failed to initialize quotation chat');
+    }
 
     function getQuotationChatElements() {
         return {
@@ -83,26 +114,58 @@
         }, 0);
     };
     // Send message
-    window.sendQuotationChatMessage = function() {
+    window.sendQuotationChatMessage = async function() {
         const textarea = document.getElementById('quotation-chat-popup-textarea');
         const messagesContainer = document.getElementById('quotation-chat-popup-messages');
+        if (!textarea || !messagesContainer) {
+            return;
+        }
         const message = textarea.value.trim();
         if (!message) return;
         // Add user message
         const userMsgDiv = document.createElement('div');
         userMsgDiv.className = 'quotation-chat-message user-message';
-        userMsgDiv.innerHTML = `<div class="quotation-chat-popup-message-content">${message}</div>`;
+        userMsgDiv.innerHTML = `<div class="quotation-chat-popup-message-content">${escapeHtml(message)}</div>`;
         messagesContainer.appendChild(userMsgDiv);
         textarea.value = '';
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
-        // Simulate bot reply (replace with real API call if needed)
-        setTimeout(() => {
+
+        // Loading placeholder while waiting for backend response
+        const loadingMsgDiv = document.createElement('div');
+        loadingMsgDiv.className = 'quotation-chat-message bot-message';
+        loadingMsgDiv.innerHTML = '<div class="quotation-chat-popup-message-content">Typing...</div>';
+        messagesContainer.appendChild(loadingMsgDiv);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+        try {
+            const chatId = await ensureQuotationChatSession();
+            if (!chatId) {
+                return;
+            }
+            const response = await fetch('/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: message, chatid: chatId })
+            });
+            if (response.status === 401) {
+                window.location.href = '/login';
+                return;
+            }
+            const data = await response.json();
+            const reply = (data && data.reply) ? String(data.reply) : 'Sorry, I could not generate a reply.';
             const botMsgDiv = document.createElement('div');
             botMsgDiv.className = 'quotation-chat-message bot-message';
-            botMsgDiv.innerHTML = `<div class="quotation-chat-popup-message-content">Sorry, this is a demo. Integrate with backend as needed.</div>`;
-            messagesContainer.appendChild(botMsgDiv);
+            botMsgDiv.innerHTML = `<div class="quotation-chat-popup-message-content">${escapeHtml(reply).replace(/\n/g, '<br>')}</div>`;
+            loadingMsgDiv.replaceWith(botMsgDiv);
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
-        }, 600);
+        } catch (err) {
+            console.error('Quotation popup chat error:', err);
+            const errMsgDiv = document.createElement('div');
+            errMsgDiv.className = 'quotation-chat-message bot-message';
+            errMsgDiv.innerHTML = '<div class="quotation-chat-popup-message-content">Sorry, I encountered an error. Please try again.</div>';
+            loadingMsgDiv.replaceWith(errMsgDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
     };
     // Enter key to send
     document.addEventListener('DOMContentLoaded', function() {

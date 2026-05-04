@@ -1185,6 +1185,76 @@ def _backfill_st_xtrans_suomqty(conn):
         cur.close()
 
 
+def _backfill_st_xtrans_suomqty_from_st_tr_udf(conn):
+    """
+    Overlay ST_XTRANS.SUOMQTY with aggregated ST_TR.UDF_SUOMQTY for the *to* document line:
+
+        ST_XTRANS.TODOCTYPE = ST_TR.DOCTYPE
+        ST_XTRANS.TODOCKEY = ST_TR.DOCKEY
+        ST_XTRANS.TODTLKEY  = ST_TR.DTLKEY
+
+    Multiple ST_TR rows for the same line are summed. Rows with no matching ST_TR are left unchanged.
+    """
+    x_fields = _get_relation_field_names(conn, "ST_XTRANS")
+    s_fields = _get_relation_field_names(conn, "ST_TR")
+    need_x = {"SUOMQTY", "TODOCTYPE", "TODOCKEY", "TODTLKEY"}
+    need_s = {"UDF_SUOMQTY", "DOCTYPE", "DOCKEY", "DTLKEY"}
+    if not need_x.issubset(x_fields):
+        print(
+            "[DB INIT WARNING] ST_XTRANS missing SUOMQTY or TODOCTYPE/TODOCKEY/TODTLKEY; "
+            "ST_TR UDF → ST_XTRANS.SUOMQTY backfill skipped"
+        )
+        return False
+    if not need_s.issubset(s_fields):
+        print(
+            "[DB INIT WARNING] ST_TR missing UDF_SUOMQTY or DOCTYPE/DOCKEY/DTLKEY; "
+            "ST_TR UDF → ST_XTRANS.SUOMQTY backfill skipped"
+        )
+        return False
+
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            UPDATE ST_XTRANS X
+            SET SUOMQTY = COALESCE((
+                SELECT CAST(SUM(CAST(COALESCE(S.UDF_SUOMQTY, 0) AS DOUBLE PRECISION)) AS DOUBLE PRECISION)
+                FROM ST_TR S
+                WHERE TRIM(UPPER(COALESCE(S.DOCTYPE, ''))) = TRIM(UPPER(COALESCE(X.TODOCTYPE, '')))
+                  AND S.DOCKEY = X.TODOCKEY
+                  AND S.DTLKEY = X.TODTLKEY
+            ), 0)
+            WHERE X.TODOCKEY IS NOT NULL
+              AND X.TODTLKEY IS NOT NULL
+              AND TRIM(COALESCE(X.TODOCTYPE, '')) <> ''
+              AND EXISTS (
+                  SELECT 1
+                  FROM ST_TR S2
+                  WHERE TRIM(UPPER(COALESCE(S2.DOCTYPE, ''))) = TRIM(UPPER(COALESCE(X.TODOCTYPE, '')))
+                    AND S2.DOCKEY = X.TODOCKEY
+                    AND S2.DTLKEY = X.TODTLKEY
+              )
+            """
+        )
+        rc = cur.rowcount
+        conn.commit()
+        try:
+            rc_n = int(rc) if rc is not None and int(rc) >= 0 else None
+        except Exception:
+            rc_n = None
+        if rc_n is not None:
+            print(f"[DB INIT] ST_XTRANS.SUOMQTY set from ST_TR.UDF_SUOMQTY ({rc_n} row(s))")
+        else:
+            print("[DB INIT] ST_XTRANS.SUOMQTY set from ST_TR.UDF_SUOMQTY (complete)")
+        return True
+    except Exception as e:
+        conn.rollback()
+        print(f"[DB INIT WARNING] Could not set ST_XTRANS.SUOMQTY from ST_TR.UDF_SUOMQTY: {e}")
+        return False
+    finally:
+        cur.close()
+
+
 def _ensure_st_xtrans_suomqty_sync_trigger(conn):
     """
     Ensure ST_XTRANS.SUOMQTY defaults to 0 when omitted.
@@ -1908,9 +1978,10 @@ def initialize_database(db_path, db_user, db_password):
         _backfill_st_tr_udf_suomqty(conn)
         _ensure_st_tr_udf_suomqty_sync_trigger(conn)
 
-        # Ensure ST_XTRANS has SUOMQTY and can populate it safely from SQTY / QTY * RATE
+        # ST_XTRANS.SUOMQTY: ensure column, NULL→0, then overlay from ST_TR.UDF_SUOMQTY (TODOCTYPE/TODOCKEY/TODTLKEY)
         _ensure_st_xtrans_suomqty_column(conn)
         _backfill_st_xtrans_suomqty(conn)
+        _backfill_st_xtrans_suomqty_from_st_tr_udf(conn)
         _ensure_st_xtrans_suomqty_sync_trigger(conn)
 
         # Ensure pricing priority rule settings table exists and is seeded

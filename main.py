@@ -39,6 +39,7 @@ from utils import (
 from utils.procurement_stock_card_queries import (
     fetch_procurement_metric_breakdown,
     fetch_procurement_stock_card_data,
+    fetch_st_tr_udf_suomqty_summary,
 )
 from utils.procurement_purchase_request import (
     PurchaseRequestValidationError,
@@ -3308,6 +3309,7 @@ def api_admin_procurement_stock_card():
         locations, data = fetch_procurement_stock_card_data(
             cur, from_date=from_date, to_date=to_date, qty_mode=qty_mode
         )
+        st_tr_udf_suomqty = fetch_st_tr_udf_suomqty_summary(cur)
 
         return jsonify({
             'success': True,
@@ -3319,6 +3321,7 @@ def api_admin_procurement_stock_card():
             },
             'locations': locations,
             'data': data,
+            'st_tr_udf_suomqty': st_tr_udf_suomqty,
         })
     except Exception as e:
         print(f"[PROCUREMENT STOCK CARD] DB error: {e}", flush=True)
@@ -7067,6 +7070,8 @@ def api_get_user_info():
             sql_headers = {'Accept': 'application/json'}
             best_normalized = None
             best_source = None
+            last_sql_status = None
+            last_upstream_error_message = None
 
             for idx, sql_url in enumerate(unique_urls, start=1):
                 print(f"[DEBUG] get_user_info: Calling SQL API variant {idx}/{len(unique_urls)} at {sql_url}", flush=True)
@@ -7104,6 +7109,17 @@ def api_get_user_info():
 
                 print(f"[DEBUG] get_user_info: SQL API response status {sql_response.status_code}", flush=True)
                 if not sql_response.ok:
+                    last_sql_status = sql_response.status_code
+                    try:
+                        err_json = sql_response.json()
+                        if isinstance(err_json, dict):
+                            err_obj = err_json.get('error')
+                            if isinstance(err_obj, dict) and err_obj.get('message'):
+                                last_upstream_error_message = str(err_obj.get('message')).strip()
+                            elif err_json.get('message'):
+                                last_upstream_error_message = str(err_json.get('message')).strip()
+                    except Exception:
+                        pass
                     print(f"[DEBUG] get_user_info: SQL API response preview: {(sql_response.text or '')[:260]}", flush=True)
                     continue
 
@@ -7143,6 +7159,18 @@ def api_get_user_info():
             if best_normalized is not None:
                 _debug_log_user_info_payload(best_source or 'sql_api', best_normalized)
                 return jsonify({'success': True, 'data': best_normalized, 'source': best_source or 'sql_api'})
+
+            # Upstream errors (e.g. 500 "Regenerate views are required") are not "not found"; use 502 for 5xx.
+            fail_status = 502 if (last_sql_status and last_sql_status >= 500) else 404
+            err_msg = 'No SQL API customer data returned'
+            if last_upstream_error_message:
+                err_msg = f'SQL API: {last_upstream_error_message}'
+            elif last_sql_status:
+                err_msg = f'No SQL API customer data returned (upstream HTTP {last_sql_status})'
+            fail_body = {'success': False, 'error': err_msg}
+            if last_sql_status is not None:
+                fail_body['upstream_http_status'] = last_sql_status
+            return jsonify(fail_body), fail_status
 
         return jsonify({'success': False, 'error': 'No SQL API customer data returned'}), 404
     except Exception as e:

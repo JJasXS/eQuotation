@@ -184,21 +184,21 @@
             // Load customer information from database
             loadUserInfo();
 
-            // Show chat popup with welcome message for 1 second after login
+            // Show quotation chat popup briefly as welcome prompt
             if (window.location.pathname.includes('create-quotation')) {
                 setTimeout(function() {
-                    var chatPopup = document.getElementById('chat-popup');
+                    var chatPopup = document.getElementById('quotation-chat-popup');
                     if (chatPopup) {
-                        chatPopup.classList.remove('hidden');
+                        chatPopup.classList.remove('quotation-chat-popup-hidden');
                         // Optionally scroll to bottom if needed
-                        var messages = document.getElementById('chat-popup-messages');
+                        var messages = document.getElementById('quotation-chat-popup-messages');
                         if (messages) messages.scrollTop = messages.scrollHeight;
                     }
                 }, 200); // slight delay to ensure DOM is ready
                 setTimeout(function() {
-                    var chatPopup = document.getElementById('chat-popup');
+                    var chatPopup = document.getElementById('quotation-chat-popup');
                     if (chatPopup) {
-                        chatPopup.classList.add('hidden');
+                        chatPopup.classList.add('quotation-chat-popup-hidden');
                     }
                 }, 1200); // show for 1 second
             }

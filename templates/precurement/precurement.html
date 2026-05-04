@@ -499,6 +499,7 @@
         }
         let reportLoaded = false;
         let stockCardRows = [];
+        let stockCardStTrUdfSummary = null;
         let stockCardLocations = [];
         let selectedStockCardLocations = [];
         let stockCardBreakdownRequestId = 0;
@@ -2218,7 +2219,7 @@
         function syncStockCardTable() {
             renderLocationFilters();
             renderStockCardHeader(selectedStockCardLocations);
-            renderStockCardRows(stockCardRows, selectedStockCardLocations);
+            renderStockCardRows(stockCardRows, selectedStockCardLocations, stockCardStTrUdfSummary);
             afterStockCardTableRender();
         }
 
@@ -2385,10 +2386,31 @@
             closeStockCardBreakdown();
         });
 
-        function updateReportSummaryCards(rows, locations) {
+        function buildStTrUdfSuomqtySummaryCard(summary) {
+            if (!summary || typeof summary !== 'object') return '';
+            const present = summary.udf_column_present === true;
+            const valueHtml = present
+                ? `<div class="report-summary-card-value">${formatStockCardNumber(summary.total)}</div><div class="report-summary-card-sublabel">Σ ST_TR.UDF_SUOMQTY</div>`
+                : '<div class="report-summary-card-value">—</div><div class="report-summary-card-sublabel">Column not on ST_TR</div>';
+            const note = summary.note
+                ? `<div class="report-summary-card-note stock-card-breakdown-note">${escapeHtml(String(summary.note))}</div>`
+                : '';
+            return `
+                <div class="report-summary-card report-summary-card--st-tr-udf" style="background:#e6eef8;color:#1a3550;">
+                    <div class="report-summary-card-label">ST_TR UDF_SUOMQTY</div>
+                    ${valueHtml}
+                    ${note}
+                </div>`;
+        }
+
+        function updateReportSummaryCards(rows, locations, stTrUdfSummary) {
             const el = document.getElementById('report-summary-cards');
             if (!el) return;
-            if (!rows || !rows.length) { el.innerHTML = ''; return; }
+            const udfCardEarly = buildStTrUdfSuomqtySummaryCard(stTrUdfSummary);
+            if (!rows || !rows.length) {
+                el.innerHTML = udfCardEarly || '';
+                return;
+            }
             const locationColumns = Array.isArray(locations) ? locations : [];
             const sub = stockCardSubcolsPerLocation();
             const sumMapAllRows = (mapKey) => rows.reduce((acc, row) => acc + sumStockCardMapAcrossLocations(row, mapKey, locationColumns), 0);
@@ -2401,7 +2423,7 @@
                 { label: 'Shortage Qty', maps: { sqty: 'need_to_buy_sqty_by_location', suom: 'need_to_buy_suom_by_location' }, bg: '#fce4e8', color: '#7a2222' },
                 { label: 'Pending PR', maps: { sqty: 'pending_pr_sqty_by_location', suom: 'pending_pr_suom_by_location' }, bg: '#fff2d6', color: '#6d5200' },
             ];
-            el.innerHTML = cards.map((c) => {
+            const metricCards = cards.map((c) => {
                 const tSq = sumMapAllRows(c.maps.sqty);
                 const tSu = sumMapAllRows(c.maps.suom);
                 let valueHtml;
@@ -2418,6 +2440,7 @@
                     ${valueHtml}
                 </div>`;
             }).join('');
+            el.innerHTML = udfCardEarly + metricCards;
         }
 
         function stockCardClickableQtyCell(bgClass, value, itemCode, locationCode, metricKey, qtyMode) {
@@ -2428,8 +2451,8 @@
             return `<td class="${bgClass} stock-card-clickable-cell" title="Click to view breakdown (${qm})" onclick="openStockCardBreakdown('${jc}','${jl}','${jm}','${qm}')">${formatStockCardNumber(value)}</td>`;
         }
 
-        function renderStockCardRows(rows, locations) {
-            updateReportSummaryCards(rows, locations);
+        function renderStockCardRows(rows, locations, stTrUdfSummary) {
+            updateReportSummaryCards(rows, locations, stTrUdfSummary);
             const tbody = document.getElementById('stock-card-table-body');
             const locationColumns = Array.isArray(locations) ? locations : [];
             const noLocations = !locationColumns.length;
@@ -2701,11 +2724,15 @@
                         }
                     }
                     stockCardRows = Array.isArray(payload.data) ? payload.data : [];
+                    stockCardStTrUdfSummary = payload.st_tr_udf_suomqty && typeof payload.st_tr_udf_suomqty === 'object'
+                        ? payload.st_tr_udf_suomqty
+                        : null;
                     reportLoaded = true;
                     syncStockCardTable();
                 })
                 .catch((error) => {
                     console.error('Failed to load stock card rows:', error);
+                    stockCardStTrUdfSummary = null;
                     const totalColumns = getStockCardTotalColumns(selectedStockCardLocations);
                     tbody.innerHTML = `<tr><td colspan="${totalColumns}" class="stock-card-status">${escapeHtml(error.message || 'Failed to load stock items.')}</td></tr>`;
                 });
