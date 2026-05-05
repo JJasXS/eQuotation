@@ -141,7 +141,19 @@ from config.otp_config import generate_otp, OTP_LENGTH, OTP_EXPIRY_SECONDS
 # CONFIGURATION - Load from environment variables
 # ============================================
 BASE_API_URL = os.getenv('BASE_API_URL', 'http://localhost:8080').rstrip('/')
-FASTAPI_BASE_URL = os.getenv('API_BASE_URL', 'http://localhost:8000').rstrip('/')
+
+# FastAPI is mounted under EQ_SQL_API_MOUNT_PATH when running the default single-port server (uvicorn).
+EQ_LEGACY_SPLIT_SERVERS = os.getenv('EQ_LEGACY_SPLIT_SERVERS', '').strip().lower() in ('1', 'true', 'yes')
+EQ_SQL_API_MOUNT_PATH = (os.getenv('EQ_SQL_API_MOUNT_PATH') or '/eq-sql-api').strip().rstrip('/') or '/eq-sql-api'
+_flask_port_cfg = os.getenv('FLASK_PORT', '8880')
+_api_port_cfg = os.getenv('API_PORT', '8000')
+_api_base_env = (os.getenv('API_BASE_URL') or '').strip().rstrip('/')
+if _api_base_env:
+    FASTAPI_BASE_URL = _api_base_env
+elif EQ_LEGACY_SPLIT_SERVERS:
+    FASTAPI_BASE_URL = f'http://127.0.0.1:{_api_port_cfg}'.rstrip('/')
+else:
+    FASTAPI_BASE_URL = f'http://127.0.0.1:{_flask_port_cfg}{EQ_SQL_API_MOUNT_PATH}'.rstrip('/')
 
 # Canonical procurement SPA URL (legacy typo /admin/precurement/precurement redirects here).
 PROCUREMENT_UI_PATH = '/admin/procurement'
@@ -7756,22 +7768,51 @@ if __name__ == "__main__":
     api_port = int(os.getenv('API_PORT', '8000'))
     flask_debug = str(os.getenv('FLASK_DEBUG', 'False')).strip().lower() in ('1', 'true', 'yes')
 
-    # Start FastAPI (SQL API) in the background (separate port; Flask calls it via API_BASE_URL / FASTAPI_BASE_URL).
-    import subprocess
-    import sys
-    api_proc = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", str(api_port)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
-    def _pipe_api_output(proc):
-        for line in proc.stdout:
-            print("[API]", line.decode(errors="replace"), end="", flush=True)
-    threading.Thread(target=_pipe_api_output, args=(api_proc,), daemon=True).start()
-    print(f"Starting FastAPI SQL API at http://0.0.0.0:{api_port} ...", flush=True)
+    if EQ_LEGACY_SPLIT_SERVERS:
+        # Two processes: Flask + FastAPI on separate ports (set API_BASE_URL / FLASK_PORT / API_PORT accordingly).
+        import subprocess
+        import sys
+        api_proc = subprocess.Popen(
+            [sys.executable, "-m", "uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", str(api_port)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        def _pipe_api_output(proc):
+            for line in proc.stdout:
+                print("[API]", line.decode(errors="replace"), end="", flush=True)
+        threading.Thread(target=_pipe_api_output, args=(api_proc,), daemon=True).start()
+        print(f"Starting FastAPI SQL API at http://0.0.0.0:{api_port} ...", flush=True)
+        print(f"Starting Flask web server at http://{flask_host}:{flask_port} (debug={flask_debug}) ...", flush=True)
+        try:
+            app.run(host=flask_host, port=flask_port, debug=flask_debug, use_reloader=False)
+        finally:
+            api_proc.terminate()
+    else:
+        # Single port: uvicorn serves FastAPI (mounted) + Flask (WSGI) together on FLASK_PORT (default 8880).
+        FASTAPI_BASE_URL = f'http://127.0.0.1:{flask_port}{EQ_SQL_API_MOUNT_PATH}'.rstrip('/')
 
-    print(f"Starting Flask web server at http://{flask_host}:{flask_port} (debug={flask_debug}) ...", flush=True)
-    try:
-        app.run(host=flask_host, port=flask_port, debug=flask_debug, use_reloader=False)
-    finally:
-        api_proc.terminate()
+        from asgiref.wsgi import WsgiToAsgi
+        from starlette.applications import Starlette
+        from starlette.routing import Mount
+        import uvicorn
+        from api.app import app as fastapi_app
+
+        app.debug = flask_debug
+        flask_asgi = WsgiToAsgi(app)
+        unified_asgi = Starlette(routes=[
+            Mount(EQ_SQL_API_MOUNT_PATH, fastapi_app),
+            Mount('/', flask_asgi),
+        ])
+        print(
+            f"Starting unified server at http://{flask_host}:{flask_port} "
+            f"(Flask / + FastAPI {EQ_SQL_API_MOUNT_PATH}/ ; debug={flask_debug}) ...",
+            flush=True,
+        )
+        print(f"FastAPI docs: http://127.0.0.1:{flask_port}{EQ_SQL_API_MOUNT_PATH}/docs", flush=True)
+        uvicorn.run(
+            unified_asgi,
+            host=flask_host,
+            port=flask_port,
+            log_level='info',
+            access_log=True,
+        )
