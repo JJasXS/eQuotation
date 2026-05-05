@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="/static/css/hamburger_menu.css">
     <link rel="stylesheet" href="/static/css/app_page_header.css">
     <link rel="stylesheet" href="/static/css/orderQuotation.css?v=20260505_line_grid_balance">
-    <link rel="stylesheet" href="/static/css/quotationChatPopup.css">
+    <link rel="stylesheet" href="/static/css/quotationChatPopup.css?v=20260505_rich_chat">
     <link rel="stylesheet" href="/static/css/createQuotationLight.css?v=20260505_line_grid_balance">
 </head>
 <body class="create-quotation-page" data-php-base-url="{{ php_base_url }}">
@@ -156,7 +156,6 @@
             <button type="button" class="quotation-send-btn" onclick="sendQuotationChatMessage()">Send</button>
         </div>
     </div>
-    <script src="/static/js/quotationChatPopup.js?v=20260505_chat_fix"></script>
                             <!-- Hide Quotation Name field -->
                             <input type="hidden" id="quotation-name" name="quotationName" value="Quotation">
     
@@ -166,7 +165,8 @@
     </datalist>
     
     <script src="/static/js/hamburger_menu.js"></script>
-    <script src="/static/js/orderQuotation.js?v=20260505_view_redirect_tabs"></script>
+    <script src="/static/js/orderQuotation.js?v=20260505_rich_chat"></script>
+    <script src="/static/js/quotationChatPopup.js?v=20260505_rich_chat"></script>
     <script>
         // Set today's date as default for all delivery date inputs on load
         document.addEventListener('DOMContentLoaded', function() {

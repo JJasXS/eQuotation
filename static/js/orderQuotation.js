@@ -1113,13 +1113,25 @@ function escapeInlineJsString(value) {
 }
 
 function sendQuickChatMessage(message, sourceButton = null) {
-    const messagesContainer = document.getElementById('chat-popup-messages');
-    if (!messagesContainer || !quotationChatId || !message) {
+    const popupMessagesEl = document.getElementById('quotation-chat-popup-messages');
+    const legacyMessagesEl = document.getElementById('chat-popup-messages');
+    const messagesContainer = popupMessagesEl || legacyMessagesEl;
+    const useQuotationPopup = Boolean(popupMessagesEl && messagesContainer === popupMessagesEl);
+
+    let activeChatId = null;
+    if (typeof window.getQuotationPopupChatId === 'function') {
+        activeChatId = window.getQuotationPopupChatId();
+    }
+    if (activeChatId == null || activeChatId === '') {
+        activeChatId = quotationChatId;
+    }
+
+    if (!messagesContainer || activeChatId == null || activeChatId === '' || !message) {
         return;
     }
 
     const targetBotMessage = sourceButton
-        ? sourceButton.closest('.chat-message.bot-message')
+        ? sourceButton.closest('.quotation-chat-message.bot-message, .chat-message.bot-message')
         : null;
 
     if (sourceButton) {
@@ -1129,7 +1141,7 @@ function sendQuickChatMessage(message, sourceButton = null) {
     fetch('/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: message, chatid: quotationChatId })
+        body: JSON.stringify({ message: message, chatid: activeChatId })
     })
     .then(res => {
         if (res.status === 401) {
@@ -1141,14 +1153,22 @@ function sendQuickChatMessage(message, sourceButton = null) {
     .then(data => {
         if (!data) return;
         const reply = data.reply;
-        const renderedHtml = buildChatReplyHtml(reply);
+        let renderedHtml = buildChatReplyHtml(reply);
+        if (useQuotationPopup) {
+            renderedHtml = renderedHtml.replace(
+                'class="chat-popup-message-content rich-message-content"',
+                'class="quotation-chat-popup-message-content rich-message-content"'
+            );
+        }
 
         if (targetBotMessage) {
             targetBotMessage.innerHTML = renderedHtml;
             targetBotMessage.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         } else {
             const botMsgDiv = document.createElement('div');
-            botMsgDiv.className = 'chat-message bot-message';
+            botMsgDiv.className = useQuotationPopup
+                ? 'quotation-chat-message bot-message'
+                : 'chat-message bot-message';
             botMsgDiv.innerHTML = renderedHtml;
             messagesContainer.appendChild(botMsgDiv);
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -1157,7 +1177,9 @@ function sendQuickChatMessage(message, sourceButton = null) {
     .catch(error => {
         console.error('Error requesting catalog page:', error);
         if (targetBotMessage) {
-            const existingContent = targetBotMessage.querySelector('.chat-popup-message-content');
+            const existingContent = targetBotMessage.querySelector(
+                '.chat-popup-message-content, .quotation-chat-popup-message-content'
+            );
             if (existingContent) {
                 existingContent.insertAdjacentHTML('beforeend', '<div class="chat-reply-line">Unable to load that page right now. Please try again.</div>');
             }

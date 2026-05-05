@@ -88,6 +88,7 @@ from utils.role_permissions import (
     template_permission_context,
 )
 from utils.sql_query_helpers import (
+    fetch_stock_item_prices_for_chat,
     fetch_stock_items,
     find_customer_code_by_email,
     find_draft_order_id_by_chatid,
@@ -584,12 +585,14 @@ def is_catalog_query(user_input):
     catalog_phrases = [
         'what do you sell', 'what do u sell', 'what type', 'what types',
         'what category', 'what categories', 'what group', 'what groups',
-        'show me', 'tell me', 'available', 'do you have', 'looking for'
+        'show me', 'tell me', 'available', 'do you have', 'looking for',
+        'search for', 'search the', 'look for', 'find ', 'lookup', 'look up',
+        'item table', 'in the catalog', 'from the catalog',
     ]
     if any(phrase in text for phrase in catalog_phrases):
         return True
 
-    return bool(extract_catalog_terms(text)) and len(text.split()) <= 8
+    return bool(extract_catalog_terms(text)) and len(text.split()) <= 16
 
 
 def resolve_catalog_query_context(user_input, chat_history=None):
@@ -2851,9 +2854,33 @@ def chat_api():
     if chatid:
         chat_history = get_chat_history(chatid, user_email)
     
-    # Always include PHP endpoint data in the prompt
+    # Stock catalog: PHP bridge (BASE_API_URL) when available; else same Firebird as /api/get_stock_items
     stockitems = fetch_data_from_api("stockitem")
     stockitemprices = fetch_data_from_api("stockitemprice")
+    if not stockitems or not stockitemprices:
+        con_fb = None
+        cur_fb = None
+        try:
+            con_fb = get_db_connection()
+            cur_fb = con_fb.cursor()
+            if not stockitems:
+                stockitems = fetch_stock_items(cur_fb)
+            if not stockitemprices:
+                stockitemprices = fetch_stock_item_prices_for_chat(cur_fb)
+        except Exception as e:
+            print(f"[chat] stock data DB fallback: {e}", flush=True)
+        finally:
+            try:
+                if cur_fb:
+                    cur_fb.close()
+            except Exception:
+                pass
+            try:
+                if con_fb:
+                    con_fb.close()
+            except Exception:
+                pass
+
     price_lookup_by_desc = {
         (item.get('DESCRIPTION', '') or '').lower(): item.get('STOCKVALUE')
         for item in stockitemprices
@@ -3151,10 +3178,36 @@ def chat_api():
     elif catalog_response:
         formatted_reply = catalog_response
     else:
-        response = chat_with_gpt(messages)
-        # Apply formatting to ensure proper line breaks in lists
-        formatted_reply = format_chatbot_response(response.strip())
-        print(f"[DEBUG] Original response length: {len(response)}, Formatted length: {len(formatted_reply)}", flush=True)
+        try:
+            response = chat_with_gpt(messages)
+            formatted_reply = format_chatbot_response(response.strip())
+            print(
+                f"[DEBUG] Original response length: {len(response)}, Formatted length: {len(formatted_reply)}",
+                flush=True,
+            )
+        except openai.RateLimitError as e:
+            print(f"[ERROR] OpenAI rate limit / quota: {e}", flush=True)
+            formatted_reply = (
+                "The AI assistant cannot respond: your OpenAI account has no usable quota "
+                "(for example billing limit or credits exhausted). "
+                "Update billing at https://platform.openai.com/account/billing , then try again."
+            )
+        except openai.AuthenticationError as e:
+            print(f"[ERROR] OpenAI authentication: {e}", flush=True)
+            formatted_reply = (
+                "The AI assistant cannot respond: the OpenAI API key is invalid or revoked. "
+                "Check OPENAI_API_KEY in your server configuration."
+            )
+        except openai.APIError as e:
+            print(f"[ERROR] OpenAI API error: {e}", flush=True)
+            formatted_reply = (
+                "The AI assistant hit an error talking to OpenAI. Please try again in a moment."
+            )
+        except Exception as e:
+            print(f"[ERROR] chat_with_gpt unexpected: {e}", flush=True)
+            formatted_reply = (
+                "Sorry, the AI assistant encountered an unexpected error. Please try again later."
+            )
     
     # Save messages if chatid provided
     if chatid:

@@ -52,6 +52,24 @@
         throw new Error((data && data.error) || 'Failed to initialize quotation chat');
     }
 
+    /** Used by orderQuotation.js sendQuickChatMessage (pagination) — must match this session. */
+    window.getQuotationPopupChatId = function() {
+        return quotationChatId;
+    };
+
+    function renderQuotationChatReplyHtml(reply) {
+        const text = String(reply ?? '');
+        if (typeof window.buildChatReplyHtml === 'function') {
+            return window
+                .buildChatReplyHtml(text)
+                .replace(
+                    'class="chat-popup-message-content rich-message-content"',
+                    'class="quotation-chat-popup-message-content rich-message-content"'
+                );
+        }
+        return `<div class="quotation-chat-popup-message-content">${escapeHtml(text).replace(/\n/g, '<br>')}</div>`;
+    }
+
     function getQuotationChatElements() {
         return {
             popup: document.getElementById('quotation-chat-popup'),
@@ -203,7 +221,7 @@
             const reply = (data && data.reply) ? String(data.reply) : 'Sorry, I could not generate a reply.';
             const botMsgDiv = document.createElement('div');
             botMsgDiv.className = 'quotation-chat-message bot-message';
-            botMsgDiv.innerHTML = `<div class="quotation-chat-popup-message-content">${escapeHtml(reply).replace(/\n/g, '<br>')}</div>`;
+            botMsgDiv.innerHTML = renderQuotationChatReplyHtml(reply);
             loadingMsgDiv.replaceWith(botMsgDiv);
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         } catch (err) {

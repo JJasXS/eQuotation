@@ -56,6 +56,41 @@ def find_draft_order_id_by_chatid(cur: Any, chatid: str) -> int | None:
     return None
 
 
+def fetch_stock_item_prices_for_chat(cur: Any) -> list[dict[str, Any]]:
+    """
+    Rows compatible with php/getStockItemPrice.php: CODE, DESCRIPTION, STOCKVALUE (from UDF_STDPRICE).
+    Used when the PHP bridge is down so chat catalog matches the quotation ST_ITEM data.
+    """
+    cur.execute(
+        """
+        SELECT TRIM(RF.RDB$FIELD_NAME)
+        FROM RDB$RELATION_FIELDS RF
+        WHERE RF.RDB$RELATION_NAME = 'ST_ITEM'
+        """
+    )
+    existing_columns = {_clean_str(row[0]) for row in (cur.fetchall() or []) if row and row[0]}
+    if "UDF_STDPRICE" not in existing_columns:
+        return []
+
+    cur.execute(
+        """
+        SELECT CODE, DESCRIPTION, UDF_STDPRICE
+        FROM ST_ITEM
+        WHERE UDF_STDPRICE IS NOT NULL AND UDF_STDPRICE > 0
+        """
+    )
+    rows = cur.fetchall() or []
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        code = _clean_str(row[0] if len(row) > 0 else None)
+        desc = _clean_str(row[1] if len(row) > 1 else None)
+        val = row[2] if len(row) > 2 else None
+        if not desc:
+            continue
+        out.append({"CODE": code, "DESCRIPTION": desc, "STOCKVALUE": val})
+    return out
+
+
 def fetch_stock_items(cur: Any, wanted_columns: list[str] | None = None) -> list[dict[str, Any]]:
     """Fetch stock items with only columns existing in ST_ITEM."""
     selected_wanted_columns = wanted_columns or ST_ITEM_WANTED_COLUMNS

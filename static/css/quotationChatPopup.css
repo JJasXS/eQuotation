@@ -133,6 +133,101 @@
     color: #e4e9f1;
     border-radius: 8px 8px 8px 0;
 }
+
+/* Catalog / GPT replies with clickable product rows (buildChatReplyHtml) */
+.quotation-chat-popup-message-content.rich-message-content {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    white-space: normal;
+}
+
+.quotation-chat-message button {
+    padding: 8px 12px;
+    background: #5b82b6;
+    color: #fff;
+    border: 1px solid #6b94c4;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.quotation-chat-message button.chat-inline-product-action {
+    width: auto;
+    max-width: 100%;
+    background: #323a46;
+    color: #e4e9f1;
+    border-color: #566172;
+    text-align: left;
+    line-height: 1.4;
+}
+
+.quotation-chat-message button:hover {
+    background: #4a6fa0;
+    border-color: #5b82b6;
+    transform: translateX(2px);
+}
+
+.quotation-chat-message button.chat-inline-product-action:hover {
+    background: #3a4350;
+    border-color: #6a7689;
+    transform: translateX(2px);
+}
+
+.quotation-chat-message button.chat-inline-product-action:active {
+    background: #414c5b;
+    border-color: #748196;
+}
+
+.quotation-chat-message button.chat-page-nav-button {
+    min-width: 42px;
+    height: 36px;
+    padding: 0;
+    background: #323a46;
+    color: #e4e9f1;
+    border-color: #566172;
+    text-align: center;
+    font-size: 16px;
+    line-height: 1;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.quotation-chat-message button.chat-page-nav-button:hover {
+    background: #3a4350;
+    border-color: #6a7689;
+    transform: translateY(-1px);
+}
+
+.quotation-chat-message button.chat-page-nav-button:active {
+    background: #414c5b;
+    border-color: #748196;
+}
+
+.quotation-chat-message button:active {
+    transform: scale(0.98);
+}
+
+.quotation-chat-message button.is-added {
+    background: #2f855a;
+    border-color: #3da06e;
+}
+
+.quotation-chat-message button.is-updated {
+    background: #b7791f;
+    border-color: #d69e2e;
+}
+
+.chat-page-nav {
+    display: flex;
+    gap: 8px;
+    margin-top: 2px;
+    flex-wrap: wrap;
+}
 .quotation-chat-popup-input {
     padding: 12px;
     border-top: 1px solid #3d4654;
