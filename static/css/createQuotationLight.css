@@ -350,18 +350,141 @@ body.create-quotation-page .quotation-chat-popup-input {
     border-top: 1px solid #e2cfab;
 }
 
+/* Send = same family as Clear (btn-secondary), not solid blue */
+body.create-quotation-page .quotation-send-btn {
+    background: #e8ddc8;
+    color: #4f3b2a;
+    border: 1px solid #d4c4a8;
+    font-size: 12px;
+    padding: 7px 12px;
+    font-weight: 600;
+}
+
+body.create-quotation-page .quotation-send-btn:hover {
+    background: #e0d3ba;
+    color: #3d2f1f;
+    border-color: #c9b89a;
+}
+
+body.create-quotation-page .quotation-send-btn:active {
+    background: #d8ccba;
+}
+
+/* Chat popup: compact type; controls match .btn-secondary / form cream palette */
+body.create-quotation-page .quotation-chat-popup-header h4 {
+    font-size: 14px;
+}
+
+body.create-quotation-page .quotation-chat-popup-messages {
+    font-size: 12px;
+}
+
+body.create-quotation-page .quotation-chat-popup-message-content {
+    font-size: 12px;
+    line-height: 1.35;
+    padding: 8px 11px;
+}
+
+body.create-quotation-page .quotation-chat-popup-message-content.rich-message-content {
+    gap: 5px;
+}
+
+body.create-quotation-page .quotation-chat-popup-message-content .chat-reply-line {
+    font-size: 12px;
+}
+
 body.create-quotation-page #quotation-chat-popup-textarea {
     background: #fff8ec;
     border: 1px solid #d4c4a8;
     color: #3d2f1f;
+    font-size: 12px;
+    line-height: 1.35;
 }
 
-body.create-quotation-page .quotation-send-btn {
-    background: #4b6e9e;
+body.create-quotation-page .quotation-chat-message.user-message {
+    justify-content: flex-end;
 }
 
-body.create-quotation-page .quotation-send-btn:hover {
-    background: #3d5d86;
+/* User bubble: warm panel + brown text (same vocabulary as Clear) */
+body.create-quotation-page .quotation-chat-message.user-message .quotation-chat-popup-message-content {
+    background: #fff4e0;
+    color: #4f3b2a;
+    border: 1px solid #d4c4a8;
+    border-radius: 8px 8px 0 8px;
+}
+
+/* Catalog product rows + pagination: btn-secondary look */
+body.create-quotation-page .quotation-chat-message button,
+body.create-quotation-page .quotation-chat-message button.chat-inline-product-action {
+    background: #e8ddc8;
+    color: #4f3b2a;
+    border: 1px solid #d4c4a8;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 7px 11px;
+    box-shadow: none;
+}
+
+body.create-quotation-page .quotation-chat-message button:hover,
+body.create-quotation-page .quotation-chat-message button.chat-inline-product-action:hover {
+    background: #e0d3ba;
+    color: #3d2f1f;
+    border-color: #c9b89a;
+    transform: none;
+}
+
+body.create-quotation-page .quotation-chat-message button:active,
+body.create-quotation-page .quotation-chat-message button.chat-inline-product-action:active {
+    background: #d8ccba;
+    border-color: #c0b090;
+    transform: none;
+}
+
+body.create-quotation-page .quotation-chat-message button.chat-page-nav-button {
+    background: #fff4e0;
+    color: #4b6e9e;
+    border: 1px solid #d4c4a8;
+    font-size: 14px;
+    font-weight: 700;
+    min-width: 38px;
+    height: 34px;
+}
+
+body.create-quotation-page .quotation-chat-message button.chat-page-nav-button:hover {
+    background: #faefd9;
+    color: #3d5d86;
+    border-color: #4b6e9e;
+    transform: none;
+}
+
+body.create-quotation-page .quotation-chat-message button.chat-page-nav-button:active {
+    background: #f5e8cc;
+    border-color: #3d5d86;
+    transform: none;
+}
+
+body.create-quotation-page .quotation-chat-message button.is-added {
+    background: #d4ecd9;
+    border-color: #8fbc8f;
+    color: #1e4d2a;
+}
+
+body.create-quotation-page .quotation-chat-message button.is-added:hover {
+    background: #c5e3cc;
+    border-color: #6fa876;
+    color: #163d20;
+}
+
+body.create-quotation-page .quotation-chat-message button.is-updated {
+    background: #f5e6c8;
+    border-color: #d4b896;
+    color: #6b4a1a;
+}
+
+body.create-quotation-page .quotation-chat-message button.is-updated:hover {
+    background: #eddcb8;
+    border-color: #c4a882;
+    color: #523913;
 }
 
 /* Hamburger: subtle contrast on light header (inherits hamburger_menu.css) */
