@@ -133,12 +133,133 @@ def _table_has_column(cur, table_name: str, column_name: str) -> bool:
     return cur.fetchone() is not None
 
 
+def _lookup_supplier_by_email(cur, normalized_email: str):
+    """AR_SUPPLIER / AP_SUPPLIER (+ external API fallback). Returns (supplier_dict|None, supplier_code|None)."""
+    supplier = None
+    supplier_code = None
+    supplier_lookup_sources = [
+        ("AR_SUPPLIER", "UDF_EMAIL", "COMPANYNAME"),
+        ("AP_SUPPLIER", "UDF_EMAIL", "COMPANYNAME"),
+        ("AR_SUPPLIER", "EMAIL", "COMPANYNAME"),
+        ("AP_SUPPLIER", "EMAIL", "COMPANYNAME"),
+    ]
+    for table_name, email_col, name_col in supplier_lookup_sources:
+        try:
+            if not _table_has_column(cur, table_name, "CODE"):
+                continue
+            if not _table_has_column(cur, table_name, email_col):
+                continue
+            if not _table_has_column(cur, table_name, name_col):
+                name_col = "CODE"
+
+            cur.execute(
+                f"""
+                SELECT CODE, {name_col}, {email_col}
+                FROM {table_name}
+                WHERE UPPER(TRIM({email_col})) = UPPER(TRIM(?))
+                """,
+                [normalized_email],
+            )
+            supplier_row = cur.fetchone()
+            if supplier_row:
+                supplier = {
+                    "code": supplier_row[0],
+                    "name": supplier_row[1],
+                    "email": supplier_row[2],
+                    "source": f"{table_name}.{email_col}",
+                }
+                supplier_code = supplier_row[0]
+                break
+        except Exception as exc:
+            print(f"[AUTH] supplier lookup failed on {table_name}.{email_col}: {exc}", flush=True)
+
+    if not supplier:
+        supplier, supplier_code = _lookup_supplier_via_external_api(normalized_email)
+    return supplier, supplier_code
+
+
+def _lookup_customer_by_email(cur, normalized_email: str):
+    """AR_CUSTOMERBRANCH then AR_CUSTOMER (UDF_EMAIL, EMAIL). Returns (user_dict|None, customer_code|None)."""
+    user = None
+    customer_code = None
+    cur.execute(
+        """
+        SELECT CODE, EMAIL
+        FROM AR_CUSTOMERBRANCH
+        WHERE UPPER(TRIM(EMAIL)) = UPPER(TRIM(?))
+        """,
+        [normalized_email],
+    )
+    user_row = cur.fetchone()
+    if user_row:
+        user = {
+            "code": user_row[0],
+            "email": user_row[1],
+            "source": "AR_CUSTOMERBRANCH.EMAIL",
+        }
+        customer_code = user_row[0]
+        return user, customer_code
+
+    try:
+        cur.execute(
+            """
+            SELECT CODE, UDF_EMAIL
+            FROM AR_CUSTOMER
+            WHERE UPPER(TRIM(UDF_EMAIL)) = UPPER(TRIM(?))
+            """,
+            [normalized_email],
+        )
+        user_row = cur.fetchone()
+        if user_row:
+            user = {
+                "code": user_row[0],
+                "email": user_row[1],
+                "source": "AR_CUSTOMER.UDF_EMAIL",
+            }
+            customer_code = user_row[0]
+            return user, customer_code
+    except Exception:
+        pass
+
+    try:
+        cur.execute(
+            """
+            SELECT CODE, EMAIL
+            FROM AR_CUSTOMER
+            WHERE UPPER(TRIM(EMAIL)) = UPPER(TRIM(?))
+            """,
+            [normalized_email],
+        )
+        user_row = cur.fetchone()
+        if user_row:
+            user = {
+                "code": user_row[0],
+                "email": user_row[1],
+                "source": "AR_CUSTOMER.EMAIL",
+            }
+            customer_code = user_row[0]
+    except Exception:
+        pass
+    return user, customer_code
+
+
 @router.get("/email-lookup")
-def lookup_email_identity(email: str = Query(..., min_length=3, max_length=255)):
-    """Check whether an email exists as admin/customer and return identity details."""
+def lookup_email_identity(
+    email: str = Query(..., min_length=3, max_length=255),
+    login_mode: str = Query(
+        "customer",
+        pattern="^(customer|admin|supplier)$",
+        description="Which directory to search: customer (AR_*), admin (SY_USER), or supplier (AR_/AP_SUPPLIER).",
+    ),
+):
+    """Resolve login email against one backend source, chosen by login_mode (login page tab)."""
     normalized_email = (email or "").strip()
     if not normalized_email:
         raise HTTPException(status_code=400, detail="email is required")
+
+    mode = (login_mode or "customer").strip().lower()
+    if mode not in ("customer", "admin", "supplier"):
+        mode = "customer"
 
     con = None
     cur = None
@@ -151,134 +272,27 @@ def lookup_email_identity(email: str = Query(..., min_length=3, max_length=255))
         supplier = None
         customer_code = None
         supplier_code = None
-
-        # Admin / internal staff lookup (SY_USER + UDF_* flags; role not tied to CODE)
-        admin_row = None
-        admin = None
         staff_udf: dict = {}
         sy_user_profile = None
-        try:
-            sy_user_profile, staff_udf = _fetch_sy_user_profile_with_udfs(cur, normalized_email)
-        except Exception as exc:
-            print(f"[AUTH] SY_USER profile read failed: {exc}", flush=True)
-            sy_user_profile, staff_udf = None, {}
-        if sy_user_profile:
-            admin_row = (
-                sy_user_profile.get("CODE"),
-                sy_user_profile.get("NAME"),
-                sy_user_profile.get("EMAIL"),
-                sy_user_profile.get("ISACTIVE"),
-            )
-            admin = {
-                "code": sy_user_profile.get("CODE"),
-                "name": sy_user_profile.get("NAME"),
-                "email": sy_user_profile.get("EMAIL"),
-                "isactive": sy_user_profile.get("ISACTIVE"),
-                "staff_udf": staff_udf,
-            }
 
-        # Supplier lookup via whichever supplier table exists in this Firebird schema.
-        supplier_lookup_sources = [
-            ("AR_SUPPLIER", "UDF_EMAIL", "COMPANYNAME"),
-            ("AP_SUPPLIER", "UDF_EMAIL", "COMPANYNAME"),
-            ("AR_SUPPLIER", "EMAIL", "COMPANYNAME"),
-            ("AP_SUPPLIER", "EMAIL", "COMPANYNAME"),
-        ]
-        for table_name, email_col, name_col in supplier_lookup_sources:
+        if mode == "admin":
             try:
-                if not _table_has_column(cur, table_name, "CODE"):
-                    continue
-                if not _table_has_column(cur, table_name, email_col):
-                    continue
-                if not _table_has_column(cur, table_name, name_col):
-                    name_col = "CODE"
-
-                cur.execute(
-                    f"""
-                    SELECT CODE, {name_col}, {email_col}
-                    FROM {table_name}
-                    WHERE UPPER(TRIM({email_col})) = UPPER(TRIM(?))
-                    """,
-                    [normalized_email],
-                )
-                supplier_row = cur.fetchone()
-                if supplier_row:
-                    supplier = {
-                        "code": supplier_row[0],
-                        "name": supplier_row[1],
-                        "email": supplier_row[2],
-                        "source": f"{table_name}.{email_col}",
-                    }
-                    supplier_code = supplier_row[0]
-                    break
+                sy_user_profile, staff_udf = _fetch_sy_user_profile_with_udfs(cur, normalized_email)
             except Exception as exc:
-                print(f"[AUTH] supplier lookup failed on {table_name}.{email_col}: {exc}", flush=True)
-
-        # Fallback to external supplier API source used by procurement pages.
-        if not supplier:
-            supplier, supplier_code = _lookup_supplier_via_external_api(normalized_email)
-
-        # User lookup priority: AR_CUSTOMERBRANCH.EMAIL
-        cur.execute(
-            """
-            SELECT CODE, EMAIL
-            FROM AR_CUSTOMERBRANCH
-            WHERE UPPER(TRIM(EMAIL)) = UPPER(TRIM(?))
-            """,
-            [normalized_email],
-        )
-        user_row = cur.fetchone()
-        if user_row:
-            user = {
-                "code": user_row[0],
-                "email": user_row[1],
-                "source": "AR_CUSTOMERBRANCH.EMAIL",
-            }
-            customer_code = user_row[0]
-
-        # Fallback: AR_CUSTOMER.UDF_EMAIL
-        if not user:
-            try:
-                cur.execute(
-                    """
-                    SELECT CODE, UDF_EMAIL
-                    FROM AR_CUSTOMER
-                    WHERE UPPER(TRIM(UDF_EMAIL)) = UPPER(TRIM(?))
-                    """,
-                    [normalized_email],
-                )
-                user_row = cur.fetchone()
-                if user_row:
-                    user = {
-                        "code": user_row[0],
-                        "email": user_row[1],
-                        "source": "AR_CUSTOMER.UDF_EMAIL",
-                    }
-                    customer_code = user_row[0]
-            except Exception:
-                pass
-
-        # Legacy fallback: AR_CUSTOMER.EMAIL
-        if not user:
-            try:
-                cur.execute(
-                    """
-                    SELECT CODE, EMAIL
-                    FROM AR_CUSTOMER
-                    WHERE UPPER(TRIM(EMAIL)) = UPPER(TRIM(?))
-                    """,
-                    [normalized_email],
-                )
-                user_row = cur.fetchone()
-                if user_row:
-                    user = {
-                        "code": user_row[0],
-                        "email": user_row[1],
-                        "source": "AR_CUSTOMER.EMAIL",
-                    }
-                    customer_code = user_row[0]
-            except Exception:
-                pass
+                print(f"[AUTH] SY_USER profile read failed: {exc}", flush=True)
+                sy_user_profile, staff_udf = None, {}
+            if sy_user_profile:
+                admin = {
+                    "code": sy_user_profile.get("CODE"),
+                    "name": sy_user_profile.get("NAME"),
+                    "email": sy_user_profile.get("EMAIL"),
+                    "isactive": sy_user_profile.get("ISACTIVE"),
+                    "staff_udf": staff_udf,
+                }
+        elif mode == "supplier":
+            supplier, supplier_code = _lookup_supplier_by_email(cur, normalized_email)
+        else:
+            user, customer_code = _lookup_customer_by_email(cur, normalized_email)
 
         is_admin_sy = bool(admin)
         is_user = bool(user)
@@ -310,6 +324,7 @@ def lookup_email_identity(email: str = Query(..., min_length=3, max_length=255))
         return {
             "success": True,
             "email": normalized_email,
+            "login_mode": mode,
             "found": bool(is_admin_sy or is_user or is_supplier),
             "is_admin": is_admin_sy,
             "is_user": is_user,

@@ -217,7 +217,7 @@ init_local_classifier(LOCAL_AI_ENABLED)
 # ============================================
 # OTP STORAGE & CONFIGURATION
 # ============================================
-# In-memory OTP storage: {email: {'otp': code, 'expiry': datetime}}
+# In-memory OTP storage: { "email|login_mode": {'otp': code, 'expiry': datetime} }
 OTP_STORAGE = {}
 
 # Helper configuration
@@ -2077,12 +2077,25 @@ def api_lookup_postcode():
         print(f"[ERROR] lookup_postcode failed: {e}")
         return jsonify({'success': False, 'error': 'Failed to lookup postcode'}), 500
 
+def _login_otp_storage_key(email: str, login_mode: str) -> str:
+    """OTP is scoped by login tab (customer / admin / supplier) so the same inbox can use different codes."""
+    e = (email or '').strip().lower()
+    m = (login_mode or 'customer').strip().lower()
+    if m not in ('customer', 'admin', 'supplier'):
+        m = 'customer'
+    return f'{e}|{m}'
+
+
 @app.route('/api/send_otp', methods=['POST'])
 def api_send_otp():
     """Send OTP to email"""
-    data = request.get_json()
+    data = request.get_json() or {}
     email = data.get('email', '').strip()
-    print(f"[DEBUG OTP] send_otp requested for: {email}", flush=True)
+    login_mode = (data.get('login_mode') or 'customer').strip().lower()
+    if login_mode not in ('customer', 'admin', 'supplier'):
+        login_mode = 'customer'
+    otp_key = _login_otp_storage_key(email, login_mode)
+    print(f"[DEBUG OTP] send_otp requested for: {email} mode={login_mode}", flush=True)
     
     if not email:
         return jsonify({'success': False, 'error': 'Email is required'}), 400
@@ -2104,7 +2117,7 @@ def api_send_otp():
         try:
             identity_resp = requests.get(
                 f"{FASTAPI_BASE_URL}/auth/email-lookup",
-                params={"email": email},
+                params={"email": email, "login_mode": login_mode},
                 timeout=5,
             )
             identity_resp.raise_for_status()
@@ -2129,8 +2142,8 @@ def api_send_otp():
         print(f"[DEBUG OTP] {email} -> {otp}", flush=True)
         expiry = datetime.now() + timedelta(seconds=OTP_EXPIRY_SECONDS)
         
-        # Store OTP temporarily
-        OTP_STORAGE[email] = {
+        # Store OTP temporarily (keyed by email + login tab)
+        OTP_STORAGE[otp_key] = {
             'otp': otp,
             'expiry': expiry
         }
@@ -2184,35 +2197,39 @@ def api_send_otp():
 @app.route('/api/verify_otp', methods=['POST'])
 def api_verify_otp():
     """Verify OTP and create session, redirect based on user type"""
-    data = request.get_json()
+    data = request.get_json() or {}
     email = data.get('email', '').strip()
     otp = data.get('otp', '').strip()
+    login_mode = (data.get('login_mode') or 'customer').strip().lower()
+    if login_mode not in ('customer', 'admin', 'supplier'):
+        login_mode = 'customer'
+    otp_key = _login_otp_storage_key(email, login_mode)
     
     if not email or not otp:
         return jsonify({'success': False, 'error': 'Email and OTP are required'}), 400
     
     try:
         # OTP validation (1-minute expiry + one-time use)
-        if email not in OTP_STORAGE:
+        if otp_key not in OTP_STORAGE:
             return jsonify({'success': False, 'error': 'OTP not found. Request a new one.'}), 400
 
-        stored_data = OTP_STORAGE[email]
+        stored_data = OTP_STORAGE[otp_key]
 
         if datetime.now() > stored_data['expiry']:
-            del OTP_STORAGE[email]
+            del OTP_STORAGE[otp_key]
             return jsonify({'success': False, 'error': 'OTP has expired. Request a new one.'}), 400
 
         if otp != stored_data['otp']:
             return jsonify({'success': False, 'error': 'Invalid OTP. Please try again.'}), 400
 
         # One-time use: consume OTP immediately after successful verification
-        del OTP_STORAGE[email]
+        del OTP_STORAGE[otp_key]
 
         # Check identity via FastAPI so login checks stay on port 8000.
         try:
             identity_response = requests.get(
                 f"{FASTAPI_BASE_URL}/auth/email-lookup",
-                params={"email": email},
+                params={"email": email, "login_mode": login_mode},
                 timeout=5,
             )
             identity_response.raise_for_status()
