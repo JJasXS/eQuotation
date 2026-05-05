@@ -103,7 +103,7 @@
                                             <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
                                             <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
                                             <input type="number" class="item-suggested-price" placeholder="Reference price" step="0.01" min="0" readonly>
-                                            <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" onchange="calculateQuotationTotal()">
+                                            <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" readonly title="Unit price from pricing rules (not editable)">
                                             <input type="date" class="item-delivery-date">
                                             <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
                                         </div>

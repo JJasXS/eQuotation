@@ -6044,24 +6044,23 @@ def api_get_product_price():
             try:
                 pricing_result = get_selling_price(customer_code, item_code)
                 selected_price = float(pricing_result.get('SelectedPrice') or 0)
-                if selected_price > 0:
-                    return jsonify({
-                        'success': True,
-                        'price': selected_price,
-                        'stItemPrice': st_item_udf_stdprice if st_item_udf_stdprice is not None else 0,
-                        'suggestedPrice': selected_price,
-                        'suggestedSource': pricing_result.get('PriceSource'),
-                        'suggestedMatchedRuleCode': pricing_result.get('MatchedRuleCode'),
-                        'source': pricing_result.get('PriceSource'),
-                        'matchedRuleCode': pricing_result.get('MatchedRuleCode'),
-                        'message': pricing_result.get('Message'),
-                        'itemCode': item_code,
-                        'matchType': match_type,
-                        'udfMoq': st_item_extras.get('udfMoq', ''),
-                        'udfDleadtime': st_item_extras.get('udfDleadtime', ''),
-                        'udfBundle': st_item_extras.get('udfBundle', ''),
-                    })
-                no_match_message = pricing_result.get('Message')
+                # Honor priority engine result even when 0 (no rules enabled, no match, or rule yields zero).
+                return jsonify({
+                    'success': True,
+                    'price': selected_price,
+                    'stItemPrice': st_item_udf_stdprice if st_item_udf_stdprice is not None else 0,
+                    'suggestedPrice': selected_price,
+                    'suggestedSource': pricing_result.get('PriceSource'),
+                    'suggestedMatchedRuleCode': pricing_result.get('MatchedRuleCode'),
+                    'source': pricing_result.get('PriceSource'),
+                    'matchedRuleCode': pricing_result.get('MatchedRuleCode'),
+                    'message': pricing_result.get('Message'),
+                    'itemCode': item_code,
+                    'matchType': match_type,
+                    'udfMoq': st_item_extras.get('udfMoq', ''),
+                    'udfDleadtime': st_item_extras.get('udfDleadtime', ''),
+                    'udfBundle': st_item_extras.get('udfBundle', ''),
+                })
             except Exception as pricing_error:
                 print(f"[PRICING WARNING] Falling back to stock price for {item_code}: {pricing_error}", flush=True)
                 no_match_message = f'Pricing rule evaluation failed: {pricing_error}'

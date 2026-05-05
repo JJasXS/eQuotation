@@ -263,7 +263,7 @@ function addQuotationItem() {
             <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
             <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
             <input type="number" class="item-suggested-price" placeholder="Reference price" step="0.01" min="0" readonly>
-            <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" onchange="calculateQuotationTotal()">
+            <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" readonly title="Unit price from pricing rules (not editable)">
             <input type="date" class="item-delivery-date" value="${today}">
             <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
         </div>
@@ -286,18 +286,14 @@ function onProductSourceChange(selectElement) {
     if (selectElement.value === 'custom') {
         catalogSelect.style.display = 'none';
         customInput.style.display = 'inline-block';
-        // Clear catalog values and enable manual price entry
         catalogSelect.value = '';
         suggestedPriceInput.value = '';
-        priceInput.readOnly = false;
         priceInput.value = '';
         clearQuotationLineStItemExtras(row);
     } else {
         catalogSelect.style.display = 'inline-block';
         customInput.style.display = 'none';
-        // Clear custom values and make price readonly
         customInput.value = '';
-        priceInput.readOnly = true;
         priceInput.value = '';
         suggestedPriceInput.value = '';
         clearQuotationLineStItemExtras(row);
@@ -417,7 +413,7 @@ function clearQuotationForm() {
                     <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
                     <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
                     <input type="number" class="item-suggested-price" placeholder="Reference price" step="0.01" min="0" readonly>
-                    <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" onchange="calculateQuotationTotal()">
+                    <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" readonly title="Unit price from pricing rules (not editable)">
                     <input type="date" class="item-delivery-date" value="${new Date().toISOString().split('T')[0]}">
                     <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
                 </div>
@@ -900,7 +896,7 @@ async function loadDraftQuotation(dockey) {
                             <input type="number" class="item-qty" placeholder="Qty" min="1" value="${item.QTY || 1}" onchange="calculateQuotationTotal()">
                             <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="${item.DISC || 0}" onchange="calculateQuotationTotal()">
                             <input type="number" class="item-suggested-price" placeholder="Reference price" step="0.01" min="0" value="${item.UDF_STDPRICE || 0}" readonly>
-                            <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" value="${item.UNITPRICE || 0}" onchange="calculateQuotationTotal()">
+                            <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" value="${item.UNITPRICE || 0}" readonly title="Unit price from pricing rules (not editable)">
                             <input type="date" class="item-delivery-date" value="${item.DELIVERYDATE || new Date().toISOString().split('T')[0]}">
                             <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
                         </div>
@@ -1005,7 +1001,7 @@ async function loadSlQtDraftForEdit(draftDockey) {
                         <input type="number" class="item-qty" placeholder="Qty" min="1" value="${item.QTY || 1}" onchange="calculateQuotationTotal()">
                         <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="${item.DISC || 0}" onchange="calculateQuotationTotal()">
                         <input type="number" class="item-suggested-price" placeholder="Reference price" step="0.01" min="0" value="${item.UDF_STDPRICE || 0}" readonly>
-                        <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" value="${item.UNITPRICE || 0}" onchange="calculateQuotationTotal()">
+                        <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" value="${item.UNITPRICE || 0}" readonly title="Unit price from pricing rules (not editable)">
                         <input type="date" class="item-delivery-date" value="${item.DELIVERYDATE || new Date().toISOString().split('T')[0]}">
                         <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
                     </div>
