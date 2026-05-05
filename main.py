@@ -163,6 +163,27 @@ FASTAPI_SECRET_KEY = (os.getenv('API_SECRET_KEY') or '').strip()
 GUEST_SIGNIN_ALLOW_LOCAL_FALLBACK = (os.getenv('GUEST_SIGNIN_ALLOW_LOCAL_FALLBACK', 'true').strip().lower() in ('1', 'true', 'yes', 'on'))
 DB_PATH = os.getenv('DB_PATH')
 
+from utils.http_timeouts import parse_timeout_env
+from utils.http_client import http_request_json as _http_request_json_bases
+
+
+def _php_bridge_requests_timeout():
+    """(connect, read) for PHP bridge; env PHP_API_REQUEST_TIMEOUT."""
+    return parse_timeout_env('PHP_API_REQUEST_TIMEOUT', 3.0, 10.0)
+
+
+def http_request_json(method, url, *, timeout=None, **kwargs):
+    """HTTP JSON helper: picks timeouts by FastAPI vs PHP vs internal URL prefix."""
+    return _http_request_json_bases(
+        method,
+        url,
+        fastapi_base=FASTAPI_BASE_URL,
+        php_base=BASE_API_URL,
+        timeout=timeout,
+        **kwargs,
+    )
+
+
 # Runtime hints to avoid re-trying slow/invalid upstream variants on every request.
 PURCHASE_REQUEST_LIST_ENDPOINT_HINT = None
 PURCHASE_REQUEST_DETAIL_ENDPOINT_HINT = None
@@ -289,11 +310,12 @@ def api_admin_required(unauth_message='Unauthorized', forbidden_message='Forbidd
     return decorator
 
 
-def proxy_json_request(method, path, payload=None, params=None, timeout=10):
-    """Forward a request to a PHP endpoint and return JSON body/status."""
+def proxy_json_request(method, path, payload=None, params=None, timeout=None):
+    """Forward a request to a PHP endpoint and return JSON body/status with safe parsing."""
     url = f"{BASE_API_URL}{path}"
-    response = requests.request(method=method, url=url, json=payload, params=params, timeout=timeout)
-    return response.json(), response.status_code
+    m = (method or 'GET').upper()
+    send_json = payload if m in ('POST', 'PUT', 'PATCH', 'DELETE') else None
+    return http_request_json(m, url, params=params, json=send_json, timeout=timeout)
 
 
 def proxy_post_with_auth(
@@ -334,6 +356,12 @@ def proxy_get_with_auth(path, *, params=None, admin_only=False, error_message='F
 
     try:
         return proxy_json_request('GET', path, params=params)
+    except requests.exceptions.Timeout:
+        print(f"Timeout proxying {log_context} to XAMPP at {BASE_API_URL}")
+        return jsonify({'success': False, 'error': error_message}), 500
+    except requests.exceptions.ConnectionError:
+        print(f"Connection error proxying {log_context} to XAMPP at {BASE_API_URL}")
+        return jsonify({'success': False, 'error': error_message}), 500
     except Exception as e:
         print(f"Error proxying {log_context} to XAMPP: {e}")
         return jsonify({'success': False, 'error': error_message}), 500
@@ -836,7 +864,8 @@ def build_catalog_response(user_input, stockitems, stock_groups, price_lookup, c
 def add_order_item(orderid, product_info, unitprice):
     """Insert one order item and return a user-facing status message."""
     try:
-        response = requests.post(
+        data, _ = http_request_json(
+            'POST',
             f"{BASE_API_URL}/php/insertOrderDetail.php",
             json={
                 "orderid": orderid,
@@ -844,9 +873,8 @@ def add_order_item(orderid, product_info, unitprice):
                 "qty": product_info['qty'],
                 "unitprice": unitprice,
                 "discount": 0
-            }
+            },
         )
-        data = response.json()
         if data.get('success'):
             total = format_rm(data.get('total'))
             return f"✓ Added {product_info['qty']}x {product_info['description']} → {total}\n\nWant more items or type 'Complete Order'?"
@@ -939,16 +967,12 @@ def _fetch_all_customers_from_sql_api():
     all_customers = []
 
     while True:
-        response = requests.get(
+        payload, _response = http_request_json(
+            'GET',
             api_url,
-            params={'offset': offset, 'limit': limit},
             headers=headers if headers else None,
-            timeout=8,
+            params={'offset': offset, 'limit': limit},
         )
-        if not response.ok:
-            raise RuntimeError(f'SQL API returned {response.status_code} for /customer')
-
-        payload = response.json()
         rows = payload.get('data') if isinstance(payload, dict) else None
         if not isinstance(rows, list):
             raise RuntimeError('Unexpected SQL API format: missing data[]')
@@ -1005,9 +1029,18 @@ def customer_status_summary():
 
     try:
         customers = _fetch_all_customers_from_sql_api()
-        # Get invoice aging info for all customers
-        invoice_aging = requests.get(request.host_url.rstrip('/') + '/api/admin/invoice_aging_summary', headers=request.headers, timeout=30)
-        invoice_aging_items = invoice_aging.json().get('data', {}).get('items', []) if invoice_aging.ok else []
+        # Get invoice aging info for all customers (same-origin; fail soft if slow/down)
+        try:
+            inv_payload, _inv = http_request_json(
+                'GET',
+                request.host_url.rstrip('/') + '/api/admin/invoice_aging_summary',
+                headers=request.headers,
+                timeout=parse_timeout_env('INTERNAL_HTTP_REQUEST_TIMEOUT', 2.0, 12.0),
+            )
+            invoice_aging_items = inv_payload.get('data', {}).get('items', []) if isinstance(inv_payload, dict) else []
+        except Exception as inv_exc:
+            print(f"[WARN] customer_status_summary: invoice_aging cross-call failed: {inv_exc}", flush=True)
+            invoice_aging_items = []
         invoice_map = {item['code']: item for item in invoice_aging_items}
 
         for customer in customers:
@@ -1167,20 +1200,15 @@ def sales_cycle_summary():
     """Return sales cycle metrics from FastAPI dashboard endpoint."""
     headers = _build_sql_api_auth_headers()
     try:
-        response = requests.get(
+        payload, _sc = http_request_json(
+            'GET',
             f"{FASTAPI_BASE_URL}/dashboard/sales-cycle-metrics",
             headers=headers if headers else None,
-            timeout=20,
         )
-        payload = response.json()
     except requests.exceptions.RequestException as exc:
         return jsonify({'success': False, 'error': f'Failed to reach FastAPI sales cycle endpoint: {exc}'}), 502
-    except ValueError:
-        return jsonify({'success': False, 'error': 'FastAPI sales cycle endpoint returned invalid JSON'}), 502
-
-    if not response.ok:
-        detail = payload.get('detail') if isinstance(payload, dict) else None
-        return jsonify({'success': False, 'error': detail or 'Failed to load sales cycle metrics'}), response.status_code
+    except ValueError as exc:
+        return jsonify({'success': False, 'error': f'FastAPI sales cycle endpoint: {exc}'}), 502
 
     if not isinstance(payload, dict):
         return jsonify({'success': False, 'error': 'Unexpected sales cycle response format'}), 502
@@ -1197,20 +1225,15 @@ def sales_cycle_details():
         return jsonify(cached), 200
     headers = _build_sql_api_auth_headers()
     try:
-        response = requests.get(
+        payload, _scd = http_request_json(
+            'GET',
             f"{FASTAPI_BASE_URL}/dashboard/sales-cycle-details",
             headers=headers if headers else None,
-            timeout=25,
         )
-        payload = response.json()
     except requests.exceptions.RequestException as exc:
         return jsonify({'success': False, 'error': f'Failed to reach FastAPI sales cycle detail endpoint: {exc}'}), 502
-    except ValueError:
-        return jsonify({'success': False, 'error': 'FastAPI sales cycle detail endpoint returned invalid JSON'}), 502
-
-    if not response.ok:
-        detail = payload.get('detail') if isinstance(payload, dict) else None
-        return jsonify({'success': False, 'error': detail or 'Failed to load sales cycle details'}), response.status_code
+    except ValueError as exc:
+        return jsonify({'success': False, 'error': f'FastAPI sales cycle detail endpoint: {exc}'}), 502
 
     if not isinstance(payload, dict):
         return jsonify({'success': False, 'error': 'Unexpected sales cycle details response format'}), 502
@@ -1231,20 +1254,15 @@ def qt_iv_conversion_report():
         return jsonify(cached), 200
     headers = _build_sql_api_auth_headers()
     try:
-        response = requests.get(
+        payload, _qtiv = http_request_json(
+            'GET',
             f"{FASTAPI_BASE_URL}/dashboard/qt-iv-conversion-report",
             headers=headers if headers else None,
-            timeout=30,
         )
-        payload = response.json()
     except requests.exceptions.RequestException as exc:
         return jsonify({'success': False, 'error': f'Failed to reach FastAPI QT->IV report endpoint: {exc}'}), 502
-    except ValueError:
-        return jsonify({'success': False, 'error': 'FastAPI QT->IV report endpoint returned invalid JSON'}), 502
-
-    if not response.ok:
-        detail = payload.get('detail') if isinstance(payload, dict) else None
-        return jsonify({'success': False, 'error': detail or 'Failed to load QT->IV conversion report'}), response.status_code
+    except ValueError as exc:
+        return jsonify({'success': False, 'error': f'FastAPI QT->IV report endpoint: {exc}'}), 502
 
     if not isinstance(payload, dict):
         return jsonify({'success': False, 'error': 'Unexpected QT->IV report response format'}), 502
@@ -1281,13 +1299,11 @@ def update_quotation_cancelled():
 
     try:
         php_url = f"{BASE_API_URL}/php/updateQuotationCancelled.php"
-        response = requests.post(
+        result, _ = http_request_json(
+            'POST',
             php_url,
             json={'dockey': dockey, 'cancelled': cancelled},
-            timeout=10
         )
-        response.raise_for_status()
-        result = response.json()
         if not result.get('success'):
             return jsonify({'success': False, 'error': result.get('error', 'Failed to update quotation')}), 500
         
@@ -1297,12 +1313,11 @@ def update_quotation_cancelled():
             try:
                 # Fetch quotation details
                 print(f"[ACTIVATE DEBUG] Fetching quotation details from {BASE_API_URL}/php/getQuotationDetails.php")
-                qt_response = requests.get(
+                qt_data, _qt = http_request_json(
+                    'GET',
                     f"{BASE_API_URL}/php/getQuotationDetails.php",
                     params={'dockey': dockey},
-                    timeout=10
                 )
-                qt_data = qt_response.json()
                 print(f"[ACTIVATE DEBUG] Quotation details response success: {qt_data.get('success')}, has data: {bool(qt_data.get('data'))}")
                 
                 if qt_data.get('success') and qt_data.get('data'):
@@ -1322,13 +1337,14 @@ def update_quotation_cancelled():
                         }
                         print(f"[ACTIVATE DEBUG] Sending email to {customer_email}")
                         
-                        email_response = requests.post(
+                        email_payload, _ = http_request_json(
+                            'POST',
                             f"http://localhost:{request.environ.get('SERVER_PORT', os.getenv('FLASK_PORT', '8880'))}/api/send_quotation_ready_email",
                             json=email_data,
-                            timeout=10
+                            timeout=parse_timeout_env('INTERNAL_HTTP_REQUEST_TIMEOUT', 2.0, 12.0),
                         )
                         
-                        if email_response.json().get('success'):
+                        if isinstance(email_payload, dict) and email_payload.get('success'):
                             print(f"[EMAIL] Quotation activation email sent for DOCKEY {dockey}")
                         else:
                             print(f"[EMAIL WARNING] Failed to send activation email for DOCKEY {dockey}")
@@ -1367,13 +1383,7 @@ def cancel_single_quotation():
         print(f"[CANCEL SINGLE] Calling PHP: {php_url}", flush=True)
         print(f"[CANCEL SINGLE] Payload: {payload}", flush=True)
         
-        response = requests.post(
-            php_url,
-            json=payload,
-            timeout=10
-        )
-        response.raise_for_status()
-        result = response.json()
+        result, _ = http_request_json('POST', php_url, json=payload)
         
         print(f"[CANCEL SINGLE] PHP Response: {result}", flush=True)
         
@@ -1429,22 +1439,15 @@ def delete_quotations():
                 }
                 print(f"[DELETE QUOTATIONS] Sending to PHP: {payload}", flush=True)
                 
-                # Call PHP endpoint
-                response = requests.post(
-                    php_url,
-                    json=payload,
-                    timeout=10
-                )
-                
-                print(f"[DELETE QUOTATIONS] PHP response status: {response.status_code}", flush=True)
-                
-                if response.status_code != 200:
-                    print(f"[DELETE QUOTATIONS] ERROR: Bad status code: {response.text[:500]}", flush=True)
+                try:
+                    result, response = http_request_json('POST', php_url, json=payload)
+                except Exception as del_exc:
                     failed_count += 1
-                    failed_details.append(f"DOCKEY {dockey}: HTTP {response.status_code}")
+                    failed_details.append(f"DOCKEY {dockey}: {del_exc}")
+                    print(f"[DELETE QUOTATIONS] ✗ REQUEST FAILED for DOCKEY {dockey}: {del_exc}", flush=True)
                     continue
                 
-                result = response.json()
+                print(f"[DELETE QUOTATIONS] PHP response status: {response.status_code}", flush=True)
                 print(f"[DELETE QUOTATIONS] PHP result: {result}", flush=True)
                 
                 if result.get('success'):
@@ -1577,13 +1580,13 @@ def create_signin_user():
     }
 
     try:
-        response = requests.post(api_url, json=customer_payload, headers=api_headers, timeout=20)
+        response = requests.post(api_url, json=customer_payload, headers=api_headers, timeout=(3.0, 20.0))
     except Exception as e:
         print(f"Error calling FastAPI /customers: {e}")
         if not GUEST_SIGNIN_ALLOW_LOCAL_FALLBACK:
             return jsonify({'success': False, 'error': f'Remote customer API required and unreachable: {str(e)}'}), 502
         try:
-            local_response = requests.post(local_api_url, json=local_customer_payload, headers=api_headers, timeout=20)
+            local_response = requests.post(local_api_url, json=local_customer_payload, headers=api_headers, timeout=(3.0, 20.0))
             local_result = local_response.json()
             if local_response.status_code < 400 and isinstance(local_result, dict) and local_result.get('success'):
                 local_data = local_result.get('data') or {}
@@ -1616,7 +1619,7 @@ def create_signin_user():
 
         # Fallback: if upstream-backed /customers fails, try local FastAPI path.
         try:
-            local_response = requests.post(local_api_url, json=local_customer_payload, headers=api_headers, timeout=20)
+            local_response = requests.post(local_api_url, json=local_customer_payload, headers=api_headers, timeout=(3.0, 20.0))
             local_result = local_response.json()
         except Exception as local_exc:
             return jsonify({'success': False, 'error': f'{primary_error} | local fallback failed: {str(local_exc)}'}), response.status_code
@@ -1748,7 +1751,7 @@ def create_signin_user_minimal():
 
     for attempt_idx in range(max_attempts):
         try:
-            response = requests.post(api_url, json=customer_payload, headers=api_headers, timeout=20)
+            response = requests.post(api_url, json=customer_payload, headers=api_headers, timeout=(3.0, 20.0))
         except Exception as e:
             return jsonify({'success': False, 'error': f'Cannot connect to customer API: {str(e)}'}), 502
 
@@ -1903,13 +1906,10 @@ def get_currency_symbols():
     """Fetch currency symbols for guest sign-in dropdown."""
     try:
         php_url = f"{BASE_API_URL}/php/getCurrencySymbols.php"
-        response = requests.get(php_url, timeout=10)
-        if response.status_code < 400:
-            result = response.json()
-            if isinstance(result, dict) and result.get('success') and isinstance(result.get('data'), list):
-                return jsonify(result), response.status_code
-            raise ValueError('PHP endpoint returned unexpected payload shape')
-        raise requests.exceptions.HTTPError(f"HTTP {response.status_code}")
+        result, response = http_request_json('GET', php_url)
+        if isinstance(result, dict) and result.get('success') and isinstance(result.get('data'), list):
+            return jsonify(result), response.status_code
+        raise ValueError('PHP endpoint returned unexpected payload shape')
     except Exception as e:
         print(f"Error calling getCurrencySymbols.php: {e}")
         try:
@@ -1924,13 +1924,10 @@ def get_area_codes():
     """Fetch AREA.CODE values for guest sign-in dropdown."""
     try:
         php_url = f"{BASE_API_URL}/php/getAreaCodes.php"
-        response = requests.get(php_url, timeout=10)
-        if response.status_code < 400:
-            result = response.json()
-            if isinstance(result, dict) and result.get('success') and isinstance(result.get('data'), list):
-                return jsonify(result), response.status_code
-            raise ValueError('PHP endpoint returned unexpected payload shape')
-        raise requests.exceptions.HTTPError(f"HTTP {response.status_code}")
+        result, response = http_request_json('GET', php_url)
+        if isinstance(result, dict) and result.get('success') and isinstance(result.get('data'), list):
+            return jsonify(result), response.status_code
+        raise ValueError('PHP endpoint returned unexpected payload shape')
     except Exception as e:
         print(f"Error calling getAreaCodes.php: {e}")
         try:
@@ -2135,13 +2132,12 @@ def api_send_otp():
         is_user = False
         is_customer = False
         try:
-            identity_resp = requests.get(
+            identity, _idr = http_request_json(
+                'GET',
                 f"{FASTAPI_BASE_URL}/auth/email-lookup",
                 params={"email": email, "login_mode": login_mode},
-                timeout=5,
+                timeout=(2.0, 6.0),
             )
-            identity_resp.raise_for_status()
-            identity = identity_resp.json()
             is_admin = bool(identity.get('is_admin'))
             is_user = bool(identity.get('is_user'))
             is_customer = bool(identity.get('is_customer'))
@@ -2247,13 +2243,12 @@ def api_verify_otp():
 
         # Check identity via FastAPI so login checks stay on port 8000.
         try:
-            identity_response = requests.get(
+            identity, _idr = http_request_json(
+                'GET',
                 f"{FASTAPI_BASE_URL}/auth/email-lookup",
                 params={"email": email, "login_mode": login_mode},
-                timeout=5,
+                timeout=(2.0, 6.0),
             )
-            identity_response.raise_for_status()
-            identity = identity_response.json()
         except Exception as e:
             print(f"[AUTH] FastAPI identity lookup failed: {e}")
             return jsonify({
@@ -2369,8 +2364,8 @@ def proxy_get_orders_by_status():
             if customer_code:
                 url += f"&customerCode={customer_code}"
         
-        response = requests.get(url, timeout=10)
-        return response.json(), response.status_code
+        body, resp = http_request_json('GET', url)
+        return jsonify(body), resp.status_code
     except Exception as e:
         print(f"Error proxying to XAMPP: {e}")
         return jsonify({'success': False, 'error': 'Failed to fetch orders from database'}), 500
@@ -2730,23 +2725,12 @@ def admin_update_order():
     if not orderid or not status:
         return jsonify({'success': False, 'error': 'Missing orderid or status'}), 400
 
-    def parse_backend_json(response, endpoint_name):
-        try:
-            return response.json()
-        except ValueError:
-            body_preview = (response.text or '').strip().replace('\n', ' ')[:300]
-            raise ValueError(
-                f"{endpoint_name} returned non-JSON response (HTTP {response.status_code}): {body_preview or 'empty body'}"
-            )
-
     try:
-        status_response = requests.post(
+        status_data, _ = http_request_json(
+            'POST',
             f"{BASE_API_URL}{ENDPOINT_PATHS['updateorderstatus']}",
             json={'orderid': orderid, 'status': status},
-            timeout=10
         )
-        status_response.raise_for_status()
-        status_data = parse_backend_json(status_response, ENDPOINT_PATHS['updateorderstatus'])
 
         if not status_data.get('success'):
             return jsonify({'success': False, 'error': status_data.get('error', 'Failed to update order status')}), 500
@@ -2765,21 +2749,19 @@ def admin_update_order():
             if item_orderdtlid > 0:
                 item_payload['orderdtlid'] = item_orderdtlid
                 endpoint_path = ENDPOINT_PATHS['updateorderdetail']
-                item_response = requests.post(
+                item_data, _ = http_request_json(
+                    'POST',
                     f"{BASE_API_URL}{endpoint_path}",
                     json=item_payload,
-                    timeout=10
                 )
             else:
                 endpoint_path = ENDPOINT_PATHS['insertorderdetail']
-                item_response = requests.post(
+                item_data, _ = http_request_json(
+                    'POST',
                     f"{BASE_API_URL}{endpoint_path}",
                     json=item_payload,
-                    timeout=10
                 )
 
-            item_response.raise_for_status()
-            item_data = parse_backend_json(item_response, endpoint_path)
             if not item_data.get('success'):
                 return jsonify({'success': False, 'error': item_data.get('error', 'Failed to update order item')}), 500
 
@@ -2802,12 +2784,11 @@ def view_order_proof(orderid):
     
     try:
         # Fetch order from PHP endpoint
-        order_response = requests.get(
-            f"{BASE_API_URL}/php/getOrderDetails.php?orderid={orderid}",
-            timeout=10
+        order_data, _ = http_request_json(
+            'GET',
+            f"{BASE_API_URL}/php/getOrderDetails.php",
+            params={'orderid': orderid},
         )
-        order_response.raise_for_status()
-        order_data = order_response.json()
         
         if not order_data.get('success') or not order_data.get('data'):
             return jsonify({'error': 'Order not found'}), 404
@@ -3020,11 +3001,11 @@ def chat_api():
         if order_action == 'create':
             # Create new order only when user explicitly requests it
             try:
-                response = requests.post(
+                data, _ = http_request_json(
+                    'POST',
                     f"{BASE_API_URL}/php/insertOrder.php",
-                    json={"chatid": chatid}
+                    json={"chatid": chatid},
                 )
-                data = response.json()
                 if data.get('success'):
                     orderid = data.get('orderid')
                     order_response = f"✓ Order #{orderid} created. What items would you like to add?"
@@ -3039,11 +3020,11 @@ def chat_api():
             if not orderid:
                 # No active order - create one automatically when adding items
                 try:
-                    response = requests.post(
+                    data, _ = http_request_json(
+                        'POST',
                         f"{BASE_API_URL}/php/insertOrder.php",
-                        json={"chatid": chatid}
+                        json={"chatid": chatid},
                     )
-                    data = response.json()
                     if data.get('success'):
                         orderid = data.get('orderid')
                     else:
@@ -3084,8 +3065,12 @@ def chat_api():
                 product_info = extract_product_and_quantity(user_input, stockitems, chat_history)
                 if product_info and product_info.get('description'):
                     # Find the order detail ID for this product
-                    details_resp = requests.get(f"{BASE_API_URL}/php/getOrderDetails.php?orderid={orderid}")
-                    details = details_resp.json().get('data', [])
+                    details_body, _ = http_request_json(
+                        'GET',
+                        f"{BASE_API_URL}/php/getOrderDetails.php",
+                        params={'orderid': orderid},
+                    )
+                    details = details_body.get('data', []) if isinstance(details_body, dict) else []
                     detail_id = None
                     for d in details:
                         if d.get('DESCRIPTION', '').lower() == product_info['description'].lower():
@@ -3093,14 +3078,14 @@ def chat_api():
                             break
                     if detail_id:
                         try:
-                            response = requests.post(
+                            data, _ = http_request_json(
+                                'POST',
                                 f"{BASE_API_URL}/php/updateOrderDetail.php",
                                 json={
                                     "detailid": detail_id,
                                     "qty": product_info['qty']
-                                }
+                                },
                             )
-                            data = response.json()
                             if data.get('success'):
                                 order_response = f"✓ Updated {product_info['description']} to {product_info['qty']}x."
                             else:
@@ -3119,16 +3104,21 @@ def chat_api():
             orderid = get_active_order(chatid)
             if orderid:
                 try:
-                    details_resp = requests.get(f"{BASE_API_URL}/php/getOrderDetails.php?orderid={orderid}")
-                    details = details_resp.json().get('data', [])
+                    details_body, _ = http_request_json(
+                        'GET',
+                        f"{BASE_API_URL}/php/getOrderDetails.php",
+                        params={'orderid': orderid},
+                    )
+                    details = details_body.get('data', []) if isinstance(details_body, dict) else []
                     removed = 0
                     for d in details:
                         detail_id = d.get('ID') or d.get('DETAILID') or d.get('id')
                         if detail_id:
                             try:
-                                requests.post(
+                                http_request_json(
+                                    'POST',
                                     f"{BASE_API_URL}/php/deleteOrderDetail.php",
-                                    json={"detailid": detail_id}
+                                    json={"detailid": detail_id},
                                 )
                                 removed += 1
                             except Exception:
@@ -3144,8 +3134,12 @@ def chat_api():
             if orderid:
                 product_info = extract_product_and_quantity(user_input, stockitems, chat_history)
                 if product_info and product_info.get('description'):
-                    details_resp = requests.get(f"{BASE_API_URL}/php/getOrderDetails.php?orderid={orderid}")
-                    details = details_resp.json().get('data', [])
+                    details_body, _ = http_request_json(
+                        'GET',
+                        f"{BASE_API_URL}/php/getOrderDetails.php",
+                        params={'orderid': orderid},
+                    )
+                    details = details_body.get('data', []) if isinstance(details_body, dict) else []
                     detail_id = None
                     for d in details:
                         if d.get('DESCRIPTION', '').lower() == product_info['description'].lower():
@@ -3153,11 +3147,11 @@ def chat_api():
                             break
                     if detail_id:
                         try:
-                            response = requests.post(
+                            data, _ = http_request_json(
+                                'POST',
                                 f"{BASE_API_URL}/php/deleteOrderDetail.php",
-                                json={"detailid": detail_id}
+                                json={"detailid": detail_id},
                             )
-                            data = response.json()
                             if data.get('success'):
                                 order_response = f"✓ Removed {product_info['description']} from your order."
                             else:
@@ -3176,11 +3170,11 @@ def chat_api():
             orderid = get_active_order(chatid)
             if orderid:
                 try:
-                    response = requests.post(
+                    data, _ = http_request_json(
+                        'POST',
                         f"{BASE_API_URL}/php/completeOrder.php",
-                        json={"orderid": orderid}
+                        json={"orderid": orderid},
                     )
-                    data = response.json()
                     if data.get('success'):
                         grand_total = format_rm(data.get('grandTotal'))
                         order_response = f"✓ Order #{orderid} submitted for approval!\nGrand Total: {grand_total}\n\nYour order is now pending admin approval."
@@ -3299,16 +3293,19 @@ def get_chats():
         return jsonify({'success': False, 'error': 'Customer code not found'}), 400
     
     try:
-        # Call PHP endpoint to get chats
-        response = requests.get(f"{BASE_API_URL}/php/getChats.php?customerCode={customer_code}")
-        data = response.json()
-        
-        if data.get('success'):
+        # Call PHP endpoint to get chats (degrade gracefully if upstream is slow/down).
+        data, _status = proxy_json_request(
+            'GET',
+            '/php/getChats.php',
+            params={'customerCode': customer_code},
+        )
+        if isinstance(data, dict) and data.get('success'):
             return jsonify({'success': True, 'chats': data.get('chats', [])})
-        else:
-            return jsonify({'success': False, 'error': data.get('error', 'Failed to fetch chats')}), 500
+        print(f"[WARN] get_chats: upstream success=false for customerCode={customer_code!r}")
+        return jsonify({'success': True, 'chats': [], 'degraded': True}), 200
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        print(f"[WARN] get_chats: upstream failed for customerCode={customer_code!r}: {e}")
+        return jsonify({'success': True, 'chats': [], 'degraded': True}), 200
 
 @app.route('/api/get_active_order')
 @api_login_required(unauth_message='Unauthorized')
@@ -3325,13 +3322,18 @@ def api_get_active_order():
         orderid = get_active_order(chatid)
         if orderid:
             # Fetch order details
-            response = requests.get(f"{BASE_API_URL}/php/getOrderDetails.php?orderid={orderid}")
-            order_data = response.json()
+            order_data, _status = proxy_json_request(
+                'GET',
+                '/php/getOrderDetails.php',
+                params={'orderid': orderid},
+            )
             return jsonify({'success': True, 'orderid': orderid, 'order': order_data})
         else:
             return jsonify({'success': True, 'orderid': None, 'order': None})
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        print(f"[WARN] api_get_active_order: upstream order detail fetch failed chatid={chatid!r}: {e}")
+        # Keep chat flow responsive even if PHP order-detail endpoint is down.
+        return jsonify({'success': True, 'orderid': None, 'order': None, 'degraded': True}), 200
 
 
 @app.route('/api/admin/update_order_status', methods=['POST'])
@@ -3683,15 +3685,18 @@ def api_admin_procurement_suppliers():
         offset = 0
         limit = 100
         while True:
-            resp = requests.get(
-                f"{FASTAPI_BASE_URL}/supplier",
-                params={'offset': offset, 'limit': limit},
-                headers=headers or None,
-                timeout=10,
-            )
-            if not resp.ok:
-                return jsonify({'success': False, 'error': f'Supplier API returned {resp.status_code}'}), 502
-            payload = resp.json()
+            try:
+                payload, resp = http_request_json(
+                    'GET',
+                    f"{FASTAPI_BASE_URL}/supplier",
+                    params={'offset': offset, 'limit': limit},
+                    headers=headers or None,
+                )
+            except requests.exceptions.HTTPError as e:
+                st = e.response.status_code if e.response is not None else 502
+                return jsonify({'success': False, 'error': f'Supplier API returned {st}'}), 502
+            except (requests.exceptions.RequestException, ValueError) as e:
+                return jsonify({'success': False, 'error': str(e)}), 502
             rows = payload.get('data', []) if isinstance(payload, dict) else []
             if not isinstance(rows, list):
                 break
@@ -4219,17 +4224,19 @@ def _fetch_supplier_master_from_sql_api(codes: list[str]) -> dict[str, dict[str,
     limit = 100
     try:
         while remaining:
-            resp = requests.get(
-                f"{FASTAPI_BASE_URL}/supplier",
-                params={'offset': offset, 'limit': limit},
-                headers=headers or None,
-                timeout=12,
-            )
-            if not resp.ok:
-                print(f"[PROCUREMENT LIST PR] SQL API supplier list HTTP {resp.status_code}", flush=True)
+            try:
+                payload, resp = http_request_json(
+                    'GET',
+                    f"{FASTAPI_BASE_URL}/supplier",
+                    params={'offset': offset, 'limit': limit},
+                    headers=headers or None,
+                )
+            except requests.exceptions.RequestException as e:
+                print(f"[PROCUREMENT LIST PR] SQL API supplier list error: {e}", flush=True)
                 break
-
-            payload = resp.json() if resp.text else {}
+            except ValueError as e:
+                print(f"[PROCUREMENT LIST PR] SQL API supplier list invalid JSON: {e}", flush=True)
+                break
             rows = payload.get('data', []) if isinstance(payload, dict) else []
             if not isinstance(rows, list) or not rows:
                 break
@@ -4680,19 +4687,25 @@ def api_admin_list_purchase_requests():
         }
         upstream_started = time.perf_counter()
         for url in candidates:
-            resp = requests.get(
-                url,
-                params=list_params,
-                headers=headers or None,
-                timeout=8,
-            )
-            last_status = resp.status_code
-            tried.append(f"{url} -> {resp.status_code}")
-            if not resp.ok:
+            try:
+                payload, resp = http_request_json(
+                    'GET',
+                    url,
+                    params=list_params,
+                    headers=headers or None,
+                )
+                last_status = resp.status_code
+                tried.append(f"{url} -> {last_status}")
+                PURCHASE_REQUEST_LIST_ENDPOINT_HINT = url
+                break
+            except requests.exceptions.HTTPError as e:
+                st = e.response.status_code if e.response is not None else 502
+                last_status = st
+                tried.append(f"{url} -> {st}")
                 continue
-            payload = resp.json() if resp.text else {}
-            PURCHASE_REQUEST_LIST_ENDPOINT_HINT = url
-            break
+            except (requests.exceptions.RequestException, ValueError) as e:
+                tried.append(f"{url} -> error: {e}")
+                continue
         upstream_ms = round((time.perf_counter() - upstream_started) * 1000, 1)
 
         if not payload:
@@ -4941,15 +4954,17 @@ def api_admin_purchase_request_details(request_id):
 
     try:
         headers = _build_sql_api_auth_headers()
-        resp = requests.get(
-            f"{FASTAPI_BASE_URL}/purchaserequest/{int(request_id)}",
-            headers=headers or None,
-            timeout=12,
-        )
-        if not resp.ok:
-            return jsonify({'success': False, 'error': f'SQL API returned {resp.status_code}'}), 502
-
-        payload = resp.json() if resp.text else {}
+        try:
+            payload, _resp = http_request_json(
+                'GET',
+                f"{FASTAPI_BASE_URL}/purchaserequest/{int(request_id)}",
+                headers=headers or None,
+            )
+        except requests.exceptions.HTTPError as e:
+            st = e.response.status_code if e.response is not None else 502
+            if st == 404:
+                return jsonify({'success': False, 'error': 'Purchase request not found'}), 404
+            return jsonify({'success': False, 'error': f'SQL API returned {st}'}), 502
         records = payload.get('data', []) if isinstance(payload, dict) else []
         if not isinstance(records, list) or not records:
             return jsonify({'success': False, 'error': 'Purchase request not found'}), 404
@@ -5234,17 +5249,19 @@ def api_admin_purchase_request_details_fallback():
         last_status = 404
         upstream_started = time.perf_counter()
         for url, params in candidates:
-            resp = requests.get(
-                url,
-                params=params,
-                headers=headers or None,
-                timeout=8,
-            )
-            last_status = resp.status_code
-            if not resp.ok:
+            try:
+                payload, resp = http_request_json(
+                    'GET',
+                    url,
+                    params=params,
+                    headers=headers or None,
+                )
+                last_status = resp.status_code
+            except requests.exceptions.HTTPError as e:
+                last_status = e.response.status_code if e.response is not None else 502
                 continue
-
-            payload = resp.json() if resp.text else {}
+            except (requests.exceptions.RequestException, ValueError):
+                continue
             extracted = _extract_details(payload)
             if extracted is None:
                 continue
@@ -5331,12 +5348,21 @@ def _resolve_purchase_request_header(raw_request_id, request_no, headers, timeou
     last_status = 404
 
     for url, params in candidates:
-        resp = requests.get(url, params=params, headers=headers or None, timeout=timeout)
-        last_status = resp.status_code
-        if not resp.ok:
+        try:
+            _tmo = timeout if isinstance(timeout, tuple) else (3.0, float(timeout))
+            payload, resp = http_request_json(
+                'GET',
+                url,
+                params=params,
+                headers=headers or None,
+                timeout=_tmo,
+            )
+            last_status = resp.status_code
+        except requests.exceptions.HTTPError as e:
+            last_status = e.response.status_code if e.response is not None else 502
             continue
-
-        payload = resp.json() if resp.text else {}
+        except (requests.exceptions.RequestException, ValueError):
+            continue
         request_header = _extract_header(payload)
         if request_header:
             PURCHASE_REQUEST_DETAIL_ENDPOINT_HINT = url
@@ -5963,16 +5989,15 @@ def api_admin_transfer_purchase_request_to_po():
             offset = 0
             limit = 100
             while True:
-                resp = requests.get(
-                    f"{FASTAPI_BASE_URL}/supplier",
-                    params={'offset': offset, 'limit': limit},
-                    headers=headers or None,
-                    timeout=10,
-                )
-                if not resp.ok:
+                try:
+                    supplier_payload, _sup = http_request_json(
+                        'GET',
+                        f"{FASTAPI_BASE_URL}/supplier",
+                        params={'offset': offset, 'limit': limit},
+                        headers=headers or None,
+                    )
+                except (requests.exceptions.RequestException, ValueError):
                     break
-
-                supplier_payload = resp.json() if resp.text else {}
                 supplier_rows = supplier_payload.get('data', []) if isinstance(supplier_payload, dict) else []
                 if not isinstance(supplier_rows, list) or not supplier_rows:
                     break
@@ -6338,24 +6363,24 @@ def api_admin_purchase_request_detail_approval_update():
 
     try:
         headers = _build_sql_api_auth_headers()
-        resp = requests.post(
-            f"{FASTAPI_BASE_URL}/purchaserequest/detail-approval",
-            json=payload,
-            headers=headers or None,
-            timeout=12,
-        )
-
-        if not resp.ok:
+        try:
+            body, _resp = http_request_json(
+                'POST',
+                f"{FASTAPI_BASE_URL}/purchaserequest/detail-approval",
+                json=payload,
+                headers=headers or None,
+            )
+        except requests.exceptions.HTTPError as e:
             message = ''
-            try:
-                body = resp.json()
-                message = body.get('detail') if isinstance(body, dict) else ''
-            except Exception:
-                message = (resp.text or '').strip()
-            err = f"SQL API returned {resp.status_code}" + (f": {message}" if message else '')
+            if e.response is not None:
+                try:
+                    b = e.response.json()
+                    message = b.get('detail') if isinstance(b, dict) else ''
+                except Exception:
+                    message = (e.response.text or '').strip()
+            st = e.response.status_code if e.response is not None else 502
+            err = f"SQL API returned {st}" + (f": {message}" if message else '')
             return jsonify({'success': False, 'error': err}), 502
-
-        body = resp.json() if resp.text else {}
         return jsonify({'success': True, 'data': body})
     except requests.exceptions.Timeout:
         return jsonify({'success': False, 'error': 'Approval update request timed out'}), 504
@@ -6379,8 +6404,8 @@ def api_create_order():
         return jsonify({'success': False, 'error': 'At least one item is required'}), 400
     
     try:
-        # Call PHP endpoint to create order
-        order_response = requests.post(
+        order_data, _ = http_request_json(
+            'POST',
             f"{BASE_API_URL}/php/insertOrderByManual.php",
             json={
                 "ownerEmail": user_email,
@@ -6388,10 +6413,7 @@ def api_create_order():
                 "orderName": description,
                 "items": items
             },
-            timeout=10
         )
-        
-        order_data = order_response.json()
         
         if not order_data.get('success'):
             return jsonify({'success': False, 'error': order_data.get('error', 'Failed to create order')}), 500
@@ -6412,24 +6434,24 @@ def api_admin_purchase_request_header_status_update():
 
     try:
         headers = _build_sql_api_auth_headers()
-        resp = requests.post(
-            f"{FASTAPI_BASE_URL}/purchaserequest/header-status",
-            json=payload,
-            headers=headers or None,
-            timeout=12,
-        )
-
-        if not resp.ok:
+        try:
+            body, _resp = http_request_json(
+                'POST',
+                f"{FASTAPI_BASE_URL}/purchaserequest/header-status",
+                json=payload,
+                headers=headers or None,
+            )
+        except requests.exceptions.HTTPError as e:
             message = ''
-            try:
-                body = resp.json()
-                message = body.get('detail') if isinstance(body, dict) else ''
-            except Exception:
-                message = (resp.text or '').strip()
-            err = f"SQL API returned {resp.status_code}" + (f": {message}" if message else '')
+            if e.response is not None:
+                try:
+                    b = e.response.json()
+                    message = b.get('detail') if isinstance(b, dict) else ''
+                except Exception:
+                    message = (e.response.text or '').strip()
+            st = e.response.status_code if e.response is not None else 502
+            err = f"SQL API returned {st}" + (f": {message}" if message else '')
             return jsonify({'success': False, 'error': err}), 502
-
-        body = resp.json() if resp.text else {}
         return jsonify({'success': True, 'data': body})
     except requests.exceptions.Timeout:
         return jsonify({'success': False, 'error': 'Header status update request timed out'}), 504
@@ -7232,14 +7254,12 @@ def api_admin_update_quotation():
     }
 
     try:
-        # Use the update draft quotation endpoint
-        response = requests.post(
-            f"{BASE_API_URL}/php/updateDraftQuotation.php",
-            json=update_data,
-            timeout=10
-        )
         try:
-            result = response.json()
+            result, _upd = http_request_json(
+                'POST',
+                f"{BASE_API_URL}/php/updateDraftQuotation.php",
+                json=update_data,
+            )
         except ValueError:
             return jsonify({
                 'success': False,
@@ -7253,12 +7273,11 @@ def api_admin_update_quotation():
             try:
                 # Fetch quotation details
                 print(f"[EDIT DEBUG] Fetching quotation details")
-                qt_response = requests.get(
+                qt_data, _qt = http_request_json(
+                    'GET',
                     f"{BASE_API_URL}/php/getQuotationDetails.php",
                     params={'dockey': dockey},
-                    timeout=10
                 )
-                qt_data = qt_response.json()
                 print(f"[EDIT DEBUG] Quotation details response success: {qt_data.get('success')}, has data: {bool(qt_data.get('data'))}")
                 
                 if qt_data.get('success') and qt_data.get('data'):
@@ -7278,13 +7297,14 @@ def api_admin_update_quotation():
                         }
                         print(f"[EDIT DEBUG] Sending email to {customer_email}")
                         
-                        email_response = requests.post(
+                        email_payload, _ = http_request_json(
+                            'POST',
                             f"http://localhost:{request.environ.get('SERVER_PORT', os.getenv('FLASK_PORT', '8880'))}/api/send_quotation_ready_email",
                             json=email_data,
-                            timeout=10
+                            timeout=parse_timeout_env('INTERNAL_HTTP_REQUEST_TIMEOUT', 2.0, 12.0),
                         )
                         
-                        if email_response.json().get('success'):
+                        if isinstance(email_payload, dict) and email_payload.get('success'):
                             print(f"[EMAIL] Quotation update email sent for DOCKEY {dockey}")
                         else:
                             print(f"[EMAIL WARNING] Failed to send update email for DOCKEY {dockey}")
@@ -7643,7 +7663,7 @@ def api_get_user_info():
                     sql_response = requests.get(
                         prepared.url,
                         headers=dict(prepared.headers),
-                        timeout=10,
+                        timeout=(3.0, 10.0),
                     )
                 except Exception as sigv4_error:
                     # Fallback for environments where upstream accepts key headers.
@@ -7657,7 +7677,7 @@ def api_get_user_info():
                             'X-Region': sql_region,
                             'X-Service': sql_service,
                         },
-                        timeout=10,
+                        timeout=(3.0, 10.0),
                     )
 
                 print(f"[DEBUG] get_user_info: SQL API response status {sql_response.status_code}", flush=True)
@@ -7741,22 +7761,56 @@ def api_get_user_info():
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
 
+def _company_names_empty_ok(warning_message):
+    """Stable JSON for UI when PHP company-name bridge is down or returns junk (admin filter uses data[])."""
+    return jsonify({
+        'success': True,
+        'count': 0,
+        'data': [],
+        'degraded': True,
+        'warning': (warning_message or '')[:500] or None,
+    })
+
+
 @app.route('/api/get_company_names')
 def api_get_company_names():
-    """Get all unique company names from AR_CUSTOMER table."""
+    """Get all unique company names from AR_CUSTOMER via PHP bridge; never 500 on bad upstream JSON."""
+    php_url = f"{BASE_API_URL}{ENDPOINT_PATHS['getcompanynames']}"
+    tmo = _php_bridge_requests_timeout()
     try:
-        print("[DEBUG] api_get_company_names: Fetching company names", flush=True)
-        php_url = f"{BASE_API_URL}{ENDPOINT_PATHS['getcompanynames']}"
-        print(f"[DEBUG] Calling PHP at {php_url}", flush=True)
-        response = requests.get(php_url, timeout=10)
-        result = response.json()
-        print(f"[DEBUG] PHP returned {result.get('count', 0)} companies", flush=True)
-        return jsonify(result)
-    except Exception as e:
-        print(f"[Error] Failed to fetch company names: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        result, _r = http_request_json('GET', php_url, timeout=tmo)
+    except requests.exceptions.Timeout:
+        print(f"[WARN] api_get_company_names: timeout {tmo!r} {php_url}", flush=True)
+        return _company_names_empty_ok(f'Request timed out after {tmo!r}s')
+    except requests.exceptions.RequestException as e:
+        print(f"[WARN] api_get_company_names: {type(e).__name__}: {e} url={php_url}", flush=True)
+        return _company_names_empty_ok(f'Request failed: {e}')
+    except ValueError as e:
+        print(f"[WARN] api_get_company_names: {e} url={php_url}", flush=True)
+        return _company_names_empty_ok('Response was not valid JSON')
+
+    if not isinstance(result, dict):
+        return _company_names_empty_ok('Unexpected JSON type from company API')
+
+    if not result.get('success'):
+        err = result.get('error') or 'Upstream reported failure'
+        print(f"[WARN] api_get_company_names: success=false error={err!r}", flush=True)
+        return _company_names_empty_ok(str(err))
+
+    data = result.get('data')
+    if data is None:
+        data = []
+    if not isinstance(data, list):
+        print(f"[WARN] api_get_company_names: data is not a list (type={type(data).__name__})", flush=True)
+        return _company_names_empty_ok('Company list payload was not an array')
+
+    out = {
+        'success': True,
+        'count': int(result.get('count', len(data))),
+        'data': data,
+    }
+    print(f"[DEBUG] api_get_company_names: {out['count']} companies from PHP", flush=True)
+    return jsonify(out)
 
 if __name__ == "__main__":
     initialize_database(DB_DSN, DB_USER, DB_PASSWORD)

@@ -1,6 +1,8 @@
 """API utility functions for external API calls."""
 import requests
 
+from utils.http_timeouts import parse_timeout_env
+
 # API configuration (will be set from main.py)
 BASE_API_URL = None
 ENDPOINT_PATHS = {}
@@ -21,7 +23,7 @@ def fetch_data_from_api(endpoint_key):
         return []
     url = f"{BASE_API_URL}{path}"
     try:
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=parse_timeout_env('PHP_API_REQUEST_TIMEOUT', 3.0, 10.0))
         if response.status_code >= 400:
             preview = (response.text or '').strip().replace('\n', ' ')[:240]
             print(f"API HTTP error for {endpoint_key}: {response.status_code} | {preview}")
