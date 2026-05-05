@@ -11,6 +11,17 @@
             .replace(/'/g, '&#39;');
     }
 
+    function replaceLoadingWithError(loadingEl, messagesContainer, text) {
+        if (!loadingEl || !messagesContainer) {
+            return;
+        }
+        const errMsgDiv = document.createElement('div');
+        errMsgDiv.className = 'quotation-chat-message bot-message';
+        errMsgDiv.innerHTML = `<div class="quotation-chat-popup-message-content">${escapeHtml(text)}</div>`;
+        loadingEl.replaceWith(errMsgDiv);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+
     async function ensureQuotationChatSession() {
         if (quotationChatId) {
             return quotationChatId;
@@ -24,9 +35,18 @@
             window.location.href = '/login';
             return null;
         }
-        const data = await response.json();
-        if (data && data.success && data.chat && data.chat.CHATID) {
-            quotationChatId = data.chat.CHATID;
+        let data = {};
+        try {
+            data = await response.json();
+        } catch (e) {
+            throw new Error('Invalid response from server when starting chat');
+        }
+        if (!response.ok) {
+            throw new Error((data && (data.error || data.message)) || `Could not start chat (${response.status})`);
+        }
+        const cid = data && data.chat && (data.chat.CHATID != null ? data.chat.CHATID : data.chat.chatid);
+        if (cid != null) {
+            quotationChatId = cid;
             return quotationChatId;
         }
         throw new Error((data && data.error) || 'Failed to initialize quotation chat');
@@ -85,6 +105,11 @@
             return;
         }
 
+        // Pre-create chat session so first send is reliable (edit-quotation pages load heavy JS in parallel).
+        ensureQuotationChatSession().catch(function(err) {
+            console.warn('[quotation chat] Session warmup failed:', err);
+        });
+
         setTimeout(() => {
             if (textarea) {
                 textarea.focus();
@@ -107,6 +132,9 @@
         hideQuotationChatPreview();
         popup.style.zIndex = 10050;
         popup.classList.remove('quotation-chat-popup-hidden');
+        ensureQuotationChatSession().catch(function(err) {
+            console.warn('[quotation chat] Session warmup failed:', err);
+        });
         setTimeout(() => {
             if (textarea) {
                 textarea.focus();
@@ -140,6 +168,11 @@
         try {
             const chatId = await ensureQuotationChatSession();
             if (!chatId) {
+                replaceLoadingWithError(
+                    loadingMsgDiv,
+                    messagesContainer,
+                    'Please sign in again to use chat.'
+                );
                 return;
             }
             const response = await fetch('/chat', {
@@ -149,9 +182,24 @@
             });
             if (response.status === 401) {
                 window.location.href = '/login';
+                replaceLoadingWithError(loadingMsgDiv, messagesContainer, 'Session expired. Redirecting to sign in…');
                 return;
             }
-            const data = await response.json();
+            let data = {};
+            try {
+                data = await response.json();
+            } catch (e) {
+                data = {};
+            }
+            if (!response.ok) {
+                const errText =
+                    (data && (data.error || data.message)) ||
+                    (response.status === 403
+                        ? 'Chat access denied (try refreshing the page).'
+                        : `Chat request failed (${response.status}).`);
+                replaceLoadingWithError(loadingMsgDiv, messagesContainer, errText);
+                return;
+            }
             const reply = (data && data.reply) ? String(data.reply) : 'Sorry, I could not generate a reply.';
             const botMsgDiv = document.createElement('div');
             botMsgDiv.className = 'quotation-chat-message bot-message';
@@ -160,11 +208,11 @@
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         } catch (err) {
             console.error('Quotation popup chat error:', err);
-            const errMsgDiv = document.createElement('div');
-            errMsgDiv.className = 'quotation-chat-message bot-message';
-            errMsgDiv.innerHTML = '<div class="quotation-chat-popup-message-content">Sorry, I encountered an error. Please try again.</div>';
-            loadingMsgDiv.replaceWith(errMsgDiv);
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            const msg =
+                err && err.message
+                    ? String(err.message)
+                    : 'Sorry, I encountered an error. Please try again.';
+            replaceLoadingWithError(loadingMsgDiv, messagesContainer, msg);
         }
     };
     // Enter key to send

@@ -621,8 +621,8 @@ if (quotationForm) {
                     if (result.dockey) {
                         quotationForm.dataset.draftDockey = result.dockey;
                     }
-                    const draftNo = result.docno || result.dockey;
-                    alert(`Draft ${draftNo} saved successfully.`);
+                    window.location.href = '/view-quotation?tab=drafts';
+                    return;
                 } else {
                     alert('Failed to save draft: ' + (result.error || 'Unknown error'));
                 }
@@ -722,9 +722,9 @@ if (quotationForm) {
                 }
                 
                 alert(message);
-                
-                // Redirect to view quotations page
-                window.location.href = '/view-quotation';
+
+                // Redirect to view quotations — Pending tab (newly submitted / UDF_STATUS PENDING)
+                window.location.href = '/view-quotation?tab=pending';
             } else {
                 alert('Failed to save quotation: ' + (result.error || 'Unknown error'));
             }

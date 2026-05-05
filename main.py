@@ -2833,12 +2833,15 @@ def chat():
 @app.route('/chat', methods=['POST'])
 @api_login_required(unauth_message='Unauthorized')
 def chat_api():
-    user_email = session.get('user_email')
+    user_email = (session.get('user_email') or session.get('user_name') or '').strip()
     user_input = request.json.get('message')
     chatid = request.json.get('chatid')
 
     if not chatid:
         return jsonify({'success': False, 'error': 'chatid required'}), 400
+
+    if not user_email:
+        return jsonify({'success': False, 'error': 'User identity required for chat'}), 400
 
     if not user_owns_chat(chatid, user_email):
         return jsonify({'success': False, 'error': 'Forbidden'}), 403
@@ -3267,7 +3270,9 @@ def api_insert_chat():
         con = get_db_connection()
         cur = con.cursor()
         created_at = datetime.now()
-        user_email = session.get('user_email')
+        user_email = (session.get('user_email') or session.get('user_name') or '').strip()
+        if not user_email:
+            return jsonify({'success': False, 'error': 'User identity required for chat (missing session email)'}), 400
         customer_code = session.get('customer_code')  # Get customer code from session
         
         cur.execute('SELECT COALESCE(MAX(CHATID), 0) + 1 FROM CHAT_TPL')

@@ -8,6 +8,29 @@ let slQtDraftCache = [];
 let slQtDraftLoaded = false;
 let currentListTab = 'reviewed';
 
+const VIEW_QT_TAB_KEYS = new Set(['drafts', 'pending', 'reviewed', 'cancelled']);
+
+/** Read `?tab=` once, then remove it from the URL so refresh uses the default tab. */
+function consumeTabQueryFromUrl() {
+    let tab = null;
+    try {
+        const raw = new URLSearchParams(window.location.search).get('tab');
+        const t = (raw || '').trim().toLowerCase();
+        if (VIEW_QT_TAB_KEYS.has(t)) {
+            tab = t;
+        }
+        if (tab) {
+            const url = new URL(window.location.href);
+            url.searchParams.delete('tab');
+            const qs = url.searchParams.toString();
+            window.history.replaceState({}, '', url.pathname + (qs ? `?${qs}` : '') + url.hash);
+        }
+    } catch (e) {
+        /* ignore */
+    }
+    return tab;
+}
+
 function escapeHtml(s) {
     if (s == null) return '';
     return String(s)
@@ -407,7 +430,7 @@ async function loadQuotations() {
             }
             content.innerHTML = shellHtml();
             ensureListClickDelegation();
-            setQuotationTab('reviewed');
+            setQuotationTab(consumeTabQueryFromUrl() || 'reviewed');
             updateDraftCountDisplay();
             showDetailEmpty(err);
             return;
@@ -443,7 +466,7 @@ async function loadQuotations() {
 
         content.innerHTML = shellHtml();
         ensureListClickDelegation();
-        setQuotationTab('reviewed');
+        setQuotationTab(consumeTabQueryFromUrl() || 'reviewed');
         updateDraftCountDisplay();
     } catch (error) {
         const message =
