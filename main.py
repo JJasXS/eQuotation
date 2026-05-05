@@ -1311,7 +1311,7 @@ def update_quotation_cancelled():
                         print(f"[ACTIVATE DEBUG] Sending email to {customer_email}")
                         
                         email_response = requests.post(
-                            f"http://localhost:{request.environ.get('SERVER_PORT', '5000')}/api/send_quotation_ready_email",
+                            f"http://localhost:{request.environ.get('SERVER_PORT', os.getenv('FLASK_PORT', '8880'))}/api/send_quotation_ready_email",
                             json=email_data,
                             timeout=10
                         )
@@ -7267,7 +7267,7 @@ def api_admin_update_quotation():
                         print(f"[EDIT DEBUG] Sending email to {customer_email}")
                         
                         email_response = requests.post(
-                            f"http://localhost:{request.environ.get('SERVER_PORT', '5000')}/api/send_quotation_ready_email",
+                            f"http://localhost:{request.environ.get('SERVER_PORT', os.getenv('FLASK_PORT', '8880'))}/api/send_quotation_ready_email",
                             json=email_data,
                             timeout=10
                         )
@@ -7751,11 +7751,16 @@ if __name__ == "__main__":
     pricing_sql_path = os.path.join(os.path.dirname(__file__), 'sql', 'pricing_priority_rule_firebird.sql')
     run_firebird_sql_script(pricing_sql_path, DB_DSN, DB_USER, DB_PASSWORD)
 
-    # Start FastAPI (SQL API) on port 8000 in the background
+    flask_host = (os.getenv('FLASK_HOST') or '0.0.0.0').strip()
+    flask_port = int(os.getenv('FLASK_PORT', '8880'))
+    api_port = int(os.getenv('API_PORT', '8000'))
+    flask_debug = str(os.getenv('FLASK_DEBUG', 'False')).strip().lower() in ('1', 'true', 'yes')
+
+    # Start FastAPI (SQL API) in the background (separate port; Flask calls it via API_BASE_URL / FASTAPI_BASE_URL).
     import subprocess
     import sys
     api_proc = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000"],
+        [sys.executable, "-m", "uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", str(api_port)],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
     )
@@ -7763,10 +7768,10 @@ if __name__ == "__main__":
         for line in proc.stdout:
             print("[API]", line.decode(errors="replace"), end="", flush=True)
     threading.Thread(target=_pipe_api_output, args=(api_proc,), daemon=True).start()
-    print("Starting FastAPI SQL API at http://localhost:8000 ...")
+    print(f"Starting FastAPI SQL API at http://0.0.0.0:{api_port} ...", flush=True)
 
-    print("Starting Flask web server at http://localhost:5000 ...")
+    print(f"Starting Flask web server at http://{flask_host}:{flask_port} (debug={flask_debug}) ...", flush=True)
     try:
-        app.run(debug=True, use_reloader=False)
+        app.run(host=flask_host, port=flask_port, debug=flask_debug, use_reloader=False)
     finally:
         api_proc.terminate()
