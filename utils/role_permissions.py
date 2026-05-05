@@ -154,7 +154,7 @@ def can_access_pricing_priority_rules(session) -> bool:
 
 
 def can_access_create_quotation(session) -> bool:
-    """Create quotation page: customers + full admin + sales roles; not supplier-only; not pure purchasing staff."""
+    """Create quotation page: customers + sales roles; not full admin (use admin view-quotations); not supplier; not purchasing-only."""
     t = infer_access_tier_from_session(session)
     if t == ACCESS_TIER_NO_ROLE:
         return False
@@ -162,9 +162,10 @@ def can_access_create_quotation(session) -> bool:
         return False
     if t in (ACCESS_TIER_PURCH_MGMT, ACCESS_TIER_PURCH_STAFF):
         return False
+    if t == ACCESS_TIER_FULL_ADMIN:
+        return False
     return t in (
         ACCESS_TIER_CUSTOMER,
-        ACCESS_TIER_FULL_ADMIN,
         ACCESS_TIER_SALES_MGMT,
         ACCESS_TIER_SALES_STAFF,
     )

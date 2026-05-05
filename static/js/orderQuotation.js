@@ -1152,7 +1152,10 @@ function sendQuickChatMessage(message, sourceButton = null) {
     })
     .then(data => {
         if (!data) return;
-        const reply = data.reply;
+        const reply =
+            typeof data.reply === 'string'
+                ? data.reply
+                : (data.error && String(data.error)) || 'Sorry, that request did not return a reply.';
         let renderedHtml = buildChatReplyHtml(reply);
         if (useQuotationPopup) {
             renderedHtml = renderedHtml.replace(
@@ -1163,7 +1166,12 @@ function sendQuickChatMessage(message, sourceButton = null) {
 
         if (targetBotMessage) {
             targetBotMessage.innerHTML = renderedHtml;
-            targetBotMessage.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            /* scrollIntoView on nodes inside position:fixed can scroll the document and move the popup off-screen */
+            if (useQuotationPopup && messagesContainer) {
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            } else {
+                targetBotMessage.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
         } else {
             const botMsgDiv = document.createElement('div');
             botMsgDiv.className = useQuotationPopup

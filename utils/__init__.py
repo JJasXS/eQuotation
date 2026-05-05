@@ -2,7 +2,7 @@
 
 from utils.db_utils import (
     get_db_connection, user_owns_chat, get_chat_history,
-    update_chat_last_message, get_active_order, test_firebird_connection,
+    update_chat_last_message, insert_chat_message_local, get_active_order, test_firebird_connection,
     set_db_config, build_firebird_dsn
 )
 
@@ -41,7 +41,7 @@ from utils.quotation_api import (
 __all__ = [
     # DB utils
     'get_db_connection', 'user_owns_chat', 'get_chat_history',
-    'update_chat_last_message', 'get_active_order', 'test_firebird_connection',
+    'update_chat_last_message', 'insert_chat_message_local', 'get_active_order', 'test_firebird_connection',
     'set_db_config', 'build_firebird_dsn',
     
     # API utils

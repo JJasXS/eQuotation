@@ -1,4 +1,6 @@
 """Database utility functions for Firebird database operations."""
+from datetime import datetime
+
 import fdb
 
 # Database configuration (will be set from main.py)
@@ -117,6 +119,34 @@ def update_chat_last_message(chatid, messagetext, user_email=None):
             )
         else:
             cur.execute('UPDATE CHAT_TPL SET LASTMESSAGE = ? WHERE CHATID = ?', (messagetext, chatid))
+        con.commit()
+    finally:
+        cur.close()
+        con.close()
+
+
+def insert_chat_message_local(chatid, sender, messagetext):
+    """
+    Insert one CHAT_TPLDTL row in Firebird and refresh CHAT_TPL.LASTMESSAGE.
+    Same database as get_chat_history — required for catalog pagination when PHP is unavailable.
+    """
+    cid = int(chatid)
+    con = get_db_connection()
+    cur = con.cursor()
+    try:
+        cur.execute('SELECT COUNT(*) FROM CHAT_TPL WHERE CHATID = ?', (cid,))
+        row = cur.fetchone()
+        if not row or int(row[0] or 0) < 1:
+            raise ValueError(f'CHAT_TPL not found for CHATID={cid}')
+        cur.execute('SELECT COALESCE(MAX(MESSAGEID), 0) + 1 FROM CHAT_TPLDTL')
+        mid_row = cur.fetchone()
+        messageid = int(mid_row[0]) if mid_row and mid_row[0] is not None else 1
+        sent_at = datetime.now()
+        cur.execute(
+            'INSERT INTO CHAT_TPLDTL (MESSAGEID, CHATID, SENDER, MESSAGETEXT, SENTAT) VALUES (?, ?, ?, ?, ?)',
+            (messageid, cid, sender, messagetext, sent_at),
+        )
+        cur.execute('UPDATE CHAT_TPL SET LASTMESSAGE = ? WHERE CHATID = ?', (messagetext, cid))
         con.commit()
     finally:
         cur.close()

@@ -24,7 +24,7 @@ from api.services.local_customer_sync import LocalCustomerSyncRequest, sync_loca
 
 # Import utility modules
 from utils import (
-    get_db_connection, user_owns_chat, get_chat_history, update_chat_last_message,
+    get_db_connection, user_owns_chat, get_chat_history, update_chat_last_message, insert_chat_message_local,
     get_active_order, test_firebird_connection, set_db_config, build_firebird_dsn,
     fetch_data_from_api, format_rm, set_api_config,
     load_typo_corrections, normalize_intent_text, contains_intent_phrase,
@@ -225,12 +225,9 @@ from config.endpoints_config import ENDPOINT_PATHS
 MAX_HISTORY_MESSAGES = 50
 CHATBOT_SYSTEM_INSTRUCTIONS = load_chatbot_instructions()
 
-# Helper function for chat messaging
+# Helper function for chat messaging (Firebird — must match get_chat_history for pagination)
 def insert_chat_message(chatid, sender, messagetext):
-    return requests.post(
-        f"{BASE_API_URL}/php/insertChatMessage.php",
-        json={"chatid": chatid, "sender": sender, "messagetext": messagetext}
-    )
+    insert_chat_message_local(chatid, sender, messagetext)
 
 
 def require_api_auth(admin_only=False, unauth_message='Not authenticated', forbidden_message='Forbidden'):
@@ -6359,6 +6356,8 @@ def api_admin_purchase_request_header_status_update():
 @api_login_required(unauth_message='Session expired. Please log in again.')
 def api_create_quotation():
     """Create or update a quotation in the accounting system (SL_QT)"""
+    if not can_access_create_quotation(session):
+        return jsonify({'success': False, 'error': 'Forbidden'}), 403
     customer_code = session.get('customer_code')
     data = request.get_json() or {}
     dockey = data.get('dockey', None)  # If present, update existing quotation
@@ -6412,6 +6411,8 @@ def api_create_quotation():
 @api_login_required(unauth_message='Session expired. Please log in again.')
 def api_save_draft_quotation():
     """Save quotation draft into SL_QTDRAFT/SL_QTDTLDRAFT."""
+    if not can_access_create_quotation(session):
+        return jsonify({'success': False, 'error': 'Forbidden'}), 403
     customer_code = get_current_customer_code(resolve_missing=False)
     data = request.get_json() or {}
 
