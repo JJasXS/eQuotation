@@ -6489,23 +6489,43 @@ def api_get_my_quotations():
         cur = con.cursor()
         cur.execute(
             '''
-            SELECT q.DOCKEY, q.DOCNO, q.DOCDATE, q.DESCRIPTION, q.DOCAMT, q.VALIDITY, q.STATUS, q.TERMS, q.CANCELLED, q.UPDATECOUNT, q.COMPANYNAME
+            SELECT TRIM(RF.RDB$FIELD_NAME)
+            FROM RDB$RELATION_FIELDS RF
+            WHERE RF.RDB$RELATION_NAME = 'SL_QT'
+            '''
+        )
+        sl_qt_cols = {str(r[0]).strip() for r in (cur.fetchall() or []) if r and r[0]}
+
+        fields = [
+            'DOCKEY', 'DOCNO', 'DOCDATE', 'DESCRIPTION', 'DOCAMT', 'VALIDITY',
+            'STATUS', 'TERMS', 'CANCELLED', 'UPDATECOUNT',
+        ]
+        if 'UDF_STATUS' in sl_qt_cols:
+            fields.append('UDF_STATUS')
+        fields.append('COMPANYNAME')
+
+        select_sql = f'''
+            SELECT {', '.join('q.' + f for f in fields)}
             FROM SL_QT q
             WHERE q.CODE = ?
             ORDER BY q.DOCDATE DESC, q.DOCKEY DESC
-            ''',
-            (customer_code,)
-        )
+        '''
+        cur.execute(select_sql, (customer_code,))
         rows = cur.fetchall()
         cur.close()
         con.close()
 
         quotations = []
         for row in rows:
-            # Convert integer status to readable string (0=DRAFT, 1=COMPLETED)
-            status_int = row[6] if row[6] is not None else 0
-            status_str = 'COMPLETED' if status_int == 1 else 'DRAFT'
-            cancelled_raw = row[8]
+            row_map = dict(zip(fields, row))
+            # Convert integer status to readable string (0=DRAFT, 1=COMPLETED) when numeric
+            raw_st = row_map.get('STATUS')
+            if isinstance(raw_st, (int, float)):
+                status_str = 'COMPLETED' if int(raw_st) == 1 else 'DRAFT'
+            else:
+                status_str = str(raw_st).strip() if raw_st is not None else 'DRAFT'
+
+            cancelled_raw = row_map.get('CANCELLED')
             if cancelled_raw is None:
                 cancelled_value = None
             elif isinstance(cancelled_raw, bool):
@@ -6516,22 +6536,29 @@ def api_get_my_quotations():
                 cancelled_value = str(cancelled_raw).strip().lower() in (
                     '1', 'true', 't', 'yes', 'y'
                 )
-            updatecount_raw = row[9]
+            updatecount_raw = row_map.get('UPDATECOUNT')
             updatecount_value = int(updatecount_raw) if updatecount_raw is not None else None
-            
-            quotations.append({
-                'DOCKEY': int(row[0]) if row[0] is not None else None,
-                'DOCNO': row[1],
-                'DOCDATE': str(row[2]) if row[2] is not None else None,
-                'DESCRIPTION': row[3],
-                'DOCAMT': float(row[4]) if row[4] is not None else 0,
-                'VALIDITY': row[5],
+
+            udf_status_val = None
+            if 'UDF_STATUS' in row_map and row_map.get('UDF_STATUS') is not None:
+                udf_status_val = str(row_map.get('UDF_STATUS')).strip()
+
+            rec = {
+                'DOCKEY': int(row_map['DOCKEY']) if row_map.get('DOCKEY') is not None else None,
+                'DOCNO': row_map.get('DOCNO'),
+                'DOCDATE': str(row_map['DOCDATE']) if row_map.get('DOCDATE') is not None else None,
+                'DESCRIPTION': row_map.get('DESCRIPTION'),
+                'DOCAMT': float(row_map['DOCAMT']) if row_map.get('DOCAMT') is not None else 0,
+                'VALIDITY': row_map.get('VALIDITY'),
                 'STATUS': status_str,
-                'CREDITTERM': str(row[7]) if row[7] is not None else 'N/A',
+                'CREDITTERM': str(row_map.get('TERMS')) if row_map.get('TERMS') is not None else 'N/A',
                 'CANCELLED': cancelled_value,
                 'UPDATECOUNT': updatecount_value,
-                'COMPANYNAME': row[10] or 'N/A'
-            })
+                'COMPANYNAME': row_map.get('COMPANYNAME') or 'N/A',
+            }
+            if udf_status_val is not None:
+                rec['UDF_STATUS'] = udf_status_val
+            quotations.append(rec)
 
         return jsonify({'success': True, 'data': quotations})
     except Exception as e:
@@ -6594,9 +6621,25 @@ def api_get_quotation_details():
 
             cur.execute(
                 '''
-                SELECT DOCKEY, DOCNO, DOCDATE, CODE, DESCRIPTION, DOCAMT,
-                       CURRENCYCODE, VALIDITY, STATUS, TERMS,
-                       COMPANYNAME, ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, PHONE1
+                SELECT TRIM(RF.RDB$FIELD_NAME)
+                FROM RDB$RELATION_FIELDS RF
+                WHERE RF.RDB$RELATION_NAME = 'SL_QT'
+                '''
+            )
+            sl_qt_cols = {str(r[0]).strip() for r in (cur.fetchall() or []) if r and r[0]}
+
+            header_fields = [
+                'DOCKEY', 'DOCNO', 'DOCDATE', 'CODE', 'DESCRIPTION', 'DOCAMT',
+                'CURRENCYCODE', 'VALIDITY', 'STATUS', 'TERMS',
+                'COMPANYNAME', 'ADDRESS1', 'ADDRESS2', 'ADDRESS3', 'ADDRESS4', 'PHONE1',
+            ]
+            for opt in ('CANCELLED', 'UPDATECOUNT', 'UDF_STATUS'):
+                if opt in sl_qt_cols:
+                    header_fields.append(opt)
+
+            cur.execute(
+                f'''
+                SELECT {', '.join(header_fields)}
                 FROM SL_QT
                 WHERE DOCKEY = ? AND CODE = ?
                 ''',
@@ -6606,6 +6649,8 @@ def api_get_quotation_details():
 
             if not header:
                 return jsonify({'success': False, 'error': 'Quotation not found'}), 404
+
+            header_map = dict(zip(header_fields, header))
 
             cur.execute(
                 '''
@@ -6644,26 +6689,49 @@ def api_get_quotation_details():
                     'DELIVERYDATE': str(row_map.get('DELIVERYDATE')) if row_map.get('DELIVERYDATE') is not None else None,
                 })
 
+            raw_st = header_map.get('STATUS')
+            if isinstance(raw_st, (int, float)):
+                status_display = 'COMPLETED' if int(raw_st) == 1 else 'DRAFT'
+            else:
+                status_display = str(raw_st).strip() if raw_st is not None else ''
+
             data = {
-                'DOCKEY': int(header[0]) if header[0] is not None else None,
-                'DOCNO': header[1],
-                'DOCDATE': str(header[2]) if header[2] is not None else None,
-                'CODE': header[3],
-                'DESCRIPTION': header[4],
-                'DOCAMT': _safe_float(header[5]),
-                'CURRENCYCODE': header[6],
-                'VALIDITY': str(header[7]) if header[7] is not None else None,
-                'STATUS': str(header[8]) if header[8] is not None else '',
-                'TERMS': header[9],
-                'CREDITTERM': str(header[9]) if header[9] is not None else 'N/A',
-                'COMPANYNAME': header[10] or 'N/A',
-                'ADDRESS1': header[11] or 'N/A',
-                'ADDRESS2': header[12] or 'N/A',
-                'ADDRESS3': header[13] or '',
-                'ADDRESS4': header[14] or '',
-                'PHONE1': header[15] or 'N/A',
+                'DOCKEY': int(header_map['DOCKEY']) if header_map.get('DOCKEY') is not None else None,
+                'DOCNO': header_map.get('DOCNO'),
+                'DOCDATE': str(header_map['DOCDATE']) if header_map.get('DOCDATE') is not None else None,
+                'CODE': header_map.get('CODE'),
+                'DESCRIPTION': header_map.get('DESCRIPTION'),
+                'DOCAMT': _safe_float(header_map.get('DOCAMT')),
+                'CURRENCYCODE': header_map.get('CURRENCYCODE'),
+                'VALIDITY': str(header_map['VALIDITY']) if header_map.get('VALIDITY') is not None else None,
+                'STATUS': status_display,
+                'TERMS': header_map.get('TERMS'),
+                'CREDITTERM': str(header_map.get('TERMS')) if header_map.get('TERMS') is not None else 'N/A',
+                'COMPANYNAME': header_map.get('COMPANYNAME') or 'N/A',
+                'ADDRESS1': header_map.get('ADDRESS1') or 'N/A',
+                'ADDRESS2': header_map.get('ADDRESS2') or 'N/A',
+                'ADDRESS3': header_map.get('ADDRESS3') or '',
+                'ADDRESS4': header_map.get('ADDRESS4') or '',
+                'PHONE1': header_map.get('PHONE1') or 'N/A',
                 'items': items,
             }
+            if 'CANCELLED' in header_map:
+                cr = header_map.get('CANCELLED')
+                if cr is None:
+                    data['CANCELLED'] = None
+                elif isinstance(cr, bool):
+                    data['CANCELLED'] = cr
+                elif isinstance(cr, (int, float)):
+                    data['CANCELLED'] = int(cr) != 0
+                else:
+                    data['CANCELLED'] = str(cr).strip().lower() in ('1', 'true', 't', 'yes', 'y')
+            if 'UPDATECOUNT' in header_map and header_map.get('UPDATECOUNT') is not None:
+                try:
+                    data['UPDATECOUNT'] = int(header_map.get('UPDATECOUNT'))
+                except (TypeError, ValueError):
+                    data['UPDATECOUNT'] = None
+            if 'UDF_STATUS' in header_map and header_map.get('UDF_STATUS') is not None:
+                data['UDF_STATUS'] = str(header_map.get('UDF_STATUS')).strip()
 
             return jsonify({'success': True, 'data': data})
         finally:

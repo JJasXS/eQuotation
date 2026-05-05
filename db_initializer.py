@@ -85,6 +85,36 @@ def _ensure_sl_qt_status_column(conn):
         cur.close()
 
 
+def _ensure_sl_qt_udf_status_column(conn):
+    """Ensure SL_QT has UDF_STATUS for workflow (DRAFT / PENDING / REVIEWED / CANCELLED)."""
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            '''
+            SELECT f.RDB$FIELD_NAME
+            FROM RDB$RELATION_FIELDS f
+            WHERE f.RDB$RELATION_NAME = 'SL_QT' AND f.RDB$FIELD_NAME = 'UDF_STATUS'
+            '''
+        )
+        if cur.fetchone():
+            print("[DB INIT] UDF_STATUS column already exists in SL_QT")
+            return True
+        conn.commit()
+        cur.execute('ALTER TABLE SL_QT ADD UDF_STATUS VARCHAR(60)')
+        conn.commit()
+        print("[DB INIT] UDF_STATUS column added to SL_QT")
+        return True
+    except Exception as e:
+        error_msg = str(e).lower()
+        if 'already exists' in error_msg or 'duplicate' in error_msg:
+            print("[DB INIT] UDF_STATUS column already exists in SL_QT")
+            return True
+        print(f"[DB INIT WARNING] Could not add UDF_STATUS to SL_QT: {e}")
+        return False
+    finally:
+        cur.close()
+
+
 def _ensure_sl_qt_terms_column(conn):
     """Ensure SL_QT table has a TERMS column."""
     cur = conn.cursor()
@@ -1993,6 +2023,9 @@ def initialize_database(db_path, db_user, db_password):
         
         # Ensure SL_QT has TERMS column to store payment terms
         _ensure_sl_qt_terms_column(conn)
+
+        # Workflow status on posted quotations (mirrors salesquotation udf_status when synced)
+        _ensure_sl_qt_udf_status_column(conn)
 
         # Ensure SL_QT has REMARKS column for manual notes
         _ensure_sl_qt_remarks_column(conn)

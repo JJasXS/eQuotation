@@ -313,6 +313,7 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
         "note": "",
         "approvestate": "",
         "updatecount": 0,
+        "udf_status": str(data.get("udfStatus") or data.get("udf_status") or "PENDING").strip() or "PENDING",
         "transferable": False,
         "printcount": 0,
         "lastmodified": 0,

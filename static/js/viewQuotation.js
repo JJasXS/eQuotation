@@ -1,10 +1,12 @@
-let activeQuotationsCache = [];
+let reviewedQuotationsCache = [];
 let cancelledQuotationsCache = [];
 let draftQuotationsCache = [];
 let pendingQuotationsCache = [];
+/** SL_QT headers with UDF_STATUS = DRAFT (posted draft), shown in Drafts tab with local SL_QTDRAFT. */
+let slQtUdfDraftCache = [];
 let slQtDraftCache = [];
 let slQtDraftLoaded = false;
-let currentListTab = 'active';
+let currentListTab = 'reviewed';
 
 function escapeHtml(s) {
     if (s == null) return '';
@@ -15,10 +17,48 @@ function escapeHtml(s) {
         .replace(/"/g, '&quot;');
 }
 
-function isPendingQuotation(qt) {
+function normalizeWorkflowUdfStatus(qt) {
+    return (qt.UDF_STATUS != null ? String(qt.UDF_STATUS) : '').trim().toUpperCase();
+}
+
+function isLegacyPendingQuotation(qt) {
     const cancelledUnset = qt.CANCELLED === null || qt.CANCELLED === undefined;
     const updateCountUnset = qt.UPDATECOUNT === null || qt.UPDATECOUNT === undefined;
     return cancelledUnset || updateCountUnset;
+}
+
+/** Map SL_QT row to UI tab bucket using UDF_STATUS (DRAFT / PENDING / REVIEWED / CANCELLED), with legacy fallback. */
+function quotationWorkflowBucket(qt) {
+    const u = normalizeWorkflowUdfStatus(qt);
+    if (u === 'DRAFT') {
+        return 'drafts';
+    }
+    if (u === 'PENDING') {
+        return 'pending';
+    }
+    if (u === 'CANCELLED') {
+        return 'cancelled';
+    }
+    if (u === 'REVIEWED' || u === 'ACTIVE' || u === 'APPROVED') {
+        return 'reviewed';
+    }
+    if (!u) {
+        if (qt.CANCELLED === true) {
+            return 'cancelled';
+        }
+        if (isLegacyPendingQuotation(qt)) {
+            return 'pending';
+        }
+        return 'reviewed';
+    }
+    if (u === 'INACTIVE') {
+        return 'cancelled';
+    }
+    return 'reviewed';
+}
+
+function totalDraftTabCount() {
+    return (slQtUdfDraftCache || []).length + (draftQuotationsCache || []).length;
 }
 
 async function fetchSavedDraftQuotations(forceReload = false) {
@@ -43,13 +83,13 @@ function shellHtml() {
     <div class="view-quotation-page">
         <div class="view-quotation-tabs" role="tablist">
             <button type="button" id="tab-drafts" data-tab="drafts" onclick="setQuotationTab('drafts')">
-                📋 Drafts (${draftQuotationsCache.length})
+                📋 Drafts (${totalDraftTabCount()})
             </button>
             <button type="button" id="tab-pending" data-tab="pending" onclick="setQuotationTab('pending')">
                 ⏳ Pending (${pendingQuotationsCache.length})
             </button>
-            <button type="button" id="tab-active" data-tab="active" onclick="setQuotationTab('active')">
-                Active (${activeQuotationsCache.length})
+            <button type="button" id="tab-reviewed" data-tab="reviewed" onclick="setQuotationTab('reviewed')">
+                Reviewed (${reviewedQuotationsCache.length})
             </button>
             <button type="button" id="tab-cancelled" data-tab="cancelled" onclick="setQuotationTab('cancelled')">
                 Cancelled (${cancelledQuotationsCache.length})
@@ -77,16 +117,16 @@ function setTabButtonStyles(tabName) {
     const map = {
         drafts: { id: 'tab-drafts', cls: 'tab--drafts' },
         pending: { id: 'tab-pending', cls: 'tab--pending' },
-        active: { id: 'tab-active', cls: 'tab--active' },
+        reviewed: { id: 'tab-reviewed', cls: 'tab--reviewed' },
         cancelled: { id: 'tab-cancelled', cls: 'tab--cancelled' },
     };
-    ['tab-drafts', 'tab-pending', 'tab-active', 'tab-cancelled'].forEach((tid) => {
+    ['tab-drafts', 'tab-pending', 'tab-reviewed', 'tab-cancelled'].forEach((tid) => {
         const b = document.getElementById(tid);
         if (b) {
             b.classList.remove('is-active');
         }
     });
-    const m = map[tabName] || map.active;
+    const m = map[tabName] || map.reviewed;
     const btn = document.getElementById(m.id);
     if (btn) {
         btn.classList.add('is-active');
@@ -110,7 +150,7 @@ function parseDisc(item) {
     return Number.isFinite(n) ? n : 0;
 }
 
-function renderLineItemsTable(items) {
+function renderLineItemsBlock(items) {
     if (!items || items.length === 0) {
         return '<p class="view-qt-detail-error">No line items.</p>';
     }
@@ -129,35 +169,39 @@ function renderLineItemsTable(items) {
             : '';
         rows += '<tr>';
         rows += `<td><div>${code}</div><span class="view-qt-line-desc">${desc}</span>${deliv}</td>`;
-        rows += `<td class="num">RM ${price.toFixed(2)}</td>`;
+        rows += `<td class="num">${price.toFixed(2)}</td>`;
         rows += `<td class="num">${qty.toFixed(2)}</td>`;
-        rows += `<td class="num">RM ${disc.toFixed(2)}</td>`;
-        rows += `<td class="num">RM ${amount.toFixed(2)}</td>`;
+        rows += `<td class="num">${disc.toFixed(2)}</td>`;
+        rows += `<td class="num">${amount.toFixed(2)}</td>`;
         rows += '</tr>';
     });
     return `
-    <table class="view-quotation-items-table">
-        <thead>
-            <tr>
-                <th>Item</th>
-                <th class="num">Unit</th>
-                <th class="num">Qty</th>
-                <th class="num">Discount</th>
-                <th class="num">Subtotal</th>
-            </tr>
-        </thead>
-        <tbody>${rows}
-            <tr class="view-quotation-items-total">
-                <td colspan="4" class="num">Total</td>
-                <td class="num">RM ${total.toFixed(2)}</td>
-            </tr>
-        </tbody>
-    </table>`;
+    <div class="view-qt-line-items-block">
+        <div class="view-qt-line-items-scroll">
+            <table class="view-quotation-items-table">
+                <thead>
+                    <tr>
+                        <th>Item</th>
+                        <th class="num">Unit (RM)</th>
+                        <th class="num">Qty</th>
+                        <th class="num">Discount (RM)</th>
+                        <th class="num">Subtotal (RM)</th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>
+        <footer class="view-quotation-total-footer" role="region" aria-label="Line items total">
+            <span class="view-quotation-total-footer__label">Total (RM)</span>
+            <span class="view-quotation-total-footer__value">${total.toFixed(2)}</span>
+        </footer>
+    </div>`;
 }
 
-function listTypeLabel(listType) {
+function listTypeLabel(listType, cardSource) {
+    const src = (cardSource || '').trim();
     if (listType === 'draft' || listType === 'drafts') {
-        return 'Draft (saved)';
+        return src === 'slqtdraft' ? 'Draft (saved)' : 'Draft';
     }
     if (listType === 'pending') {
         return 'Pending';
@@ -165,16 +209,37 @@ function listTypeLabel(listType) {
     if (listType === 'cancelled') {
         return 'Cancelled';
     }
-    return 'Active';
+    if (listType === 'reviewed') {
+        return 'Reviewed';
+    }
+    return 'Reviewed';
 }
 
-function renderDetailPanel(data, listType) {
+function renderMetaTwoColumns(metaPairs) {
+    const n = metaPairs.length;
+    if (n === 0) {
+        return '';
+    }
+    const mid = Math.ceil(n / 2);
+    const left = metaPairs.slice(0, mid);
+    const right = metaPairs.slice(mid);
+    const dlHtml = (pairs) =>
+        pairs.length
+            ? `<dl class="view-quotation-detail-meta">${pairs.map((m) => m[0] + m[1]).join('')}</dl>`
+            : '';
+    return `<div class="view-quotation-detail-meta-wrap">${dlHtml(left)}${dlHtml(right)}</div>`;
+}
+
+function renderDetailPanel(data, listType, cardSource) {
     const d = data || {};
     const items = Array.isArray(d.items) ? d.items : [];
-    const statusLabel = listTypeLabel(listType);
     const docno = d.DOCNO != null ? String(d.DOCNO) : (d.DOCKEY != null ? `DOCKEY #${d.DOCKEY}` : '—');
+    const displayStatus =
+        d.UDF_STATUS != null && String(d.UDF_STATUS).trim() !== ''
+            ? String(d.UDF_STATUS).trim()
+            : listTypeLabel(listType, cardSource);
     const meta = [];
-    meta.push(['<dt>Status</dt>', `<dd>${escapeHtml(statusLabel)}</dd>`]);
+    meta.push(['<dt>Status</dt>', `<dd>${escapeHtml(displayStatus)}</dd>`]);
     if (d.COMPANYNAME) {
         meta.push(['<dt>Customer</dt>', `<dd>${escapeHtml(d.COMPANYNAME)}</dd>`]);
     }
@@ -191,7 +256,7 @@ function renderDetailPanel(data, listType) {
     if (d.CURRENCYCODE) {
         meta.push(['<dt>Currency</dt>', `<dd>${escapeHtml(d.CURRENCYCODE)}</dd>`]);
     }
-    if (d.STATUS && listType === 'active') {
+    if (d.STATUS && listType === 'reviewed') {
         meta.push(['<dt>Record status</dt>', `<dd>${escapeHtml(d.STATUS)}</dd>`]);
     }
     if (d.PHONE1) {
@@ -204,18 +269,22 @@ function renderDetailPanel(data, listType) {
         meta.push(['<dt>Description</dt>', `<dd>${escapeHtml(d.DESCRIPTION)}</dd>`]);
     }
     if (d.DOCAMT != null) {
-        meta.push(['<dt>Document amount</dt>', `<dd>RM ${Number(d.DOCAMT).toFixed(2)}</dd>`]);
+        meta.push(['<dt>Document amount (RM)</dt>', `<dd>${Number(d.DOCAMT).toFixed(2)}</dd>`]);
     }
 
     return `
-        <h3 class="view-quotation-detail-title">${escapeHtml(docno)}</h3>
-        <p class="view-quotation-detail-status">${escapeHtml(statusLabel)}</p>
-        <dl class="view-quotation-detail-meta">${meta.map((m) => m[0] + m[1]).join('')}</dl>
-        ${renderLineItemsTable(items)}
+        <div class="view-qt-detail-inner">
+            <div class="view-qt-detail-top">
+                <h3 class="view-quotation-detail-title">${escapeHtml(docno)}</h3>
+                <p class="view-quotation-detail-status">${escapeHtml(displayStatus)}</p>
+                ${renderMetaTwoColumns(meta)}
+            </div>
+            ${renderLineItemsBlock(items)}
+        </div>
     `;
 }
 
-async function loadQuotationDetailIntoPanel(dockey, isDraftSource, listType) {
+async function loadQuotationDetailIntoPanel(dockey, isDraftSource, listType, cardSource = '') {
     const detailRoot = document.getElementById('view-quotation-detail-body');
     if (!detailRoot) {
         return;
@@ -234,7 +303,11 @@ async function loadQuotationDetailIntoPanel(dockey, isDraftSource, listType) {
             detailRoot.innerHTML = `<div class="view-qt-detail-error">${escapeHtml(String(err))}</div>`;
             return;
         }
-        detailRoot.innerHTML = renderDetailPanel(dataBlock, isDraftSource ? 'draft' : listType);
+        detailRoot.innerHTML = renderDetailPanel(
+            dataBlock,
+            isDraftSource ? 'draft' : listType,
+            isDraftSource ? 'slqtdraft' : cardSource
+        );
     } catch (err) {
         console.error('loadQuotationDetailIntoPanel', err);
         detailRoot.innerHTML = '<div class="view-qt-detail-error">Error loading details.</div>';
@@ -255,15 +328,15 @@ function selectListCard(card) {
     const source = (card.dataset.source || '').trim();
     const isDraft = source === 'slqtdraft';
     const listType = card.dataset.listType || getListTypeFromCurrentTab();
-    loadQuotationDetailIntoPanel(dockey, isDraft, listType);
+    loadQuotationDetailIntoPanel(dockey, isDraft, listType, source);
 }
 
 function hasAnyQuotations() {
     return (
-        (activeQuotationsCache && activeQuotationsCache.length > 0) ||
+        (reviewedQuotationsCache && reviewedQuotationsCache.length > 0) ||
         (cancelledQuotationsCache && cancelledQuotationsCache.length > 0) ||
         (pendingQuotationsCache && pendingQuotationsCache.length > 0) ||
-        (draftQuotationsCache && draftQuotationsCache.length > 0)
+        totalDraftTabCount() > 0
     );
 }
 
@@ -321,7 +394,8 @@ async function loadQuotations() {
             const err = escapeHtml(data.error || 'Failed to load quotations');
             pendingQuotationsCache = [];
             cancelledQuotationsCache = [];
-            activeQuotationsCache = [];
+            reviewedQuotationsCache = [];
+            slQtUdfDraftCache = [];
             try {
                 await fetchSavedDraftQuotations(true);
             } catch (e) {
@@ -333,7 +407,7 @@ async function loadQuotations() {
             }
             content.innerHTML = shellHtml();
             ensureListClickDelegation();
-            setQuotationTab('active');
+            setQuotationTab('reviewed');
             updateDraftCountDisplay();
             showDetailEmpty(err);
             return;
@@ -350,17 +424,26 @@ async function loadQuotations() {
             }
         }
 
-        pendingQuotationsCache = quotations.filter((qt) => isPendingQuotation(qt));
-        cancelledQuotationsCache = quotations.filter(
-            (qt) => !isPendingQuotation(qt) && qt.CANCELLED === true
-        );
-        activeQuotationsCache = quotations.filter(
-            (qt) => !isPendingQuotation(qt) && qt.CANCELLED === false
-        );
+        pendingQuotationsCache = [];
+        cancelledQuotationsCache = [];
+        reviewedQuotationsCache = [];
+        slQtUdfDraftCache = [];
+        quotations.forEach((qt) => {
+            const b = quotationWorkflowBucket(qt);
+            if (b === 'drafts') {
+                slQtUdfDraftCache.push(qt);
+            } else if (b === 'pending') {
+                pendingQuotationsCache.push(qt);
+            } else if (b === 'cancelled') {
+                cancelledQuotationsCache.push(qt);
+            } else {
+                reviewedQuotationsCache.push(qt);
+            }
+        });
 
         content.innerHTML = shellHtml();
         ensureListClickDelegation();
-        setQuotationTab('active');
+        setQuotationTab('reviewed');
         updateDraftCountDisplay();
     } catch (error) {
         const message =
@@ -375,11 +458,11 @@ async function loadQuotations() {
 function setQuotationTab(tabName) {
     currentListTab = tabName;
     const listEl = document.getElementById('view-quotation-list');
-    const activeBtn = document.getElementById('tab-active');
+    const reviewedBtn = document.getElementById('tab-reviewed');
     const cancelledBtn = document.getElementById('tab-cancelled');
     const draftsBtn = document.getElementById('tab-drafts');
     const pendingBtn = document.getElementById('tab-pending');
-    if (!listEl || !activeBtn || !cancelledBtn || !draftsBtn || !pendingBtn) {
+    if (!listEl || !reviewedBtn || !cancelledBtn || !draftsBtn || !pendingBtn) {
         return;
     }
 
@@ -394,8 +477,8 @@ function setQuotationTab(tabName) {
         listEl.innerHTML = renderQuotationList(pendingQuotationsCache, 'pending');
         setTabButtonStyles('pending');
     } else {
-        listEl.innerHTML = renderQuotationList(activeQuotationsCache, 'active');
-        setTabButtonStyles('active');
+        listEl.innerHTML = renderQuotationList(reviewedQuotationsCache, 'reviewed');
+        setTabButtonStyles('reviewed');
     }
 
     trySelectFirstListCard();
@@ -415,9 +498,25 @@ function renderQuotationList(list, listType) {
         const docno = escapeHtml(qt.DOCNO || 'DOCKEY #' + qt.DOCKEY);
         const isCancelled = listType === 'cancelled';
         const isPending = listType === 'pending';
-        const borderColor = isCancelled ? '#a65c5c' : isPending ? '#b0892f' : '#4b6e9e';
-        const badgeColor = isCancelled ? '#a65c5c' : isPending ? '#b0892f' : '#4b6e9e';
+        const isReviewed = listType === 'reviewed';
+        const isDrafts = listType === 'drafts';
+        const borderColor = isCancelled
+            ? '#a65c5c'
+            : isPending
+              ? '#b0892f'
+              : isDrafts
+                ? '#6b7c9a'
+                : isReviewed
+                  ? '#2d5a8a'
+                  : '#2d5a8a';
+        const badgeColor = borderColor;
         const lt = escapeHtml(listType);
+        const draftActions =
+            isDrafts && qt.DOCKEY != null
+                ? `<div class="view-qt-list-card__actions">
+                    <button type="button" class="btn-edit-draft" onclick="event.stopPropagation(); editPostedSlQtDraft(${qt.DOCKEY})">Edit draft</button>
+                </div>`
+                : '';
         html += `
             <div class="view-qt-list-card" data-dockey="${qt.DOCKEY}" data-list-type="${lt}" data-source="" style="border-left-color:${borderColor}" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}">
                 <div class="view-qt-list-card__row">
@@ -426,6 +525,7 @@ function renderQuotationList(list, listType) {
                 </div>
                 <div class="view-qt-list-card__meta">${companyName}</div>
                 <div class="view-qt-list-card__row2">Date: ${docDate} · Valid: ${validity}</div>
+                ${draftActions}
             </div>
         `;
     });
@@ -437,10 +537,17 @@ async function loadSlQtDraftTab(listEl) {
     listEl.innerHTML = '<div class="view-quotation-list-empty" style="padding:16px;">Loading drafts…</div>';
     try {
         await fetchSavedDraftQuotations();
-        if (!slQtDraftCache || slQtDraftCache.length === 0) {
+        const chunks = [];
+        if (slQtUdfDraftCache && slQtUdfDraftCache.length > 0) {
+            chunks.push(renderQuotationList(slQtUdfDraftCache, 'drafts'));
+        }
+        if (slQtDraftCache && slQtDraftCache.length > 0) {
+            chunks.push(renderDraftList(slQtDraftCache));
+        }
+        if (chunks.length === 0) {
             listEl.innerHTML = '<div class="view-quotation-list-empty">No saved drafts</div>';
         } else {
-            listEl.innerHTML = renderDraftList(slQtDraftCache);
+            listEl.innerHTML = chunks.join('');
         }
     } catch (e) {
         listEl.innerHTML = '<div class="view-quotation-list-empty" style="color:#b42318;">Error loading drafts</div>';
@@ -481,17 +588,24 @@ function editSlQtDraft(dockey) {
     window.location.href = `/create-quotation?draftDockey=${dockey}`;
 }
 
+/** SL_QT header with UDF_STATUS=DRAFT — open create flow to edit before submit (PENDING). */
+function editPostedSlQtDraft(dockey) {
+    if (dockey == null || dockey === '') {
+        return;
+    }
+    window.location.href = `/create-quotation?dockey=${encodeURIComponent(dockey)}`;
+}
+
 document.addEventListener('DOMContentLoaded', loadQuotations);
 
 function updateDraftCountDisplay() {
     const draftDisplay = document.getElementById('draft-count-display');
     if (draftDisplay) {
-        const count = draftQuotationsCache.length;
-        draftDisplay.textContent = `📋 Drafts: ${count}`;
+        draftDisplay.textContent = `📋 Drafts: ${totalDraftTabCount()}`;
     }
     const td = document.getElementById('tab-drafts');
     if (td) {
-        td.textContent = `📋 Drafts (${draftQuotationsCache.length})`;
+        td.textContent = `📋 Drafts (${totalDraftTabCount()})`;
     }
 }
 

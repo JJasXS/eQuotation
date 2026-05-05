@@ -3,6 +3,7 @@
 body.view-quotation-page {
     background: #f2e8d8;
     color: #3d2f1f;
+    min-height: 100vh;
 }
 
 body.view-quotation-page .container {
@@ -21,7 +22,7 @@ body.view-quotation-page .tab-content.active {
     flex-direction: column;
     flex: 1;
     min-height: 0;
-    padding: 0 16px 16px;
+    padding: 0 0 16px;
     background: transparent;
     overflow: hidden;
 }
@@ -34,32 +35,33 @@ body.view-quotation-page .tab-content.active {
     overflow: hidden;
 }
 
+/* Full viewport width (no centered max-width column). Applies to body + inner shell. */
 .view-quotation-page {
     display: flex;
     flex-direction: column;
     gap: 0;
     flex: 1;
     min-height: 0;
-    max-width: 1600px;
-    margin: 0 auto;
     width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
 .view-quotation-tabs {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    padding: 12px 0 14px;
+    gap: 5px;
+    padding: 8px 0 10px;
     border-bottom: 1px solid #e2cfab;
     flex-shrink: 0;
 }
 
 .view-quotation-tabs button {
     border: 1px solid #d4c4a8;
-    padding: 8px 14px;
-    border-radius: 8px;
+    padding: 5px 10px;
+    border-radius: 6px;
     cursor: pointer;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 500;
     background: #f8f0e0;
     color: #5c4a32;
@@ -87,7 +89,7 @@ body.view-quotation-page .tab-content.active {
     border-color: #8f721f;
 }
 
-#tab-active.is-active {
+#tab-reviewed.is-active {
     background: #2d5a8a;
     border-color: #1e4770;
 }
@@ -200,10 +202,18 @@ body.view-quotation-page .tab-content.active {
 
 .view-qt-list-card__actions {
     margin-top: 8px;
-    display: flex;
     flex-wrap: wrap;
     gap: 6px;
     justify-content: flex-end;
+}
+
+/* Draft edit: keep list tidy; show actions only on the selected card */
+.view-qt-list-card:not(.is-selected) .view-qt-list-card__actions {
+    display: none;
+}
+
+.view-qt-list-card.is-selected .view-qt-list-card__actions {
+    display: flex;
 }
 
 .view-qt-list-card__actions .btn-edit-draft {
@@ -231,9 +241,88 @@ body.view-quotation-page .tab-content.active {
 
 .view-quotation-detail-scroll {
     flex: 1;
-    overflow: auto;
+    min-height: 0;
+    overflow-y: auto;
     padding: 14px 16px 18px;
     -webkit-overflow-scrolling: touch;
+}
+
+/* Structured detail: meta fixed at top, lines scroll, total bar pinned to bottom of pane */
+.view-quotation-detail-scroll:has(.view-qt-detail-inner) {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 0;
+}
+
+.view-qt-detail-inner {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.view-qt-detail-top {
+    flex-shrink: 0;
+    padding: 14px 16px 0;
+}
+
+.view-qt-detail-inner .view-quotation-detail-meta-wrap {
+    margin-bottom: 12px;
+}
+
+.view-qt-line-items-block {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    margin-top: 4px;
+}
+
+.view-qt-line-items-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: auto;
+    padding: 0 16px 8px;
+    -webkit-overflow-scrolling: touch;
+}
+
+.view-qt-line-items-scroll .view-quotation-items-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    box-shadow: 0 1px 0 #e2cfab;
+}
+
+.view-quotation-total-footer {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 14px;
+    padding: 12px 16px 14px;
+    margin-top: auto;
+    background: #faf6ee;
+    border-top: 1px solid #e2cfab;
+    font-size: 14px;
+    font-weight: 700;
+    color: #2d4a6e;
+    font-variant-numeric: tabular-nums;
+}
+
+.view-quotation-total-footer__label {
+    font-size: 13px;
+    font-weight: 700;
+    color: #4f3a1f;
+}
+
+.view-quotation-total-footer__value {
+    font-size: 16px;
+    min-width: 7ch;
+    text-align: right;
 }
 
 .view-quotation-detail-empty {
@@ -274,9 +363,21 @@ body.view-quotation-page .tab-content.active {
     color: #4f3a1f;
 }
 
+.view-quotation-detail-meta-wrap {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 20px;
+    align-items: start;
+    margin-bottom: 16px;
+}
+
+.view-quotation-detail-meta-wrap .view-quotation-detail-meta {
+    margin-bottom: 0;
+}
+
 .view-quotation-detail-meta {
     display: grid;
-    grid-template-columns: 140px 1fr;
+    grid-template-columns: minmax(100px, 140px) 1fr;
     gap: 6px 12px;
     font-size: 13px;
     margin-bottom: 16px;
@@ -335,18 +436,6 @@ body.view-quotation-page .tab-content.active {
     margin-top: 2px;
 }
 
-.view-quotation-items-total {
-    background: #faf6ee;
-    font-weight: 700;
-}
-
-.view-quotation-items-total td {
-    border-bottom: none;
-    padding-top: 10px;
-    color: #2d4a6e;
-    font-size: 14px;
-}
-
 @media (max-width: 960px) {
     .view-quotation-split {
         grid-template-columns: 1fr;
@@ -356,5 +445,11 @@ body.view-quotation-page .tab-content.active {
     .view-quotation-list-pane {
         border-right: none;
         border-bottom: 1px solid #e2cfab;
+    }
+}
+
+@media (max-width: 720px) {
+    .view-quotation-detail-meta-wrap {
+        grid-template-columns: 1fr;
     }
 }
