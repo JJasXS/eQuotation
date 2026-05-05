@@ -331,6 +331,34 @@ def _fetch_pr_delivery_dates_by_dockey(dockeys: list[int]) -> dict[int, str | No
         con.close()
 
 
+def supplier_has_active_bid_invitation(request_dockey: int, supplier_code: str) -> bool:
+    """True if PR_BID_INVITE has an open (non-closed) invitation for this supplier and PR dockey."""
+    code = _clean_text(supplier_code)
+    if not code or not request_dockey:
+        return False
+    ensure_bidding_schema()
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        if not _table_exists(cur, "PR_BID_INVITE"):
+            return False
+        cur.execute(
+            """
+            SELECT FIRST 1 1
+            FROM PR_BID_INVITE
+            WHERE REQUEST_DOCKEY = ?
+              AND SUPPLIER_CODE = ?
+              AND TRIM(UPPER(COALESCE(STATUS, ''))) <> 'CLOSED'
+            """,
+            (int(request_dockey), code),
+        )
+        return cur.fetchone() is not None
+    except Exception:
+        return False
+    finally:
+        con.close()
+
+
 def list_supplier_invitations(supplier_code: str) -> list[dict[str, Any]]:
     code = _clean_text(supplier_code)
     if not code:

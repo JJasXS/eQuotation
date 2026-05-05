@@ -304,8 +304,7 @@
             list.classList.add('sb-list--loading');
             list.innerHTML = '<div class="sb-list-loading">Loading invitations…</div>';
 
-            const qs = supplierCode ? ('?supplierCode=' + encodeURIComponent(supplierCode)) : '';
-            const res = await fetch('/api/procurement/bidding/my-invitations' + qs);
+            const res = await fetch('/api/procurement/bidding/my-invitations');
             const body = await res.json();
             if (!res.ok || !body.success) {
                 invitationsAllRows = [];
@@ -369,7 +368,6 @@
                 request_id: String(rid),
                 request_no: requestNo || '',
             });
-            if (supplierCode) qs.set('supplierCode', supplierCode);
             const res = await fetch('/api/procurement/bidding/purchase-request-details?' + qs.toString());
             const body = await res.json();
             if (!res.ok || !body.success) {
@@ -502,7 +500,6 @@
                     body: JSON.stringify({
                         requestId: activeInvite.requestId,
                         requestNumber: activeInvite.requestNo,
-                        supplierCode,
                         bidLines: lines,
                     }),
                 });

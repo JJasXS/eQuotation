@@ -44,6 +44,8 @@ from utils.procurement_stock_card_queries import (
 from utils.procurement_purchase_request import (
     PurchaseRequestValidationError,
     create_purchase_request,
+    normalize_purchase_request_status_input,
+    peek_purchase_request_status_by_request_number,
     preview_purchase_request_number,
     transition_purchase_request_status,
     update_purchase_request,
@@ -67,6 +69,7 @@ from utils.procurement_bidding import (
     reject_bid,
     save_line_awards,
     submit_supplier_bid,
+    supplier_has_active_bid_invitation,
     validate_transfer_against_line_awards,
 )
 from utils.role_permissions import (
@@ -76,12 +79,14 @@ from utils.role_permissions import (
     ACCESS_TIER_PURCH_STAFF,
     ACCESS_TIER_SALES_MGMT,
     ACCESS_TIER_SALES_STAFF,
+    ACCESS_TIER_SUPPLIER,
     can_access_admin_dashboard,
     can_access_admin_view_quotations,
     can_access_create_quotation,
     can_access_pending_approvals_admin,
     can_access_purchase_menu,
     can_access_view_quotation_customer_ui,
+    can_patch_pr_workflow_status,
     can_update_pr_approvals_and_header_status,
     infer_access_tier_from_session,
     is_full_management_admin,
@@ -137,6 +142,9 @@ from config.otp_config import generate_otp, OTP_LENGTH, OTP_EXPIRY_SECONDS
 # ============================================
 BASE_API_URL = os.getenv('BASE_API_URL', 'http://localhost:8080').rstrip('/')
 FASTAPI_BASE_URL = os.getenv('API_BASE_URL', 'http://localhost:8000').rstrip('/')
+
+# Canonical procurement SPA URL (legacy typo /admin/precurement/precurement redirects here).
+PROCUREMENT_UI_PATH = '/admin/procurement'
 PROJECT_API_BASE_URL = os.getenv('PROJECT_API_BASE_URL', '').strip().rstrip('/')
 FASTAPI_ACCESS_KEY = (os.getenv('API_ACCESS_KEY') or '').strip()
 FASTAPI_SECRET_KEY = (os.getenv('API_SECRET_KEY') or '').strip()
@@ -411,7 +419,7 @@ def _redirect_purchasing_roles_from_sales_analytics_pages():
     """Purchasing roles use procurement; block analytics/sales-only admin pages."""
     tier = session.get('access_tier')
     if tier in (ACCESS_TIER_PURCH_MGMT, ACCESS_TIER_PURCH_STAFF):
-        return redirect('/admin/precurement/precurement?tab=view')
+        return redirect(f'{PROCUREMENT_UI_PATH}?tab=view')
     return None
 
 
@@ -2258,7 +2266,7 @@ def api_verify_otp():
             if user_type == 'admin' and access_tier in (ACCESS_TIER_FULL_ADMIN, ACCESS_TIER_SALES_MGMT):
                 redirect_url = '/admin'
             elif user_type == 'admin':
-                redirect_url = '/admin/precurement/precurement?tab=view'
+                redirect_url = f'{PROCUREMENT_UI_PATH}?tab=view'
             else:
                 redirect_url = '/create-quotation'
             print(f"[AUTH] Customer path: {email} tier={access_tier} user_type={user_type}")
@@ -2282,7 +2290,7 @@ def api_verify_otp():
                 redirect_url = '/admin'
             elif access_tier in (ACCESS_TIER_PURCH_MGMT, ACCESS_TIER_PURCH_STAFF):
                 user_type = 'admin'
-                redirect_url = '/admin/precurement/precurement?tab=view'
+                redirect_url = f'{PROCUREMENT_UI_PATH}?tab=view'
             else:
                 return jsonify({
                     'success': False,
@@ -2457,7 +2465,7 @@ def admin():
         return page_error
     if not can_access_admin_dashboard(session):
         if can_access_purchase_menu(session):
-            return redirect('/admin/precurement/precurement?tab=view')
+            return redirect(f'{PROCUREMENT_UI_PATH}?tab=view')
         return redirect('/chat')
     return render_protected_template('admin.html', require_admin=False)
 
@@ -2502,7 +2510,7 @@ def create_quotation_page():
         if session.get('user_type') == 'supplier':
             return redirect('/supplier/bidding')
         if can_access_purchase_menu(session):
-            return redirect('/admin/precurement/precurement?tab=view')
+            return redirect(f'{PROCUREMENT_UI_PATH}?tab=view')
         return redirect('/chat')
     dockey = request.args.get('dockey', '')
     draft_dockey = request.args.get('draftDockey', '')
@@ -2525,7 +2533,7 @@ def view_quotation_page():
         return redirect('/admin/view-quotations')
     if not can_access_view_quotation_customer_ui(session):
         if can_access_purchase_menu(session):
-            return redirect('/admin/precurement/precurement?tab=view')
+            return redirect(f'{PROCUREMENT_UI_PATH}?tab=view')
         return redirect('/chat')
     return render_protected_template(
         'viewQuotation.html',
@@ -2573,9 +2581,9 @@ def admin_pricing_priority_rules():
         user_type=session.get('user_type', 'admin')
     )
 
-@app.route('/admin/precurement/precurement')
+@app.route('/admin/procurement')
 def admin_procurement_module():
-    """Procurement module (login + purchase-capable roles)."""
+    """Procurement module — canonical URL (tab=report|create|view)."""
     page_error = require_page_access()
     if page_error:
         return page_error
@@ -2584,6 +2592,18 @@ def admin_procurement_module():
     ctx = {'user_type': session.get('user_type', ''), 'user_email': session.get('user_email', '')}
     ctx.update(template_permission_context(session))
     return render_template('precurement/precurement.html', **ctx)
+
+
+@app.route('/admin/precurement/precurement')
+def admin_procurement_legacy_typo_redirect():
+    """Permanent redirect from legacy typo URL to /admin/procurement."""
+    page_error = require_page_access()
+    if page_error:
+        return page_error
+    if not can_access_purchase_menu(session):
+        return redirect('/admin' if can_access_admin_dashboard(session) else '/chat')
+    tab = request.args.get('tab') or 'report'
+    return redirect(f'{PROCUREMENT_UI_PATH}?tab={quote(str(tab), safe="")}', code=308)
 @app.route('/admin/procurement/bidding')
 def admin_procurement_bidding_page():
     """Display admin supplier bidding management page."""
@@ -2602,11 +2622,18 @@ def admin_procurement_bidding_page():
 
 @app.route('/supplier/bidding')
 def supplier_bidding_page():
-    """Display supplier bidding page for supplier or regular users."""
+    """Supplier RFQ bidding portal (supplier tier only)."""
+    page_error = require_page_access()
+    if page_error:
+        return page_error
+    if infer_access_tier_from_session(session) != ACCESS_TIER_SUPPLIER:
+        if can_access_purchase_menu(session):
+            return redirect(f'{PROCUREMENT_UI_PATH}?tab=view')
+        return redirect('/chat')
     return render_protected_template(
         'supplierBidding.html',
         block_admin=True,
-        admin_redirect='/admin/precurement/precurement',
+        admin_redirect=PROCUREMENT_UI_PATH,
         user_type=session.get('user_type', 'user'),
         supplier_code=session.get('supplier_code') or session.get('customer_code', ''),
         user_name=session.get('user_email', ''),
@@ -2834,7 +2861,7 @@ def index():
             if can_access_admin_dashboard(session):
                 return redirect('/admin')
             if can_access_purchase_menu(session):
-                return redirect('/admin/precurement/precurement?tab=view')
+                return redirect(f'{PROCUREMENT_UI_PATH}?tab=view')
             return redirect('/chat')
         return redirect('/create-quotation')
     return redirect('/login')
@@ -5495,7 +5522,9 @@ def api_admin_create_bidding_invitations():
 @api_login_required(unauth_message='Unauthorized')
 def api_supplier_bidding_invitations():
     """List current user's bidding invitations."""
-    supplier_code = (request.args.get('supplierCode') or session.get('customer_code') or '').strip()
+    if infer_access_tier_from_session(session) != ACCESS_TIER_SUPPLIER:
+        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+    supplier_code = (session.get('supplier_code') or session.get('customer_code') or '').strip()
     if not supplier_code:
         return jsonify({'success': False, 'error': 'supplier code is not available in session'}), 400
 
@@ -5518,6 +5547,12 @@ def api_supplier_bidding_request_details():
 
     if not raw_request_id and not request_no:
         return jsonify({'success': False, 'error': 'request_id or request_no is required'}), 400
+
+    if infer_access_tier_from_session(session) != ACCESS_TIER_SUPPLIER:
+        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+    supplier_session_code = (session.get('supplier_code') or session.get('customer_code') or '').strip()
+    if not supplier_session_code:
+        return jsonify({'success': False, 'error': 'Supplier code is not available in session'}), 400
 
     try:
         def _lookup_detail_delivery_dates(request_dockey: int, detail_ids: list[int]) -> dict[int, str]:
@@ -5643,6 +5678,11 @@ def api_supplier_bidding_request_details():
         except Exception:
             request_dockey_int = 0
 
+        if not request_dockey_int or not supplier_has_active_bid_invitation(
+            request_dockey_int, supplier_session_code
+        ):
+            return jsonify({'success': False, 'error': 'Forbidden'}), 403
+
         pq_meta = _lookup_ph_pq_header_delivery(request_dockey_int)
 
         raw_rows = request_header.get('sdsdocdetail') or []
@@ -5678,11 +5718,12 @@ def api_supplier_bidding_request_details():
                 if row_delivery
                 else ('db_lookup' if lookup_delivery else ('header_fallback' if header_delivery_fallback else 'missing'))
             )
-            print(
-                f"[SUPPLIER BIDDING DELIVERYDATE] request={request_header.get('dockey')} "
-                f"detail={detail_id_int or detail_id_raw} source={delivery_source} value={resolved_delivery}",
-                flush=True,
-            )
+            if os.getenv('PROCUREMENT_DEBUG_DELIVERYDATES', '').strip().lower() in ('1', 'true', 'yes', 'on'):
+                print(
+                    f"[SUPPLIER BIDDING DELIVERYDATE] request={request_header.get('dockey')} "
+                    f"detail={detail_id_int or detail_id_raw} source={delivery_source} value={resolved_delivery}",
+                    flush=True,
+                )
             details.append({
                 'id': row.get('dtlkey') or row.get('id'),
                 'seq': row.get('seq') if row.get('seq') is not None else idx,
@@ -5703,10 +5744,9 @@ def api_supplier_bidding_request_details():
         )
         required_for_pr = pq_meta.get('requiredDeliveryDate') or api_required or header_delivery_fallback
 
-        supplier_for_bid = (request.args.get('supplierCode') or session.get('customer_code') or '').strip()
         my_bid = None
-        if supplier_for_bid and request_dockey_int:
-            my_bid = get_supplier_bid_snapshot(request_dockey_int, supplier_for_bid)
+        if request_dockey_int:
+            my_bid = get_supplier_bid_snapshot(request_dockey_int, supplier_session_code)
 
         return jsonify({
             'success': True,
@@ -5732,13 +5772,16 @@ def api_supplier_bidding_request_details():
 @api_login_required(unauth_message='Unauthorized')
 def api_supplier_submit_bid():
     """Submit supplier bid lines for an invited purchase request."""
+    if infer_access_tier_from_session(session) != ACCESS_TIER_SUPPLIER:
+        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+
     payload = request.get_json(silent=True) or {}
     raw_request_id = str(payload.get('requestId') or '').strip()
     request_no = str(payload.get('requestNumber') or '').strip()
     bid_lines = payload.get('bidLines') if isinstance(payload.get('bidLines'), list) else []
     remarks = str(payload.get('remarks') or '').strip()
 
-    supplier_code = str(payload.get('supplierCode') or session.get('customer_code') or '').strip()
+    supplier_code = (session.get('supplier_code') or session.get('customer_code') or '').strip()
     supplier_name = str(payload.get('supplierName') or session.get('user_email') or '').strip()
     actor = (session.get('user_email') or supplier_code or 'supplier').strip()
 
@@ -6035,10 +6078,25 @@ def api_admin_transfer_purchase_request_to_po():
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_update_purchase_request_status(request_number):
     """Update purchase request status across workflow states."""
+    if not can_access_purchase_menu(session):
+        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+
     payload = request.get_json(silent=True) or {}
     raw_target_status = payload.get('status')
     target_status = '' if raw_target_status is None else str(raw_target_status).strip()
     actor = (session.get('user_email') or session.get('user_name') or 'admin').strip()
+
+    target_norm = normalize_purchase_request_status_input(raw_target_status)
+    if not target_norm:
+        return jsonify({'success': False, 'error': 'status is required'}), 400
+
+    try:
+        current_status = peek_purchase_request_status_by_request_number(request_number)
+    except PurchaseRequestValidationError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+
+    if not can_patch_pr_workflow_status(session, current_status, target_norm):
+        return jsonify({'success': False, 'error': 'Insufficient permissions for this status change'}), 403
 
     try:
         result = transition_purchase_request_status(request_number, target_status, actor)

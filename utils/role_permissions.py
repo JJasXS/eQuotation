@@ -124,6 +124,35 @@ def can_update_pr_approvals_and_header_status(session) -> bool:
     return t in (ACCESS_TIER_FULL_ADMIN, ACCESS_TIER_PURCH_MGMT)
 
 
+def can_patch_pr_workflow_status(session, current_status: str, target_status: str) -> bool:
+    """
+    PATCH /purchase-requests/<no>/status: who may request a transition to target_status from current_status.
+
+    - APPROVED / REJECTED: purchasing management or full admin only (same as UDF approval APIs).
+    - SUBMITTED from DRAFT: any purchase-menu role (incl. purchase staff).
+    - CANCELLED from DRAFT: any purchase-menu role.
+    - CANCELLED from SUBMITTED (or other non-draft): purchasing management or full admin only.
+    - No-op (target equals current): any purchase-menu role.
+    """
+    if not can_access_purchase_menu(session):
+        return False
+    cur = (current_status or "").strip().upper()
+    tgt = (target_status or "").strip().upper()
+    if not tgt:
+        return False
+    if tgt == cur:
+        return True
+    if tgt in ("APPROVED", "REJECTED"):
+        return can_update_pr_approvals_and_header_status(session)
+    if tgt == "SUBMITTED" and cur == "DRAFT":
+        return True
+    if tgt == "CANCELLED":
+        if cur == "DRAFT":
+            return True
+        return can_update_pr_approvals_and_header_status(session)
+    return False
+
+
 def hide_pr_approval_edits_for_pstaff(session) -> bool:
     """PSTAFF: read-only PR header UDF status + line approval checkboxes in View PR."""
     return infer_access_tier_from_session(session) == ACCESS_TIER_PURCH_STAFF

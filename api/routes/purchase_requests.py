@@ -26,6 +26,20 @@ DB_PASSWORD = os.getenv('DB_PASSWORD')
 router = APIRouter(tags=["Purchase Requests"])
 
 
+def verify_firebird_purchase_request_api_enabled(_: None = Depends(verify_api_keys)) -> None:
+    """
+    Kill-switch for these Firebird-backed routes (keys alone are not org RBAC).
+
+    Set PH_PQ_FASTAPI_DISABLED=1 (or true/yes/on) to return 503 until traffic is only from trusted callers.
+    """
+    v = os.getenv("PH_PQ_FASTAPI_DISABLED", "").strip().lower()
+    if v in ("1", "true", "yes", "on"):
+        raise HTTPException(
+            status_code=503,
+            detail="Purchase request FastAPI routes are disabled (PH_PQ_FASTAPI_DISABLED).",
+        )
+
+
 def _connect_db() -> fdb.Connection:
     if not DB_PATH or not DB_HOST or not DB_USER:
         raise RuntimeError("DB connection environment is not fully configured")
@@ -301,7 +315,7 @@ def list_purchase_requests(
         "minimal",
         description="minimal = columns needed for admin list; full = all header fields.",
     ),
-    _: None = Depends(verify_api_keys),
+    _: None = Depends(verify_firebird_purchase_request_api_enabled),
 ):
     """List purchase request headers with pagination and optional filtering."""
     con = None
@@ -499,7 +513,7 @@ def list_purchase_requests(
 @router.get("/purchaserequest/{request_ref}")
 def get_purchase_request_detail(
     request_ref: str,
-    _: None = Depends(verify_api_keys),
+    _: None = Depends(verify_firebird_purchase_request_api_enabled),
 ):
     """Get one purchase request with nested sdsdocdetail by dockey or docno."""
     con = None
@@ -603,7 +617,7 @@ def get_purchase_request_detail(
 @router.post("/purchaserequest/detail-approval")
 def update_purchase_request_detail_approval(
     payload: dict[str, Any] = Body(default={}),
-    _: None = Depends(verify_api_keys),
+    _: None = Depends(verify_firebird_purchase_request_api_enabled),
 ):
     """Bulk update PH_PQDTL.UDF_PQAPPROVED and sync TRANSFERABLE by detail key."""
     changes = payload.get("changes", []) if isinstance(payload, dict) else []
@@ -682,7 +696,7 @@ def update_purchase_request_detail_approval(
 @router.post("/purchaserequest/header-status")
 def update_purchase_request_header_status(
     payload: dict[str, Any] = Body(default={}),
-    _: None = Depends(verify_api_keys),
+    _: None = Depends(verify_firebird_purchase_request_api_enabled),
 ):
     """Bulk update PH_PQ.UDF_STATUS values by request id."""
     changes = payload.get("changes", []) if isinstance(payload, dict) else []

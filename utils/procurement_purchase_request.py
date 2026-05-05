@@ -1002,6 +1002,43 @@ def list_purchase_requests(limit: int = 200) -> list[dict[str, Any]]:
         con.close()
 
 
+def normalize_purchase_request_status_input(raw_status: Any) -> str:
+    """Normalize API PATCH body status to canonical uppercase label (DRAFT, SUBMITTED, …)."""
+    if raw_status is None:
+        return ""
+    if isinstance(raw_status, (int, float)):
+        return _decode_status(int(raw_status)).upper()
+    return _decode_status(str(raw_status).strip()).upper()
+
+
+def peek_purchase_request_status_by_request_number(request_number: str) -> str:
+    """Return decoded PH_PQ.STATUS for the PR document number, or raise PurchaseRequestValidationError."""
+    ensure_purchase_request_schema()
+    normalized_request_number = _clean_text(request_number)
+    if not normalized_request_number:
+        raise PurchaseRequestValidationError("requestNumber is required")
+
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        header_cols = _get_table_columns(cur, "PH_PQ")
+        status_col = _pick_existing(header_cols, "STATUS")
+        request_no_col = _pick_existing(header_cols, "DOCNO", "REQUESTNO", "PRNO", "PURCHASEREQUESTNO")
+        if not status_col or not request_no_col:
+            raise RuntimeError("PH_PQ is missing STATUS or document number column for status read")
+
+        cur.execute(
+            f"SELECT FIRST 1 {status_col} FROM PH_PQ WHERE {request_no_col} = ?",
+            (normalized_request_number,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise PurchaseRequestValidationError("Purchase request not found")
+        return _decode_status(row[0])
+    finally:
+        con.close()
+
+
 def transition_purchase_request_status(
     request_number: str,
     new_status: str,
