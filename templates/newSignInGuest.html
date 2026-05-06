@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>New Guest Sign In</title>
-    <link rel="stylesheet" href="/static/css/signInGuest.css">
+    <link rel="stylesheet" href="/static/css/signInGuest.css?v=20260506_warm_guest">
 </head>
 <body>
     <div class="guest-container">
@@ -12,31 +12,31 @@
             <center><h1>New Guest Sign In</h1></center>
             <p class="subtitle" style="text-align:center;margin-bottom:18px;">Create customer with company + optional SQL fields</p>
 
-            <form id="new-guest-signin-form" onsubmit="handleNewGuestSignIn(event)" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start;">
+            <form id="new-guest-signin-form" onsubmit="handleNewGuestSignIn(event)">
                 <!-- Column 1: Required Fields -->
                 <div class="form-section">
                     <div class="section-title">Required Fields</div>
-                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 14px;">
-                        <div class="form-group" style="grid-column: 1 / -1;">
+                    <div class="form-grid form-grid--2col">
+                        <div class="form-group span-all-cols">
                             <input type="text" id="companyname" name="companyname" placeholder="companyname" required>
                         </div>
-                        <div class="form-group" style="grid-column: 1 / -1;">
+                        <div class="form-group span-all-cols">
                             <input type="text" id="attention" name="attention" placeholder="attention" required>
                         </div>
-                        <div class="form-group" style="grid-column: 1 / -1;">
+                        <div class="form-group span-all-cols">
                             <input type="email" id="email" name="email" placeholder="email" required>
                         </div>
-                        <div class="form-group" style="grid-column: 1 / -1;">
+                        <div class="form-group span-all-cols">
                             <input type="text" id="phone1" name="phone1" placeholder="phone number" required>
                         </div>
                         <div class="form-group">
-                            <div style="font-size:13px;color:#6c7a89;margin-bottom:2px;">Select Area</div>
+                            <div class="guest-field-label">Select Area</div>
                             <select id="area" name="area">
                                 <option value="">Loading area...</option>
                             </select>
                         </div>
                         <div class="form-group">
-                            <div style="font-size:13px;color:#6c7a89;margin-bottom:2px;">Select Currency</div>
+                            <div class="guest-field-label">Select Currency</div>
                             <select id="currencycode" name="currencycode">
                                 <option value="">Loading currency...</option>
                             </select>
@@ -47,8 +47,8 @@
                 <!-- Column 2: Optional Registration Details -->
                 <div class="form-section">
                     <div class="section-title">Optional Registration Details</div>
-                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 14px;">
-                        <div class="form-group" style="grid-column: 1 / -1;">
+                    <div class="form-grid form-grid--2col">
+                        <div class="form-group span-all-cols">
                             <input type="text" id="tin" name="tin" placeholder="tin">
                         </div>
                         <div class="form-group">
@@ -63,11 +63,11 @@
                         <div class="form-group">
                             <input type="text" id="servicetaxno" name="servicetaxno" placeholder="servicetaxno">
                         </div>
-                        <div class="form-group" style="grid-column: 1 / -1;">
+                        <div class="form-group span-all-cols">
                             <input type="text" id="taxexemptno" name="taxexemptno" placeholder="taxexemptno">
                         </div>
-                        <div class="form-group" style="grid-column: 1 / -1;">
-                            <label for="taxexpdate" style="margin-bottom:6px;">taxexpdate</label>
+                        <div class="form-group span-all-cols">
+                            <label for="taxexpdate">taxexpdate</label>
                             <input type="date" id="taxexpdate" name="taxexpdate">
                         </div>
                     </div>
@@ -76,7 +76,7 @@
                 <!-- Column 3: Optional Address Details -->
                 <div class="form-section">
                     <div class="section-title">Optional Address Details</div>
-                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 14px;">
+                    <div class="form-grid form-grid--2col">
                         <div class="form-group">
                             <input type="text" id="address1" name="address1" placeholder="address 1">
                         </div>
@@ -89,7 +89,7 @@
                         <div class="form-group">
                             <input type="text" id="address4" name="address4" placeholder="address 4">
                         </div>
-                        <div class="form-group" style="grid-column: 1 / -1;">
+                        <div class="form-group span-all-cols">
                             <input type="text" id="postcode" name="postcode" placeholder="postcode">
                         </div>
                         <div class="form-group">
@@ -98,8 +98,8 @@
                         <div class="form-group">
                             <input type="text" id="state" name="state" placeholder="state" readonly>
                         </div>
-                        <div class="form-group" style="grid-column: 1 / -1;">
-                            <div style="font-size:13px;color:#6c7a89;margin-bottom:2px;">Select Country</div>
+                        <div class="form-group span-all-cols">
+                            <div class="guest-field-label">Select Country</div>
                             <select id="country" name="country">
                                 <option value="">Select country...</option>
                                 {% for country in countries %}
@@ -111,7 +111,7 @@
                 </div>
 
                 <!-- Form Actions: Span all columns -->
-                <div class="form-actions" style="grid-column: 1 / -1;">
+                <div class="form-actions">
                     <a href="/login" class="btn-back">Back to Login</a>
                     <button type="submit" class="btn-submit">Continue</button>
                 </div>

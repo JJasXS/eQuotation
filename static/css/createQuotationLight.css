@@ -500,3 +500,61 @@ body.create-quotation-page #quotation-items-list .item-row .item-udf-bundle {
     font-size: 12px;
     text-align: center;
 }
+
+/*
+ * Final layer: shared orderQuotation.css + chat.css use unscoped .container / body / .form-container.
+ * If an intermediate stylesheet or cache reorders rules, !important here keeps the customer page light
+ * and preserves a two-column row on viewports wider than the stack breakpoint.
+ */
+body.create-quotation-page {
+    background: #f2e8d8 !important;
+    color: #3d2f1f !important;
+}
+
+body.create-quotation-page .container,
+body.create-quotation-page .main-content {
+    background: #f2e8d8 !important;
+}
+
+body.create-quotation-page .tab-content.active {
+    background: transparent !important;
+}
+
+body.create-quotation-page .form-container {
+    background: #fffaf0 !important;
+    color: #3d2f1f !important;
+    border: 1px solid #e2cfab !important;
+}
+
+body.create-quotation-page .form-container h3 {
+    color: #4f3b2a !important;
+}
+
+body.create-quotation-page .form-container h4 {
+    color: #4f3b2a !important;
+}
+
+body.create-quotation-page .create-quotation-layout {
+    display: flex !important;
+    align-items: flex-start !important;
+    gap: 24px !important;
+}
+
+@media (min-width: 961px) {
+    body.create-quotation-page .create-quotation-layout {
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+    }
+
+    body.create-quotation-page .create-quotation-lines-panel {
+        min-width: 0;
+        flex: 1 1 0% !important;
+    }
+}
+
+@media (max-width: 960px) {
+    body.create-quotation-page .create-quotation-layout {
+        flex-direction: column !important;
+        flex-wrap: wrap !important;
+    }
+}
