@@ -71,10 +71,10 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [6/10] Copy to APP_DIR...
-xcopy /E /I /Y "%WORK_DIR%\*" "%APP_DIR%\"
-if errorlevel 4 (
-  echo ERROR: xcopy failed.
+echo [6/10] Copy runtime tree to APP_DIR ^(no .git / tests / training / docs ...^)...
+call "%WORK_DIR%\deploy\windows\copy-runtime-tree.cmd" "%WORK_DIR%" "%APP_DIR%"
+if errorlevel 1 (
+  echo ERROR: copy-runtime-tree.cmd failed.
   exit /b 1
 )
 

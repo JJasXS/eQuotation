@@ -1,23 +1,30 @@
-eQuotation — staged “likely unused” assets (review before delete)
-================================================================
+eQuotation — staged assets & deletion candidates (review before delete)
+========================================================================
 
-Generated from a static trace of:
-  • Flask routes in main.py that call render_template / render_protected_template
-  • Jinja {% include %} chain from those templates
-  • Grep for /static/ references in templates and for stray script names
+Everything under this folder is EXCLUDED from production deploy
+(`deploy/windows/copy-runtime-tree.cmd` skips `_staged_unused_review`).
 
-Nothing here was deleted — files were MOVED out of templates/ and static/ so the app
-should behave the same if this folder stays ignored.
+When you are sure nothing here is needed, you may DELETE THIS ENTIRE FOLDER
+from the repository (or leave it if you still want local QA / history).
 
-CONTENTS (why staged)
----------------------
-• templates/signInGuest.html — route /signInGuest renders newSignInGuest.html only.
-• templates/pages/userApproval.html — not included or rendered by any route found.
-• templates/components/admin_hamburger_menu.html — never {% include %}'d (dead wrapper).
-• static/js/signInGuest.js — only referenced by signInGuest.html (above).
-• static/js/admin_hamburger_menu.js — no template or Python reference found.
-• static/js/chat.js — no template references (chat.html is still routed but empty).
+CONTENTS
+--------
 
-If you want these removed permanently, say yes in chat and we can delete this folder.
+1) Original “likely unused” UI/static (static trace)
+   • templates/signInGuest.html — route uses newSignInGuest.html only.
+   • templates/pages/userApproval.html — not wired from routes found.
+   • templates/components/admin_hamburger_menu.html — dead wrapper.
+   • static/js/signInGuest.js, admin_hamburger_menu.js, chat.js — see earlier notes.
 
-To restore: move files back to their original paths under templates/ and static/.
+2) tests/  (moved from repo root)
+   • Pytest + manual scripts + Playwright spec.
+   • Run from repo root:  pytest
+   • Or:  python _staged_unused_review/tests/test_api.py  (see each file’s docstring).
+
+3) _archive_unused/  (moved from repo root)
+   • Old diagnostics, sample payloads, archived scripts.
+
+To restore a moved file: put it back at its original path under templates/, static/, or repo root.
+
+If you want these removed permanently from git, say yes and delete `_staged_unused_review`
+after confirming CI/scripts do not depend on it.

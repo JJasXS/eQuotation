@@ -1,7 +1,7 @@
 """API smoke tests for create purchase request endpoint.
 
 Usage:
-    python tests/test_purchase_request_api_requests.py
+    python _staged_unused_review/tests/test_purchase_request_api_requests.py
 """
 import json
 import os

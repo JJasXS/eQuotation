@@ -7,14 +7,14 @@ import fdb
 import requests
 from dotenv import load_dotenv
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from utils.db_utils import build_firebird_dsn
 
 
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
+load_dotenv(dotenv_path=os.path.join(PROJECT_ROOT, ".env"))
 
 BASE_API_URL = os.getenv('BASE_API_URL', 'http://localhost').rstrip('/')
 DB_PATH = os.getenv('DB_PATH')

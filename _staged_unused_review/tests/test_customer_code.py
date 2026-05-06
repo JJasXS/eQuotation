@@ -6,7 +6,8 @@ import os
 import fdb
 from dotenv import load_dotenv
 
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+load_dotenv(dotenv_path=os.path.join(_REPO_ROOT, ".env"))
 
 DB_PATH = os.getenv('DB_PATH')
 DB_USER = os.getenv('DB_USER', 'SYSDBA')

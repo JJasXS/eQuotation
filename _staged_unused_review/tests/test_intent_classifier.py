@@ -10,8 +10,8 @@ Usage:
 import sys
 import os
 
-# Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, _REPO_ROOT)
 
 from utils.intent_classifier_with_fallback import IntentClassifier
 

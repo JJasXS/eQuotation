@@ -3,8 +3,9 @@
 import sys
 import os
 
-# Add project root to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add project root to path (this file lives under _staged_unused_review/tests/)
+_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, _ROOT)
 
 from main import app
 import json

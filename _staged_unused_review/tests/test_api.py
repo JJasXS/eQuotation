@@ -2,7 +2,7 @@
 Quick test script for the FastAPI endpoints.
 
 Usage:
-    python tests/test_api.py
+    python _staged_unused_review/tests/test_api.py
 
 Make sure the FastAPI server is running first:
     python -m api.app
