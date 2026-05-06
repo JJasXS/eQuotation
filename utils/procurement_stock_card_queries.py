@@ -1098,7 +1098,7 @@ def fetch_procurement_metric_breakdown(
             so_value = agg["so_o_sq"]
             po_value = agg["po_o_sq"]
             jo_value = agg["jo_o_sq"]
-        qty_value = avail_value + so_value - po_value + jo_value
+        qty_value = avail_value + po_value - so_value - jo_value
 
         return {
             "metric": _m_out("qty"),
@@ -1122,7 +1122,7 @@ def fetch_procurement_metric_breakdown(
                     "remarks": "Outstanding sales orders (document minus ST_XTRANS from SO).",
                     "total_qty": so_value,
                     "moved_qty": 0,
-                    "outstanding_qty": so_value,
+                    "outstanding_qty": -so_value,
                 },
                 {
                     "docno": "P.O Qty",
@@ -1131,7 +1131,7 @@ def fetch_procurement_metric_breakdown(
                     "remarks": "Outstanding purchase orders (deducted in the grid).",
                     "total_qty": po_value,
                     "moved_qty": 0,
-                    "outstanding_qty": -po_value,
+                    "outstanding_qty": po_value,
                 },
                 {
                     "docno": "J.O Qty",
@@ -1140,12 +1140,12 @@ def fetch_procurement_metric_breakdown(
                     "remarks": "Outstanding job orders.",
                     "total_qty": jo_value,
                     "moved_qty": 0,
-                    "outstanding_qty": jo_value,
+                    "outstanding_qty": -jo_value,
                 },
             ],
             "summary": {
                 "value": qty_value,
-                "note": "Qty = Avail + S.O − P.O + J.O (match stock card; uses SUOMQTY when that mode is on).",
+                "note": "Qty = Avail + P.O − S.O − J.O (match stock card; uses SUOMQTY when that mode is on).",
             },
         }
 
@@ -1449,10 +1449,10 @@ def fetch_procurement_stock_card_data(
             avail_su[location_code] = raw_a_su
 
             qty_sq[location_code] = (
-                avail_sq[location_code] + so_sq[location_code] - po_sq[location_code] + jo_sq[location_code]
+                avail_sq[location_code] + po_sq[location_code] - so_sq[location_code] - jo_sq[location_code]
             )
             qty_su[location_code] = (
-                avail_su[location_code] + so_su[location_code] - po_su[location_code] + jo_su[location_code]
+                avail_su[location_code] + po_su[location_code] - so_su[location_code] - jo_su[location_code]
             )
 
             pending_sq[location_code] = max(0.0, ipr_sq.get(location_code, 0))
