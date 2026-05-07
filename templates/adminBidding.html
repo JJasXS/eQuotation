@@ -125,6 +125,11 @@
         }
         .invite-extra-emails:focus { outline: none; border-color: #c9a86a; box-shadow: 0 0 0 2px rgba(201, 168, 106, 0.2); }
         .supplier-list { border: 1px solid #ecdfca; border-radius: 10px; background: #fff; }
+        .invited-table-wrap { border: 1px solid #ecdfca; border-radius: 10px; background: #fff; margin-bottom: 8px; overflow: auto; }
+        .invited-table { width: 100%; border-collapse: collapse; font-size: 10px; }
+        .invited-table th, .invited-table td { border-bottom: 1px solid #f2eadf; padding: 4px 6px; text-align: left; white-space: nowrap; }
+        .invited-table th { background: #faf6ee; color: #5c4a32; font-weight: 600; font-size: 10px; }
+        .invited-table tr:last-child td { border-bottom: none; }
         .supplier-row { display: flex; gap: 6px; padding: 6px 8px; border-bottom: 1px solid #f2eadf; font-size: 11px; }
         .supplier-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
         .supplier-row:last-child { border-bottom: none; }
@@ -205,7 +210,10 @@
                             </div>
                         </div>
                         <div class="bidding-col-body supplier-list-wrap">
-                            
+                            <div class="muted" style="margin-bottom:4px;">Already invited for selected PR</div>
+                            <div id="invited-suppliers-table-wrap" class="invited-table-wrap">
+                                <div class="bidding-placeholder">Select a purchase request to view invited suppliers.</div>
+                            </div>
                             <label class="muted" for="additional-invite-emails" style="display:block;font-size:11px;margin-bottom:4px;">Additional notify emails (optional)</label>
                             <textarea id="additional-invite-emails" class="invite-extra-emails" rows="2" placeholder="You can separate by comma, semicolon, space, or new line." autocomplete="off"></textarea>
                             <div class="supplier-invite-tools">
@@ -227,6 +235,7 @@
         let requestsCache = [];
         let supplierCache = [];
         let activePr = null;
+        let activeInvitations = [];
         let seenPrIds = new Set();
         let currentBidLineAwards = new Map();
 
@@ -306,6 +315,8 @@
             if (cmpEl) {
                 cmpEl.innerHTML = '<div class="bidding-placeholder">Select a purchase request to compare supplier totals.</div>';
             }
+            activeInvitations = [];
+            renderInvitedSuppliersTable();
         }
 
         function setSelectionUi() {
@@ -323,12 +334,77 @@
             }
         }
 
+        function renderInvitedSuppliersTable() {
+            const wrap = document.getElementById('invited-suppliers-table-wrap');
+            if (!wrap) return;
+            if (!activePr) {
+                wrap.innerHTML = '<div class="bidding-placeholder">Select a purchase request to view invited suppliers.</div>';
+                return;
+            }
+            if (!activeInvitations.length) {
+                wrap.innerHTML = '<div class="bidding-placeholder">No invited suppliers yet for this purchase request.</div>';
+                return;
+            }
+            wrap.innerHTML = `
+                <table class="invited-table">
+                    <thead>
+                        <tr><th>Code</th><th>Supplier</th><th>Status</th><th>Bid</th></tr>
+                    </thead>
+                    <tbody>
+                        ${activeInvitations.map((row) => `
+                            <tr>
+                                <td>${esc(row.supplierCode || '-')}</td>
+                                <td>${esc(row.supplierName || '-')}</td>
+                                <td>${esc(row.inviteStatus || '-')}</td>
+                                <td>${esc(row.bidStatus || '-')}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        function syncSupplierChecksFromInvitations() {
+            const invitedCodes = new Set(
+                (activeInvitations || [])
+                    .map((row) => String(row && row.supplierCode || '').trim().toUpperCase())
+                    .filter(Boolean)
+            );
+            document.querySelectorAll('.supplier-checkbox').forEach((cb) => {
+                const code = String(cb.value || '').trim().toUpperCase();
+                cb.checked = code && invitedCodes.has(code);
+            });
+        }
+
+        async function loadInvitationsForActivePr() {
+            if (!activePr) {
+                activeInvitations = [];
+                renderInvitedSuppliersTable();
+                return;
+            }
+            const wrap = document.getElementById('invited-suppliers-table-wrap');
+            if (wrap) wrap.innerHTML = '<div class="muted" style="padding:8px;">Loading invited suppliers…</div>';
+            const res = await fetch(`/api/admin/procurement/purchase-requests/${activePr.id}/invitations`);
+            const body = await res.json();
+            if (!res.ok || !body.success) {
+                activeInvitations = [];
+                if (wrap) {
+                    wrap.innerHTML = `<div class="bidding-placeholder" style="color:#8e2b2b;">${esc(body.error || 'Failed to load invited suppliers')}</div>`;
+                }
+                return;
+            }
+            activeInvitations = Array.isArray(body.data) ? body.data : [];
+            renderInvitedSuppliersTable();
+            syncSupplierChecksFromInvitations();
+        }
+
         function selectPr(id, requestNumber, status, supplierName) {
             activePr = { id, requestNumber, status, supplierName };
             seenPrIds.add(Number(id));
             renderRequests();
             setSelectionUi();
             msg('Selected PR ' + (requestNumber || id));
+            loadInvitationsForActivePr();
             loadBidsForActivePr();
         }
 
@@ -367,6 +443,7 @@
                     </label>
                 `;
             }).join('');
+            syncSupplierChecksFromInvitations();
         }
 
         document.getElementById('supplier-select-all')?.addEventListener('change', function () {
@@ -422,6 +499,7 @@
                 note += ' (' + d.rfqEmailWarning + ')';
             }
             msg(note);
+            await loadInvitationsForActivePr();
             await loadBidsForActivePr();
         }
 

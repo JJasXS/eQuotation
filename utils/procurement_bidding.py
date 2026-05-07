@@ -413,6 +413,62 @@ def list_supplier_invitations(supplier_code: str) -> list[dict[str, Any]]:
         con.close()
 
 
+def list_invited_suppliers_for_request(request_dockey: int) -> list[dict[str, Any]]:
+    """List invited suppliers for one purchase request (admin view)."""
+    if not request_dockey:
+        raise BiddingValidationError("request dockey is required")
+
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        if not _table_exists(cur, "PR_BID_INVITE"):
+            return []
+        cur.execute(
+            """
+            SELECT
+                i.INVITE_ID,
+                i.REQUEST_DOCKEY,
+                i.REQUEST_NO,
+                i.SUPPLIER_CODE,
+                i.SUPPLIER_NAME,
+                i.STATUS,
+                i.CREATED_AT,
+                i.UPDATED_AT,
+                h.BID_ID,
+                h.STATUS
+            FROM PR_BID_INVITE i
+            LEFT JOIN PR_BID_HDR h
+              ON h.REQUEST_DOCKEY = i.REQUEST_DOCKEY
+             AND h.SUPPLIER_CODE = i.SUPPLIER_CODE
+            WHERE i.REQUEST_DOCKEY = ?
+            ORDER BY i.UPDATED_AT DESC, i.INVITE_ID DESC
+            """,
+            (int(request_dockey),),
+        )
+        rows = cur.fetchall() or []
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            if not row:
+                continue
+            out.append(
+                {
+                    "inviteId": int(row[0]) if row[0] is not None else 0,
+                    "requestDockey": int(row[1]) if row[1] is not None else int(request_dockey),
+                    "requestNumber": _clean_text(row[2]),
+                    "supplierCode": _clean_text(row[3]),
+                    "supplierName": _clean_text(row[4]),
+                    "inviteStatus": _clean_text(row[5]) or "OPEN",
+                    "inviteAt": row[6].isoformat() if row[6] else None,
+                    "updatedAt": row[7].isoformat() if row[7] else None,
+                    "bidId": int(row[8]) if row[8] is not None else None,
+                    "bidStatus": _clean_text(row[9]),
+                }
+            )
+        return out
+    finally:
+        con.close()
+
+
 def _normalize_bid_lines(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
     for row in lines:

@@ -65,6 +65,7 @@ from utils.procurement_bidding import (
     get_supplier_bid_snapshot,
     get_transfer_gate_state,
     list_bids_for_request,
+    list_invited_suppliers_for_request,
     list_supplier_invitations,
     map_approved_bid_suppliers_by_request_ids,
     map_awarded_suppliers_by_request_ids,
@@ -5744,6 +5745,20 @@ def api_admin_create_bidding_invitations():
     except Exception as exc:
         print(f"[PROCUREMENT BIDDING INVITE] error: {exc}", flush=True)
         traceback.print_exc()
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
+@app.route('/api/admin/procurement/purchase-requests/<int:request_id>/invitations', methods=['GET'])
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_list_request_invitations(request_id):
+    """List invited suppliers for one purchase request."""
+    try:
+        rows = list_invited_suppliers_for_request(int(request_id))
+        return jsonify({'success': True, 'data': rows, 'count': len(rows)})
+    except BiddingValidationError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+    except Exception as exc:
+        print(f"[PROCUREMENT BIDDING INVITES LIST] error: {exc}", flush=True)
         return jsonify({'success': False, 'error': str(exc)}), 500
 
 
