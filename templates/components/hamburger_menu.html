@@ -21,33 +21,17 @@
         {% endif %}
 
         {% if perm_purchase_menu %}
-        <div class="menu-item-with-submenu">
-            <a href="#" onclick="toggleSubmenu(event, 'admin-purchase-submenu')" class="has-submenu">
-                Purchase <span class="submenu-arrow">›</span>
-            </a>
-            <div class="submenu" id="admin-purchase-submenu">
-                <a href="/admin/procurement?tab=report">Dashboard</a>
-                <a href="/admin/procurement?tab=create">Create e-Purchase Request</a>
-                <a href="/admin/procurement?tab=view">View e-Purchase Request</a>
-                <a href="/admin/procurement/bidding">Supplier Bidding</a>
-            </div>
-        </div>
+        <a href="/admin/procurement?tab=report">Purchase Dashboard</a>
+        <a href="/admin/procurement?tab=create">Create e-Purchase Request</a>
+        <a href="/admin/procurement?tab=view">View e-Purchase Request</a>
+        <a href="/admin/procurement/bidding">Supplier Bidding</a>
         {% endif %}
 
-        {% if not is_supplier and (perm_create_quotation or perm_view_quotation_ui) %}
-        <div class="menu-item-with-submenu">
-            <a href="#" onclick="toggleSubmenu(event, 'quotation-submenu')" class="has-submenu">
-                Quotation <span class="submenu-arrow">›</span>
-            </a>
-            <div class="submenu" id="quotation-submenu">
-                {% if perm_create_quotation %}
-                <a href="/create-quotation" id="menu-create-quotation">Create Quotation</a>
-                {% endif %}
-                {% if perm_view_quotation_ui %}
-                <a href="{{ view_quotation_href }}">View Quotation</a>
-                {% endif %}
-            </div>
-        </div>
+        {% if not is_supplier and perm_create_quotation %}
+        <a href="/create-quotation" id="menu-create-quotation">Create Quotation</a>
+        {% endif %}
+        {% if not is_supplier and perm_view_quotation_ui %}
+        <a href="{{ view_quotation_href }}">View Quotation</a>
         {% endif %}
 
         {% if is_supplier %}

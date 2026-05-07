@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="/static/css/app_page_header.css">
     <link rel="stylesheet" href="/static/css/orderQuotation.css">
     <link rel="stylesheet" href="/static/css/adminViewQuotations.css?v=20260430">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr61">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr65_hide_orientation">
 </head>
 <body class="procurement-warm-ui{% if perm_hide_pr_transfer | default(false) %} procurement-hide-transfer{% endif %}{% if perm_hide_pr_approval_edits | default(false) %} procurement-hide-pr-approval-edits{% endif %}">
 
@@ -97,10 +97,20 @@
                                                                     <span>Last Cutoff Date</span>
                                                                     <input type="date" id="stock-card-from-date" />
                                                                 </label>
-                                                                <div class="location-filter-actions">
+                                                                <div class="location-filter-actions location-filter-actions--with-search">
+                                                                    <div class="stock-card-item-search-wrap">
+                                                                        <label class="stock-card-item-search-label" for="stock-card-item-search">Item code</label>
+                                                                        <input
+                                                                            type="search"
+                                                                            id="stock-card-item-search"
+                                                                            class="stock-card-item-search-input view-pr-search-input"
+                                                                            placeholder="Filter Item Code..."
+                                                                            autocomplete="off"
+                                                                            oninput="onStockCardItemSearchInput(this.value)"
+                                                                        />
+                                                                    </div>
                                                                     <button type="button" class="view-pr-refresh-btn" onclick="applyStockCardDateFilter()">Apply Cutoff</button>
                                                                     <button type="button" class="view-pr-refresh-btn" onclick="clearStockCardDateFilter()">Clear Cutoff</button>
-                                                                    <button type="button" id="stock-card-sync-suom-btn" class="view-pr-refresh-btn" onclick="syncStXtransSuomFromStockTr()" title="Copy ST_TR.UDF_SUOMQTY onto ST_XTRANS.SUOMQTY (TODOC* match); use after SO→DO if numbers lag">Sync ST UOM → transfers</button>
                                                                     <button type="button" class="location-buy-btn" onclick="goToCreateProcurement()">New e-Purchase Request</button>
                                                                 </div>
                                                             </div>
@@ -129,9 +139,6 @@
                                                     </tr>
                                                 </tbody>
                                             </table>
-                                        </div>
-                                        <div class="stock-card-scrollbar-wrap" id="stock-card-scrollbar-wrap">
-                                            <div class="stock-card-scrollbar" id="stock-card-scrollbar"></div>
                                         </div>
                                     </div>
                                     <div class="stock-dashboard-breakdown-pane">
@@ -469,33 +476,36 @@
     </div>
 
     <script>
-        function syncStockCardScrollbar() {
-            const table = document.getElementById('stock-card-table');
-            const tableWrap = document.getElementById('stock-card-table-wrap');
-            const scrollbarWrap = document.getElementById('stock-card-scrollbar-wrap');
-            const scrollbar = document.getElementById('stock-card-scrollbar');
-            if (!table || !tableWrap || !scrollbarWrap || !scrollbar) return;
-
-            // Match dummy scroller width with actual table width.
-            scrollbar.style.width = Math.max(table.scrollWidth, tableWrap.clientWidth) + 'px';
-
-            const syncFromTop = () => {
-                tableWrap.scrollLeft = scrollbarWrap.scrollLeft;
-            };
-            const syncFromTable = () => {
-                scrollbarWrap.scrollLeft = tableWrap.scrollLeft;
-            };
-
-            scrollbarWrap.onscroll = syncFromTop;
-            tableWrap.onscroll = syncFromTable;
-            syncFromTable();
-        }
+        const STOCK_CARD_VISIBLE_BODY_ROWS = 10;
 
         function afterStockCardTableRender() {
             setTimeout(() => {
-                syncStockCardScrollbar();
                 syncStockCardHeaderStickyOffset();
+                syncStockCardTableWrapMaxHeight();
             }, 0);
+        }
+
+        /** Limit vertical viewport to ~10 data rows so the vertical scrollbar appears when there are more items. */
+        function syncStockCardTableWrapMaxHeight() {
+            const wrap = document.getElementById('stock-card-table-wrap');
+            const tbody = document.getElementById('stock-card-table-body');
+            const thead = document.getElementById('stock-card-table-head');
+            if (!wrap || !tbody || !thead) return;
+            const dataRow = Array.from(tbody.querySelectorAll('tr')).find((tr) => {
+                const codeTd = tr.querySelector('td.code-col');
+                if (!codeTd) return false;
+                if (tr.querySelector('td.stock-card-status')) return false;
+                if (codeTd.classList.contains('stock-card-no-cols-msg')) return false;
+                return true;
+            });
+            if (!dataRow || dataRow.offsetHeight < 8) {
+                wrap.style.removeProperty('max-height');
+                return;
+            }
+            const rowH = dataRow.offsetHeight;
+            const theadH = thead.offsetHeight || 0;
+            const fudge = 6;
+            wrap.style.maxHeight = `${theadH + STOCK_CARD_VISIBLE_BODY_ROWS * rowH + fudge}px`;
         }
 
         /** Two-row thead: set --stock-card-hdr1-h to row1 height so sticky row2 has no visible seam/gap. */
@@ -516,6 +526,7 @@
         let reportLoaded = false;
         let stockCardVisibilityRefreshTimer = null;
         let stockCardRows = [];
+        let stockCardItemSearch = '';
         let stockCardStTrUdfSummary = null;
         let stockCardLocations = [];
         let selectedStockCardLocations = [];
@@ -557,12 +568,8 @@
         }
 
         function initStockDashboardLayout() {
-            let saved = 'vertical';
-            try {
-                saved = localStorage.getItem(STOCK_DASHBOARD_LAYOUT_LS) || 'vertical';
-            } catch (e) { /* ignore */ }
-            if (saved !== 'split' && saved !== 'vertical') saved = 'vertical';
-            applyStockDashboardLayout(saved);
+            // Orientation UI is hidden; always use vertical layout (ignore saved split).
+            applyStockDashboardLayout('vertical');
         }
 
         let stockCardBuySelections = {};
@@ -646,7 +653,25 @@
         }
 
         const STOCK_CARD_UOM_LS = 'procurementStockCardUomDisplay';
+        const STOCK_CARD_SELECTED_LOCATIONS_LS = 'procurementStockCardSelectedLocations';
         let stockCardUomDisplayMode = 'suom_only';
+
+        function persistStockCardSelectedLocations() {
+            try {
+                localStorage.setItem(STOCK_CARD_SELECTED_LOCATIONS_LS, JSON.stringify(selectedStockCardLocations));
+            } catch (e) { /* ignore */ }
+        }
+
+        function readPersistedStockCardLocations() {
+            try {
+                const raw = localStorage.getItem(STOCK_CARD_SELECTED_LOCATIONS_LS);
+                if (!raw) return null;
+                const arr = JSON.parse(raw);
+                return Array.isArray(arr) ? arr : null;
+            } catch (e) {
+                return null;
+            }
+        }
 
         function initStockCardUomDisplay() {
             try {
@@ -2207,11 +2232,13 @@
                 return;
             }
             selectedStockCardLocations.push(locationCode);
+            persistStockCardSelectedLocations();
             syncStockCardTable();
         }
 
         function removeLocationFilter(locationCode) {
             selectedStockCardLocations = selectedStockCardLocations.filter((code) => code !== locationCode);
+            persistStockCardSelectedLocations();
             syncStockCardTable();
         }
 
@@ -2376,11 +2403,22 @@
         }
 
 
+        function getStockCardFilteredRows() {
+            const q = String(stockCardItemSearch || '').trim().toLowerCase();
+            if (!q) return stockCardRows;
+            return (stockCardRows || []).filter((row) => String(row.code || '').toLowerCase().includes(q));
+        }
+
+        function onStockCardItemSearchInput(value) {
+            stockCardItemSearch = String(value || '');
+            syncStockCardTable();
+        }
+
         function syncStockCardTable() {
             renderStockColumnFilterPanel();
             renderLocationFilters();
             renderStockCardHeader(selectedStockCardLocations);
-            renderStockCardRows(stockCardRows, selectedStockCardLocations, stockCardStTrUdfSummary);
+            renderStockCardRows(getStockCardFilteredRows(), selectedStockCardLocations, stockCardStTrUdfSummary);
             setStockCardTableNoMetricColsClass();
             afterStockCardTableRender();
         }
@@ -2633,7 +2671,12 @@
             }
 
             if (!rows || !rows.length) {
-                tbody.innerHTML = `<tr><td colspan="${totalColumns}" class="stock-card-status">No stock items found.</td></tr>`;
+                const q = String(stockCardItemSearch || '').trim();
+                const emptyMsg =
+                    q && stockCardRows && stockCardRows.length
+                        ? 'No stock items match this code filter.'
+                        : 'No stock items found.';
+                tbody.innerHTML = `<tr><td colspan="${totalColumns}" class="stock-card-status">${escapeHtml(emptyMsg)}</td></tr>`;
                 return;
             }
 
@@ -2889,10 +2932,18 @@
                         ? selectedStockCardLocations.slice()
                         : [];
                     stockCardLocations = locations.slice();
+                    const locationSet = new Set(locations);
                     if (!reportLoaded) {
-                        selectedStockCardLocations = locations.slice();
+                        const persisted = readPersistedStockCardLocations();
+                        const persistedValid = Array.isArray(persisted)
+                            ? persisted.map((c) => String(c || '').trim()).filter(Boolean).filter((code) => locationSet.has(code))
+                            : [];
+                        if (persistedValid.length) {
+                            selectedStockCardLocations = persistedValid;
+                        } else {
+                            selectedStockCardLocations = locations.slice();
+                        }
                     } else {
-                        const locationSet = new Set(locations);
                         const preserved = previousSelected.filter((code) => locationSet.has(code));
                         // Keep an intentional empty selection; otherwise fall back to all when none remain valid.
                         if (!previousSelected.length) {
@@ -2901,6 +2952,7 @@
                             selectedStockCardLocations = preserved.length ? preserved : locations.slice();
                         }
                     }
+                    persistStockCardSelectedLocations();
                     stockCardRows = Array.isArray(payload.data) ? payload.data : [];
                     stockCardStTrUdfSummary = payload.st_tr_udf_suomqty && typeof payload.st_tr_udf_suomqty === 'object'
                         ? payload.st_tr_udf_suomqty
@@ -2924,27 +2976,6 @@
 
         function applyStockCardDateFilter() {
             loadStockCardRows();
-        }
-
-        async function syncStXtransSuomFromStockTr() {
-            const btn = document.getElementById('stock-card-sync-suom-btn');
-            if (btn) btn.disabled = true;
-            try {
-                const res = await fetch('/api/admin/procurement/sync-st-xtrans-suomqty', {
-                    method: 'POST',
-                    cache: 'no-store',
-                    headers: { Accept: 'application/json' },
-                });
-                const data = await res.json().catch(() => ({}));
-                if (!res.ok || !data.success) {
-                    throw new Error((data && data.error) || res.statusText || 'Sync failed');
-                }
-                loadStockCardRows();
-            } catch (err) {
-                alert(err && err.message ? err.message : 'Sync failed');
-            } finally {
-                if (btn) btn.disabled = false;
-            }
         }
 
         function clearStockCardDateFilter() {
@@ -3549,17 +3580,31 @@
                 }
 
                 const requestNumber = data.data && data.data.requestNumber ? data.data.requestNumber : 'N/A';
-                const msg = status === 'SUBMITTED'
-                    ? `Purchase request submitted successfully. Request Number: ${requestNumber}`
-                    : `Draft saved successfully. Request Number: ${requestNumber}`;
-                showPurchaseRequestMessage(msg, 'success');
-                document.getElementById('pr-request-number').value = requestNumber;
-                // Reset multi-supplier picker
-                selectedSuppliers = [];
-                _renderChips();
-                loadStockCardRows();
-                loadViewPurchaseRequests(true);
-                loadNextPurchaseRequestNumber();
+
+                if (String(status || '').toUpperCase() === 'SUBMITTED') {
+                    document.getElementById('pr-request-number').value = requestNumber;
+                    selectedSuppliers = [];
+                    _renderChips();
+                    await loadViewPurchaseRequests(true);
+                    initPurchaseRequestForm();
+                    showTab('view');
+                    try {
+                        const url = new URL(window.location.href);
+                        url.searchParams.set('tab', 'view');
+                        history.replaceState({}, '', url);
+                    } catch (e) { /* ignore */ }
+                    loadStockCardRows();
+                    alert(`Purchase request submitted successfully.\n\nRequest number: ${requestNumber}`);
+                } else {
+                    const msg = `Draft saved successfully. Request Number: ${requestNumber}`;
+                    showPurchaseRequestMessage(msg, 'success');
+                    document.getElementById('pr-request-number').value = requestNumber;
+                    selectedSuppliers = [];
+                    _renderChips();
+                    loadStockCardRows();
+                    loadViewPurchaseRequests(true);
+                    loadNextPurchaseRequestNumber();
+                }
             } catch (error) {
                 showPurchaseRequestMessage(error.message || 'Failed to submit purchase request.', 'error');
             } finally {

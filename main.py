@@ -8,6 +8,7 @@ import time
 from functools import wraps
 from datetime import datetime, timedelta
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import re
 import random
 import string
@@ -20,6 +21,7 @@ import openai
 import requests
 from dotenv import load_dotenv
 from db_initializer import initialize_database, sync_st_xtrans_suomqty_from_st_tr_udf
+from utils.ttl_cache import sql_api_master_cache
 from api.services.local_customer_sync import LocalCustomerSyncRequest, sync_local_customer_fields
 
 # Import utility modules
@@ -958,8 +960,15 @@ def _build_sql_api_auth_headers():
     return {}
 
 
-def _fetch_all_customers_from_sql_api():
-    """Fetch all customers from SQL API /customer with pagination."""
+def _sql_api_master_cache_ttl_seconds() -> float:
+    try:
+        return float((os.getenv('SQL_API_MASTER_CACHE_TTL_SECONDS') or '600').strip())
+    except ValueError:
+        return 600.0
+
+
+def _fetch_all_customers_from_sql_api_uncached():
+    """Fetch all customers from SQL API /customer with pagination (no cache)."""
     api_url = f"{FASTAPI_BASE_URL}/customer"
     headers = _build_sql_api_auth_headers()
     offset = 0
@@ -1007,6 +1016,27 @@ def _fetch_all_customers_from_sql_api():
             break
 
     return all_customers
+
+
+def _fetch_all_customers_from_sql_api():
+    """Fetch all customers; uses in-process TTL cache to avoid repeated paginated API walks."""
+    ttl = _sql_api_master_cache_ttl_seconds()
+    return sql_api_master_cache.get_or_load(
+        ('sql_api', 'customer', 'all_v1'),
+        _fetch_all_customers_from_sql_api_uncached,
+        ttl_seconds=ttl,
+    )
+
+
+@app.route('/api/admin/diagnostics/http_cache', methods=['GET'])
+@api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
+def api_admin_http_cache_diagnostics():
+    """In-process master-data cache hit/miss (and TTL) for operators."""
+    return jsonify({
+        'success': True,
+        'sql_api_master_cache': sql_api_master_cache.snapshot_stats(),
+        'master_cache_ttl_seconds': _sql_api_master_cache_ttl_seconds(),
+    })
 
 
 @app.route('/api/admin/customer_status_summary', methods=['GET'])
@@ -2735,17 +2765,16 @@ def admin_update_order():
         if not status_data.get('success'):
             return jsonify({'success': False, 'error': status_data.get('error', 'Failed to update order status')}), 500
 
-        for item in items:
+        def _post_order_line_update(item):
+            """Single line insert/update via PHP bridge (runs in thread pool)."""
             item_payload = {
                 'orderid': item.get('orderid', orderid),
                 'description': item.get('description', ''),
                 'qty': item.get('qty', 0),
                 'unitprice': item.get('unitprice', 0),
-                'discount': item.get('discount', 0)
+                'discount': item.get('discount', 0),
             }
-
             item_orderdtlid = int(item.get('orderdtlid') or 0)
-
             if item_orderdtlid > 0:
                 item_payload['orderdtlid'] = item_orderdtlid
                 endpoint_path = ENDPOINT_PATHS['updateorderdetail']
@@ -2761,9 +2790,17 @@ def admin_update_order():
                     f"{BASE_API_URL}{endpoint_path}",
                     json=item_payload,
                 )
-
             if not item_data.get('success'):
-                return jsonify({'success': False, 'error': item_data.get('error', 'Failed to update order item')}), 500
+                return item_data.get('error', 'Failed to update order item')
+            return None
+
+        if items:
+            workers = min(8, len(items))
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                errors = list(pool.map(_post_order_line_update, items))
+            first_err = next((e for e in errors if e), None)
+            if first_err:
+                return jsonify({'success': False, 'error': first_err}), 500
 
         return jsonify({'success': True, 'message': 'Order updated successfully'}), 200
     except requests.exceptions.RequestException as e:
@@ -3548,7 +3585,12 @@ def api_admin_procurement_locations():
 @app.route('/api/admin/procurement/stock-card')
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_procurement_stock_card():
-    """Return stock card table rows for procurement overall report."""
+    """Return stock card table rows for procurement overall report.
+
+    Before querying, re-applies ST_TR.UDF_SUOMQTY → ST_XTRANS.SUOMQTY (same as
+    ``/api/admin/procurement/sync-st-xtrans-suomqty``) so the dashboard does not
+    need a manual sync.
+    """
     raw_from_date = (request.args.get('from_date') or '').strip()
     raw_to_date = (request.args.get('to_date') or '').strip()
     qty_mode = (request.args.get('qty_mode') or 'SQTY').strip().upper()
@@ -3572,6 +3614,14 @@ def api_admin_procurement_stock_card():
     cur = None
     try:
         con = get_db_connection()
+        # Keep ST_XTRANS.SUOMQTY aligned with ST_TR.UDF_SUOMQTY before reading the report (same as POST sync endpoint).
+        ok_sync = sync_st_xtrans_suomqty_from_st_tr_udf(con)
+        if not ok_sync:
+            print(
+                '[PROCUREMENT STOCK CARD] ST_TR→ST_XTRANS SUOMQTY sync skipped or failed '
+                '(dashboard still loads; see DB init warnings).',
+                flush=True,
+            )
         cur = con.cursor()
         locations, data = fetch_procurement_stock_card_data(
             cur, from_date=from_date, to_date=to_date, qty_mode=qty_mode
@@ -3589,6 +3639,7 @@ def api_admin_procurement_stock_card():
             'locations': locations,
             'data': data,
             'st_tr_udf_suomqty': st_tr_udf_suomqty,
+            'suomqty_sync_applied': ok_sync,
         })
     except Exception as e:
         print(f"[PROCUREMENT STOCK CARD] DB error: {e}", flush=True)

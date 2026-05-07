@@ -1,14 +1,39 @@
 """FastAPI application entry point."""
+import logging
 import os
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 
 # Load project-root .env (same pattern as main.py), regardless of current working directory
 _env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(dotenv_path=_env_path, override=True)
+
+_api_timing_logger = logging.getLogger("eq.api.timing")
+_slow_route_ms = float((os.getenv("EQ_API_SLOW_MS") or "1000").strip() or "1000")
+_log_all_routes = (os.getenv("EQ_API_LOG_ALL_MS", "") or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+class TimingMiddleware(BaseHTTPMiddleware):
+    """Log request duration; warn when slower than EQ_API_SLOW_MS (default 1000)."""
+
+    async def dispatch(self, request: Request, call_next):
+        t0 = time.perf_counter()
+        response = await call_next(request)
+        ms = (time.perf_counter() - t0) * 1000.0
+        path = request.url.path
+        if _log_all_routes or ms >= _slow_route_ms:
+            line = f"{request.method} {path} -> {getattr(response, 'status_code', '?')} in {ms:.0f}ms"
+            if ms >= _slow_route_ms:
+                _api_timing_logger.warning("slow %s", line)
+            else:
+                _api_timing_logger.info("%s", line)
+        return response
 
 # Import routes
 from api.routes import health, customers, debug, local_customers, auth, dashboard, suppliers, purchase_requests
@@ -30,6 +55,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(TimingMiddleware)
 
 # Include routes
 app.include_router(health.router)

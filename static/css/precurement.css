@@ -252,42 +252,6 @@ body {
     color: #fff;
 }
 
-.stock-card-scrollbar-wrap {
-    width: 100%;
-    overflow-x: auto;
-    overflow-y: hidden;
-    height: 18px;
-    margin-bottom: 2px;
-    background: #1f2533;
-    border: 1px solid #343b46;
-    border-radius: 8px 8px 0 0;
-    box-sizing: border-box;
-    scrollbar-color: #343b46 #23293a;
-    scrollbar-width: thin;
-}
-
-.stock-card-scrollbar {
-    height: 16px;
-    min-width: 100%;
-    background: transparent;
-}
-
-.stock-card-scrollbar-wrap::-webkit-scrollbar {
-    height: 12px;
-    background: #23293a;
-    border-radius: 8px;
-}
-
-.stock-card-scrollbar-wrap::-webkit-scrollbar-thumb {
-    background: #343b46;
-    border-radius: 8px;
-    border: 2px solid #1f2533;
-}
-
-.stock-card-scrollbar-wrap::-webkit-scrollbar-thumb:hover {
-    background: #4b6e9e;
-}
-
 .stock-card-table-wrap {
     background: #1f2533;
     border: 1px solid #343b46;
@@ -296,11 +260,12 @@ body {
     max-width: 100%;
     overflow-x: auto;
     overflow-y: auto;
-    max-height: min(420px, calc(100dvh - 240px));
+    /* max-height set from JS to ~10 body rows so vertical scrollbar shows when there are more items */
     box-sizing: border-box;
     padding: 0;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
+    scrollbar-color: #4a5568 #23293a;
+    scrollbar-width: thin;
+    -ms-overflow-style: scrollbar;
 }
 
 .stock-card-table-wrap::-webkit-scrollbar {
@@ -468,13 +433,71 @@ body.procurement-hide-pr-approval-edits .view-pr-approved-cell input[type="check
     min-width: 0;
 }
 
+/* Orientation (Vertical / Split) controls hidden; layout stays vertical (see precurement.html init). */
+#stock-report-orientation-group {
+    display: none !important;
+}
+
 .location-filter-actions {
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-start;
+    align-items: center;
     gap: 6px;
     flex: 1 1 auto;
     min-width: 0;
+}
+
+.location-filter-actions--with-search .stock-card-item-search-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-right: auto;
+    min-width: min(220px, 100%);
+}
+
+.stock-card-item-search-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #b9c4d1;
+    letter-spacing: 0.02em;
+}
+
+body.procurement-warm-ui .stock-card-item-search-label {
+    color: #6b5a45;
+}
+
+.stock-card-item-search-input {
+    min-width: 12rem;
+    max-width: 22rem;
+    width: 100%;
+}
+
+/* Stock dashboard item-code filter: warm theme (overrides dark .view-pr-search-input on same element) */
+body.procurement-warm-ui .stock-card-item-search-input {
+    height: 32px;
+    border: 1px solid #dccfb8;
+    border-radius: 8px;
+    background: linear-gradient(180deg, #fffef9 0%, #fffaf0 100%);
+    color: #3d2e20;
+    padding: 6px 10px;
+    font-size: 13px;
+    box-sizing: border-box;
+    box-shadow: inset 0 1px 2px rgba(42, 36, 27, 0.05);
+}
+
+body.procurement-warm-ui .stock-card-item-search-input::placeholder {
+    color: #9a8a78;
+    opacity: 1;
+}
+
+body.procurement-warm-ui .stock-card-item-search-input:focus {
+    outline: none;
+    border-color: #c9a86a;
+    background: #fffef9;
+    box-shadow:
+        0 0 0 2px rgba(201, 168, 106, 0.28),
+        inset 0 1px 2px rgba(42, 36, 27, 0.04);
 }
 
 .stock-card-uom-toggle {
@@ -3025,30 +3048,12 @@ body.procurement-warm-ui .need-buy-td.need-buy-selected .need-buy-qty-input {
     border-color: rgba(15, 109, 63, 0.45) !important;
 }
 
-body.procurement-warm-ui .stock-card-scrollbar-wrap {
-    background: #faf6ee;
-    border: 1px solid #dccfb8;
-    scrollbar-color: #c9a86a #faf6ee;
-}
-
-body.procurement-warm-ui .stock-card-scrollbar-wrap::-webkit-scrollbar {
-    background: #faf6ee;
-}
-
-body.procurement-warm-ui .stock-card-scrollbar-wrap::-webkit-scrollbar-thumb {
-    background: #c9a86a;
-    border-color: #faf6ee;
-}
-
-body.procurement-warm-ui .stock-card-scrollbar-wrap::-webkit-scrollbar-thumb:hover {
-    background: #b6812f;
-}
-
 body.procurement-warm-ui .stock-card-table-wrap {
     background: #fffef9;
     border: 1px solid #dccfb8;
     border-radius: 12px;
     box-shadow: 0 2px 14px rgba(42, 36, 27, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+    scrollbar-color: #c9a86a #f4ead8;
 }
 
 body.procurement-warm-ui .stock-card-table-wrap::-webkit-scrollbar-thumb {
