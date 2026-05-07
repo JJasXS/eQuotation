@@ -322,6 +322,27 @@ def _fetch_metric_detail_rows(cur: Any, sql: str, params: tuple[Any, ...]) -> li
     return details
 
 
+def _fetch_metric_detail_net_pair_rows(cur: Any, sql: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
+    """Document-line breakdown with parallel SQ and SUOM outstanding (net of ST_XTRANS)."""
+    cur.execute(sql, params)
+    rows = cur.fetchall() or []
+
+    details: list[dict[str, Any]] = []
+    for row in rows:
+        details.append(
+            {
+                "docno": _stringify(_row_value(row, 0)),
+                "docdate": _format_date(_row_value(row, 1)),
+                "party": _stringify(_row_value(row, 2)),
+                "remarks": _stringify(_row_value(row, 3)),
+                "outstanding_sqty": _to_float(_row_value(row, 4)),
+                "outstanding_suomqty": _to_float(_row_value(row, 5)),
+            }
+        )
+
+    return details
+
+
 def _sql_coalesce_chain_from_columns(
     table_alias: str,
     column_set: set[str],
@@ -694,20 +715,19 @@ def fetch_procurement_metric_breakdown(
     if metric_key == "suom_qty":
         metric_key = "qty"
         qty_mode = "SUOMQTY"
-    use_suom = _clean_str(qty_mode).upper() == "SUOMQTY"
-    uom = _uom_expressions_for_breakdown(cur, use_suom)
+    qty_upper = _clean_str(qty_mode).upper()
+    use_suom = qty_upper == "SUOMQTY"
 
-    def _breakdown_outstanding_note(from_doctype: str) -> str:
+    def _breakdown_parallel_sq_su_note(from_doctype: str) -> str:
         suf = " Filtered by order date if a report cutoff is set."
         type_hint = {
-            "SO": "FROMDOCTYPE SO or SL_SO",
-            "PO": "FROMDOCTYPE PO or PH_PO",
-            "JO": "FROMDOCTYPE JO or PD_JO",
+            "SO": "FROMDOCTYPE SO",
+            "PO": "FROMDOCTYPE PO",
+            "JO": "FROMDOCTYPE JO",
         }.get(from_doctype, f"FROMDOCTYPE={from_doctype}")
-        if use_suom:
-            return f"Outstanding = detail SUOMQTY minus sum(ST_XTRANS.SUOMQTY) ({type_hint})." + suf
         return (
-            f"Outstanding = detail SQTY/QTY (priority) minus sum(ST_XTRANS SQ stack) ({type_hint})." + suf
+            f"Parallel SQTY and SUOMQTY outstanding per line (document qty minus ST_XTRANS moves; {type_hint})."
+            + suf
         )
 
     def _m_out(key: str) -> str:
@@ -724,138 +744,186 @@ def fetch_procurement_metric_breakdown(
     date_filter, date_params = _docdate_filter_sql(from_date, to_date)
 
     if metric_key == "so_qty":
-        d_exp = uom["so_d"]
-        x_exp = uom["x"]
-        so_sql = f"""
+        usq = _uom_expressions_for_breakdown(cur, False)
+        usu = _uom_expressions_for_breakdown(cur, True)
+        d_sq, x_sq = usq["so_d"], usq["x"]
+        d_su, x_su = usu["so_d"], usu["x"]
+        so_sql_both = f"""
             SELECT
-                H.DOCNO,
-                H.DOCDATE,
-                H.COMPANYNAME,
-                D.DESCRIPTION,
-                MAX(CAST(({d_exp}) AS DOUBLE PRECISION)) AS TOTAL_QTY,
-                CAST(COALESCE(SUM(CAST({x_exp} AS DOUBLE PRECISION)), 0) AS DOUBLE PRECISION) AS MOVED_QTY,
-                CAST(
-                    MAX(CAST(({d_exp}) AS DOUBLE PRECISION))
-                    - COALESCE(SUM(CAST({x_exp} AS DOUBLE PRECISION)), 0)
-                    AS DOUBLE PRECISION
-                ) AS OUTSTANDING_QTY
-            FROM SL_SODTL D
-            JOIN SL_SO H
-              ON H.DOCKEY = D.DOCKEY
-            LEFT JOIN ST_XTRANS X
-              ON ({_ST_XTRANS_FROM_SO_SQL})
-             AND X.FROMDOCKEY = D.DOCKEY
-             AND X.FROMDTLKEY = D.DTLKEY
-            WHERE D.ITEMCODE = ?
-              AND D.LOCATION = ?
-            {date_filter}
-            GROUP BY H.DOCKEY, D.DTLKEY, H.DOCNO, H.DOCDATE, H.COMPANYNAME, D.DESCRIPTION
-            HAVING
-                (MAX(CAST(({d_exp}) AS DOUBLE PRECISION))
-                - COALESCE(SUM(CAST({x_exp} AS DOUBLE PRECISION)), 0)) > 0
-            ORDER BY H.DOCDATE DESC, H.DOCNO DESC
+                Q.DOCNO,
+                Q.DOCDATE,
+                Q.COMPANYNAME,
+                Q.REMS,
+                Q.OSQ,
+                Q.OSU
+            FROM (
+                SELECT
+                    H.DOCNO,
+                    H.DOCDATE,
+                    H.COMPANYNAME,
+                    D.DESCRIPTION AS REMS,
+                    CAST(
+                        MAX(CAST(({d_sq}) AS DOUBLE PRECISION))
+                        - COALESCE(SUM(CAST(({x_sq}) AS DOUBLE PRECISION)), 0)
+                        AS DOUBLE PRECISION
+                    ) AS OSQ,
+                    CAST(
+                        MAX(CAST(({d_su}) AS DOUBLE PRECISION))
+                        - COALESCE(SUM(CAST(({x_su}) AS DOUBLE PRECISION)), 0)
+                        AS DOUBLE PRECISION
+                    ) AS OSU
+                FROM SL_SODTL D
+                JOIN SL_SO H
+                  ON H.DOCKEY = D.DOCKEY
+                LEFT JOIN ST_XTRANS X
+                  ON ({_ST_XTRANS_FROM_SO_SQL})
+                 AND X.FROMDOCKEY = D.DOCKEY
+                 AND X.FROMDTLKEY = D.DTLKEY
+                WHERE D.ITEMCODE = ?
+                  AND D.LOCATION = ?
+                {date_filter}
+                GROUP BY H.DOCKEY, D.DTLKEY, H.DOCNO, H.DOCDATE, H.COMPANYNAME, D.DESCRIPTION
+            ) Q
+            WHERE Q.OSQ > 0 OR Q.OSU > 0
+            ORDER BY Q.DOCDATE DESC, Q.DOCNO DESC
             """
-        params_so = (item, location) + date_params
-        rows = _fetch_metric_detail_rows(cur, so_sql, params_so)
+        params_so_both = (item, location) + date_params
+        rows_both = _fetch_metric_detail_net_pair_rows(cur, so_sql_both, params_so_both)
+        sum_sq = sum(_to_float(r.get("outstanding_sqty")) for r in rows_both)
+        sum_su = sum(_to_float(r.get("outstanding_suomqty")) for r in rows_both)
         return {
             "metric": _m_out("so_qty"),
             "title": "S.O Qty Breakdown",
             "item_code": item,
             "location": location,
-            "rows": rows,
+            "breakdown_style": "doc_net_pair",
+            "rows": rows_both,
             "summary": {
-                "value": sum(_to_float(row.get("outstanding_qty")) for row in rows),
-                "note": _breakdown_outstanding_note("SO"),
+                "value": sum_sq,
+                "value_su": sum_su,
+                "note": _breakdown_parallel_sq_su_note("SO"),
             },
         }
 
     if metric_key == "po_qty":
-        d_exp = uom["po_d"]
-        x_exp = uom["x"]
-        po_sql = f"""
+        usq = _uom_expressions_for_breakdown(cur, False)
+        usu = _uom_expressions_for_breakdown(cur, True)
+        d_sq, x_sq = usq["po_d"], usq["x"]
+        d_su, x_su = usu["po_d"], usu["x"]
+        po_sql_both = f"""
             SELECT
-                H.DOCNO,
-                H.DOCDATE,
-                H.COMPANYNAME,
-                D.DESCRIPTION,
-                MAX(CAST(({d_exp}) AS DOUBLE PRECISION)) AS TOTAL_QTY,
-                CAST(COALESCE(SUM(CAST({x_exp} AS DOUBLE PRECISION)), 0) AS DOUBLE PRECISION) AS MOVED_QTY,
-                CAST(
-                    MAX(CAST(({d_exp}) AS DOUBLE PRECISION))
-                    - COALESCE(SUM(CAST({x_exp} AS DOUBLE PRECISION)), 0)
-                    AS DOUBLE PRECISION
-                ) AS OUTSTANDING_QTY
-            FROM PH_PODTL D
-            JOIN PH_PO H
-              ON H.DOCKEY = D.DOCKEY
-            LEFT JOIN ST_XTRANS X
-              ON ({_ST_XTRANS_FROM_PO_SQL})
-             AND X.FROMDOCKEY = D.DOCKEY
-             AND X.FROMDTLKEY = D.DTLKEY
-            WHERE D.ITEMCODE = ?
-              AND D.LOCATION = ?
-            {date_filter}
-            GROUP BY H.DOCKEY, D.DTLKEY, H.DOCNO, H.DOCDATE, H.COMPANYNAME, D.DESCRIPTION
-            HAVING
-                (MAX(CAST(({d_exp}) AS DOUBLE PRECISION))
-                - COALESCE(SUM(CAST({x_exp} AS DOUBLE PRECISION)), 0)) > 0
-            ORDER BY H.DOCDATE DESC, H.DOCNO DESC
+                Q.DOCNO,
+                Q.DOCDATE,
+                Q.COMPANYNAME,
+                Q.REMS,
+                Q.OSQ,
+                Q.OSU
+            FROM (
+                SELECT
+                    H.DOCNO,
+                    H.DOCDATE,
+                    H.COMPANYNAME,
+                    D.DESCRIPTION AS REMS,
+                    CAST(
+                        MAX(CAST(({d_sq}) AS DOUBLE PRECISION))
+                        - COALESCE(SUM(CAST(({x_sq}) AS DOUBLE PRECISION)), 0)
+                        AS DOUBLE PRECISION
+                    ) AS OSQ,
+                    CAST(
+                        MAX(CAST(({d_su}) AS DOUBLE PRECISION))
+                        - COALESCE(SUM(CAST(({x_su}) AS DOUBLE PRECISION)), 0)
+                        AS DOUBLE PRECISION
+                    ) AS OSU
+                FROM PH_PODTL D
+                JOIN PH_PO H
+                  ON H.DOCKEY = D.DOCKEY
+                LEFT JOIN ST_XTRANS X
+                  ON ({_ST_XTRANS_FROM_PO_SQL})
+                 AND X.FROMDOCKEY = D.DOCKEY
+                 AND X.FROMDTLKEY = D.DTLKEY
+                WHERE D.ITEMCODE = ?
+                  AND D.LOCATION = ?
+                {date_filter}
+                GROUP BY H.DOCKEY, D.DTLKEY, H.DOCNO, H.DOCDATE, H.COMPANYNAME, D.DESCRIPTION
+            ) Q
+            WHERE Q.OSQ > 0 OR Q.OSU > 0
+            ORDER BY Q.DOCDATE DESC, Q.DOCNO DESC
             """
-        rows = _fetch_metric_detail_rows(cur, po_sql, (item, location) + date_params)
+        rows_both = _fetch_metric_detail_net_pair_rows(cur, po_sql_both, (item, location) + date_params)
+        sum_sq = sum(_to_float(r.get("outstanding_sqty")) for r in rows_both)
+        sum_su = sum(_to_float(r.get("outstanding_suomqty")) for r in rows_both)
         return {
             "metric": _m_out("po_qty"),
             "title": "P.O Qty Breakdown",
             "item_code": item,
             "location": location,
-            "rows": rows,
+            "breakdown_style": "doc_net_pair",
+            "rows": rows_both,
             "summary": {
-                "value": sum(_to_float(row.get("outstanding_qty")) for row in rows),
-                "note": _breakdown_outstanding_note("PO"),
+                "value": sum_sq,
+                "value_su": sum_su,
+                "note": _breakdown_parallel_sq_su_note("PO"),
             },
         }
 
     if metric_key == "jo_qty":
-        d_exp = uom["jo_d"]
-        x_exp = uom["x"]
-        jo_sql = f"""
+        usq = _uom_expressions_for_breakdown(cur, False)
+        usu = _uom_expressions_for_breakdown(cur, True)
+        d_sq, x_sq = usq["jo_d"], usq["x"]
+        d_su, x_su = usu["jo_d"], usu["x"]
+        jo_sql_both = f"""
             SELECT
-                H.DOCNO,
-                H.DOCDATE,
-                H.DESCRIPTION,
-                D.DESCRIPTION,
-                MAX(CAST(({d_exp}) AS DOUBLE PRECISION)) AS TOTAL_QTY,
-                CAST(COALESCE(SUM(CAST({x_exp} AS DOUBLE PRECISION)), 0) AS DOUBLE PRECISION) AS MOVED_QTY,
-                CAST(
-                    MAX(CAST(({d_exp}) AS DOUBLE PRECISION))
-                    - COALESCE(SUM(CAST({x_exp} AS DOUBLE PRECISION)), 0)
-                    AS DOUBLE PRECISION
-                ) AS OUTSTANDING_QTY
-            FROM PD_JODTL D
-            JOIN PD_JO H
-              ON H.DOCKEY = D.DOCKEY
-            LEFT JOIN ST_XTRANS X
-              ON ({_ST_XTRANS_FROM_JO_SQL})
-             AND X.FROMDOCKEY = D.DOCKEY
-             AND X.FROMDTLKEY = D.DTLKEY
-            WHERE D.ITEMCODE = ?
-              AND D.LOCATION = ?
-            {date_filter}
-            GROUP BY H.DOCKEY, D.DTLKEY, H.DOCNO, H.DOCDATE, H.DESCRIPTION, D.DESCRIPTION
-            HAVING
-                (MAX(CAST(({d_exp}) AS DOUBLE PRECISION))
-                - COALESCE(SUM(CAST({x_exp} AS DOUBLE PRECISION)), 0)) > 0
-            ORDER BY H.DOCDATE DESC, H.DOCNO DESC
+                Q.DOCNO,
+                Q.DOCDATE,
+                Q.JDESC,
+                Q.DDESC,
+                Q.OSQ,
+                Q.OSU
+            FROM (
+                SELECT
+                    H.DOCNO,
+                    H.DOCDATE,
+                    H.DESCRIPTION AS JDESC,
+                    D.DESCRIPTION AS DDESC,
+                    CAST(
+                        MAX(CAST(({d_sq}) AS DOUBLE PRECISION))
+                        - COALESCE(SUM(CAST(({x_sq}) AS DOUBLE PRECISION)), 0)
+                        AS DOUBLE PRECISION
+                    ) AS OSQ,
+                    CAST(
+                        MAX(CAST(({d_su}) AS DOUBLE PRECISION))
+                        - COALESCE(SUM(CAST(({x_su}) AS DOUBLE PRECISION)), 0)
+                        AS DOUBLE PRECISION
+                    ) AS OSU
+                FROM PD_JODTL D
+                JOIN PD_JO H
+                  ON H.DOCKEY = D.DOCKEY
+                LEFT JOIN ST_XTRANS X
+                  ON ({_ST_XTRANS_FROM_JO_SQL})
+                 AND X.FROMDOCKEY = D.DOCKEY
+                 AND X.FROMDTLKEY = D.DTLKEY
+                WHERE D.ITEMCODE = ?
+                  AND D.LOCATION = ?
+                {date_filter}
+                GROUP BY H.DOCKEY, D.DTLKEY, H.DOCNO, H.DOCDATE, H.DESCRIPTION, D.DESCRIPTION
+            ) Q
+            WHERE Q.OSQ > 0 OR Q.OSU > 0
+            ORDER BY Q.DOCDATE DESC, Q.DOCNO DESC
             """
-        rows = _fetch_metric_detail_rows(cur, jo_sql, (item, location) + date_params)
+        rows_both_j = _fetch_metric_detail_net_pair_rows(cur, jo_sql_both, (item, location) + date_params)
+        sum_sq = sum(_to_float(r.get("outstanding_sqty")) for r in rows_both_j)
+        sum_su = sum(_to_float(r.get("outstanding_suomqty")) for r in rows_both_j)
         return {
             "metric": _m_out("jo_qty"),
             "title": "J.O Qty Breakdown",
             "item_code": item,
             "location": location,
-            "rows": rows,
+            "breakdown_style": "doc_net_pair",
+            "rows": rows_both_j,
             "summary": {
-                "value": sum(_to_float(row.get("outstanding_qty")) for row in rows),
-                "note": _breakdown_outstanding_note("JO"),
+                "value": sum_sq,
+                "value_su": sum_su,
+                "note": _breakdown_parallel_sq_su_note("JO"),
             },
         }
 
@@ -958,8 +1026,15 @@ def fetch_procurement_metric_breakdown(
                     "suomqty": 0.0,
                 }
             ]
-        summary_val = total_su if use_suom else total_sq
         bf_note = f" Filter: batch = {bf}." if bf else ""
+        summary_payload: dict[str, Any] = {
+            "value": total_sq,
+            "value_su": total_su,
+            "note": (
+                "One row per ST_TR line (SQTY & SUOMQTY); Σ SQTY and Σ SUOMQTY."
+                + bf_note
+            ),
+        }
         return {
             "metric": _m_out("avail_qty"),
             "title": "Avail.Qty Breakdown",
@@ -967,14 +1042,7 @@ def fetch_procurement_metric_breakdown(
             "location": location,
             "breakdown_style": "st_tr_qty_pair",
             "rows": details,
-            "summary": {
-                "value": summary_val,
-                "note": (
-                    f"One row per ST_TR line; repeated batch uses rowspan in the table. "
-                    f"Total = grid ({'SUOMQTY' if use_suom else 'SQTY'})."
-                    + bf_note
-                ),
-            },
+            "summary": summary_payload,
         }
 
     if metric_key == "pending_pr":
@@ -998,96 +1066,79 @@ def fetch_procurement_metric_breakdown(
         agg = _stock_card_aggregate_totals_for_item_location(
             cur, item, location, from_date, to_date
         )
-        use_suom_nb = _clean_str(qty_mode).upper() == "SUOMQTY"
-        if use_suom_nb:
-            avail_value = agg["avail_su"]
-            so_v = agg["so_o_su"]
-            po_v = agg["po_o_su"]
-            jo_v = agg["jo_o_su"]
-        else:
-            avail_value = agg["avail_sq"]
-            so_v = agg["so_o_sq"]
-            po_v = agg["po_o_sq"]
-            jo_v = agg["jo_o_sq"]
         pqdtl_cols_nb = _get_table_columns(cur, "PH_PQDTL")
         xtrans_cols_nb = _get_table_columns(cur, "ST_XTRANS")
-        if use_suom_nb:
-            pr_map = _fetch_pr_qty_map(
-                cur,
-                ["DRAFT", "SUBMITTED", "PENDING", "APPROVED", "ACTIVE"],
-                from_date,
-                to_date,
-                d_line_qty_expr=_doc_line_stock_qty_expr(pqdtl_cols_nb, "D"),
-                xtrans_moved_qty_expr=_xtrans_moved_qty_expr(xtrans_cols_nb, "X"),
-            )
-        else:
-            pr_map = _fetch_pr_qty_map(
-                cur,
-                ["DRAFT", "SUBMITTED", "PENDING", "APPROVED", "ACTIVE"],
-                from_date,
-                to_date,
-                d_line_qty_expr=_doc_line_sqty_priority_expr(pqdtl_cols_nb, "D"),
-                xtrans_moved_qty_expr=_xtrans_sqty_priority_expr(xtrans_cols_nb, "X"),
-            )
-        pending = _to_float((pr_map.get(item) or {}).get(location, 0))
-        procurement_balance = avail_value + po_v - so_v - jo_v
-        base_need = max(0.0, -procurement_balance)
-        need = max(0.0, base_need - pending)
+        pr_map_sq = _fetch_pr_qty_map(
+            cur,
+            ["DRAFT", "SUBMITTED", "PENDING", "APPROVED", "ACTIVE"],
+            from_date,
+            to_date,
+            d_line_qty_expr=_doc_line_sqty_priority_expr(pqdtl_cols_nb, "D"),
+            xtrans_moved_qty_expr=_xtrans_sqty_priority_expr(xtrans_cols_nb, "X"),
+        )
+        pr_map_su = _fetch_pr_qty_map(
+            cur,
+            ["DRAFT", "SUBMITTED", "PENDING", "APPROVED", "ACTIVE"],
+            from_date,
+            to_date,
+            d_line_qty_expr=_doc_line_stock_qty_expr(pqdtl_cols_nb, "D"),
+            xtrans_moved_qty_expr=_xtrans_moved_qty_expr(xtrans_cols_nb, "X"),
+        )
+        pending_sq = _to_float((pr_map_sq.get(item) or {}).get(location, 0))
+        pending_su = _to_float((pr_map_su.get(item) or {}).get(location, 0))
+        avail_sq = agg["avail_sq"]
+        avail_su = agg["avail_su"]
+        so_sq, so_su = agg["so_o_sq"], agg["so_o_su"]
+        po_sq, po_su = agg["po_o_sq"], agg["po_o_su"]
+        jo_sq, jo_su = agg["jo_o_sq"], agg["jo_o_su"]
+        procurement_balance_sq = avail_sq + po_sq - so_sq - jo_sq
+        procurement_balance_su = avail_su + po_su - so_su - jo_su
+        base_need_sq = max(0.0, -procurement_balance_sq)
+        base_need_su = max(0.0, -procurement_balance_su)
+        need_sq = max(0.0, base_need_sq - pending_sq)
+        need_su = max(0.0, base_need_su - pending_su)
         return {
             "metric": "need_to_buy",
             "title": "Need to buy breakdown",
             "item_code": item,
             "location": location,
+            "breakdown_style": "component_net_pair",
             "rows": [
                 {
                     "docno": "On hand (Avail.)",
-                    "docdate": None,
-                    "party": None,
                     "remarks": "Physical on-hand from ST_TR; document cutoff does not change this.",
-                    "total_qty": avail_value,
-                    "moved_qty": 0.0,
-                    "outstanding_qty": avail_value,
+                    "outstanding_sqty": avail_sq,
+                    "outstanding_suomqty": avail_su,
                 },
                 {
                     "docno": "P.O (incoming)",
-                    "docdate": None,
-                    "party": None,
                     "remarks": "Outstanding PO lines (ST_XTRANS net).",
-                    "total_qty": po_v,
-                    "moved_qty": 0.0,
-                    "outstanding_qty": po_v,
+                    "outstanding_sqty": po_sq,
+                    "outstanding_suomqty": po_su,
                 },
                 {
                     "docno": "S.O (demand)",
-                    "docdate": None,
-                    "party": None,
                     "remarks": "Outstanding SO lines.",
-                    "total_qty": so_v,
-                    "moved_qty": 0.0,
-                    "outstanding_qty": -so_v,
+                    "outstanding_sqty": -so_sq,
+                    "outstanding_suomqty": -so_su,
                 },
                 {
                     "docno": "J.O (demand)",
-                    "docdate": None,
-                    "party": None,
                     "remarks": "Outstanding JO lines.",
-                    "total_qty": jo_v,
-                    "moved_qty": 0.0,
-                    "outstanding_qty": -jo_v,
+                    "outstanding_sqty": -jo_sq,
+                    "outstanding_suomqty": -jo_su,
                 },
                 {
                     "docno": "Open e-PR",
-                    "docdate": None,
-                    "party": None,
                     "remarks": "Reserved on approved/pending purchase requests (PH_PQ, ST_XTRANS balance).",
-                    "total_qty": pending,
-                    "moved_qty": 0.0,
-                    "outstanding_qty": -pending,
+                    "outstanding_sqty": -pending_sq,
+                    "outstanding_suomqty": -pending_su,
                 },
             ],
             "summary": {
-                "value": need,
-                "note": "Need = max(0, (S.O + J.O - Avail - P.O)) minus open e-PR, aligned with the stock card shortfall row.",
+                "value": need_sq,
+                "value_su": need_su,
+                "note": "Need = max(0, (S.O + J.O − Avail − P.O)) minus open e-PR; parallel SQTY and SUOMQTY.",
             },
         }
 
@@ -1095,64 +1146,48 @@ def fetch_procurement_metric_breakdown(
         agg = _stock_card_aggregate_totals_for_item_location(
             cur, item, location, from_date, to_date
         )
-        if use_suom:
-            avail_value = agg["avail_su"]
-            so_value = agg["so_o_su"]
-            po_value = agg["po_o_su"]
-            jo_value = agg["jo_o_su"]
-        else:
-            avail_value = agg["avail_sq"]
-            so_value = agg["so_o_sq"]
-            po_value = agg["po_o_sq"]
-            jo_value = agg["jo_o_sq"]
-        qty_value = avail_value + po_value - so_value - jo_value
-
+        a_sq, a_su = agg["avail_sq"], agg["avail_su"]
+        so_sq, so_su = agg["so_o_sq"], agg["so_o_su"]
+        po_sq, po_su = agg["po_o_sq"], agg["po_o_su"]
+        jo_sq, jo_su = agg["jo_o_sq"], agg["jo_o_su"]
+        qty_sq = a_sq + po_sq - so_sq - jo_sq
+        qty_su = a_su + po_su - so_su - jo_su
         return {
             "metric": _m_out("qty"),
             "title": "SUOMQTY / Avail. Qty bridge" if original_metric == "suom_qty" else "Qty Breakdown",
             "item_code": item,
             "location": location,
+            "breakdown_style": "component_net_pair",
             "rows": [
                 {
                     "docno": "Avail.Qty",
-                    "docdate": None,
-                    "party": None,
                     "remarks": "ST_TR (on-hand); cutoff filters documents only, not physical stock.",
-                    "total_qty": avail_value,
-                    "moved_qty": 0,
-                    "outstanding_qty": avail_value,
+                    "outstanding_sqty": a_sq,
+                    "outstanding_suomqty": a_su,
                 },
                 {
                     "docno": "S.O Qty",
-                    "docdate": None,
-                    "party": None,
                     "remarks": "Outstanding sales orders (document minus ST_XTRANS from SO).",
-                    "total_qty": so_value,
-                    "moved_qty": 0,
-                    "outstanding_qty": -so_value,
+                    "outstanding_sqty": -so_sq,
+                    "outstanding_suomqty": -so_su,
                 },
                 {
                     "docno": "P.O Qty",
-                    "docdate": None,
-                    "party": None,
                     "remarks": "Outstanding purchase orders (deducted in the grid).",
-                    "total_qty": po_value,
-                    "moved_qty": 0,
-                    "outstanding_qty": po_value,
+                    "outstanding_sqty": po_sq,
+                    "outstanding_suomqty": po_su,
                 },
                 {
                     "docno": "J.O Qty",
-                    "docdate": None,
-                    "party": None,
                     "remarks": "Outstanding job orders.",
-                    "total_qty": jo_value,
-                    "moved_qty": 0,
-                    "outstanding_qty": -jo_value,
+                    "outstanding_sqty": -jo_sq,
+                    "outstanding_suomqty": -jo_su,
                 },
             ],
             "summary": {
-                "value": qty_value,
-                "note": "Qty = Avail + P.O − S.O − J.O (match stock card; uses SUOMQTY when that mode is on).",
+                "value": qty_sq,
+                "value_su": qty_su,
+                "note": "Qty = Avail + P.O − S.O − J.O; parallel SQTY and SUOMQTY.",
             },
         }
 

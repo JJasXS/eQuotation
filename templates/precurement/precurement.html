@@ -2838,10 +2838,48 @@
                     metric === 'avail_qty'
                     || style === 'st_tr'
                     || style === 'st_tr_qty_pair'
+                    || style === 'doc_net_pair'
+                    || style === 'component_net_pair'
                     || metric === 'qty'
                     || metric === 'suom_qty'
                     || metric === 'need_to_buy';
                 table.classList.toggle('stock-card-breakdown-table--compact', compact);
+            }
+
+            if (style === 'doc_net_pair') {
+                thead.innerHTML = '<tr><th scope="col">Doc No</th><th scope="col">Date</th><th scope="col">Company / Party</th><th scope="col">Remarks</th><th scope="col" class="stock-card-breakdown-num">Net (SQTY)</th><th scope="col" class="stock-card-breakdown-num">Net (SUOMQTY)</th></tr>';
+                if (!rows.length) {
+                    body.innerHTML = '<tr><td colspan="6" class="stock-card-status">No supporting records found.</td></tr>';
+                    return;
+                }
+                body.innerHTML = rows.map((row) => `
+                    <tr>
+                        <td>${escapeHtml(row.docno || '—')}</td>
+                        <td>${escapeHtml(row.docdate || '—')}</td>
+                        <td>${escapeHtml(row.party || '—')}</td>
+                        <td>${escapeHtml(row.remarks || '—')}</td>
+                        <td class="stock-card-breakdown-num">${formatStockCardNumber(row.outstanding_sqty)}</td>
+                        <td class="stock-card-breakdown-num">${formatStockCardNumber(row.outstanding_suomqty)}</td>
+                    </tr>
+                `).join('');
+                return;
+            }
+
+            if (style === 'component_net_pair') {
+                thead.innerHTML = '<tr><th scope="col">Component</th><th scope="col">Details</th><th scope="col" class="stock-card-breakdown-num">Net (SQTY)</th><th scope="col" class="stock-card-breakdown-num">Net (SUOMQTY)</th></tr>';
+                if (!rows.length) {
+                    body.innerHTML = '<tr><td colspan="4" class="stock-card-status">No data.</td></tr>';
+                    return;
+                }
+                body.innerHTML = rows.map((row) => `
+                    <tr>
+                        <td>${escapeHtml(row.docno || '—')}</td>
+                        <td>${escapeHtml(row.remarks || '—')}</td>
+                        <td class="stock-card-breakdown-num">${formatStockCardNumber(row.outstanding_sqty)}</td>
+                        <td class="stock-card-breakdown-num">${formatStockCardNumber(row.outstanding_suomqty)}</td>
+                    </tr>
+                `).join('');
+                return;
             }
 
             if (style === 'st_tr_qty_pair') {
@@ -2913,7 +2951,8 @@
             const subtitle = document.getElementById('stock-card-breakdown-subtitle');
             const summary = document.getElementById('stock-card-breakdown-summary');
             const requestId = ++stockCardBreakdownRequestId;
-            const resolvedQtyMode = qtyMode === 'SQTY' ? 'SQTY' : 'SUOMQTY';
+            const qmRaw = String(qtyMode || '').toUpperCase();
+            const resolvedQtyMode = qmRaw === 'BOTH' ? 'BOTH' : (qmRaw === 'SQTY' ? 'SQTY' : 'SUOMQTY');
             const batchParam = batchOpt != null ? String(batchOpt).trim() : '';
 
             if (dock) {
@@ -2959,8 +2998,15 @@
                     renderStockCardBreakdownTable(payload, metricKey);
 
                     const note = payload.summary && payload.summary.note ? escapeHtml(payload.summary.note) : '';
-                    const value = payload.summary ? formatStockCardNumber(payload.summary.value) : '0';
-                    summary.innerHTML = `<strong>Total:</strong> ${value}${note ? ` <span class="stock-card-breakdown-note">${note}</span>` : ''}`;
+                    const valSq = payload.summary ? formatStockCardNumber(payload.summary.value) : '0';
+                    const valSu = payload.summary && payload.summary.value_su != null && payload.summary.value_su !== undefined
+                        ? formatStockCardNumber(payload.summary.value_su)
+                        : null;
+                    if (valSu != null) {
+                        summary.innerHTML = `<strong>Total:</strong> ${valSq} <span class="stock-card-breakdown-note">(SQTY)</span> · ${valSu} <span class="stock-card-breakdown-note">(SUOMQTY)</span>${note ? ` <span class="stock-card-breakdown-note">${note}</span>` : ''}`;
+                    } else {
+                        summary.innerHTML = `<strong>Total:</strong> ${valSq}${note ? ` <span class="stock-card-breakdown-note">${note}</span>` : ''}`;
+                    }
                 })
                 .catch((error) => {
                     if (requestId !== stockCardBreakdownRequestId) {

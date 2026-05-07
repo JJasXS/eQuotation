@@ -3775,7 +3775,7 @@ def api_admin_procurement_stock_card_breakdown():
     raw_from = (request.args.get('from_date') or '').strip()
     raw_to = (request.args.get('to_date') or '').strip()
     qty_mode = (request.args.get('qty_mode') or 'SQTY').strip().upper()
-    if qty_mode not in ('SQTY', 'SUOMQTY'):
+    if qty_mode not in ('SQTY', 'SUOMQTY', 'BOTH'):
         qty_mode = 'SQTY'
     batch_filter = (request.args.get('batch') or '').strip() or None
 
