@@ -145,10 +145,11 @@
                                         <div id="stock-card-breakdown-dock" class="stock-card-breakdown-dock" style="display: none;" aria-hidden="true">
                                             <div id="stock-card-breakdown-panel" class="stock-card-breakdown-panel" role="region" aria-labelledby="stock-card-breakdown-title">
                                                 <div class="stock-card-breakdown-header">
-                                                    <div>
-                                                        <h3 id="stock-card-breakdown-title">Breakdown</h3>
-                                                        <div id="stock-card-breakdown-subtitle" class="stock-card-breakdown-subtitle"></div>
-                                                    </div>
+                                                    <h3 id="stock-card-breakdown-title" class="stock-card-breakdown-heading">
+                                                        <span id="stock-card-breakdown-heading-primary" class="stock-card-breakdown-heading-primary">Breakdown</span>
+                                                        <span class="stock-card-breakdown-header-sep" aria-hidden="true">·</span>
+                                                        <span id="stock-card-breakdown-subtitle" class="stock-card-breakdown-subtitle"></span>
+                                                    </h3>
                                                     <button type="button" class="stock-card-breakdown-close" onclick="closeStockCardBreakdown()">Close</button>
                                                 </div>
                                                 <div class="stock-card-breakdown-table-wrap" id="stock-card-breakdown-table-outer">
@@ -306,11 +307,11 @@
                                         </label>
                                     </div>
                                     <div class="pr-form-row pr-form-row--details">
-                                        <label class="pr-field pr-field-wide">
+                                        <label class="pr-field">
                                             <span>Description</span>
                                             <input type="text" id="pr-header-description" placeholder="Description" />
                                         </label>
-                                        <label class="pr-field pr-field-wide">
+                                        <label class="pr-field">
                                             <span>Delivery location</span>
                                             <input type="text" id="pr-delivery-location" autocomplete="address-line1" />
                                         </label>
@@ -392,11 +393,11 @@
                                     <table class="pr-line-items-table" id="pr-line-items-table">
                                         <thead>
                                             <tr>
-                                                <th>Location</th>
+                                                <th>Batch</th>
                                                 <th>Description <em>*</em></th>
                                                 <th>UDF Reason</th>
-                                                <th>Qty <em>*</em></th>
-                                                <th>Qty Basis</th>
+                                                <th>SQTY</th>
+                                                <th>SUOMQTY</th>
                                                 <th>Unit Price <em>*</em></th>
                                                 <th>Delivery Date</th>
                                                 <th>Amount</th>
@@ -472,6 +473,20 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <div id="pr-success-modal" class="pr-success-modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="pr-success-modal-title" aria-hidden="true">
+        <div class="pr-success-modal__backdrop" onclick="closePurchaseRequestSuccessModal()"></div>
+        <div class="pr-success-modal__dialog">
+            <div class="pr-success-modal__icon" aria-hidden="true">✓</div>
+            <h2 id="pr-success-modal-title" class="pr-success-modal__title">Success</h2>
+            <p id="pr-success-modal-body" class="pr-success-modal__body"></p>
+            <div id="pr-success-modal-pr-wrap" class="pr-success-modal__pr-wrap" style="display:none;">
+                <span class="pr-success-modal__pr-label">Request number</span>
+                <span id="pr-success-modal-request-no" class="pr-success-modal__pr-number"></span>
+            </div>
+            <button type="button" class="pr-success-modal__ok" id="pr-success-modal-ok" onclick="closePurchaseRequestSuccessModal()">OK</button>
         </div>
     </div>
 
@@ -610,6 +625,14 @@
             }
         }
 
+        function setProcurementUrlTab(tabName) {
+            try {
+                const url = new URL(window.location.href);
+                url.searchParams.set('tab', String(tabName || 'report').toLowerCase());
+                history.replaceState({}, '', url);
+            } catch (e) { /* ignore */ }
+        }
+
         function showTab(tabName) {
             const target = String(tabName || 'report').toLowerCase();
             const tabs = ['report', 'view', 'create'];
@@ -627,6 +650,8 @@
                     panel.style.display = name === selected ? '' : 'none';
                 }
             });
+
+            setProcurementUrlTab(selected);
 
             if (selected === 'report') {
                 initStockCardUomDisplay();
@@ -706,6 +731,74 @@
 
         function defaultPrStockQtyUom() {
             return stockCardUomDisplayMode === 'sqty_only' ? 'SQTY' : 'SUOMQTY';
+        }
+
+        /** Unit price applies to SQTY if present, otherwise SUOMQTY (same rule as server). */
+        function linePricingQty(item) {
+            const qs = Number(item.qtySqty || 0);
+            const qu = Number(item.qtySuomqty || 0);
+            if (qs > 0) return qs;
+            if (qu > 0) return qu;
+            return Number(item.quantity || 0);
+        }
+
+        function deriveStockQtyUomForPayload(item) {
+            const qs = Number(item.qtySqty || 0);
+            const qu = Number(item.qtySuomqty || 0);
+            if (qs > 0 && qu <= 0) return 'SQTY';
+            if (qu > 0 && qs <= 0) return 'SUOMQTY';
+            if (qs > 0 && qu > 0) return 'SQTY';
+            return defaultPrStockQtyUom();
+        }
+
+        function syncPrLineQuantityDerived(item) {
+            if (!item) return;
+            item.quantity = linePricingQty(item);
+            item.stockQtyUom = deriveStockQtyUomForPayload(item);
+        }
+
+        /** Positive UDF_WEIGHT from catalog row (SQL API / ST_ITEM); omitted or invalid → no auto SUOM. */
+        function prItemUdfWeight(product) {
+            if (!product) return null;
+            const raw = product.UDF_WEIGHT != null ? product.UDF_WEIGHT : product.udf_weight;
+            if (raw === null || raw === undefined || raw === '') return null;
+            const n = Number(String(raw).replace(/,/g, '').trim());
+            if (!Number.isFinite(n) || n <= 0) return null;
+            return n;
+        }
+
+        /** SUOMQTY = SQTY × UDF_WEIGHT when the item has a positive weight in ST_ITEM. */
+        function applyPrLineSuomFromSqtyUdfWeight(item) {
+            if (!item) return;
+            const w = prItemUdfWeight(findPrProductByCode(item.itemCode));
+            if (w == null) return;
+            const qs = Number(item.qtySqty || 0);
+            const su = qs * w;
+            item.qtySuomqty = Math.round(su * 10000) / 10000;
+        }
+
+        /** Merge stock-card SQTY + SUOMQTY selections into one PR line per item + location (fixes duplicate rows / wrong qty). */
+        function mergeBuySelectionsForCreatePr(selectedEntries) {
+            const map = new Map();
+            selectedEntries.forEach((entry) => {
+                if (!entry || !entry.selected) return;
+                const code = String(entry.itemCode || '').trim();
+                const loc = String(entry.locationCode || '').trim();
+                const k = `${code}||${loc}`;
+                const uom = String(entry.stockQtyUom || '').toUpperCase() === 'SQTY' ? 'SQTY' : 'SUOMQTY';
+                const q = Number(entry.quantity || 0);
+                let row = map.get(k);
+                if (!row) {
+                    row = { itemCode: code, locationCode: loc, qtySqty: 0, qtySuomqty: 0 };
+                    map.set(k, row);
+                }
+                if (uom === 'SQTY') {
+                    row.qtySqty = q;
+                } else {
+                    row.qtySuomqty = q;
+                }
+            });
+            return Array.from(map.values());
         }
 
         function stockCardSingleUomLabel() {
@@ -1225,6 +1318,21 @@
             }
         }
 
+        /** SQTY / SUOMQTY per detail row for View PR (fallback when API only sends legacy QTY + basis). */
+        function viewPrDetailSqtySuom(detail) {
+            const basis = String(detail?.stockQtyUom || '').toUpperCase();
+            let sq = Number(detail?.sqty != null ? detail.sqty : NaN);
+            let su = Number(detail?.suomqty != null ? detail.suomqty : NaN);
+            const q = Number(detail?.quantity || 0);
+            if (!Number.isFinite(sq)) {
+                sq = basis === 'SQTY' ? q : 0;
+            }
+            if (!Number.isFinite(su)) {
+                su = basis === 'SUOMQTY' ? q : 0;
+            }
+            return { sqty: sq, suomqty: su };
+        }
+
         function buildViewPurchaseRequestDetailHtml(header) {
             const headerId = Number(header.id || 0);
             const details = Array.isArray(header.details) ? header.details : [];
@@ -1246,11 +1354,15 @@
                     </div>
                 `;
             }).join('');
-            const detailRows = details.map((detail, idx) => `
+            const detailRows = details.map((detail, idx) => {
+                const { sqty: rowSqty, suomqty: rowSuom } = viewPrDetailSqtySuom(detail);
+                return `
             <tr>
                 <td class="col-line">${escapeHtml(detail.seq || (idx + 1))}</td>
                 <td class="col-item-name">${escapeHtml(detail.itemName || '-')}</td>
-                <td class="col-location">${escapeHtml(detail.locationCode || '-')}</td>
+                <td class="col-location col-batch">${escapeHtml(detail.locationCode || '-')}</td>
+                <td class="view-pr-num col-sqty">${formatStockCardNumber(rowSqty)}</td>
+                <td class="view-pr-num col-suomqty">${formatStockCardNumber(rowSuom)}</td>
                 <td class="col-delivery-date">${formatPrDate(detail.deliveryDate || detail.requiredDate || '-')}</td>
                 <td class="view-pr-num col-qty view-pr-transfer-ratio-cell">
                     <input
@@ -1283,7 +1395,8 @@
 
                 <td class="view-pr-num col-amount">${formatMoney(detail.amount || 0)}</td>
             </tr>
-        `).join('');
+        `;
+            }).join('');
 
             return `
             <div class="view-pr-detail-panel-head">
@@ -1317,6 +1430,8 @@
                             <col class="col-line" />
                             <col class="col-item-name" />
                             <col class="col-location" />
+                            <col class="col-sqty" />
+                            <col class="col-suomqty" />
                             <col class="col-delivery-date" />
                             <col class="col-qty" />
                             <col class="col-unit-price" />
@@ -1327,8 +1442,10 @@
                         <thead>
                             <tr>
                                 <th class="col-line">#</th>
-                                <th class="col-item-name">Item</th>
-                                <th class="col-location">Loc</th>
+                                <th class="col-item-name">Description</th>
+                                <th class="col-location col-batch">Batch</th>
+                                <th class="view-pr-num col-sqty">SQTY</th>
+                                <th class="view-pr-num col-suomqty">SUOMQTY</th>
                                 <th class="col-delivery-date">Deliv.</th>
                                 <th class="view-pr-num col-qty">Qty (x / total)</th>
                                 <th class="view-pr-num col-unit-price">Unit</th>
@@ -1988,19 +2105,35 @@
                 _renderChips();
             }
 
-            const lineItems = (details || []).map((d) => ({
-                detailId: Number(d.id || 0),
-                itemCode: String(d.itemCode || ''),
-                itemName: String(d.itemName || ''),
-                locationCode: String(d.locationCode || ''),
-                description: String(d.description || ''),
-                udfReason: String(d.udfReason || ''),
-                project: String(d.project || header.project || ''),
-                quantity: Number(d.quantity || 0),
-                unitPrice: Number(d.unitPrice || 0),
-                deliveryDate: _toInputDate(d.deliveryDate || header.requestDate),
-                stockQtyUom: String(d.stockQtyUom || defaultPrStockQtyUom() || 'SUOMQTY').toUpperCase() === 'SQTY' ? 'SQTY' : 'SUOMQTY',
-            })).filter((d) => d.detailId > 0);
+            const lineItems = (details || []).map((d) => {
+                const basis = String(d.stockQtyUom || '').toUpperCase();
+                let qtySqty = Number(d.sqty != null ? d.sqty : NaN);
+                let qtySuomqty = Number(d.suomqty != null ? d.suomqty : NaN);
+                const q = Number(d.quantity || 0);
+                if (!Number.isFinite(qtySqty)) {
+                    qtySqty = basis === 'SQTY' ? q : 0;
+                }
+                if (!Number.isFinite(qtySuomqty)) {
+                    qtySuomqty = basis === 'SUOMQTY' ? q : 0;
+                }
+                const row = {
+                    detailId: Number(d.id || 0),
+                    itemCode: String(d.itemCode || ''),
+                    itemName: String(d.itemName || ''),
+                    locationCode: String(d.locationCode || ''),
+                    description: String(d.description || ''),
+                    udfReason: String(d.udfReason || ''),
+                    project: String(d.project || header.project || ''),
+                    qtySqty,
+                    qtySuomqty,
+                    quantity: q,
+                    unitPrice: Number(d.unitPrice || 0),
+                    deliveryDate: _toInputDate(d.deliveryDate || header.requestDate),
+                    stockQtyUom: basis === 'SQTY' ? 'SQTY' : 'SUOMQTY',
+                };
+                syncPrLineQuantityDerived(row);
+                return row;
+            }).filter((d) => d.detailId > 0);
 
             if (!lineItems.length) {
                 alert('No editable line items found for this purchase request.');
@@ -2252,47 +2385,59 @@
                 // No selection: go straight to create with a blank line item
                 const selectedProjectCode = getSelectedProjectCode();
                 const today = prTodayIso();
-                window.purchaseRequestItems = [{
+                const defU = defaultPrStockQtyUom();
+                const row = {
                     itemCode: '',
                     itemName: '',
                     locationCode: getDefaultLineLocation(),
                     description: '',
                     udfReason: '',
                     project: selectedProjectCode,
+                    qtySqty: defU === 'SQTY' ? 1 : 0,
+                    qtySuomqty: defU === 'SUOMQTY' ? 1 : 0,
                     quantity: 1,
                     unitPrice: 0,
                     deliveryDate: today,
-                    stockQtyUom: defaultPrStockQtyUom(),
-                }];
+                    stockQtyUom: defU,
+                };
+                syncPrLineQuantityDerived(row);
+                window.purchaseRequestItems = [row];
                 showTab('create');
                 renderPurchaseRequestLineItems();
                 showPurchaseRequestMessage('Starting a new e-Purchase Request.', 'info');
                 return;
             }
 
-            window.purchaseRequestItems = selectedEntries.map((entry) => {
-                const code = String(entry.itemCode || '').trim();
-                const locationCode = String(entry.locationCode || '').trim();
+            const mergedRows = mergeBuySelectionsForCreatePr(selectedEntries);
+            window.purchaseRequestItems = mergedRows.map((row) => {
+                const code = String(row.itemCode || '').trim();
+                const locationCode = String(row.locationCode || '').trim();
                 const locationText = locationCode ? ` (${locationCode})` : '';
                 let itemName = code;
                 const product = typeof findPrProductByCode === 'function' ? findPrProductByCode(code) : (window.prCatalogProducts || []).find((p) => String(p.CODE || '').trim() === code);
-                if (product) {
-                    if (product.DESCRIPTION) {
-                        itemName = String(product.DESCRIPTION).trim();
-                    }
+                if (product && product.DESCRIPTION) {
+                    itemName = String(product.DESCRIPTION).trim();
                 }
-                return {
+                const o = {
                     itemCode: code,
                     itemName: itemName,
                     locationCode,
                     description: `Auto-selected from Overall Report${locationText}`,
                     udfReason: '',
                     project: getSelectedProjectCode(),
-                    quantity: Number(entry.quantity || 0),
+                    qtySqty: Number(row.qtySqty || 0),
+                    qtySuomqty: Number(row.qtySuomqty || 0),
                     unitPrice: 0,
                     deliveryDate: prTodayIso(),
-                    stockQtyUom: String(entry.stockQtyUom || defaultPrStockQtyUom()).toUpperCase() === 'SQTY' ? 'SQTY' : 'SUOMQTY',
+                    stockQtyUom: defaultPrStockQtyUom(),
                 };
+                syncPrLineQuantityDerived(o);
+                const w = prItemUdfWeight(typeof findPrProductByCode === 'function' ? findPrProductByCode(code) : null);
+                if (w != null && Number(o.qtySqty || 0) > 0 && Number(o.qtySuomqty || 0) === 0) {
+                    o.qtySuomqty = Math.round(Number(o.qtySqty) * w * 10000) / 10000;
+                    syncPrLineQuantityDerived(o);
+                }
+                return o;
             });
 
             showTab('create');
@@ -2301,37 +2446,53 @@
         }
 
         function buySelectionKey(itemCode, locationCode, stockQtyUom) {
+            const ic = String(itemCode || '').trim();
+            const lc = String(locationCode || '').trim();
             const uom = stockQtyUom ? String(stockQtyUom).trim().toUpperCase() : '';
-            return `${itemCode}||${locationCode || ''}${uom ? `||${uom}` : ''}`;
+            return uom ? `${ic}||${lc}||${uom}` : `${ic}||${lc}`;
         }
 
         function stockCardSetBuyCheckbox(itemCode, locationCode, defaultQty, checkboxEl, stockQtyUom) {
             const uom = String(stockQtyUom || defaultPrStockQtyUom()).toUpperCase() === 'SQTY' ? 'SQTY' : 'SUOMQTY';
-            const key = buySelectionKey(itemCode, locationCode, stockCardUomDisplayMode === 'both' ? uom : '');
+            const key = buySelectionKey(itemCode, locationCode, uom);
             const td = checkboxEl && checkboxEl.closest ? checkboxEl.closest('td') : null;
+            let effDefault = defaultQty;
+            if (uom === 'SUOMQTY' && td) {
+                const attr = td.getAttribute('data-buy-default');
+                if (attr !== null && attr !== '') {
+                    const n = Number(attr);
+                    if (Number.isFinite(n)) effDefault = n;
+                }
+            }
             const current = stockCardBuySelections[key] || {
                 itemCode,
                 locationCode: locationCode || '',
                 selected: false,
-                quantity: Number(defaultQty || 0),
+                quantity: Number(effDefault || 0),
                 stockQtyUom: uom,
             };
             current.selected = !!checkboxEl.checked;
             current.itemCode = itemCode;
             current.locationCode = locationCode || '';
             current.stockQtyUom = uom;
-            if (current.quantity == null || Number.isNaN(Number(current.quantity))) {
+            if (uom === 'SUOMQTY') {
+                current.quantity = Number(effDefault || 0);
+            } else if (current.quantity == null || Number.isNaN(Number(current.quantity))) {
                 current.quantity = Number(defaultQty || 0);
             }
             stockCardBuySelections[key] = current;
             if (td) {
-                td.classList.toggle('need-buy-selected', current.selected);
+                if (td.classList.contains('need-buy-td--su-static')) {
+                    td.classList.remove('need-buy-selected');
+                } else {
+                    td.classList.toggle('need-buy-selected', current.selected);
+                }
             }
         }
 
         function stockCardSetBuyQty(itemCode, locationCode, defaultQty, inputEl, stockQtyUom) {
             const uom = String(stockQtyUom || defaultPrStockQtyUom()).toUpperCase() === 'SQTY' ? 'SQTY' : 'SUOMQTY';
-            const key = buySelectionKey(itemCode, locationCode, stockCardUomDisplayMode === 'both' ? uom : '');
+            const key = buySelectionKey(itemCode, locationCode, uom);
             const current = stockCardBuySelections[key] || {
                 itemCode,
                 locationCode: locationCode || '',
@@ -2348,7 +2509,7 @@
         }
 
         function stockCardSetBuyQtySu(itemCode, locationCode, defaultSu, defaultSq, inputEl) {
-            const key = buySelectionKey(itemCode, locationCode, stockCardUomDisplayMode === 'both' ? 'SUOMQTY' : '');
+            const key = buySelectionKey(itemCode, locationCode, 'SUOMQTY');
             const v = parseFloat(String(inputEl.value || '').replace(/,/g, ''));
             const prev = stockCardBuySelections[key] || {
                 itemCode,
@@ -2366,8 +2527,16 @@
             stockCardBuySelections[key] = prev;
         }
 
+        /** Shortage SUOM for stock card: SQTY × UDF_WEIGHT when catalog has weight; otherwise report SU shortage. */
+        function stockCardDerivedSuomShortage(itemCode, sqQty, reportShortageSu) {
+            const w = prItemUdfWeight(typeof findPrProductByCode === 'function' ? findPrProductByCode(itemCode) : null);
+            if (w == null) return Math.max(0, Number(reportShortageSu || 0));
+            const sq = Math.max(0, Number(sqQty || 0));
+            return Math.round(sq * w * 10000) / 10000;
+        }
+
         function stockCardSetBuyQtySq(itemCode, locationCode, defaultSq, defaultSu, inputEl) {
-            const key = buySelectionKey(itemCode, locationCode, stockCardUomDisplayMode === 'both' ? 'SQTY' : '');
+            const key = buySelectionKey(itemCode, locationCode, 'SQTY');
             const v = parseFloat(String(inputEl.value || '').replace(/,/g, ''));
             const prev = stockCardBuySelections[key] || {
                 itemCode,
@@ -2383,6 +2552,25 @@
             prev.locationCode = locationCode || '';
             prev.stockQtyUom = 'SQTY';
             stockCardBuySelections[key] = prev;
+
+            const w = prItemUdfWeight(typeof findPrProductByCode === 'function' ? findPrProductByCode(itemCode) : null);
+            if (w == null || !inputEl || !inputEl.closest) return;
+            const sqNum = prev.quantity;
+            const suNum = Math.max(0, Math.round(sqNum * w * 10000) / 10000);
+            const suKey = buySelectionKey(itemCode, locationCode, 'SUOMQTY');
+            const suSel = stockCardBuySelections[suKey];
+            if (suSel) suSel.quantity = suNum;
+            const sqTd = inputEl.closest('td');
+            const suTd = sqTd && sqTd.nextElementSibling;
+            /* Defer DOM updates so the active SQ input keeps focus (sync layout can blur in some browsers). */
+            setTimeout(() => {
+                if (!inputEl || !document.body || !document.body.contains(inputEl)) return;
+                if (suTd && suTd.classList && suTd.classList.contains('need-buy-td--su-static')) {
+                    suTd.setAttribute('data-buy-default', String(suNum));
+                    const span = suTd.querySelector('.need-buy-readonly-qty');
+                    if (span) span.textContent = formatStockCardNumber(suNum);
+                }
+            }, 0);
         }
 
         function stockCardNeedBuyCellClick(event, tdEl) {
@@ -2409,9 +2597,16 @@
             return (stockCardRows || []).filter((row) => String(row.code || '').toLowerCase().includes(q));
         }
 
+        let stockCardItemSearchDebounceTimer = null;
         function onStockCardItemSearchInput(value) {
             stockCardItemSearch = String(value || '');
-            syncStockCardTable();
+            if (stockCardItemSearchDebounceTimer) {
+                clearTimeout(stockCardItemSearchDebounceTimer);
+            }
+            stockCardItemSearchDebounceTimer = setTimeout(() => {
+                stockCardItemSearchDebounceTimer = null;
+                syncStockCardTable();
+            }, 140);
         }
 
         function syncStockCardTable() {
@@ -2439,6 +2634,40 @@
             return found ? found.label : metricKey;
         }
 
+        /** One ST_TR line per row; same batch → single Batch cell (rowspan) + alternating row group tint. */
+        function renderStTrQtyPairBreakdownRows(rows) {
+            const normBatch = (r) => (r.batch != null && String(r.batch).trim() ? String(r.batch).trim() : '—');
+            const parts = [];
+            let i = 0;
+            let groupIdx = 0;
+            while (i < rows.length) {
+                const b = normBatch(rows[i]);
+                let j = i + 1;
+                while (j < rows.length && normBatch(rows[j]) === b) {
+                    j += 1;
+                }
+                const runLen = j - i;
+                const gClass = groupIdx % 2 === 0
+                    ? 'stock-card-breakdown-group-a'
+                    : 'stock-card-breakdown-group-b';
+                for (let k = 0; k < runLen; k += 1) {
+                    const row = rows[i + k];
+                    const d = row.description != null && String(row.description).trim() ? row.description : '—';
+                    const batchTd = k === 0
+                        ? `<td rowspan="${runLen}" class="stock-card-breakdown-batch-td stock-card-breakdown-batch-span">${escapeHtml(b)}</td>`
+                        : '';
+                    parts.push(
+                        `<tr class="${gClass}">${batchTd}<td class="stock-card-breakdown-desc">${escapeHtml(d)}</td>`
+                        + `<td class="stock-card-breakdown-num">${formatStockCardNumber(row.sqty)}</td>`
+                        + `<td class="stock-card-breakdown-num">${formatStockCardNumber(row.suomqty)}</td></tr>`
+                    );
+                }
+                groupIdx += 1;
+                i = j;
+            }
+            return parts.join('');
+        }
+
         function renderStockCardBreakdownTable(payload, metricKey) {
             const thead = document.getElementById('stock-card-breakdown-thead');
             const body = document.getElementById('stock-card-breakdown-body');
@@ -2450,10 +2679,21 @@
                 const compact =
                     metric === 'avail_qty'
                     || style === 'st_tr'
+                    || style === 'st_tr_qty_pair'
                     || metric === 'qty'
                     || metric === 'suom_qty'
                     || metric === 'need_to_buy';
                 table.classList.toggle('stock-card-breakdown-table--compact', compact);
+            }
+
+            if (style === 'st_tr_qty_pair') {
+                thead.innerHTML = '<tr><th scope="col">Batch</th><th scope="col">Description</th><th scope="col" class="stock-card-breakdown-num">SQTY</th><th scope="col" class="stock-card-breakdown-num">SUOMQTY</th></tr>';
+                if (!rows.length) {
+                    body.innerHTML = '<tr><td colspan="4" class="stock-card-status">No ST_TR lines for this item/location.</td></tr>';
+                    return;
+                }
+                body.innerHTML = renderStTrQtyPairBreakdownRows(rows);
+                return;
             }
 
             if (metric === 'avail_qty' || style === 'st_tr') {
@@ -2508,22 +2748,23 @@
             `).join('');
         }
 
-        function openStockCardBreakdown(itemCode, locationCode, metricKey, qtyMode) {
+        function openStockCardBreakdown(itemCode, locationCode, metricKey, qtyMode, batchOpt) {
             const dock = document.getElementById('stock-card-breakdown-dock');
             const body = document.getElementById('stock-card-breakdown-body');
-            const title = document.getElementById('stock-card-breakdown-title');
+            const headingPrimary = document.getElementById('stock-card-breakdown-heading-primary');
             const subtitle = document.getElementById('stock-card-breakdown-subtitle');
             const summary = document.getElementById('stock-card-breakdown-summary');
             const requestId = ++stockCardBreakdownRequestId;
             const resolvedQtyMode = qtyMode === 'SQTY' ? 'SQTY' : 'SUOMQTY';
+            const batchParam = batchOpt != null ? String(batchOpt).trim() : '';
 
             if (dock) {
                 dock.style.display = 'block';
                 dock.setAttribute('aria-hidden', 'false');
             }
             syncStockDashboardSplitBodyClass();
-            title.textContent = `${metricLabel(metricKey)} Breakdown`;
-            subtitle.textContent = `${itemCode} | ${locationCode}`;
+            if (headingPrimary) headingPrimary.textContent = `${metricLabel(metricKey)} Breakdown`;
+            if (subtitle) subtitle.textContent = `${itemCode} · ${locationCode}`;
             summary.innerHTML = 'Loading breakdown...';
             document.getElementById('stock-card-breakdown-thead').innerHTML = '<tr><th colspan="7">…</th></tr>';
             body.innerHTML = '<tr><td colspan="7" class="stock-card-status">Loading breakdown...</td></tr>';
@@ -2540,6 +2781,9 @@
                 params.set('from_date', fromDate);
                 params.set('to_date', prTodayIso());
             }
+            if (batchParam) {
+                params.set('batch', batchParam);
+            }
 
             fetch(`/api/admin/procurement/stock-card-breakdown?${params.toString()}`, { cache: 'no-store' })
                 .then((res) => res.json())
@@ -2551,8 +2795,8 @@
                         throw new Error(payload.error || 'Failed to load breakdown');
                     }
 
-                    title.textContent = payload.title || `${metricLabel(metricKey)} Breakdown`;
-                    subtitle.textContent = `${payload.item_code || itemCode} | ${payload.location || locationCode}`;
+                    if (headingPrimary) headingPrimary.textContent = payload.title || `${metricLabel(metricKey)} Breakdown`;
+                    if (subtitle) subtitle.textContent = `${payload.item_code || itemCode} · ${payload.location || locationCode}`;
 
                     renderStockCardBreakdownTable(payload, metricKey);
 
@@ -2718,19 +2962,16 @@
                         quantity: shortageSqNum,
                         stockQtyUom: 'SQTY',
                     };
-                    const suSelection = stockCardBuySelections[suKey] || {
-                        itemCode,
-                        locationCode: locationCode || '',
-                        selected: false,
-                        quantity: shortageSuNum,
-                        stockQtyUom: 'SUOMQTY',
-                    };
                     const sqQtyVal = Number(sqSelection.quantity != null ? sqSelection.quantity : shortageSqNum);
-                    const suQtyVal = Number(suSelection.quantity != null ? suSelection.quantity : shortageSuNum);
+                    const derivedSuNum = stockCardDerivedSuomShortage(itemCode, sqQtyVal, shortageSuNum);
+                    if (stockCardBuySelections[suKey]) {
+                        stockCardBuySelections[suKey].quantity = derivedSuNum;
+                    }
                     const sqQtyStr = Number.isFinite(sqQtyVal) ? String(sqQtyVal) : String(shortageSqNum);
-                    const suQtyStr = Number.isFinite(suQtyVal) ? String(suQtyVal) : String(shortageSuNum);
                     const sqSelectedClass = sqSelection.selected ? ' need-buy-selected' : '';
-                    const suSelectedClass = suSelection.selected ? ' need-buy-selected' : '';
+                    const suCellTitle = prItemUdfWeight(typeof findPrProductByCode === 'function' ? findPrProductByCode(itemCode) : null) != null
+                        ? 'SUOMQTY from SQTY × UDF_WEIGHT; updates when you edit SQTY.'
+                        : 'SUOMQTY shortage (from report).';
                     const sqTd = `
                         <td class="${bgClass} need-buy-td need-buy-td--sq need-buy-hitbox${sqSelectedClass}"
                             data-buy-item="${dataItem}" data-buy-loc="${dataLoc}" data-buy-default="${shortageSqNum}" data-buy-uom="SQTY"
@@ -2740,8 +2981,8 @@
                             title="SQTY for e-PR: click cell to include only SQTY; edit quantity"
                             ondblclick="openStockCardBreakdown('${jc}','${jl}','need_to_buy_by_location','SQTY')">
                             <div class="need-buy-editor need-buy-editor--solo need-buy-editor--with-cb">
-                                <input type="number" class="need-buy-qty-input" min="0" step="any" value="${escapeHtml(sqQtyStr)}"
-                                    title="SQTY need to buy (used for purchase request quantity if selected)"
+                                <input type="text" inputmode="decimal" class="need-buy-qty-input need-buy-qty-input--text" autocomplete="off" value="${escapeHtml(sqQtyStr)}"
+                                    title="SQTY shortage — editable"
                                     aria-label="SQTY need to buy"
                                     onclick="event.stopPropagation();" onkeydown="event.stopPropagation();"
                                     oninput="stockCardSetBuyQtySq('${jc}', '${jl}', ${shortageSqNum}, ${shortageSuNum}, this)" />
@@ -2751,42 +2992,24 @@
                             </div>
                         </td>`;
                     const editorTd = `
-                        <td class="${bgClass} need-buy-td need-buy-td--su need-buy-hitbox${suSelectedClass}"
-                            data-buy-item="${dataItem}" data-buy-loc="${dataLoc}" data-buy-default="${defPr}" data-buy-uom="SUOMQTY"
-                            onclick="stockCardNeedBuyCellClick(event, this)"
-                            onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();stockCardNeedBuyCellClick(event, this);}"
-                            tabindex="0"
-                            title="SUOMQTY for e-PR: click cell to include only SUOMQTY; edit quantity">
-                            <div class="need-buy-editor need-buy-editor--solo need-buy-editor--with-cb">
-                                <input type="number" class="need-buy-qty-input" min="0" step="any" value="${escapeHtml(suQtyStr)}"
-                                    title="SUOMQTY need to buy (used for purchase request quantity)"
-                                    aria-label="SUOMQTY need to buy"
-                                    onclick="event.stopPropagation();" onkeydown="event.stopPropagation();"
-                                    oninput="stockCardSetBuyQtySu('${jc}', '${jl}', ${shortageSuNum}, ${shortageSqNum}, this)" />
-                                <input type="checkbox" class="need-buy-cb need-buy-cb--visual-off" title="Selected SUOMQTY for PR" ${suSelection.selected ? 'checked' : ''}
-                                    aria-label="Selected SUOMQTY for purchase request"
-                                    onclick="event.stopPropagation(); stockCardSetBuyCheckbox('${jc}', '${jl}', ${shortageSuNum}, this, 'SUOMQTY')" />
+                        <td class="${bgClass} need-buy-td need-buy-td--su need-buy-td--su-static"
+                            title="${escapeHtml(suCellTitle)}">
+                            <div class="need-buy-editor need-buy-editor--su-static">
+                                <span class="need-buy-readonly-qty" aria-label="SUOMQTY shortage">${formatStockCardNumber(derivedSuNum)}</span>
                             </div>
                         </td>`;
                     return sqTd + editorTd;
                 }
                 if (stockCardUomDisplayMode === 'suom_only') {
+                    const suKeySolo = buySelectionKey(itemCode, locationCode || '', 'SUOMQTY');
+                    if (stockCardBuySelections[suKeySolo]) {
+                        stockCardBuySelections[suKeySolo].quantity = shortageSuNum;
+                    }
                     return `
-                    <td class="${bgClass} need-buy-td need-buy-td--su need-buy-hitbox${selectedClass}"
-                        data-buy-item="${dataItem}" data-buy-loc="${dataLoc}" data-buy-default="${defPr}" data-buy-uom="SUOMQTY"
-                        onclick="stockCardNeedBuyCellClick(event, this)"
-                        onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();stockCardNeedBuyCellClick(event, this);}"
-                        tabindex="0"
-                        title="SUOMQTY for e-PR: click to include; edit quantity">
-                        <div class="need-buy-editor need-buy-editor--solo need-buy-editor--with-cb">
-                            <input type="number" class="need-buy-qty-input" min="0" step="any" value="${escapeHtml(qtyStrSolo)}"
-                                title="SUOMQTY need to buy (used for purchase request quantity)"
-                                aria-label="SUOMQTY need to buy"
-                                onclick="event.stopPropagation();" onkeydown="event.stopPropagation();"
-                                oninput="stockCardSetBuyQtySu('${jc}', '${jl}', ${shortageSuNum}, ${shortageSqNum}, this)" />
-                            <input type="checkbox" class="need-buy-cb need-buy-cb--visual-off" title="Selected for PR" ${selection.selected ? 'checked' : ''}
-                                aria-label="Selected for purchase request"
-                                onclick="event.stopPropagation(); stockCardSetBuyCheckbox('${jc}', '${jl}', ${shortageSuNum}, this, 'SUOMQTY')" />
+                    <td class="${bgClass} need-buy-td need-buy-td--su need-buy-td--su-static"
+                        title="SUOMQTY shortage (from report).">
+                        <div class="need-buy-editor need-buy-editor--su-static">
+                            <span class="need-buy-readonly-qty" aria-label="SUOMQTY shortage">${formatStockCardNumber(shortageSuNum)}</span>
                         </div>
                     </td>`;
                 }
@@ -2798,7 +3021,8 @@
                         tabindex="0"
                         title="Click cell to select; edit quantity before New e-Purchase Request (SQTY basis)">
                         <div class="need-buy-editor">
-                            <input type="number" class="need-buy-qty-input" min="0" step="any" value="${escapeHtml(qtyStrSolo)}"
+                            <input type="text" inputmode="decimal" class="need-buy-qty-input need-buy-qty-input--text" autocomplete="off" value="${escapeHtml(qtyStrSolo)}"
+                                title="SQTY shortage — editable"
                                 onclick="event.stopPropagation();" onkeydown="event.stopPropagation();"
                                 oninput="stockCardSetBuyQty('${jc}', '${jl}', ${shortageSqNum}, this, 'SQTY')" />
                             <input type="checkbox" class="need-buy-cb need-buy-cb--visual-off" title="Selected for PR" ${selection.selected ? 'checked' : ''}
@@ -3045,6 +3269,65 @@
             el.textContent = message;
         }
 
+        let prSuccessModalEscapeHandler = null;
+
+        function closePurchaseRequestSuccessModal() {
+            const modal = document.getElementById('pr-success-modal');
+            if (modal) {
+                modal.style.display = 'none';
+                modal.setAttribute('aria-hidden', 'true');
+            }
+            if (prSuccessModalEscapeHandler) {
+                document.removeEventListener('keydown', prSuccessModalEscapeHandler);
+                prSuccessModalEscapeHandler = null;
+            }
+        }
+
+        /**
+         * In-app success dialog (replaces browser alert after PR submit).
+         * @param {string} title - Short heading
+         * @param {string} body - One or two sentences
+         * @param {string|null|undefined} requestNumber - Shown prominently when provided
+         */
+        function showPurchaseRequestSuccessModal(title, body, requestNumber) {
+            const modal = document.getElementById('pr-success-modal');
+            const titleEl = document.getElementById('pr-success-modal-title');
+            const bodyEl = document.getElementById('pr-success-modal-body');
+            const wrap = document.getElementById('pr-success-modal-pr-wrap');
+            const numEl = document.getElementById('pr-success-modal-request-no');
+            const okBtn = document.getElementById('pr-success-modal-ok');
+            if (!modal || !titleEl || !bodyEl) return;
+
+            titleEl.textContent = title || 'Success';
+            bodyEl.textContent = body || '';
+
+            const rn = requestNumber != null ? String(requestNumber).trim() : '';
+            if (rn && wrap && numEl) {
+                numEl.textContent = rn;
+                wrap.style.display = '';
+            } else if (wrap) {
+                wrap.style.display = 'none';
+            }
+
+            modal.style.display = '';
+            modal.setAttribute('aria-hidden', 'false');
+
+            if (prSuccessModalEscapeHandler) {
+                document.removeEventListener('keydown', prSuccessModalEscapeHandler);
+            }
+            prSuccessModalEscapeHandler = (e) => {
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    closePurchaseRequestSuccessModal();
+                }
+            };
+            document.addEventListener('keydown', prSuccessModalEscapeHandler);
+
+            if (okBtn) {
+                setTimeout(() => okBtn.focus(), 0);
+            }
+        }
+
         function applyPurchaseRequestFormModeUI() {
             const isEditMode = Boolean(prFormEditState && prFormEditState.requestId);
             const titleEl = document.getElementById('pr-form-title');
@@ -3176,11 +3459,11 @@
             const items = window.purchaseRequestItems || [];
             const item = items[index];
             if (!item) return;
-            const qty = Number(item.quantity || 0);
+            const pq = linePricingQty(item);
             const unitPrice = Number(item.unitPrice || 0);
             const amountCell = document.getElementById(`pr-amount-${index}`);
             if (amountCell) {
-                amountCell.textContent = formatMoney(qty * unitPrice);
+                amountCell.textContent = formatMoney(pq * unitPrice);
             }
         }
 
@@ -3199,6 +3482,8 @@
                 item.description = description;
             }
 
+            applyPrLineSuomFromSqtyUdfWeight(item);
+            syncPrLineQuantityDerived(item);
             renderPurchaseRequestLineItems();
         }
 
@@ -3209,6 +3494,13 @@
                 if (data.success && Array.isArray(data.items)) {
                     prCatalogProducts = data.items;
                     if (window.purchaseRequestItems && window.purchaseRequestItems.length) {
+                        window.purchaseRequestItems.forEach((it) => {
+                            const w = prItemUdfWeight(findPrProductByCode(it.itemCode));
+                            if (w != null && Number(it.qtySqty || 0) > 0 && Number(it.qtySuomqty || 0) === 0) {
+                                applyPrLineSuomFromSqtyUdfWeight(it);
+                                syncPrLineQuantityDerived(it);
+                            }
+                        });
                         renderPurchaseRequestLineItems();
                     }
                 }
@@ -3241,8 +3533,34 @@
                 const selectedProjectCode = getSelectedProjectCode();
                 const defLoc = getDefaultLineLocation();
                 const today = prTodayIso();
-                window.purchaseRequestItems = [{ itemCode: '', itemName: '', locationCode: defLoc, description: '', udfReason: '', project: selectedProjectCode, quantity: 1, unitPrice: 0, deliveryDate: today, stockQtyUom: defaultPrStockQtyUom() }];
+                const defU = defaultPrStockQtyUom();
+                const blank = {
+                    itemCode: '',
+                    itemName: '',
+                    locationCode: defLoc,
+                    description: '',
+                    udfReason: '',
+                    project: selectedProjectCode,
+                    qtySqty: defU === 'SQTY' ? 1 : 0,
+                    qtySuomqty: defU === 'SUOMQTY' ? 1 : 0,
+                    quantity: 1,
+                    unitPrice: 0,
+                    deliveryDate: today,
+                    stockQtyUom: defU,
+                };
+                syncPrLineQuantityDerived(blank);
+                window.purchaseRequestItems = [blank];
             }
+
+            window.purchaseRequestItems.forEach((it) => {
+                if (it.qtySqty == null && it.qtySuomqty == null) {
+                    const q = Number(it.quantity || 0);
+                    const basis = String(it.stockQtyUom || defaultPrStockQtyUom()).toUpperCase();
+                    it.qtySqty = basis === 'SQTY' ? q : 0;
+                    it.qtySuomqty = basis === 'SUOMQTY' ? q : 0;
+                }
+                syncPrLineQuantityDerived(it);
+            });
 
             body.innerHTML = window.purchaseRequestItems.map((item, idx) => {
                 const product = findPrProductByCode(item.itemCode);
@@ -3259,12 +3577,16 @@
                     }
                 }
 
-                const qty = Number(item.quantity || 0);
+                const qtySqty = Number(item.qtySqty || 0);
+                const qtySuomqty = Number(item.qtySuomqty || 0);
+                const suomFromUdf = prItemUdfWeight(product) != null;
+                const suomTitle = suomFromUdf
+                    ? 'SUOMQTY from SQTY × UDF_WEIGHT (read-only)'
+                    : 'Stock quantity (SUOMQTY)';
+                const pq = linePricingQty(item);
                 const unitPrice = Number(item.unitPrice || 0);
-                const amount = qty * unitPrice;
+                const amount = pq * unitPrice;
                 const locVal = String(item.locationCode || '').trim();
-                const stockQtyUom = String(item.stockQtyUom || defaultPrStockQtyUom()).toUpperCase() === 'SQTY' ? 'SQTY' : 'SUOMQTY';
-                item.stockQtyUom = stockQtyUom;
                 const locHtml = isEditMode
                     ? (locVal ? `<span class="pr-loc-readonly" title="${escapeHtml(locVal)}">${escapeHtml(locVal)}</span>` : '<span class="pr-loc-readonly pr-loc-placeholder">—</span>')
                     : `<select class="pr-line-location-select" onchange="onPurchaseRequestLocationChange(${idx}, this.value)">${buildPrLocationOptions(locVal)}</select>`;
@@ -3277,15 +3599,12 @@
                             </select>
                         </td>
                         <td><input type="text" value="${escapeHtml(item.udfReason || '')}" oninput="updatePurchaseRequestItem(${idx}, 'udfReason', this.value)" /></td>
-                        <td class="pr-qty-cell"><input type="number" class="pr-input-qty" min="0.0001" step="0.0001" value="${escapeHtml(item.quantity || 0)}" oninput="updatePurchaseRequestItem(${idx}, 'quantity', this.value)" /></td>
-                        <td class="pr-stock-uom-cell">
-                            <select class="pr-stock-uom-select pr-stock-uom-select--${stockQtyUom === 'SQTY' ? 'sq' : 'su'}"
-                                onchange="updatePurchaseRequestItem(${idx}, 'stockQtyUom', this.value)"
-                                aria-label="Quantity basis for line ${idx + 1}">
-                                <option value="SQTY"${stockQtyUom === 'SQTY' ? ' selected' : ''}>SQTY</option>
-                                <option value="SUOMQTY"${stockQtyUom === 'SUOMQTY' ? ' selected' : ''}>SUOMQTY</option>
-                            </select>
-                        </td>
+                        <td class="pr-qty-cell"><input type="number" class="pr-input-qty" data-pr-field="qtySqty" min="0" step="0.0001" value="${escapeHtml(qtySqty)}" oninput="updatePurchaseRequestItem(${idx}, 'qtySqty', this.value)" title="Stock quantity (SQTY)" /></td>
+                        <td class="pr-qty-cell">${
+                            suomFromUdf
+                                ? `<span class="pr-suom-readonly" data-pr-field="qtySuomqty" title="${escapeHtml(suomTitle)}">${formatStockCardNumber(qtySuomqty)}</span>`
+                                : `<input type="number" class="pr-input-qty" data-pr-field="qtySuomqty" min="0" step="0.0001" value="${escapeHtml(qtySuomqty)}" oninput="updatePurchaseRequestItem(${idx}, 'qtySuomqty', this.value)" title="${escapeHtml(suomTitle)}" />`
+                        }</td>
                         <td><input type="number" min="0" step="0.01" value="${escapeHtml(item.unitPrice || 0)}" oninput="updatePurchaseRequestItem(${idx}, 'unitPrice', this.value)" /></td>
                         <td><input type="date" value="${escapeHtml(item.deliveryDate || '')}" oninput="updatePurchaseRequestItem(${idx}, 'deliveryDate', this.value)" /></td>
                         <td class="pr-amount-cell" id="pr-amount-${idx}">${formatMoney(amount)}</td>
@@ -3299,13 +3618,26 @@
 
         function updatePurchaseRequestItem(index, key, value) {
             if (!window.purchaseRequestItems || !window.purchaseRequestItems[index]) return;
-            if (key === 'quantity' || key === 'unitPrice') {
+            if (key === 'qtySqty' || key === 'qtySuomqty' || key === 'quantity' || key === 'unitPrice') {
                 const num = Number(value);
                 window.purchaseRequestItems[index][key] = Number.isFinite(num) ? num : 0;
-            } else if (key === 'stockQtyUom') {
-                window.purchaseRequestItems[index][key] = String(value || '').toUpperCase() === 'SQTY' ? 'SQTY' : 'SUOMQTY';
-                renderPurchaseRequestLineItems();
-                return;
+                if (key === 'qtySqty' || key === 'qtySuomqty') {
+                    const item = window.purchaseRequestItems[index];
+                    if (key === 'qtySqty') {
+                        applyPrLineSuomFromSqtyUdfWeight(item);
+                    }
+                    syncPrLineQuantityDerived(item);
+                    const row = document.querySelector(`#pr-line-items-body tr[data-pr-index="${index}"]`);
+                    if (row && key === 'qtySqty' && prItemUdfWeight(findPrProductByCode(item.itemCode)) != null) {
+                        const suEl = row.querySelector('[data-pr-field="qtySuomqty"]');
+                        if (suEl && suEl.tagName === 'SPAN') {
+                            suEl.textContent = formatStockCardNumber(Number(item.qtySuomqty || 0));
+                        }
+                    }
+                    updatePurchaseRequestRowAmount(index);
+                    recalcPurchaseRequestTotals();
+                    return;
+                }
             } else {
                 window.purchaseRequestItems[index][key] = value;
             }
@@ -3321,18 +3653,23 @@
             if (!window.purchaseRequestItems) window.purchaseRequestItems = [];
             const selectedProjectCode = getSelectedProjectCode();
             const today = prTodayIso();
-            window.purchaseRequestItems.push({
+            const defU = defaultPrStockQtyUom();
+            const row = {
                 itemCode: '',
                 itemName: '',
                 locationCode: getDefaultLineLocation(),
                 description: '',
                 udfReason: '',
                 project: selectedProjectCode,
+                qtySqty: defU === 'SQTY' ? 1 : 0,
+                qtySuomqty: defU === 'SUOMQTY' ? 1 : 0,
                 quantity: 1,
                 unitPrice: 0,
                 deliveryDate: today,
-                stockQtyUom: defaultPrStockQtyUom(),
-            });
+                stockQtyUom: defU,
+            };
+            syncPrLineQuantityDerived(row);
+            window.purchaseRequestItems.push(row);
             renderPurchaseRequestLineItems();
         }
 
@@ -3355,9 +3692,9 @@
             let taxTotal = 0;
 
             items.forEach((item) => {
-                const qty = Number(item.quantity || 0);
+                const pq = linePricingQty(item);
                 const unitPrice = Number(item.unitPrice || 0);
-                subtotal += qty * unitPrice;
+                subtotal += pq * unitPrice;
             });
 
             const grand = subtotal + taxTotal;
@@ -3374,20 +3711,26 @@
             const primarySupplier = selectedSuppliers[0] || null;
             const supplierCode = primarySupplier ? primarySupplier.code : '';
             const supplierName = primarySupplier ? primarySupplier.name : '';
-            const lineItems = (window.purchaseRequestItems || []).map((item) => ({
-                itemCode: String(item.itemCode || '').trim(),
-                itemName: String(item.itemName || '').trim(),
-                locationCode: String(item.locationCode || '').trim(),
-                description: String(item.description || '').trim(),
-                udfReason: String(item.udfReason || '').trim(),
-                project: selectedProjectCode,
-                quantity: Number(item.quantity || 0),
-                unitPrice: Number(item.unitPrice || 0),
-                deliveryDate: String(item.deliveryDate || '').trim(),
-                tax: 0,
-                amount: Number((Number(item.quantity || 0) * Number(item.unitPrice || 0)).toFixed(2)),
-                stockQtyUom: item.stockQtyUom || defaultPrStockQtyUom(),
-            }));
+            const lineItems = (window.purchaseRequestItems || []).map((item) => {
+                const pq = linePricingQty(item);
+                const up = Number(item.unitPrice || 0);
+                return {
+                    itemCode: String(item.itemCode || '').trim(),
+                    itemName: String(item.itemName || '').trim(),
+                    locationCode: String(item.locationCode || '').trim(),
+                    description: String(item.description || '').trim(),
+                    udfReason: String(item.udfReason || '').trim(),
+                    project: selectedProjectCode,
+                    qtySqty: Number(item.qtySqty || 0),
+                    qtySuomqty: Number(item.qtySuomqty || 0),
+                    quantity: pq,
+                    unitPrice: up,
+                    deliveryDate: String(item.deliveryDate || '').trim(),
+                    tax: 0,
+                    amount: Number((pq * up).toFixed(2)),
+                    stockQtyUom: deriveStockQtyUomForPayload(item),
+                };
+            });
 
             return {
                 requestNumber: document.getElementById('pr-request-number').value.trim(),
@@ -3416,12 +3759,17 @@
                 const item = payload.lineItems[i];
                 if (!item.itemCode) return `line ${i + 1}: itemCode is required`;
                 if (!item.itemName) return `line ${i + 1}: itemName is required`;
-                const q = Number(item.quantity);
-                if (Number.isNaN(q) || q < 0) {
-                    return `line ${i + 1}: quantity must be a number >= 0`;
+                const qs = Number(item.qtySqty);
+                const qu = Number(item.qtySuomqty);
+                if (Number.isNaN(qs) || qs < 0 || Number.isNaN(qu) || qu < 0) {
+                    return `line ${i + 1}: SQTY and SUOMQTY must be numbers >= 0`;
                 }
-                if (isSubmit && !(q > 0)) {
-                    return `line ${i + 1}: quantity must be greater than 0 to submit the purchase request`;
+                if (isSubmit && !(qs > 0 || qu > 0)) {
+                    return `line ${i + 1}: enter SQTY and/or SUOMQTY (> 0) to submit`;
+                }
+                const pq = Number(item.quantity);
+                if (Number.isNaN(pq) || pq < 0) {
+                    return `line ${i + 1}: pricing quantity must be >= 0`;
                 }
                 if (!(Number(item.unitPrice) >= 0)) return `line ${i + 1}: unitPrice must be >= 0`;
             }
@@ -3441,10 +3789,12 @@
                     description: String(item.description || '').trim(),
                     udfReason: String(item.udfReason || '').trim(),
                     project: selectedProjectCode,
-                    quantity: Number(item.quantity || 0),
+                    qtySqty: Number(item.qtySqty || 0),
+                    qtySuomqty: Number(item.qtySuomqty || 0),
+                    quantity: linePricingQty(item),
                     unitPrice: Number(item.unitPrice || 0),
                     deliveryDate: String(item.deliveryDate || '').trim(),
-                    stockQtyUom: (item.stockQtyUom && String(item.stockQtyUom).toUpperCase() === 'SQTY') ? 'SQTY' : 'SUOMQTY',
+                    stockQtyUom: deriveStockQtyUomForPayload(item),
                 }));
 
                 if (!editLineItems.length) {
@@ -3458,13 +3808,19 @@
                         showPurchaseRequestMessage(`line ${i + 1}: detailId is required for edit mode`, 'error');
                         return;
                     }
-                    const q = Number(line.quantity);
-                    if (Number.isNaN(q) || q < 0) {
-                        showPurchaseRequestMessage(`line ${i + 1}: quantity must be a number >= 0`, 'error');
+                    const qs = Number(line.qtySqty || 0);
+                    const qu = Number(line.qtySuomqty || 0);
+                    const pq = Number(line.quantity || 0);
+                    if (Number.isNaN(qs) || qs < 0 || Number.isNaN(qu) || qu < 0) {
+                        showPurchaseRequestMessage(`line ${i + 1}: SQTY / SUOMQTY must be numbers >= 0`, 'error');
                         return;
                     }
-                    if (isSubmitFromEdit && !(q > 0)) {
-                        showPurchaseRequestMessage(`line ${i + 1}: quantity must be greater than 0 to submit`, 'error');
+                    if (isSubmitFromEdit && !(qs > 0 || qu > 0)) {
+                        showPurchaseRequestMessage(`line ${i + 1}: enter SQTY and/or SUOMQTY (> 0) to submit`, 'error');
+                        return;
+                    }
+                    if (Number.isNaN(pq) || pq < 0) {
+                        showPurchaseRequestMessage(`line ${i + 1}: pricing quantity invalid`, 'error');
                         return;
                     }
                     if (!(line.unitPrice >= 0)) {
@@ -3531,11 +3887,26 @@
                         }
                     }
 
+                    const editSuccessRequestNo = isSubmitFromEdit
+                        ? String((prFormEditState && prFormEditState.requestNumber) || document.getElementById('pr-request-number').value || '').trim()
+                        : '';
                     await loadViewPurchaseRequests(true);
                     prFormEditState = null;
                     initPurchaseRequestForm();
                     showTab('view');
-                    alert(isSubmitFromEdit ? 'Purchase request submitted successfully.' : 'Draft updated successfully.');
+                    if (isSubmitFromEdit) {
+                        showPurchaseRequestSuccessModal(
+                            'Purchase request submitted',
+                            'Your purchase request was submitted successfully.',
+                            editSuccessRequestNo || null
+                        );
+                    } else {
+                        showPurchaseRequestSuccessModal(
+                            'Draft updated',
+                            'Your draft was saved successfully.',
+                            editSuccessRequestNo || null
+                        );
+                    }
                 } catch (error) {
                     showPurchaseRequestMessage(error.message || 'Failed to update purchase request.', 'error');
                 } finally {
@@ -3594,7 +3965,11 @@
                         history.replaceState({}, '', url);
                     } catch (e) { /* ignore */ }
                     loadStockCardRows();
-                    alert(`Purchase request submitted successfully.\n\nRequest number: ${requestNumber}`);
+                    showPurchaseRequestSuccessModal(
+                        'Purchase request submitted',
+                        'Your purchase request was submitted successfully.',
+                        requestNumber !== 'N/A' ? requestNumber : null
+                    );
                 } else {
                     const msg = `Draft saved successfully. Request Number: ${requestNumber}`;
                     showPurchaseRequestMessage(msg, 'success');
@@ -3818,18 +4193,23 @@
             prFormEditState = null;
             renderProjectOptions('');
             const today = prTodayIso();
-            window.purchaseRequestItems = [{
+            const defU = defaultPrStockQtyUom();
+            const row = {
                 itemCode: '',
                 itemName: '',
                 locationCode: getDefaultLineLocation(),
                 description: '',
                 udfReason: '',
                 project: getSelectedProjectCode(),
+                qtySqty: defU === 'SQTY' ? 1 : 0,
+                qtySuomqty: defU === 'SUOMQTY' ? 1 : 0,
                 quantity: 1,
                 unitPrice: 0,
                 deliveryDate: today,
-                stockQtyUom: defaultPrStockQtyUom(),
-            }];
+                stockQtyUom: defU,
+            };
+            syncPrLineQuantityDerived(row);
+            window.purchaseRequestItems = [row];
             selectedSuppliers = [];
             _renderChips();
             const requestDateEl = document.getElementById('pr-request-date');

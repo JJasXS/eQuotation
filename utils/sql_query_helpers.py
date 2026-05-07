@@ -14,6 +14,7 @@ ST_ITEM_WANTED_COLUMNS = [
     "UDF_MOQ",
     "UDF_DLEADTIME",
     "UDF_BUNDLE",
+    "UDF_WEIGHT",
 ]
 
 

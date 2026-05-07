@@ -3685,6 +3685,7 @@ def api_admin_procurement_stock_card_breakdown():
     qty_mode = (request.args.get('qty_mode') or 'SQTY').strip().upper()
     if qty_mode not in ('SQTY', 'SUOMQTY'):
         qty_mode = 'SQTY'
+    batch_filter = (request.args.get('batch') or '').strip() or None
 
     if not item_code or not location or not metric:
         return jsonify({'success': False, 'error': 'item_code, location, and metric are required'}), 400
@@ -3712,6 +3713,7 @@ def api_admin_procurement_stock_card_breakdown():
             from_date=from_date,
             to_date=to_date,
             qty_mode=qty_mode,
+            batch_filter=batch_filter,
         )
         return jsonify({'success': True, **payload})
     except ValueError as exc:
@@ -5029,6 +5031,16 @@ def api_admin_purchase_request_details(request_id):
         for idx, row in enumerate(detail_rows, start=1):
             if not isinstance(row, dict):
                 continue
+            sqty_v = _num(row.get('sqty'))
+            suom_v = _num(row.get('suomqty'))
+            basis = str(row.get('stockQtyUom') or '').strip().upper()
+            if basis not in ('SQTY', 'SUOMQTY'):
+                if suom_v > 0 and sqty_v == 0:
+                    basis = 'SUOMQTY'
+                elif sqty_v > 0 and suom_v == 0:
+                    basis = 'SQTY'
+                else:
+                    basis = 'SUOMQTY'
             details.append({
                 'id': row.get('dtlkey'),
                 'seq': row.get('seq') if row.get('seq') is not None else idx,
@@ -5042,6 +5054,10 @@ def api_admin_purchase_request_details(request_id):
                 'amount': _num(row.get('amount')),
                 'deliveryDate': row.get('deliverydate'),
                 'udfPqApproved': row.get('udf_pqapproved'),
+                'udfReason': str(row.get('udf_reason') or '').strip(),
+                'sqty': sqty_v,
+                'suomqty': suom_v,
+                'stockQtyUom': basis,
             })
 
         return jsonify({'success': True, 'id': int(request_id), 'details': details, 'count': len(details)})
