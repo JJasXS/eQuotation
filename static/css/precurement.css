@@ -148,11 +148,13 @@
     display: inline-block;
     min-width: 2.5rem;
     font-variant-numeric: tabular-nums;
-    font-size: 10px;
+    font-size: 12px;
+    font-weight: 700;
     line-height: 1.2;
     color: inherit;
     user-select: none;
     pointer-events: none;
+    text-align: center;
 }
 
 .need-buy-editor .need-buy-cb {
@@ -1396,6 +1398,12 @@ body.procurement-warm-ui .stock-card-item-search-input:focus {
     white-space: normal;
     min-width: 140px;
     max-width: 360px;
+}
+
+.stock-card-breakdown-desc-meta {
+    margin-top: 2px;
+    font-size: 11px;
+    color: #9db2cc;
 }
 
 .stock-card-breakdown-batch-td {
@@ -3525,6 +3533,10 @@ body.procurement-warm-ui .stock-card-breakdown-note {
     color: #7a6a52;
 }
 
+body.procurement-warm-ui .stock-card-breakdown-desc-meta {
+    color: #7a6a52;
+}
+
 body.procurement-warm-ui .stock-card-breakdown-table th,
 body.procurement-warm-ui .stock-card-breakdown-table td {
     border-bottom: 1px solid #efe6d8;
@@ -3788,18 +3800,25 @@ body.procurement-warm-ui .procurement-panel > .panel-content {
 }
 
 .pr-line-items-table .pr-suom-readonly {
-    display: inline-block;
-    min-width: 2.5rem;
-    max-width: 3.4rem;
-    padding: 2px 4px;
-    font-size: 10px;
-    line-height: 22px;
-    height: 22px;
+    display: block;
+    width: 100%;
+    min-width: 3.8rem;
+    max-width: none;
+    padding: 0 4px;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 28px;
+    height: 28px;
     box-sizing: border-box;
     font-variant-numeric: tabular-nums;
     color: inherit;
+    text-align: center;
     vertical-align: middle;
     user-select: none;
+}
+
+.pr-line-items-table td.pr-qty-cell--suom {
+    text-align: center;
 }
 
 /* Invite suppliers — one light frame, table reads clearly without heavy outlines */

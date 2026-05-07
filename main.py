@@ -194,7 +194,7 @@ PURCHASE_REQUEST_LIST_CACHE_LOCK = threading.Lock()
 PURCHASE_REQUEST_LIST_CACHE_TTL_SEC = 15.0
 ADMIN_DASHBOARD_API_CACHE = {}
 ADMIN_DASHBOARD_API_CACHE_LOCK = threading.Lock()
-ADMIN_DASHBOARD_API_CACHE_TTL_SEC = 60.0
+ADMIN_DASHBOARD_API_CACHE_TTL_SEC = 300.0
 DB_HOST = os.getenv('DB_HOST')
 DB_USER = os.getenv('DB_USER', 'sysdba')
 DB_PASSWORD = os.getenv('DB_PASSWORD', 'masterkey')
@@ -1059,19 +1059,18 @@ def customer_status_summary():
 
     try:
         customers = _fetch_all_customers_from_sql_api()
-        # Get invoice aging info for all customers (same-origin; fail soft if slow/down)
-        try:
-            inv_payload, _inv = http_request_json(
-                'GET',
-                request.host_url.rstrip('/') + '/api/admin/invoice_aging_summary',
-                headers=request.headers,
-                timeout=parse_timeout_env('INTERNAL_HTTP_REQUEST_TIMEOUT', 2.0, 12.0),
+        # Do not trigger nested invoice-aging API on dashboard load.
+        # If invoice aging data already exists in cache, reuse it to split A/AWO.
+        invoice_map: dict[str, Any] = {}
+        cached_invoice = _dashboard_cache_get('invoice_aging_summary_full')
+        if isinstance(cached_invoice, dict):
+            cached_items = (
+                cached_invoice.get('data', {}).get('items', [])
+                if isinstance(cached_invoice.get('data'), dict)
+                else []
             )
-            invoice_aging_items = inv_payload.get('data', {}).get('items', []) if isinstance(inv_payload, dict) else []
-        except Exception as inv_exc:
-            print(f"[WARN] customer_status_summary: invoice_aging cross-call failed: {inv_exc}", flush=True)
-            invoice_aging_items = []
-        invoice_map = {item['code']: item for item in invoice_aging_items}
+            if isinstance(cached_items, list):
+                invoice_map = {str(item.get('code') or ''): item for item in cached_items if isinstance(item, dict)}
 
         for customer in customers:
             status = customer.get('status', '')
@@ -1102,7 +1101,6 @@ def customer_status_summary():
                 'items': items,
                 'total_customers': sum(counts.values()),
                 'processed_customers': len(customers),
-                'customers': customers,
             }
         }
         _dashboard_cache_set('customer_status_summary', payload_out)
@@ -1197,7 +1195,7 @@ def invoice_aging_summary():
         latest_days_ago = paged_items[0]['days_ago_label'] if paged_items else None
         latest_company_name = paged_items[0]['company_name'] if paged_items else None
 
-        return jsonify({
+        payload_out = {
             'success': True,
             'data': {
                 'items': paged_items,
@@ -1209,7 +1207,11 @@ def invoice_aging_summary():
                 'latest_invoice_company': latest_company_name,
                 'today': today.isoformat(),
             }
-        }), 200
+        }
+        # Keep a cached full map for other dashboard summaries (without causing nested API calls).
+        if offset == 0 and limit >= total_codes:
+            _dashboard_cache_set('invoice_aging_summary_full', payload_out)
+        return jsonify(payload_out), 200
     except requests.exceptions.RequestException as exc:
         return jsonify({'success': False, 'error': f'Failed to reach SQL API /customer: {exc}'}), 502
     except RuntimeError as exc:
@@ -1228,6 +1230,9 @@ def invoice_aging_summary():
 @api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
 def sales_cycle_summary():
     """Return sales cycle metrics from FastAPI dashboard endpoint."""
+    cached = _dashboard_cache_get('sales_cycle_summary')
+    if cached:
+        return jsonify(cached), 200
     headers = _build_sql_api_auth_headers()
     try:
         payload, _sc = http_request_json(
@@ -1243,7 +1248,9 @@ def sales_cycle_summary():
     if not isinstance(payload, dict):
         return jsonify({'success': False, 'error': 'Unexpected sales cycle response format'}), 502
 
-    return jsonify({'success': True, 'data': payload}), 200
+    payload_out = {'success': True, 'data': payload}
+    _dashboard_cache_set('sales_cycle_summary', payload_out)
+    return jsonify(payload_out), 200
 
 
 @app.route('/api/admin/sales_cycle_details', methods=['GET'])
@@ -1279,7 +1286,9 @@ def sales_cycle_details():
 @api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
 def qt_iv_conversion_report():
     """Return QT->IV conversion report from FastAPI dashboard endpoint."""
-    cached = _dashboard_cache_get('qt_iv_conversion_report')
+    summary_only = str(request.args.get('summary_only') or '').strip().lower() in ('1', 'true', 'yes')
+    cache_key = 'qt_iv_conversion_report_summary' if summary_only else 'qt_iv_conversion_report'
+    cached = _dashboard_cache_get(cache_key)
     if cached:
         return jsonify(cached), 200
     headers = _build_sql_api_auth_headers()
@@ -1297,8 +1306,31 @@ def qt_iv_conversion_report():
     if not isinstance(payload, dict):
         return jsonify({'success': False, 'error': 'Unexpected QT->IV report response format'}), 502
 
-    payload_out = {'success': True, 'data': payload}
-    _dashboard_cache_set('qt_iv_conversion_report', payload_out)
+    data_out = payload
+    if summary_only and isinstance(payload, dict):
+        try:
+            total_qt_qty = float(payload.get('total_qt_qty') or payload.get('TOTAL_QT_QTY') or 0)
+        except Exception:
+            total_qt_qty = 0.0
+        try:
+            total_iv_qty = float(payload.get('total_iv_qty') or payload.get('TOTAL_IV_QTY') or 0)
+        except Exception:
+            total_iv_qty = 0.0
+        avg_conversion_pct = (total_iv_qty / total_qt_qty * 100.0) if total_qt_qty > 0 else 0.0
+        data_out = {
+            'total_qt_lines': payload.get('total_qt_lines', payload.get('TOTAL_QT_LINES', 0)),
+            'not_invoiced_lines': payload.get('not_invoiced_lines', payload.get('NOT_INVOICED_LINES', 0)),
+            'partial_lines': payload.get('partial_lines', payload.get('PARTIAL_LINES', 0)),
+            'full_or_over_lines': payload.get('full_or_over_lines', payload.get('FULL_OR_OVER_LINES', 0)),
+            'total_qt_qty': total_qt_qty,
+            'total_iv_qty': total_iv_qty,
+            'avg_conversion_pct': round(avg_conversion_pct, 2),
+            # Deliberately omit heavy per-line items for dashboard card speed.
+            'items': [],
+        }
+
+    payload_out = {'success': True, 'data': data_out}
+    _dashboard_cache_set(cache_key, payload_out)
     return jsonify(payload_out), 200
 
 # ============================================

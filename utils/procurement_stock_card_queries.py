@@ -935,6 +935,8 @@ def fetch_procurement_metric_breakdown(
         qty_col = _pick_existing(st_cols, "QTY", "QUANTITY", "BALANCE", "BALQTY")
         batch_col = _pick_existing(st_cols, "BATCH", "BATCHNO", "LOT", "BATCHCODE")
         dtl_col = _pick_existing(st_cols, "DTLKEY", "RID", "LINE", "LINENO")
+        st_item_col = _pick_existing(st_cols, "ITEMCODE", "ITEM")
+        st_loc_col = _pick_existing(st_cols, "LOCATION", "LOC", "STORELOCATION")
         sq_line = _st_tr_line_sqty_expr_sql(st_cols, "S")
         su_line = _st_tr_suom_stack_expr("S", st_cols)
         st_qty_expr = _st_tr_qty_column_for_mode(cur, use_suom)
@@ -942,8 +944,11 @@ def fetch_procurement_metric_breakdown(
         if st_qty_expr == "0" and not qty_col:
             details = [
                 {
-                    "batch": "—",
+                    "batch": "-",
                     "description": "ST_TR has no QTY column in metadata; cannot list stock lines.",
+                    "batch_description": "-",
+                    "expdate": "-",
+                    "mfgdate": "-",
                     "sqty": 0.0,
                     "suomqty": 0.0,
                 }
@@ -971,29 +976,60 @@ def fetch_procurement_metric_breakdown(
             batch_sel = f"TRIM(COALESCE(CAST(S.{batch_col} AS VARCHAR(120)), ''))"
         else:
             batch_sel = "CAST('' AS VARCHAR(120))"
-        if desc_col:
-            desc_sel = f"TRIM(COALESCE(CAST(S.{desc_col} AS VARCHAR(200)), ''))"
-        else:
-            desc_sel = "CAST('' AS VARCHAR(200))"
 
-        order_parts: list[str] = []
-        if batch_col:
-            order_parts.append(f"S.{batch_col}")
+        batch_cols = _get_table_columns(cur, "ST_BATCH")
+        sb_batch_col = _pick_existing(batch_cols, "BATCH", "BATCHNO", "LOT", "BATCHCODE", "CODE")
+        sb_item_col = _pick_existing(batch_cols, "ITEMCODE", "ITEM")
+        sb_loc_col = _pick_existing(batch_cols, "LOCATION", "LOC", "STORELOCATION")
+        sb_exp_col = _pick_existing(batch_cols, "EXPDATE", "EXPIREDATE", "EXPIRYDATE", "EXDATE")
+        sb_mfg_col = _pick_existing(batch_cols, "MFGDATE", "MANUFDATE", "MFDATE")
+        sb_desc_col = _pick_existing(
+            batch_cols, "DESCRIPTION", "DESCRFIPTION", "DESCRIPT", "DESC1", "DESC2", "REMARK1", "REMARKS", "MEMO", "NARRATION"
+        )
+
+        batch_join_sql = ""
+        sb_exp_sel = "CAST(NULL AS VARCHAR(40))"
+        sb_mfg_sel = "CAST(NULL AS VARCHAR(40))"
+        sb_desc_sel = "CAST('' AS VARCHAR(200))"
+        if batch_col and sb_batch_col:
+            join_parts = [f"TRIM(COALESCE(CAST(B.{sb_batch_col} AS VARCHAR(120)), '')) = {batch_sel}"]
+            if st_item_col and sb_item_col:
+                join_parts.append(f"TRIM(COALESCE(CAST(B.{sb_item_col} AS VARCHAR(60)), '')) = TRIM(COALESCE(CAST(S.{st_item_col} AS VARCHAR(60)), ''))")
+            if st_loc_col and sb_loc_col:
+                join_parts.append(f"TRIM(COALESCE(CAST(B.{sb_loc_col} AS VARCHAR(40)), '')) = TRIM(COALESCE(CAST(S.{st_loc_col} AS VARCHAR(40)), ''))")
+            batch_join_sql = f" LEFT JOIN ST_BATCH B ON {' AND '.join(join_parts)}"
+            if sb_exp_col:
+                sb_exp_sel = f"CAST(MAX(B.{sb_exp_col}) AS VARCHAR(40))"
+            if sb_mfg_col:
+                sb_mfg_sel = f"CAST(MAX(B.{sb_mfg_col}) AS VARCHAR(40))"
+            if sb_desc_col:
+                sb_desc_sel = f"TRIM(COALESCE(CAST(MAX(B.{sb_desc_col}) AS VARCHAR(200)), ''))"
+        if desc_col:
+            st_desc_agg = f"TRIM(COALESCE(CAST(MAX(S.{desc_col}) AS VARCHAR(200)), ''))"
+        else:
+            st_desc_agg = "CAST('' AS VARCHAR(200))"
+
+        order_parts: list[str] = [batch_sel]
         if dtl_col:
-            order_parts.append(f"S.{dtl_col}")
+            order_parts.append(f"MIN(S.{dtl_col})")
         order_clause = ", ".join(order_parts) if order_parts else "1"
 
         cur.execute(
             f"""
             SELECT
                 {batch_sel} AS C_BATCH,
-                {desc_sel} AS C_DESC,
-                CAST(({sq_line}) AS DOUBLE PRECISION) AS C_SQ,
-                CAST(({su_line}) AS DOUBLE PRECISION) AS C_SU
+                {st_desc_agg} AS C_DESC,
+                {sb_exp_sel} AS C_EXPDATE,
+                {sb_mfg_sel} AS C_MFGDATE,
+                {sb_desc_sel} AS C_BATCH_DESC,
+                CAST(SUM(CAST(({sq_line}) AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS C_SQ,
+                CAST(SUM(CAST(({su_line}) AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS C_SU
             FROM ST_TR S
+            {batch_join_sql}
             WHERE S.ITEMCODE = ?
               AND S.LOCATION = ?
             {batch_filter_sql}
+            GROUP BY {batch_sel}
             ORDER BY {order_clause}
             """,
             (item, location) + batch_params,
@@ -1005,14 +1041,20 @@ def fetch_procurement_metric_breakdown(
         for row in raw_rows:
             batch = _stringify(_row_value(row, 0)) if len(row) > 0 else ""
             des = _stringify(_row_value(row, 1)) if len(row) > 1 else ""
-            qty_sq = _to_float(_row_value(row, 2) if len(row) > 2 else 0)
-            qty_su = _to_float(_row_value(row, 3) if len(row) > 3 else 0)
+            expdate = _stringify(_row_value(row, 2)) if len(row) > 2 else ""
+            mfgdate = _stringify(_row_value(row, 3)) if len(row) > 3 else ""
+            batch_desc = _stringify(_row_value(row, 4)) if len(row) > 4 else ""
+            qty_sq = _to_float(_row_value(row, 5) if len(row) > 5 else 0)
+            qty_su = _to_float(_row_value(row, 6) if len(row) > 6 else 0)
             total_sq += qty_sq
             total_su += qty_su
             details.append(
                 {
-                    "batch": batch or "—",
-                    "description": des or "—",
+                    "batch": batch or "-",
+                    "description": des or "-",
+                    "batch_description": batch_desc or "-",
+                    "expdate": expdate or "-",
+                    "mfgdate": mfgdate or "-",
                     "sqty": qty_sq,
                     "suomqty": qty_su,
                 }
@@ -1020,8 +1062,11 @@ def fetch_procurement_metric_breakdown(
         if not details:
             details = [
                 {
-                    "batch": "—",
+                    "batch": "-",
                     "description": "No ST_TR records for this item/location.",
+                    "batch_description": "-",
+                    "expdate": "-",
+                    "mfgdate": "-",
                     "sqty": 0.0,
                     "suomqty": 0.0,
                 }
@@ -1031,7 +1076,7 @@ def fetch_procurement_metric_breakdown(
             "value": total_sq,
             "value_su": total_su,
             "note": (
-                "One row per ST_TR line (SQTY & SUOMQTY); Σ SQTY and Σ SUOMQTY."
+                "One row per batch (grouped from ST_TR); Σ SQTY and Σ SUOMQTY."
                 + bf_note
             ),
         }

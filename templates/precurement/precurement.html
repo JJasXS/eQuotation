@@ -2792,38 +2792,35 @@
             return found ? found.label : metricKey;
         }
 
-        /** One ST_TR line per row; same batch → single Batch cell (rowspan) + alternating row group tint. */
+        function formatStockCardMetaDate(value) {
+            const txt = value != null ? String(value).trim() : '';
+            if (!txt || txt === '—') return '-';
+            const m = txt.match(/^(\d{4})-(\d{2})-(\d{2})/);
+            if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+            return txt;
+        }
+
+        /** One grouped row per batch, with ST_BATCH metadata in dedicated columns. */
         function renderStTrQtyPairBreakdownRows(rows) {
-            const normBatch = (r) => (r.batch != null && String(r.batch).trim() ? String(r.batch).trim() : '—');
-            const parts = [];
-            let i = 0;
-            let groupIdx = 0;
-            while (i < rows.length) {
-                const b = normBatch(rows[i]);
-                let j = i + 1;
-                while (j < rows.length && normBatch(rows[j]) === b) {
-                    j += 1;
-                }
-                const runLen = j - i;
-                const gClass = groupIdx % 2 === 0
+            return rows.map((row, idx) => {
+                const gClass = idx % 2 === 0
                     ? 'stock-card-breakdown-group-a'
                     : 'stock-card-breakdown-group-b';
-                for (let k = 0; k < runLen; k += 1) {
-                    const row = rows[i + k];
-                    const d = row.description != null && String(row.description).trim() ? row.description : '—';
-                    const batchTd = k === 0
-                        ? `<td rowspan="${runLen}" class="stock-card-breakdown-batch-td stock-card-breakdown-batch-span">${escapeHtml(b)}</td>`
-                        : '';
-                    parts.push(
-                        `<tr class="${gClass}">${batchTd}<td class="stock-card-breakdown-desc">${escapeHtml(d)}</td>`
-                        + `<td class="stock-card-breakdown-num">${formatStockCardNumber(row.sqty)}</td>`
-                        + `<td class="stock-card-breakdown-num">${formatStockCardNumber(row.suomqty)}</td></tr>`
-                    );
-                }
-                groupIdx += 1;
-                i = j;
-            }
-            return parts.join('');
+                const batch = row.batch != null && String(row.batch).trim() ? String(row.batch).trim() : '-';
+                const batchDesc = row.batch_description != null && String(row.batch_description).trim()
+                    ? String(row.batch_description).trim()
+                    : '-';
+                const exp = formatStockCardMetaDate(row.expdate);
+                const mfg = formatStockCardMetaDate(row.mfgdate);
+                return `<tr class="${gClass}">`
+                    + `<td class="stock-card-breakdown-batch-td">${escapeHtml(batch)}</td>`
+                    + `<td class="stock-card-breakdown-desc">${escapeHtml(batchDesc)}</td>`
+                    + `<td>${escapeHtml(exp || '-')}</td>`
+                    + `<td>${escapeHtml(mfg || '-')}</td>`
+                    + `<td class="stock-card-breakdown-num">${formatStockCardNumber(row.sqty)}</td>`
+                    + `<td class="stock-card-breakdown-num">${formatStockCardNumber(row.suomqty)}</td>`
+                    + '</tr>';
+            }).join('');
         }
 
         function renderStockCardBreakdownTable(payload, metricKey) {
@@ -2883,9 +2880,9 @@
             }
 
             if (style === 'st_tr_qty_pair') {
-                thead.innerHTML = '<tr><th scope="col">Batch</th><th scope="col">Description</th><th scope="col" class="stock-card-breakdown-num">SQTY</th><th scope="col" class="stock-card-breakdown-num">SUOMQTY</th></tr>';
+                thead.innerHTML = '<tr><th scope="col">Batch</th><th scope="col">Description</th><th scope="col">Exp Date</th><th scope="col">Mfg Date</th><th scope="col" class="stock-card-breakdown-num">SQTY</th><th scope="col" class="stock-card-breakdown-num">SUOMQTY</th></tr>';
                 if (!rows.length) {
-                    body.innerHTML = '<tr><td colspan="4" class="stock-card-status">No ST_TR lines for this item/location.</td></tr>';
+                    body.innerHTML = '<tr><td colspan="6" class="stock-card-status">No ST_TR lines for this item/location.</td></tr>';
                     return;
                 }
                 body.innerHTML = renderStTrQtyPairBreakdownRows(rows);
@@ -3903,7 +3900,7 @@
                 const suomFromUdf = prItemUdfWeight(product) != null;
                 const suomTitle = suomFromUdf
                     ? 'SUOMQTY from SQTY × UDF_WEIGHT (read-only)'
-                    : 'Stock quantity (SUOMQTY)';
+                    : 'Stock quantity (SUOMQTY, read-only)';
                 const pq = linePricingQty(item);
                 const unitPrice = Number(item.unitPrice || 0);
                 const amount = pq * unitPrice;
@@ -3922,11 +3919,9 @@
                         <td class="pr-stock-uom-cell"><select class="pr-stock-uom-select" onchange="onPurchaseRequestUomChange(${idx}, this.value)" ${isEditMode ? 'disabled' : ''} title="Line UOM">${buildPrLineUomOptions(item, product)}</select></td>
                         <td><input type="text" value="${escapeHtml(item.udfReason || '')}" oninput="updatePurchaseRequestItem(${idx}, 'udfReason', this.value)" /></td>
                         <td class="pr-qty-cell"><input type="number" class="pr-input-qty" data-pr-field="qtySqty" min="0" step="0.0001" value="${escapeHtml(qtySqty)}" oninput="updatePurchaseRequestItem(${idx}, 'qtySqty', this.value)" title="Stock quantity (SQTY)" /></td>
-                        <td class="pr-qty-cell">${
-                            suomFromUdf
-                                ? `<span class="pr-suom-readonly" data-pr-field="qtySuomqty" title="${escapeHtml(suomTitle)}">${formatStockCardNumber(qtySuomqty)}</span>`
-                                : `<input type="number" class="pr-input-qty" data-pr-field="qtySuomqty" min="0" step="0.0001" value="${escapeHtml(qtySuomqty)}" oninput="updatePurchaseRequestItem(${idx}, 'qtySuomqty', this.value)" title="${escapeHtml(suomTitle)}" />`
-                        }</td>
+                        <td class="pr-qty-cell pr-qty-cell--suom">
+                            <span class="pr-suom-readonly" data-pr-field="qtySuomqty" title="${escapeHtml(suomTitle)}">${formatStockCardNumber(qtySuomqty)}</span>
+                        </td>
                         <td><input type="number" min="0" step="0.01" value="${escapeHtml(item.unitPrice || 0)}" oninput="updatePurchaseRequestItem(${idx}, 'unitPrice', this.value)" /></td>
                         <td><input type="date" value="${escapeHtml(item.deliveryDate || '')}" oninput="updatePurchaseRequestItem(${idx}, 'deliveryDate', this.value)" /></td>
                         <td class="pr-amount-cell" id="pr-amount-${idx}">${formatMoney(amount)}</td>

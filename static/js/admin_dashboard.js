@@ -135,8 +135,10 @@ function renderSalesCycleWidget(data) {
         .map(item => Number(item.sales_cycle_days || 0))
         .filter(days => Number.isFinite(days) && days > 0);
 
-    const shortestDays = validDays.length ? Math.min(...validDays) : 0;
-    const longestDays = validDays.length ? Math.max(...validDays) : 0;
+    const apiShortest = Number(data.shortest_cycle_days || data.min_sales_cycle_days || 0);
+    const apiLongest = Number(data.longest_cycle_days || data.max_sales_cycle_days || 0);
+    const shortestDays = apiShortest > 0 ? apiShortest : (validDays.length ? Math.min(...validDays) : 0);
+    const longestDays = apiLongest > 0 ? apiLongest : (validDays.length ? Math.max(...validDays) : 0);
 
     if (convertedEl) convertedEl.textContent = String(totalInvoices);
     if (avgEl) avgEl.textContent = `${avgDays.toFixed(2)} days`;
@@ -200,7 +202,8 @@ function renderQtIvConversionWidget(data) {
     const apiIvQty = Number(data.total_iv_qty || data.TOTAL_IV_QTY || 0);
     const totalQtQty = groupedQtQty > 0 ? groupedQtQty : apiQtQty;
     const totalIvQty = groupedIvQty > 0 ? groupedIvQty : apiIvQty;
-    const weightedAvg = totalQtQty > 0 ? (totalIvQty / totalQtQty) * 100 : 0;
+    const apiAvg = Number(data.avg_conversion_pct || data.AVG_CONVERSION_PCT || 0);
+    const weightedAvg = totalQtQty > 0 ? (totalIvQty / totalQtQty) * 100 : apiAvg;
     const top = rows.length ? Math.max(...rows.map(row => row.conversion_pct)) : 0;
     const nonzeroRows = rows.filter(row => row.conversion_pct > 0);
     const low = nonzeroRows.length ? Math.min(...nonzeroRows.map(row => row.conversion_pct)) : 0;
@@ -254,10 +257,10 @@ async function loadSalesCycleWidget() {
     }
 
     try {
-        const response = await fetch('/api/admin/sales_cycle_details');
+        const response = await fetch('/api/admin/sales_cycle_summary');
         const payload = await response.json();
 
-        if (!response.ok || !payload.success || !payload.data || !Array.isArray(payload.data.items)) {
+        if (!response.ok || !payload.success || !payload.data || typeof payload.data !== 'object') {
             throw new Error(payload.error || 'Failed to load sales cycle metrics');
         }
 
@@ -285,63 +288,17 @@ async function loadQtIvConversionWidget() {
     }
 
     try {
-        const candidateUrls = [
-            '/api/admin/qt_iv_conversion_report',
-            '/api/admin/qt-iv-conversion-report',
-        ];
-
-        let data = null;
-        let lastError = null;
-
-        for (const url of candidateUrls) {
-            try {
-                const response = await fetch(url, {
-                    method: 'GET',
-                    headers: {
-                        Accept: 'application/json',
-                    },
-                });
-
-                const raw = await response.text();
-                const contentType = (response.headers.get('content-type') || '').toLowerCase();
-                const looksJson = contentType.includes('application/json') || raw.trim().startsWith('{') || raw.trim().startsWith('[');
-
-                if (!looksJson) {
-                    const preview = raw.trim().slice(0, 80).replace(/\s+/g, ' ');
-                    throw new Error(`Non-JSON response from ${url} (${response.status}): ${preview || 'empty response'}`);
-                }
-
-                let payload;
-                try {
-                    payload = JSON.parse(raw);
-                } catch {
-                    throw new Error(`Invalid JSON payload from ${url} (${response.status})`);
-                }
-
-                if (!response.ok) {
-                    const err = (payload && (payload.error || payload.detail)) || `HTTP ${response.status}`;
-                    throw new Error(`${url}: ${err}`);
-                }
-
-                if (payload && payload.success === true && payload.data && typeof payload.data === 'object') {
-                    data = payload.data;
-                    break;
-                }
-
-                if (payload && typeof payload === 'object' && Object.prototype.hasOwnProperty.call(payload, 'total_qt_lines')) {
-                    data = payload;
-                    break;
-                }
-
-                throw new Error(`${url}: Unexpected QT->IV response format`);
-            } catch (err) {
-                lastError = err;
-            }
+        const response = await fetch('/api/admin/qt_iv_conversion_report?summary_only=1', {
+            method: 'GET',
+            headers: {
+                Accept: 'application/json',
+            },
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload || payload.success !== true || !payload.data || typeof payload.data !== 'object') {
+            throw new Error((payload && payload.error) || 'Failed to load QT->IV conversion report');
         }
-
-        if (!data) {
-            throw lastError || new Error('Failed to load QT->IV conversion report');
-        }
+        const data = payload.data;
 
         renderQtIvConversionWidget(data);
         writeDashboardCache('adminDashboard.qtIvConversion', data);
