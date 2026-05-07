@@ -3528,10 +3528,18 @@ def check_user_has_draft():
 @app.route('/api/get_stock_items')
 @api_login_required(unauth_message='Unauthorized')
 def api_get_stock_items():
-    """Get stock items for autocomplete in order/quotation forms"""
+    """Get stock items for autocomplete in order/quotation forms.
+
+    Prefer PHP stockitem endpoint (includes nested UOM rows like sdsuom), and
+    fall back to direct Firebird ST_ITEM when PHP data is unavailable.
+    """
     con = None
     cur = None
     try:
+        api_items = fetch_data_from_api("stockitem")
+        if isinstance(api_items, list) and api_items:
+            return jsonify({'success': True, 'items': api_items})
+
         con = get_db_connection()
         cur = con.cursor()
         items = fetch_stock_items(cur)
@@ -3575,6 +3583,90 @@ def api_admin_procurement_locations():
     except Exception as e:
         print(f"[PROCUREMENT LOCATIONS] DB error: {e}", flush=True)
         return jsonify({'success': False, 'error': str(e), 'locations': []}), 500
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
+
+
+@app.route('/api/admin/procurement/stock-item-uoms')
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_procurement_stock_item_uoms():
+    """Return available UOM codes for a stock item from ST_ITEM_UOM (+ ST_ITEM fallback)."""
+    code = str(request.args.get('code') or '').strip()
+    if not code:
+        return jsonify({'success': False, 'error': 'code is required', 'uoms': []}), 400
+
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+
+        cur.execute(
+            """
+            SELECT TRIM(RF.RDB$FIELD_NAME)
+            FROM RDB$RELATION_FIELDS RF
+            WHERE RF.RDB$RELATION_NAME = 'ST_ITEM_UOM'
+            """
+        )
+        item_uom_cols = {str((row[0] or '')).strip().upper() for row in (cur.fetchall() or []) if row and row[0]}
+
+        out = []
+        seen = set()
+
+        def _push_uom(raw):
+            v = str(raw or '').strip()
+            if not v:
+                return
+            k = v.upper()
+            if k in seen:
+                return
+            seen.add(k)
+            out.append(v)
+
+        # Prefer ST_ITEM_UOM rows when table/columns exist.
+        if item_uom_cols:
+            code_col = 'CODE' if 'CODE' in item_uom_cols else ('ITEMCODE' if 'ITEMCODE' in item_uom_cols else None)
+            uom_col = 'UOM' if 'UOM' in item_uom_cols else ('UOMCODE' if 'UOMCODE' in item_uom_cols else None)
+            if code_col and uom_col:
+                cur.execute(
+                    f"SELECT DISTINCT TRIM({uom_col}) FROM ST_ITEM_UOM WHERE TRIM({code_col}) = ?",
+                    (code,),
+                )
+                for row in (cur.fetchall() or []):
+                    _push_uom(row[0] if row else None)
+
+        # Fallback/include ST_ITEM UOM only.
+        cur.execute(
+            """
+            SELECT TRIM(RF.RDB$FIELD_NAME)
+            FROM RDB$RELATION_FIELDS RF
+            WHERE RF.RDB$RELATION_NAME = 'ST_ITEM'
+            """
+        )
+        st_item_cols = {str((row[0] or '')).strip().upper() for row in (cur.fetchall() or []) if row and row[0]}
+        select_cols = []
+        if 'UOM' in st_item_cols:
+            select_cols.append('UOM')
+        if select_cols:
+            cur.execute(
+                f"SELECT {', '.join(f'TRIM({c})' for c in select_cols)} FROM ST_ITEM WHERE TRIM(CODE) = ?",
+                (code,),
+            )
+            row = cur.fetchone()
+            if row:
+                for val in row:
+                    _push_uom(val)
+
+        if not out:
+            _push_uom('UNIT')
+
+        return jsonify({'success': True, 'code': code, 'uoms': out})
+    except Exception as e:
+        print(f"[PROCUREMENT STOCK ITEM UOMS] DB error: {e}", flush=True)
+        return jsonify({'success': False, 'error': str(e), 'uoms': []}), 500
     finally:
         if cur:
             cur.close()

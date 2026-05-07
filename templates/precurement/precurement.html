@@ -182,45 +182,59 @@
 
                         <div id="panel-view" class="panel-content pr-panel-view-quotation-like" style="display: none;">
                             <div class="admin-quotations-view" style="padding: 0;">
-                                <div class="quotation-page-header">
-                                    <div class="quotation-page-header-controls pr-view-header-row">
-                                        <h2 class="pr-view-title">View e-Purchase Request</h2>
+                                <div class="quotation-page-header pr-view-page-header">
+                                    <div class="quotation-page-header-controls pr-view-header-row pr-view-header-row--modern">
+                                        <div class="pr-view-header-intro">
+                                            <h2 class="pr-view-page-title">Purchase Requests</h2>
+                                            <p class="pr-view-page-subtitle">Review and manage e-PR documents before transfer.</p>
+                                        </div>
                                         <div class="view-pr-actions">
-                                            <div class="view-pr-search-wrap">
-                                                <label class="view-pr-search-label" for="view-pr-search-input">Search PR</label>
-                                                <input
-                                                    type="search"
-                                                    id="view-pr-search-input"
-                                                    class="view-pr-search-input"
-                                                    placeholder="PR code..."
-                                                    oninput="onViewPrSearchChange(this.value)"
-                                                />
-                                            </div>
-                                            <div class="view-pr-actions-right">
+                                            <div class="view-pr-actions-right view-pr-actions-right--toolbar">
                                                 <button type="button" class="view-pr-refresh-btn" onclick="loadViewPurchaseRequests(true)">Refresh</button>
-                                                <button type="button" class="view-pr-refresh-btn" id="view-pr-update-btn" onclick="saveViewDetailApprovals()" disabled>Update Details</button>
+                                                <button
+                                                    type="button"
+                                                    class="view-pr-refresh-btn view-pr-update-availability-btn"
+                                                    id="view-pr-update-btn"
+                                                    onclick="saveViewDetailApprovals()"
+                                                    disabled
+                                                    title="Check and update item availability before transferring this PR."
+                                                >Update Item Availability</button>
                                             </div>
                                         </div>
-                                        <p id="view-pr-list-perf" class="view-pr-list-perf" aria-live="polite" hidden></p>
                                     </div>
-                                    <div class="approvals-tabs quotation-page-header-tabs" id="view-pr-filter-tabs" role="group" aria-label="Filter by UDF status">
-                                        <button type="button" class="approval-tab view-pr-filter-tab" data-status="APPROVED" onclick="toggleViewStatusFilter('APPROVED')">APPROVED</button>
-                                        <button type="button" class="approval-tab view-pr-filter-tab is-active" data-status="PENDING" onclick="toggleViewStatusFilter('PENDING')">PENDING</button>
-                                        <button type="button" class="approval-tab view-pr-filter-tab" data-status="CANCELLED" onclick="toggleViewStatusFilter('CANCELLED')">CANCELLED</button>
+                                    <p id="view-pr-list-perf" class="view-pr-list-perf view-pr-list-perf--inline" aria-live="polite" hidden></p>
+                                    <div class="approvals-tabs quotation-page-header-tabs pr-view-filter-tabs" id="view-pr-filter-tabs" role="group" aria-label="Filter by approval status">
+                                        <button type="button" class="approval-tab view-pr-filter-tab" data-status="DRAFT" onclick="toggleViewStatusFilter('DRAFT')">Draft</button>
+                                        <button type="button" class="approval-tab view-pr-filter-tab" data-status="APPROVED" onclick="toggleViewStatusFilter('APPROVED')">Approved</button>
+                                        <button type="button" class="approval-tab view-pr-filter-tab is-active" data-status="PENDING" onclick="toggleViewStatusFilter('PENDING')">Pending</button>
+                                        <button type="button" class="approval-tab view-pr-filter-tab" data-status="CANCELLED" onclick="toggleViewStatusFilter('CANCELLED')">Cancelled</button>
                                     </div>
                                 </div>
                                 <div class="quotation-split-wrap pr-procurement-split">
-                                    <div class="quotation-list-pane pr-view-quotation-list" id="view-pr-list-outer" aria-label="Purchase request list">
-                                        <div id="view-pr-list" class="view-pr-list view-pr-list--cards">
-                                            <div class="view-pr-empty">Loading e-Purchase Request records...</div>
+                                    <div class="quotation-list-pane pr-view-quotation-list pr-view-left-pane" aria-label="Purchase request list">
+                                        <div class="pr-view-left-sticky-header">
+                                            <div class="pr-view-left-search">
+                                                <label class="pr-view-left-search-label" for="view-pr-search-input">Search PR</label>
+                                                <input
+                                                    type="search"
+                                                    id="view-pr-search-input"
+                                                    class="view-pr-search-input pr-view-left-search-input"
+                                                    placeholder="PR code..."
+                                                    oninput="onViewPrSearchChange(this.value)"
+                                                    autocomplete="off"
+                                                />
+                                            </div>
                                         </div>
-                                        <div id="view-pr-load-more-wrap" class="view-pr-load-more-wrap" style="display: none;">
-                                            <button type="button" class="view-pr-refresh-btn view-pr-load-more-btn" id="view-pr-load-more-btn" onclick="loadMoreViewPurchaseRequests()">Load more</button>
+                                        <div class="pr-view-list-scroll view-pr-list view-pr-list--cards" id="view-pr-list">
+                                            <div class="view-pr-empty">Loading e-Purchase Request records...</div>
+                                            <div id="view-pr-load-more-wrap" class="view-pr-load-more-wrap" style="display: none;">
+                                                <button type="button" class="view-pr-refresh-btn view-pr-load-more-btn" id="view-pr-load-more-btn" onclick="loadMoreViewPurchaseRequests()">Load more</button>
+                                            </div>
                                         </div>
                                     </div>
                                     <div class="quotation-detail-pane pr-view-quotation-detail" id="view-pr-items-panel" aria-label="Line items for selected request">
                                         <div id="view-pr-detail-panel" class="view-pr-detail-panel-inner">
-                                            <div class="view-pr-detail-panel-empty quotation-detail-empty">Select a purchase request to view its line items.</div>
+                                            <div class="view-pr-detail-panel-empty view-pr-detail-panel-empty--hero quotation-detail-empty"><p><strong>No purchase request selected</strong></p><p class="view-pr-detail-empty-hint">Choose a PR from the list on the left to view details and line items.</p></div>
                                         </div>
                                     </div>
                                 </div>
@@ -395,6 +409,7 @@
                                             <tr>
                                                 <th>Batch</th>
                                                 <th>Description <em>*</em></th>
+                                                <th>UOM</th>
                                                 <th>UDF Reason</th>
                                                 <th>SQTY</th>
                                                 <th>SUOMQTY</th>
@@ -607,7 +622,13 @@
         let viewApprovalPendingChanges = new Map();
         let viewHeaderStatusPendingChanges = new Map();
         let viewApprovalSaving = false;
-        const VIEW_UDF_STATUS_OPTIONS = ['APPROVED', 'PENDING', 'CANCELLED'];
+        const VIEW_STATUS_FILTER_OPTIONS = ['DRAFT', 'APPROVED', 'PENDING', 'CANCELLED'];
+        const VIEW_PR_TAB_LABELS = {
+            DRAFT: 'Draft',
+            APPROVED: 'Approved',
+            PENDING: 'Pending',
+            CANCELLED: 'Cancelled',
+        };
         let viewStatusFilters = new Set(['PENDING']);
         let viewPrSearchText = '';
         let prEditState = null;
@@ -973,13 +994,81 @@
             return viewHeaderStatusPendingChanges.has(String(headerId));
         }
 
+        /** Selected PR can receive approval / transfer-qty updates (not cancelled; doc status allows review). */
+        function isPrEligibleForAvailabilityUpdate(header) {
+            if (!header) {
+                return false;
+            }
+            const id = Number(header.id || 0);
+            if (!id) {
+                return false;
+            }
+            if (viewSelectedHeaderId == null || Number(viewSelectedHeaderId) !== id) {
+                return false;
+            }
+            if (viewLoadingDetailIds.has(id)) {
+                return false;
+            }
+            const details = header.details;
+            if (!Array.isArray(details) || details.length === 0) {
+                return false;
+            }
+            const udf = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
+            if (udf === 'CANCELLED') {
+                return false;
+            }
+            const docSt = String(header.status || '').trim().toUpperCase();
+            if (docSt === 'CANCELLED') {
+                return false;
+            }
+            return docSt === 'DRAFT' || docSt === 'SUBMITTED' || docSt === 'APPROVED';
+        }
+
         function updateViewApprovalButtonState() {
             const btn = document.getElementById('view-pr-update-btn');
             if (!btn) return;
             const hideAppr = document.body.classList.contains('procurement-hide-pr-approval-edits');
+            const selectedId = viewSelectedHeaderId != null ? Number(viewSelectedHeaderId) : null;
+            const header = selectedId
+                ? viewPurchaseRequests.find((row) => Number(row.id || 0) === selectedId)
+                : null;
+            const eligible = Boolean(header && isPrEligibleForAvailabilityUpdate(header));
             const hasChanges = viewApprovalPendingChanges.size > 0 || viewHeaderStatusPendingChanges.size > 0;
-            btn.disabled = hideAppr || viewApprovalSaving || !hasChanges;
-            btn.textContent = viewApprovalSaving ? 'Saving...' : 'Update Details';
+            const saving = viewApprovalSaving;
+            btn.disabled = hideAppr || saving || !eligible || !hasChanges;
+            btn.textContent = saving ? 'Saving...' : 'Update Item Availability';
+            btn.title = 'Check and update item availability before transferring this PR.';
+        }
+
+        function rowSavedUdfStatus(row) {
+            return normalizeUdfStatus(row?._originalUdfStatus || row?.udfStatus);
+        }
+
+        function rowPrStatusUpper(row) {
+            return String(row?.status || '').trim().toUpperCase();
+        }
+
+        function rowMatchesViewStatusFilter(row, statusFilter) {
+            const f = String(statusFilter || '').toUpperCase();
+            if (f === 'DRAFT') {
+                return rowPrStatusUpper(row) === 'DRAFT';
+            }
+            if (f === 'PENDING') {
+                if (rowSavedUdfStatus(row) !== 'PENDING') {
+                    return false;
+                }
+                return rowPrStatusUpper(row) === 'SUBMITTED';
+            }
+            return rowSavedUdfStatus(row) === f;
+        }
+
+        function getViewStatusFilterCounts() {
+            const rows = viewPurchaseRequests || [];
+            const counts = {};
+            VIEW_STATUS_FILTER_OPTIONS.forEach((s) => {
+                counts[s] = rows.filter((row) => rowMatchesViewStatusFilter(row, s)).length;
+            });
+            return counts;
         }
 
         function getFilteredViewPurchaseRequests() {
@@ -995,7 +1084,7 @@
             });
             let rows = viewPurchaseRequests || [];
             if (filters.size) {
-                rows = rows.filter((row) => filters.has(normalizeUdfStatus(row.udfStatus)));
+                rows = rows.filter((row) => Array.from(filters).some((f) => rowMatchesViewStatusFilter(row, f)));
             }
             if (searchText) {
                 rows = rows.filter((row) => String(row.requestNumber || '').toUpperCase().includes(searchText));
@@ -1010,27 +1099,24 @@
 
         function syncViewStatusFilterTabClasses() {
             const tabs = document.querySelectorAll('#view-pr-filter-tabs .view-pr-filter-tab');
+            const counts = getViewStatusFilterCounts();
             tabs.forEach((tab) => {
                 const tabStatus = String(tab.getAttribute('data-status') || '').toUpperCase();
                 const on = viewStatusFilters.has(tabStatus);
                 tab.classList.toggle('is-active', on);
                 tab.classList.toggle('active', on);
+                const n = Number(counts[tabStatus] || 0);
+                const label = VIEW_PR_TAB_LABELS[tabStatus] || tabStatus;
+                tab.textContent = `${label} (${n})`;
             });
         }
 
         function toggleViewStatusFilter(status) {
             const s = String(status || '').toUpperCase();
-            if (!VIEW_UDF_STATUS_OPTIONS.includes(s)) {
+            if (!VIEW_STATUS_FILTER_OPTIONS.includes(s)) {
                 return;
             }
-            if (viewStatusFilters.has(s)) {
-                viewStatusFilters.delete(s);
-                if (viewStatusFilters.size === 0) {
-                    viewStatusFilters.add('PENDING');
-                }
-            } else {
-                viewStatusFilters.add(s);
-            }
+            viewStatusFilters = new Set([s]);
             syncViewStatusFilterTabClasses();
             renderFilteredViewPurchaseRequests();
         }
@@ -1043,6 +1129,7 @@
             syncViewStatusFilterTabClasses();
             renderViewPurchaseRequests(rows);
             renderViewPurchaseRequestDetailPanel();
+            updateViewApprovalButtonState();
         }
 
         function getDetailMaxTransferQuantity(detail) {
@@ -1342,6 +1429,16 @@
             const suppliers = Array.isArray(header._suppliers) && header._suppliers.length
                 ? header._suppliers
                 : [{ name: header.supplierName || header.supplierId || '-', email: header.supplierEmail || '' }];
+            const requesterDisplay = String(header.requesterId || header.requester || '').trim() || '—';
+            let supplierPrimary = String(header.supplierName || '').trim();
+            if (!supplierPrimary && Array.isArray(header._suppliers) && header._suppliers.length) {
+                const s0 = header._suppliers[0];
+                supplierPrimary = String(s0.name || s0.companyname || s0.code || '').trim();
+            }
+            if (!supplierPrimary) {
+                supplierPrimary = '—';
+            }
+            const savedUdfDisplay = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
             const supplierRowsHtml = suppliers.map((supplier, idx) => {
                 const name = String(supplier.name || supplier.companyname || supplier.code || '-').trim() || '-';
                 const email = String(supplier.email || supplier.udf_email || '').trim();
@@ -1354,7 +1451,8 @@
                     </div>
                 `;
             }).join('');
-            const detailRows = details.map((detail, idx) => {
+            const detailRows = details.length
+                ? details.map((detail, idx) => {
                 const { sqty: rowSqty, suomqty: rowSuom } = viewPrDetailSqtySuom(detail);
                 return `
             <tr>
@@ -1396,21 +1494,45 @@
                 <td class="view-pr-num col-amount">${formatMoney(detail.amount || 0)}</td>
             </tr>
         `;
-            }).join('');
+            }).join('')
+                : `<tr><td colspan="10" class="view-pr-detail-table-empty">No line items for this request.</td></tr>`;
 
             return `
-            <div class="view-pr-detail-panel-head">
-                <div class="view-pr-detail-head-main">
-                    <span class="view-pr-detail-panel-title">${escapeHtml(header.requestNumber || '-')}</span>
-                    <span class="view-pr-detail-panel-sub">${escapeHtml(String(header.status || '').toUpperCase())}</span>
+            <div class="view-pr-detail-unified">
+                <div class="view-pr-detail-panel-head view-pr-detail-panel-head--rich">
+                    <div class="view-pr-detail-head-primary">
+                        <div class="view-pr-detail-head-titles">
+                            <h3 class="view-pr-detail-panel-title">${escapeHtml(header.requestNumber || '-')}</h3>
+                            <div class="view-pr-detail-head-badges">
+                                <span class="view-pr-detail-doc-pill">${escapeHtml(String(header.status || '').toUpperCase())}</span>
+                                <span class="view-pr-detail-udf-chip view-pr-detail-udf-chip--${String(savedUdfDisplay || 'PENDING').toLowerCase()}">${escapeHtml(savedUdfDisplay)}</span>
+                            </div>
+                        </div>
+                        <div class="view-pr-detail-head-amount-wrap">
+                            <span class="view-pr-detail-amount-label">Total</span>
+                            <span class="view-pr-detail-amount-pill">RM ${formatMoney(header.totalAmount || 0)}</span>
+                        </div>
+                    </div>
+                    <div class="view-pr-detail-meta-strip">
+                        <dl class="view-pr-detail-meta-dl">
+                            <div class="view-pr-detail-meta-item">
+                                <dt>Date</dt>
+                                <dd>${formatPrDate(header.requestDate || header.requiredDate || '-')}</dd>
+                            </div>
+                            <div class="view-pr-detail-meta-item">
+                                <dt>Requester</dt>
+                                <dd>${requesterDisplay === '—' ? '<span class="view-pr-detail-meta-muted">Not specified</span>' : escapeHtml(requesterDisplay)}</dd>
+                            </div>
+                            <div class="view-pr-detail-meta-item view-pr-detail-meta-item--supplier">
+                                <dt>Supplier</dt>
+                                <dd>
+                                    <div class="view-pr-detail-suppliers view-pr-detail-suppliers--header">${supplierRowsHtml}</div>
+                                </dd>
+                            </div>
+                        </dl>
+                    </div>
                 </div>
-                <div class="view-pr-detail-head-meta">
-                    <div class="view-pr-detail-suppliers">${supplierRowsHtml}</div>
-                    <div class="view-pr-detail-date"><strong>Date</strong> ${formatPrDate(header.requestDate || header.requiredDate || '-')}</div>
-                </div>
-            </div>
-            <div class="view-pr-detail-host view-pr-detail-host--panel">
-                <div class="view-pr-detail-actions">
+                <div class="view-pr-detail-actions view-pr-detail-actions--toolbar">
                     <div class="view-pr-detail-summary">
                         Selected transfer qty: <strong>${formatStockCardNumber(getSelectedTransferQuantityTotal(header))}</strong>
                     </div>
@@ -1424,7 +1546,7 @@
                     >${isTransferring ? 'Transferring...' : (canTransfer ? 'Transfer to Purchase Order' : 'Awaiting Approval')}</button>
                 </div>
 
-                <div class="view-pr-detail-wrap">
+                <div class="view-pr-detail-wrap view-pr-detail-wrap--unified">
                     <table class="view-pr-detail-table">
                         <colgroup>
                             <col class="col-line" />
@@ -1471,7 +1593,7 @@
 
             const selectedId = viewSelectedHeaderId != null ? Number(viewSelectedHeaderId) : null;
             if (!selectedId) {
-                panel.innerHTML = '<div class="view-pr-detail-panel-empty">Select a purchase request to view its line items.</div>';
+                panel.innerHTML = '<div class="view-pr-detail-panel-empty view-pr-detail-panel-empty--hero"><p><strong>No purchase request selected</strong></p><p class="view-pr-detail-empty-hint">Choose a PR from the list on the left to view date, supplier, amount, and line items.</p></div>';
                 return;
             }
 
@@ -1482,26 +1604,65 @@
             }
 
             if (viewLoadingDetailIds.has(selectedId)) {
-                panel.innerHTML = '<div class="view-pr-detail-empty">Loading line items…</div>';
+                panel.innerHTML = '<div class="view-pr-detail-empty view-pr-detail-empty--loading">Loading line items…</div>';
                 return;
             }
 
             if (!Array.isArray(header.details)) {
-                panel.innerHTML = '<div class="view-pr-detail-empty">Loading line items…</div>';
-                return;
-            }
-
-            if (!header.details.length) {
-                panel.innerHTML = `
-                    <div class="view-pr-detail-panel-head">
-                        <span class="view-pr-detail-panel-title">${escapeHtml(header.requestNumber || '-')}</span>
-                    </div>
-                    <div class="view-pr-detail-empty">No line items for this request.</div>
-                `;
+                panel.innerHTML = '<div class="view-pr-detail-empty view-pr-detail-empty--loading">Loading line items…</div>';
                 return;
             }
 
             panel.innerHTML = buildViewPurchaseRequestDetailHtml(header);
+        }
+
+        function getViewPrListLoadMoreAnchor() {
+            return document.getElementById('view-pr-load-more-wrap');
+        }
+
+        function clearViewPrListDynamicNodes() {
+            const pane = document.getElementById('view-pr-list');
+            const anchor = getViewPrListLoadMoreAnchor();
+            if (!pane || !anchor) {
+                return;
+            }
+            while (pane.firstChild && pane.firstChild !== anchor) {
+                pane.removeChild(pane.firstChild);
+            }
+        }
+
+        function insertBeforeViewPrLoadMore(htmlString) {
+            const pane = document.getElementById('view-pr-list');
+            const anchor = getViewPrListLoadMoreAnchor();
+            if (!pane || !anchor) {
+                return;
+            }
+            const trimmed = String(htmlString || '').trim();
+            if (!trimmed) {
+                return;
+            }
+            const tpl = document.createElement('template');
+            tpl.innerHTML = trimmed;
+            while (tpl.content.firstChild) {
+                pane.insertBefore(tpl.content.firstChild, anchor);
+            }
+        }
+
+        function onViewPrCardActivate(event, headerId) {
+            if (event && event.target && event.target.closest && event.target.closest('.pr-view-pr-card__controls')) {
+                return;
+            }
+            selectViewPurchaseRequest(headerId);
+        }
+
+        function onViewPrCardKeydown(event, headerId) {
+            if (!event || event.target !== event.currentTarget) {
+                return;
+            }
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                selectViewPurchaseRequest(headerId);
+            }
         }
 
         function renderViewPurchaseRequests(rows) {
@@ -1510,13 +1671,16 @@
                 return;
             }
             list.style.maxHeight = '';
+            clearViewPrListDynamicNodes();
 
             if (!Array.isArray(rows) || !rows.length) {
-                list.innerHTML = '<div class="view-pr-empty" style="padding: 12px; text-align: center; color: #7b5a36;">No e-Purchase Request records found.</div>';
+                insertBeforeViewPrLoadMore(
+                    '<div class="view-pr-empty pr-view-empty--cards">No purchase requests match the current filters or search.</div>'
+                );
                 return;
             }
 
-            const htmlParts = [];
+            const cardParts = [];
             rows.forEach((header) => {
                 const headerId = Number(header.id || 0);
                 const prStatus = String(header.status || 'DRAFT').toUpperCase();
@@ -1530,56 +1694,46 @@
                 const borderColor = udf === 'CANCELLED' ? '#a65c5c' : (udf === 'APPROVED' ? '#2d6a4f' : '#b0892f');
                 const badgeColor = borderColor;
                 const pendingStatusHtml = pendingUdf
-                    ? `<span class="view-pr-pending-status" title="Pending status change. Press Update Details to save.">→ ${escapeHtml(pendingUdf)}</span>`
+                    ? `<span class="view-pr-pending-status" title="Pending status change. Press Update Item Availability to save.">→ ${escapeHtml(pendingUdf)}</span>`
                     : '';
                 const showPrStatus = !(prStatus === 'SUBMITTED' && ['APPROVED', 'CANCELLED'].includes(udf));
-                const prStatusHtml = showPrStatus
-                    ? `<span class="pr-status-pill" style="background: #4b6e9e; color: #fff; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 6px; white-space: nowrap;">${escapeHtml(prStatus)}</span>`
-                    : '';
+                const docStatusHtml = showPrStatus
+                    ? `<span class="pr-status-pill pr-view-pr-card__doc-pill">${escapeHtml(prStatus)}</span>`
+                    : '<span class="pr-view-pr-card__doc-muted">—</span>';
                 const editButtonHtml = canEditDraft
                     ? `<button type="button" class="edit-button view-pr-edit-inline-btn" onclick="openPurchaseRequestEdit(${headerId});" title="Edit draft purchase request">Edit</button>`
                     : '';
+                const approvalBadgeHtml = udfLocked
+                    ? `<span class="pr-view-pr-card__udf-badge pr-view-pr-card__udf-badge--${String(selectUdf || 'PENDING').toLowerCase()}">${escapeHtml(selectUdf)}</span>`
+                    : '';
 
-                htmlParts.push(`
-            <div class="quotation-card pr-view-quotation-card${isSelected ? ' is-selected' : ''}" data-header-id="${headerId}" style="background: #fffaf0; padding: 12px; margin-bottom: 12px; border-radius: 8px; border-left: 3px solid ${borderColor}; cursor: pointer; display: flex; gap: 12px; align-items: flex-start; border: 1px solid #ead8b5;">
-                <div style="flex: 1; min-width: 0;" role="button" tabindex="0" onclick="selectViewPurchaseRequest(${headerId})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectViewPurchaseRequest(${headerId});}">
-                    <div class="quotation-card__header-layout">
-                        <div class="quotation-card__info">
-                            <div class="quotation-card__info-grid">
-                                <div class="quotation-card__field pr-view-card-pr-code">
-                                    <span class="quotation-card__field-label">PR Code</span>
-                                    <div class="quotation-card__field-value">
-                                        <span>${escapeHtml(header.requestNumber || '-')}</span>
-                                    </div>
-                                </div>
-                                <div class="quotation-card__field pr-view-card-date">
-                                    <span class="quotation-card__field-label">Date</span>
-                                    <div class="quotation-card__field-value">${formatPrDate(header.requestDate || '-')}</div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="quotation-card__amount-col">
-                            <span class="quotation-card__amount" style="background: ${badgeColor};">RM ${formatMoney(header.totalAmount || 0)}</span>
-                        </div>
-                        <div class="quotation-card__button-col" onclick="event.stopPropagation();">
-                            <div class="quotation-card__side-actions pr-view-card-actions">
-                                ${prStatusHtml}
-                                <select class="view-pr-udf-status" onchange="onHeaderUdfStatusChange(${headerId}, this.value)" ${udfLocked ? 'disabled title="Status cannot be changed after APPROVED or CANCELLED"' : ''}>
-                                    <option value="APPROVED" ${selectUdf === 'APPROVED' ? 'selected' : ''}>APPROVED</option>
-                                    <option value="CANCELLED" ${selectUdf === 'CANCELLED' ? 'selected' : ''}>CANCELLED</option>
-                                    <option value="PENDING" ${selectUdf === 'PENDING' ? 'selected' : ''}>PENDING</option>
-                                </select>
-                                ${pendingStatusHtml}
-                                ${editButtonHtml}
-                            </div>
-                        </div>
+                cardParts.push(`
+            <div class="pr-view-pr-card${isSelected ? ' is-selected' : ''}" data-header-id="${headerId}" style="--pr-card-accent: ${borderColor}; --pr-card-badge: ${badgeColor};">
+                <div class="pr-view-pr-card__main" role="button" tabindex="0" onclick="onViewPrCardActivate(event, ${headerId})" onkeydown="onViewPrCardKeydown(event, ${headerId})">
+                    <div class="pr-view-pr-card__topline">
+                        <span class="pr-view-pr-card__code">${escapeHtml(header.requestNumber || '-')}</span>
+                        <span class="pr-view-pr-card__amount"><span class="pr-view-amount-pill" style="background: ${badgeColor};">RM ${formatMoney(header.totalAmount || 0)}</span></span>
+                    </div>
+                    <div class="pr-view-pr-card__date">${formatPrDate(header.requestDate || '-')}</div>
+                </div>
+                <div class="pr-view-pr-card__controls">
+                    <div class="pr-view-pr-card__doc">${docStatusHtml}</div>
+                    <div class="pr-view-pr-card__approval">
+                        <span class="pr-view-pr-card__approval-label">Approval</span>
+                        ${udfLocked ? approvalBadgeHtml : `<select class="view-pr-udf-status" onchange="onHeaderUdfStatusChange(${headerId}, this.value)" title="Approval status">
+                            <option value="APPROVED" ${selectUdf === 'APPROVED' ? 'selected' : ''}>APPROVED</option>
+                            <option value="CANCELLED" ${selectUdf === 'CANCELLED' ? 'selected' : ''}>CANCELLED</option>
+                            <option value="PENDING" ${selectUdf === 'PENDING' ? 'selected' : ''}>PENDING</option>
+                        </select>`}
+                        ${pendingStatusHtml}
+                        ${editButtonHtml}
                     </div>
                 </div>
             </div>
         `);
             });
 
-            list.innerHTML = htmlParts.join('');
+            insertBeforeViewPrLoadMore(cardParts.join(''));
         }
 
         function selectViewPurchaseRequest(headerId) {
@@ -1886,7 +2040,6 @@
             if (!viewPrListHasMore || viewPrListLoadingMore) {
                 return Promise.resolve();
             }
-            const list = document.getElementById('view-pr-list');
             const offset = viewPurchaseRequests.length;
             viewPrListLoadingMore = true;
             syncViewPrLoadMoreUi();
@@ -1947,7 +2100,8 @@
             const perfEl = document.getElementById('view-pr-list-perf');
             const paintedFromCache = !forceReload && paintCachedViewPrListForInstantLoad();
             if (list && !paintedFromCache) {
-                list.innerHTML = '<div class="view-pr-empty">Loading e-Purchase Request records...</div>';
+                clearViewPrListDynamicNodes();
+                insertBeforeViewPrLoadMore('<div class="view-pr-empty">Loading e-Purchase Request records...</div>');
             }
             if (perfEl && !paintedFromCache) {
                 perfEl.textContent = '';
@@ -1990,7 +2144,8 @@
                     }
                     syncViewPrLoadMoreUi();
                     if (list) {
-                        list.innerHTML = `<div class="view-pr-empty">${escapeHtml(error.message || 'Failed to load e-Purchase Request records.')}</div>`;
+                        clearViewPrListDynamicNodes();
+                        insertBeforeViewPrLoadMore(`<div class="view-pr-empty">${escapeHtml(error.message || 'Failed to load e-Purchase Request records.')}</div>`);
                     }
                 });
         }
@@ -2122,6 +2277,7 @@
                     itemName: String(d.itemName || ''),
                     locationCode: String(d.locationCode || ''),
                     description: String(d.description || ''),
+                    uom: String(d.uom || d.UOM || ''),
                     udfReason: String(d.udfReason || ''),
                     project: String(d.project || header.project || ''),
                     qtySqty,
@@ -2391,6 +2547,7 @@
                     itemName: '',
                     locationCode: getDefaultLineLocation(),
                     description: '',
+                    uom: '',
                     udfReason: '',
                     project: selectedProjectCode,
                     qtySqty: defU === 'SQTY' ? 1 : 0,
@@ -2423,6 +2580,7 @@
                     itemName: itemName,
                     locationCode,
                     description: `Auto-selected from Overall Report${locationText}`,
+                    uom: '',
                     udfReason: '',
                     project: getSelectedProjectCode(),
                     qtySqty: Number(row.qtySqty || 0),
@@ -3365,6 +3523,8 @@
 
         let prCatalogProducts = [];
         let prWarehouseLocations = [];
+        let prProductUomCache = {};
+        let prProductUomInFlight = new Set();
 
         function getDefaultLineLocation() {
             return (Array.isArray(prWarehouseLocations) && prWarehouseLocations.length)
@@ -3439,15 +3599,125 @@
         function findPrProductByCode(itemCode) {
             const code = String(itemCode || '').trim();
             if (!code) return null;
-            return prCatalogProducts.find((p) => String(p.CODE || '').trim() === code) || null;
+            return prCatalogProducts.find((p) => {
+                const c = String((p && (p.CODE != null ? p.CODE : p.code)) || '').trim();
+                return c === code;
+            }) || null;
+        }
+
+        function getPrProductUomOptions(product, itemCode) {
+            const out = [];
+            const seen = new Set();
+            const pushUom = (raw) => {
+                const v = String(raw || '').trim();
+                if (!v) return;
+                const k = v.toUpperCase();
+                if (seen.has(k)) return;
+                seen.add(k);
+                out.push(v);
+            };
+            if (product && typeof product === 'object') {
+                pushUom(product.uom);
+                pushUom(product.UOM);
+                let rows = [];
+                if (Array.isArray(product.sdsuom)) {
+                    rows = product.sdsuom;
+                } else if (Array.isArray(product.SDSUOM)) {
+                    rows = product.SDSUOM;
+                } else if (typeof product.sdsuom === 'string' && product.sdsuom.trim()) {
+                    try {
+                        const parsed = JSON.parse(product.sdsuom);
+                        rows = Array.isArray(parsed) ? parsed : [];
+                    } catch (e) {
+                        rows = [];
+                    }
+                } else if (typeof product.SDSUOM === 'string' && product.SDSUOM.trim()) {
+                    try {
+                        const parsed = JSON.parse(product.SDSUOM);
+                        rows = Array.isArray(parsed) ? parsed : [];
+                    } catch (e) {
+                        rows = [];
+                    }
+                }
+                rows.forEach((row) => {
+                    if (!row || typeof row !== 'object') return;
+                    pushUom(row.uom);
+                    pushUom(row.UOM);
+                });
+            }
+            const code = String(itemCode || (product && (product.CODE != null ? product.CODE : product.code)) || '').trim();
+            const cached = code ? prProductUomCache[code] : null;
+            if (Array.isArray(cached)) {
+                cached.forEach((u) => pushUom(u));
+            }
+            if (!out.length) pushUom('UNIT');
+            return out;
+        }
+
+        function ensurePrLineUom(item, product) {
+            if (!item) return '';
+            const options = getPrProductUomOptions(product, item.itemCode);
+            const current = String(item.uom || item.UOM || '').trim();
+            if (current && options.some((u) => String(u).toUpperCase() === current.toUpperCase())) {
+                item.uom = current;
+                return current;
+            }
+            item.uom = options[0] || '';
+            return item.uom;
+        }
+
+        function buildPrLineUomOptions(item, product) {
+            const selected = ensurePrLineUom(item, product);
+            return getPrProductUomOptions(product, item.itemCode)
+                .map((u) => {
+                    const su = String(u || '').trim();
+                    if (!su) return '';
+                    const isSel = su.toUpperCase() === String(selected || '').toUpperCase() ? ' selected' : '';
+                    return `<option value="${escapeHtml(su)}"${isSel}>${escapeHtml(su)}</option>`;
+                })
+                .filter(Boolean)
+                .join('');
+        }
+
+        async function prefetchPrProductUoms(itemCode) {
+            const code = String(itemCode || '').trim();
+            if (!code) return;
+            if (Array.isArray(prProductUomCache[code]) && prProductUomCache[code].length) return;
+            if (prProductUomInFlight.has(code)) return;
+            prProductUomInFlight.add(code);
+            try {
+                const res = await fetch(`/api/admin/procurement/stock-item-uoms?code=${encodeURIComponent(code)}`);
+                const data = await res.json();
+                if (res.ok && data && data.success && Array.isArray(data.uoms) && data.uoms.length) {
+                    prProductUomCache[code] = data.uoms.map((u) => String(u || '').trim()).filter(Boolean);
+                    if (window.purchaseRequestItems && window.purchaseRequestItems.length) {
+                        window.purchaseRequestItems.forEach((it) => {
+                            if (String(it.itemCode || '').trim() === code) {
+                                ensurePrLineUom(it, findPrProductByCode(code));
+                            }
+                        });
+                        renderPurchaseRequestLineItems();
+                    }
+                }
+            } catch (e) {
+                console.warn('[PR UOM] Failed to load per-item UOM list:', e);
+            } finally {
+                prProductUomInFlight.delete(code);
+            }
+        }
+
+        function onPurchaseRequestUomChange(index, value) {
+            if (prFormEditState && prFormEditState.requestId) return;
+            if (!window.purchaseRequestItems || !window.purchaseRequestItems[index]) return;
+            window.purchaseRequestItems[index].uom = String(value || '').trim();
         }
 
         function buildPrProductOptions(selectedCode) {
             const selected = String(selectedCode || '').trim();
             const options = ['<option value="">Select product...</option>'];
             prCatalogProducts.forEach((p) => {
-                const code = String(p.CODE || '').trim();
-                const desc = String(p.DESCRIPTION || code || '').trim();
+                const code = String((p && (p.CODE != null ? p.CODE : p.code)) || '').trim();
+                const desc = String((p && (p.DESCRIPTION != null ? p.DESCRIPTION : p.description)) || code || '').trim();
                 if (!code || !desc) return;
                 const isSelected = code === selected ? ' selected' : '';
                 options.push(`<option value="${escapeHtml(code)}"${isSelected}>${escapeHtml(desc)}</option>`);
@@ -3477,10 +3747,12 @@
 
             item.itemCode = code;
             if (product) {
-                const description = String(product.DESCRIPTION || code).trim();
+                const description = String((product.DESCRIPTION != null ? product.DESCRIPTION : product.description) || code).trim();
                 item.itemName = description;
                 item.description = description;
             }
+            ensurePrLineUom(item, product);
+            prefetchPrProductUoms(code);
 
             applyPrLineSuomFromSqtyUdfWeight(item);
             syncPrLineQuantityDerived(item);
@@ -3539,6 +3811,7 @@
                     itemName: '',
                     locationCode: defLoc,
                     description: '',
+                    uom: '',
                     udfReason: '',
                     project: selectedProjectCode,
                     qtySqty: defU === 'SQTY' ? 1 : 0,
@@ -3564,11 +3837,13 @@
 
             body.innerHTML = window.purchaseRequestItems.map((item, idx) => {
                 const product = findPrProductByCode(item.itemCode);
+                if (item.itemCode) prefetchPrProductUoms(item.itemCode);
                 if (product) {
                     const dn = String(product.DESCRIPTION || item.itemName || '').trim();
                     if (dn) item.itemName = dn;
                     if (!String(item.description || '').trim()) item.description = dn;
                 }
+                ensurePrLineUom(item, product);
 
                 if (!isEditMode) {
                     const def = getDefaultLineLocation();
@@ -3598,6 +3873,7 @@
                                 ${buildPrProductOptions(item.itemCode || '')}
                             </select>
                         </td>
+                        <td class="pr-stock-uom-cell"><select class="pr-stock-uom-select" onchange="onPurchaseRequestUomChange(${idx}, this.value)" ${isEditMode ? 'disabled' : ''} title="Line UOM">${buildPrLineUomOptions(item, product)}</select></td>
                         <td><input type="text" value="${escapeHtml(item.udfReason || '')}" oninput="updatePurchaseRequestItem(${idx}, 'udfReason', this.value)" /></td>
                         <td class="pr-qty-cell"><input type="number" class="pr-input-qty" data-pr-field="qtySqty" min="0" step="0.0001" value="${escapeHtml(qtySqty)}" oninput="updatePurchaseRequestItem(${idx}, 'qtySqty', this.value)" title="Stock quantity (SQTY)" /></td>
                         <td class="pr-qty-cell">${
@@ -3659,6 +3935,7 @@
                 itemName: '',
                 locationCode: getDefaultLineLocation(),
                 description: '',
+                uom: '',
                 udfReason: '',
                 project: selectedProjectCode,
                 qtySqty: defU === 'SQTY' ? 1 : 0,
@@ -3719,6 +3996,7 @@
                     itemName: String(item.itemName || '').trim(),
                     locationCode: String(item.locationCode || '').trim(),
                     description: String(item.description || '').trim(),
+                    uom: String(item.uom || '').trim(),
                     udfReason: String(item.udfReason || '').trim(),
                     project: selectedProjectCode,
                     qtySqty: Number(item.qtySqty || 0),
@@ -3787,6 +4065,7 @@
                 const editLineItems = (window.purchaseRequestItems || []).map((item) => ({
                     detailId: Number(item.detailId || 0),
                     description: String(item.description || '').trim(),
+                    uom: String(item.uom || '').trim(),
                     udfReason: String(item.udfReason || '').trim(),
                     project: selectedProjectCode,
                     qtySqty: Number(item.qtySqty || 0),
@@ -4199,6 +4478,7 @@
                 itemName: '',
                 locationCode: getDefaultLineLocation(),
                 description: '',
+                uom: '',
                 udfReason: '',
                 project: getSelectedProjectCode(),
                 qtySqty: defU === 'SQTY' ? 1 : 0,

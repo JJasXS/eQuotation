@@ -417,6 +417,7 @@ def _normalize_sql_api_payload(payload: dict[str, Any]) -> dict[str, Any]:
             or f"Line {idx}"
         )
         description = _clean_text(item.get("description3") or item.get("description") or item_name)
+        line_uom = _clean_text(item.get("uom") or item.get("UOM"))
         line_project = _clean_text(item.get("project")) or header_project
 
         qty_sq_api, qty_su_api, pricing_qty_api, basis_api = _parse_line_qty_sq_su(
@@ -458,6 +459,7 @@ def _normalize_sql_api_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 "itemName": item_name,
                 "locationCode": location_code,
                 "description": description,
+                "uom": line_uom,
                 "udfReason": _clean_text(item.get("udfReason") or item.get("udf_reason")),
                 "project": line_project,
                 "quantity": float(quantity),
@@ -570,6 +572,7 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
         location_code = _clean_text(item.get("locationCode") or item.get("location") or item.get("loc"))
         item_name = _clean_text(item.get("itemName"))
         description = _clean_text(item.get("description"))
+        line_uom = _clean_text(item.get("uom") or item.get("UOM"))
         line_project = _clean_text(item.get("project")) or header_project
 
         if not item_code:
@@ -610,6 +613,7 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
                 "itemName": item_name,
                 "locationCode": location_code,
                 "description": description,
+                "uom": line_uom,
                 "udfReason": _clean_text(item.get("udfReason") or item.get("udf_reason")),
                 "project": line_project,
                 "quantity": float(quantity),
@@ -848,6 +852,7 @@ def create_purchase_request(
                 "STORELOCATION": line_location,
                 "PROJECT": item.get("project") or validated.get("project", ""),
                 "DESCRIPTION": item["description"] or item["itemName"],
+                "UOM": item.get("uom") or "",
                 "UDF_REASON": item.get("udfReason") or "",
                 "QTY": item["quantity"],
                 "QUANTITY": item["quantity"],
@@ -1278,6 +1283,7 @@ def update_purchase_request(
             {
                 "detailId": detail_id,
                 "description": _clean_text(line.get("description")),
+                "uom": _clean_text(line.get("uom") or line.get("UOM")),
                 "udfReason": _clean_text(line.get("udfReason") or line.get("udf_reason")),
                 "project": _clean_text(line.get("project") or payload.get("project")) or "----",
                 "quantity": float(quantity),
@@ -1380,6 +1386,7 @@ def update_purchase_request(
         detail_tax_col = _pick_existing(detail_cols, "TAX", "TAXAMT")
         detail_amount_col = _pick_existing(detail_cols, "AMOUNT", "TOTAL")
         detail_delivery_col = _pick_existing(detail_cols, "DELIVERYDATE", "DELIVERY_DATE")
+        detail_uom_col = _pick_existing(detail_cols, "UOM", "UNIT")
         detail_udf_reason_col = _pick_existing(detail_cols, "UDF_REASON")
         detail_project_col = _pick_existing(detail_cols, "PROJECT")
 
@@ -1406,6 +1413,9 @@ def update_purchase_request(
             if detail_delivery_col and line["deliveryDate"]:
                 line_updates.append(f"{detail_delivery_col} = ?")
                 line_values.append(line["deliveryDate"])
+            if detail_uom_col:
+                line_updates.append(f"{detail_uom_col} = ?")
+                line_values.append(line.get("uom") or "")
             if detail_udf_reason_col:
                 line_updates.append(f"{detail_udf_reason_col} = ?")
                 line_values.append(line["udfReason"])
