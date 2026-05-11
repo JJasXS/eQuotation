@@ -5577,6 +5577,69 @@ body.procurement-warm-ui #panel-view .pr-view-pr-card__controls .view-pr-udf-sta
     font-size: 10px;
 }
 
+/* View PR: bulk selection (Pending tab) + card layout with optional bulk checkbox */
+#panel-view .pr-view-pr-card {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+}
+
+#panel-view .pr-view-pr-card__stack {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+#panel-view .pr-view-pr-card__bulk {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: flex-start;
+    padding: 10px 4px 0 8px;
+}
+
+#panel-view .pr-view-pr-card__bulk-label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    margin: 0;
+}
+
+#panel-view .pr-view-pr-card__bulk input[type="checkbox"] {
+    width: 1rem;
+    height: 1rem;
+    cursor: pointer;
+    margin: 0;
+}
+
+.view-pr-bulk-pending-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    padding: 0.5rem 0.75rem;
+    margin-top: 0.4rem;
+    background: rgba(15, 23, 42, 0.05);
+    border-radius: 8px;
+    font-size: 0.875rem;
+}
+
+.view-pr-bulk-pending-bar[hidden] {
+    display: none !important;
+}
+
+.view-pr-bulk-pending-bar__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.5rem;
+    align-items: center;
+}
+
+.view-pr-bulk-btn--primary {
+    font-weight: 600;
+}
+
 @media (max-width: 1100px) {
     body.procurement-warm-ui .pr-view-kv--email {
         max-width: 100%;

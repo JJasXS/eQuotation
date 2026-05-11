@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="/static/css/app_page_header.css">
     <link rel="stylesheet" href="/static/css/orderQuotation.css">
     <link rel="stylesheet" href="/static/css/adminViewQuotations.css?v=20260430">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr65_hide_orientation">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr66_bulk_pending_selected">
 </head>
 <body class="procurement-warm-ui{% if perm_hide_pr_transfer | default(false) %} procurement-hide-transfer{% endif %}{% if perm_hide_pr_approval_edits | default(false) %} procurement-hide-pr-approval-edits{% endif %}">
 
@@ -208,6 +208,14 @@
                                         <button type="button" class="approval-tab view-pr-filter-tab is-active" data-status="PENDING" onclick="toggleViewStatusFilter('PENDING')">Pending</button>
                                         <button type="button" class="approval-tab view-pr-filter-tab" data-status="CANCELLED" onclick="toggleViewStatusFilter('CANCELLED')">Cancelled</button>
                                     </div>
+                                    <div id="view-pr-bulk-pending-bar" class="view-pr-bulk-pending-bar" hidden>
+                                        <span id="view-pr-bulk-selection-count" class="view-pr-bulk-selection-count">No PRs selected.</span>
+                                        <div class="view-pr-bulk-pending-bar__actions">
+                                            <button type="button" class="view-pr-refresh-btn view-pr-bulk-btn" onclick="viewPrBulkSelectAllPending()">Select all</button>
+                                            <button type="button" class="view-pr-refresh-btn view-pr-bulk-btn" onclick="viewPrBulkClearSelection()">Clear selection</button>
+                                            <button type="button" class="view-pr-refresh-btn view-pr-bulk-btn view-pr-bulk-btn--primary" id="view-pr-bulk-approve-btn" onclick="viewPrBulkQueueApproveSelected()" disabled>Approve selected</button>
+                                        </div>
+                                    </div>
                                 </div>
                                 <div class="quotation-split-wrap pr-procurement-split">
                                     <div class="quotation-list-pane pr-view-quotation-list pr-view-left-pane" aria-label="Purchase request list">
@@ -227,7 +235,7 @@
                                         <div class="pr-view-list-scroll view-pr-list view-pr-list--cards" id="view-pr-list">
                                             <div class="view-pr-empty">Loading e-Purchase Request records...</div>
                                             <div id="view-pr-load-more-wrap" class="view-pr-load-more-wrap" style="display: none;">
-                                                <button type="button" class="view-pr-refresh-btn view-pr-load-more-btn" id="view-pr-load-more-btn" onclick="loadMoreViewPurchaseRequests()">Load more</button>
+                                                <button type="button" class="view-pr-refresh-btn view-pr-load-more-btn" id="view-pr-load-more-btn" onclick="loadMoreViewPurchaseRequests()">… more (+5)</button>
                                             </div>
                                         </div>
                                     </div>
@@ -604,8 +612,8 @@
         let stockCardBuySelections = {};
         let viewPurchaseRequestsLoaded = false;
         let viewPurchaseRequests = [];
-        const VIEW_PR_LIST_PAGE_SIZE = 50;
-        const VIEW_PR_LIST_CACHE_KEY = 'procurementViewPrFirstPageV1';
+        const VIEW_PR_LIST_PAGE_SIZE = 5;
+        const VIEW_PR_LIST_CACHE_KEY = 'procurementViewPrFirstPageV2_page5';
         const VIEW_PR_LIST_CACHE_TTL_MS = 5 * 60 * 1000;
         let viewPrListTotal = null;
         let viewPrListHasMore = false;
@@ -629,6 +637,7 @@
             CANCELLED: 'Cancelled',
         };
         let viewStatusFilters = new Set(['PENDING']);
+        let viewBulkSelectedHeaderIds = new Set();
         let viewPrSearchText = '';
         let prEditState = null;
         let prFormEditState = null;
@@ -993,6 +1002,29 @@
             return viewHeaderStatusPendingChanges.has(String(headerId));
         }
 
+        /** Header can receive UDF status save (not cancelled; doc status allows review). Does not require list selection or loaded line items. */
+        function isPrEligibleForHeaderStatusSave(header) {
+            if (!header) {
+                return false;
+            }
+            const id = Number(header.id || 0);
+            if (!id) {
+                return false;
+            }
+            if (viewLoadingDetailIds.has(id)) {
+                return false;
+            }
+            const udf = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
+            if (udf === 'CANCELLED') {
+                return false;
+            }
+            const docSt = String(header.status || '').trim().toUpperCase();
+            if (docSt === 'CANCELLED') {
+                return false;
+            }
+            return docSt === 'DRAFT' || docSt === 'SUBMITTED' || docSt === 'APPROVED';
+        }
+
         /** Selected PR can receive approval / transfer-qty updates (not cancelled; doc status allows review). */
         function isPrEligibleForAvailabilityUpdate(header) {
             if (!header) {
@@ -1012,31 +1044,40 @@
             if (!Array.isArray(details) || details.length === 0) {
                 return false;
             }
-            const udf = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
-            if (udf === 'CANCELLED') {
-                return false;
+            return isPrEligibleForHeaderStatusSave(header);
+        }
+
+        function isViewPrUpdateSaveEligible() {
+            if (viewApprovalPendingChanges.size > 0) {
+                const headerIds = new Set(Array.from(viewApprovalPendingChanges.values()).map((c) => Number(c.requestId)));
+                for (const hid of headerIds) {
+                    const h = viewPurchaseRequests.find((row) => Number(row.id || 0) === hid);
+                    if (!h || !isPrEligibleForAvailabilityUpdate(h)) {
+                        return false;
+                    }
+                }
             }
-            const docSt = String(header.status || '').trim().toUpperCase();
-            if (docSt === 'CANCELLED') {
-                return false;
+            if (viewHeaderStatusPendingChanges.size > 0) {
+                for (const ch of viewHeaderStatusPendingChanges.values()) {
+                    const h = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(ch.requestId));
+                    if (!h || !isPrEligibleForHeaderStatusSave(h)) {
+                        return false;
+                    }
+                }
             }
-            return docSt === 'DRAFT' || docSt === 'SUBMITTED' || docSt === 'APPROVED';
+            return true;
         }
 
         function updateViewApprovalButtonState() {
             const btn = document.getElementById('view-pr-update-btn');
             if (!btn) return;
             const hideAppr = document.body.classList.contains('procurement-hide-pr-approval-edits');
-            const selectedId = viewSelectedHeaderId != null ? Number(viewSelectedHeaderId) : null;
-            const header = selectedId
-                ? viewPurchaseRequests.find((row) => Number(row.id || 0) === selectedId)
-                : null;
-            const eligible = Boolean(header && isPrEligibleForAvailabilityUpdate(header));
             const hasChanges = viewApprovalPendingChanges.size > 0 || viewHeaderStatusPendingChanges.size > 0;
             const saving = viewApprovalSaving;
-            btn.disabled = hideAppr || saving || !eligible || !hasChanges;
+            const eligible = hasChanges && isViewPrUpdateSaveEligible();
+            btn.disabled = hideAppr || saving || !eligible;
             btn.textContent = saving ? 'Saving...' : 'Update Item Availability';
-            btn.title = 'Check and update item availability before transferring this PR.';
+            btn.title = 'Save pending approval status and line selections (including bulk-queued changes).';
         }
 
         function rowSavedUdfStatus(row) {
@@ -1115,12 +1156,136 @@
             if (!VIEW_STATUS_FILTER_OPTIONS.includes(s)) {
                 return;
             }
+            viewBulkSelectedHeaderIds.clear();
             viewStatusFilters = new Set([s]);
             syncViewStatusFilterTabClasses();
             renderFilteredViewPurchaseRequests();
         }
 
+        function isViewPendingBulkSelectMode() {
+            return viewStatusFilters instanceof Set && viewStatusFilters.size === 1 && viewStatusFilters.has('PENDING');
+        }
+
+        function pruneViewBulkSelectionToFilteredList() {
+            if (!isViewPendingBulkSelectMode()) {
+                return;
+            }
+            const visible = new Set(getFilteredViewPurchaseRequests().map((r) => Number(r.id || 0)));
+            for (const id of [...viewBulkSelectedHeaderIds]) {
+                if (!visible.has(id)) {
+                    viewBulkSelectedHeaderIds.delete(id);
+                }
+            }
+        }
+
+        function syncViewPendingBulkBar() {
+            const bar = document.getElementById('view-pr-bulk-pending-bar');
+            if (!bar) {
+                return;
+            }
+            const hide = document.body.classList.contains('procurement-hide-pr-approval-edits');
+            if (!isViewPendingBulkSelectMode() || hide) {
+                bar.hidden = true;
+                return;
+            }
+            bar.hidden = false;
+            const n = viewBulkSelectedHeaderIds.size;
+            const hint = document.getElementById('view-pr-bulk-selection-count');
+            if (hint) {
+                hint.textContent = n === 0 ? 'No PRs selected.' : `${n} selected`;
+            }
+            const approveBtn = document.getElementById('view-pr-bulk-approve-btn');
+            if (approveBtn) {
+                approveBtn.disabled = n === 0;
+                approveBtn.textContent = n === 0 ? 'Approve selected' : `Approve selected (${n})`;
+            }
+        }
+
+        function onViewPrBulkCardCheckboxChange(event, headerId) {
+            if (document.body.classList.contains('procurement-hide-pr-approval-edits')) {
+                if (event && event.target) {
+                    event.target.checked = !event.target.checked;
+                }
+                return;
+            }
+            if (event) {
+                event.stopPropagation();
+            }
+            const id = Number(headerId);
+            if (!id) {
+                return;
+            }
+            if (event && event.target && event.target.checked) {
+                viewBulkSelectedHeaderIds.add(id);
+            } else {
+                viewBulkSelectedHeaderIds.delete(id);
+            }
+            syncViewPendingBulkBar();
+        }
+
+        function viewPrBulkSelectAllPending() {
+            if (!isViewPendingBulkSelectMode()) {
+                return;
+            }
+            getFilteredViewPurchaseRequests().forEach((row) => {
+                const id = Number(row.id || 0);
+                if (id) {
+                    viewBulkSelectedHeaderIds.add(id);
+                }
+            });
+            syncViewPendingBulkBar();
+            renderFilteredViewPurchaseRequests();
+        }
+
+        function viewPrBulkClearSelection() {
+            viewBulkSelectedHeaderIds.clear();
+            syncViewPendingBulkBar();
+            renderFilteredViewPurchaseRequests();
+        }
+
+        function queueHeaderUdfPendingFromSaved(requestId, value) {
+            const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(requestId));
+            if (!header) {
+                return false;
+            }
+            const saved = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
+            if (saved === 'APPROVED' || saved === 'CANCELLED') {
+                return false;
+            }
+            const normalized = normalizeUdfStatus(value);
+            const original = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
+            if (normalized === original) {
+                viewHeaderStatusPendingChanges.delete(String(requestId));
+            } else {
+                viewHeaderStatusPendingChanges.set(String(requestId), {
+                    requestId: Number(requestId),
+                    udfStatus: normalized,
+                });
+            }
+            return true;
+        }
+
+        function viewPrBulkQueueApproveSelected() {
+            if (document.body.classList.contains('procurement-hide-pr-approval-edits')) {
+                return;
+            }
+            if (!isViewPendingBulkSelectMode() || viewBulkSelectedHeaderIds.size === 0) {
+                return;
+            }
+            let any = false;
+            for (const hid of viewBulkSelectedHeaderIds) {
+                if (queueHeaderUdfPendingFromSaved(hid, 'APPROVED')) {
+                    any = true;
+                }
+            }
+            if (any) {
+                updateViewApprovalButtonState();
+                renderFilteredViewPurchaseRequests();
+            }
+        }
+
         function renderFilteredViewPurchaseRequests() {
+            pruneViewBulkSelectionToFilteredList();
             const rows = getFilteredViewPurchaseRequests();
             if (viewSelectedHeaderId != null && !rows.some((r) => Number(r.id || 0) === Number(viewSelectedHeaderId))) {
                 viewSelectedHeaderId = null;
@@ -1129,6 +1294,7 @@
             renderViewPurchaseRequests(rows);
             renderViewPurchaseRequestDetailPanel();
             updateViewApprovalButtonState();
+            syncViewPendingBulkBar();
         }
 
         function getDetailMaxTransferQuantity(detail) {
@@ -1283,18 +1449,7 @@
                 return;
             }
 
-            const normalized = normalizeUdfStatus(value);
-            const original = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
-
-            if (normalized === original) {
-                viewHeaderStatusPendingChanges.delete(String(requestId));
-            } else {
-                viewHeaderStatusPendingChanges.set(String(requestId), {
-                    requestId: Number(requestId),
-                    udfStatus: normalized,
-                });
-            }
-
+            queueHeaderUdfPendingFromSaved(requestId, value);
             updateViewApprovalButtonState();
             renderViewPurchaseRequestDetailPanel();
         }
@@ -1394,6 +1549,7 @@
 
                 viewApprovalPendingChanges.clear();
                 viewHeaderStatusPendingChanges.clear();
+                viewBulkSelectedHeaderIds.clear();
                 updateViewApprovalButtonState();
                 await loadViewPurchaseRequests(true);
             } catch (error) {
@@ -1484,6 +1640,7 @@
                 <td class="col-approved view-pr-approved-cell">
                     <input
                         type="checkbox"
+                        aria-label="Selected"
                         ${detail.id ? '' : 'disabled'}
                         ${toApprovalBool(detail.udfPqApproved) ? 'checked' : ''}
                         onchange="onDetailApprovalChange(${headerId}, ${Number(detail.id || 0)}, this.checked)"
@@ -1570,7 +1727,7 @@
                                 <th class="col-delivery-date">Deliv.</th>
                                 <th class="view-pr-num col-qty">Qty (x / total)</th>
                                 <th class="view-pr-num col-unit-price">Unit</th>
-                                <th class="col-approved">Appr.</th>
+                                <th class="col-approved">Selected</th>
                                 <th class="view-pr-num col-amount">Amt</th>
                             </tr>
                         </thead>
@@ -1651,6 +1808,9 @@
             if (event && event.target && event.target.closest && event.target.closest('.pr-view-pr-card__controls')) {
                 return;
             }
+            if (event && event.target && event.target.closest && event.target.closest('.pr-view-pr-card__bulk')) {
+                return;
+            }
             selectViewPurchaseRequest(headerId);
         }
 
@@ -1705,9 +1865,25 @@
                 const approvalBadgeHtml = udfLocked
                     ? `<span class="pr-view-pr-card__udf-badge pr-view-pr-card__udf-badge--${String(selectUdf || 'PENDING').toLowerCase()}">${escapeHtml(selectUdf)}</span>`
                     : '';
+                const bulkMode = isViewPendingBulkSelectMode() && !document.body.classList.contains('procurement-hide-pr-approval-edits');
+                const bulkSlot = bulkMode
+                    ? `<div class="pr-view-pr-card__bulk" onclick="event.stopPropagation()">
+                        <label class="pr-view-pr-card__bulk-label" title="Select for bulk approval">
+                            <input
+                                type="checkbox"
+                                aria-label="Select purchase request for bulk approval"
+                                ${viewBulkSelectedHeaderIds.has(headerId) ? 'checked' : ''}
+                                onclick="event.stopPropagation()"
+                                onchange="onViewPrBulkCardCheckboxChange(event, ${headerId})"
+                            />
+                        </label>
+                    </div>`
+                    : '';
 
                 cardParts.push(`
             <div class="pr-view-pr-card${isSelected ? ' is-selected' : ''}" data-header-id="${headerId}" style="--pr-card-accent: ${borderColor}; --pr-card-badge: ${badgeColor};">
+                ${bulkSlot}
+                <div class="pr-view-pr-card__stack">
                 <div class="pr-view-pr-card__main" role="button" tabindex="0" onclick="onViewPrCardActivate(event, ${headerId})" onkeydown="onViewPrCardKeydown(event, ${headerId})">
                     <div class="pr-view-pr-card__topline">
                         <span class="pr-view-pr-card__code">${escapeHtml(header.requestNumber || '-')}</span>
@@ -1727,6 +1903,7 @@
                         ${pendingStatusHtml}
                         ${editButtonHtml}
                     </div>
+                </div>
                 </div>
             </div>
         `);
@@ -1943,9 +2120,13 @@
             const show = Boolean(viewPrListHasMore && viewPurchaseRequests.length);
             wrap.style.display = show ? '' : 'none';
             btn.disabled = viewPrListLoadingMore;
-            btn.textContent = viewPrListLoadingMore ? 'Loading…' : 'Load more';
-            if (show && viewPrListTotal != null) {
-                btn.title = `Load next page (${viewPurchaseRequests.length} of ${viewPrListTotal} in memory)`;
+            btn.textContent = viewPrListLoadingMore ? 'Loading…' : '… more (+5)';
+            if (show) {
+                btn.title = viewPrListTotal != null
+                    ? `Load 5 more (${viewPurchaseRequests.length} of ${viewPrListTotal} shown)`
+                    : 'Load 5 more purchase requests';
+            } else {
+                btn.removeAttribute('title');
             }
         }
 
@@ -1989,6 +2170,7 @@
             viewTransferSavingHeaderIds = new Set();
             viewApprovalPendingChanges = new Map();
             viewHeaderStatusPendingChanges = new Map();
+            viewBulkSelectedHeaderIds.clear();
             viewApprovalSaving = false;
             viewPurchaseRequestsLoaded = true;
             const currentIds = new Set(viewPurchaseRequests.map((row) => Number(row.id || 0)).filter(Boolean));
@@ -2135,6 +2317,7 @@
                     viewPrListTotal = null;
                     viewApprovalPendingChanges = new Map();
                     viewHeaderStatusPendingChanges = new Map();
+                    viewBulkSelectedHeaderIds.clear();
                     viewTransferSavingHeaderIds = new Set();
                     viewApprovalSaving = false;
                     updateViewApprovalButtonState();
