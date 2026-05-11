@@ -6,6 +6,7 @@ let companyFilter = '';
 /** One or more of: drafts, pending, reviewed, cancelled. At least one must stay selected. */
 let selectedQuotationTabFilters = new Set(['reviewed']);
 let selectedActiveQuotations = new Set();
+let selectedPendingQuotations = new Set();
 let selectedQuotationDockey = null;
 const quotationDetailCache = new Map();
 
@@ -154,7 +155,7 @@ window.activateQuotation = async function(dockey) {
     }
     console.log('[DEBUG] activateQuotation called - dockey:', dockey);
     
-    if (!confirm('Are you sure you want to activate this quotation?')) {
+    if (!confirm('Are you sure you want to mark this quotation as reviewed?')) {
         return;
     }
     
@@ -176,11 +177,11 @@ window.activateQuotation = async function(dockey) {
             await loadQuotations();
             setQuotationTab('reviewed');
         } else {
-            alert('Failed to activate quotation: ' + (data.error || 'Unknown error'));
+            alert('Failed to mark quotation as reviewed: ' + (data.error || 'Unknown error'));
         }
     } catch (err) {
         console.error('[ERROR] activateQuotation exception:', err);
-        alert('Error activating quotation: ' + err);
+        alert('Error marking quotation as reviewed: ' + err);
     }
 };
 
@@ -278,28 +279,24 @@ function getCombinedQuotationList() {
 }
 
 /**
- * Toggle a status filter (Active / Pending / Cancelled). Multiple can be on at once.
- * At least one filter must remain selected.
+ * Select exactly one status tab (Drafts / Pending / Reviewed / Cancelled).
  */
 window.toggleQuotationFilter = function (name) {
     if (!['drafts', 'pending', 'reviewed', 'cancelled'].includes(name)) {
         return;
     }
-    if (selectedQuotationTabFilters.has(name) && selectedQuotationTabFilters.size <= 1) {
+    if (selectedQuotationTabFilters.size === 1 && selectedQuotationTabFilters.has(name)) {
         return;
     }
-    if (selectedQuotationTabFilters.has(name)) {
-        selectedQuotationTabFilters.delete(name);
-    } else {
-        selectedQuotationTabFilters.add(name);
-    }
-    if (selectedQuotationTabFilters.size === 0) {
-        selectedQuotationTabFilters.add('reviewed');
-    }
+    selectedQuotationTabFilters = new Set([name]);
     refreshQuotationListView();
 };
 
 function refreshQuotationListView() {
+    if (!selectedQuotationTabFilters.has('pending')) {
+        selectedPendingQuotations.clear();
+    }
+
     const tabContent = document.getElementById('quotation-tab-content');
     const draftsBtn = document.getElementById('tab-drafts');
     const reviewedBtn = document.getElementById('tab-reviewed');
@@ -347,6 +344,7 @@ function refreshQuotationListView() {
                 && !e.target.closest('.activate-btn')
                 && !e.target.closest('.toggle-cancelled-btn')
                 && !e.target.closest('.quotation-checkbox-active')
+                && !e.target.closest('.quotation-checkbox-pending')
             ) {
                 selectedQuotationDockey = Number(this.dataset.dockey);
                 refreshQuotationListView();
@@ -355,6 +353,7 @@ function refreshQuotationListView() {
     });
 
     updateActiveDeleteControls();
+    updatePendingReviewControls();
     renderQuotationDetail(visibleList, {});
 }
 
@@ -456,16 +455,31 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
 
     const hideStatus = hideQuotationStatusActionsFromPage();
     const hasReviewedInList = list.some((qt) => (qt._filterTab || 'reviewed') === 'reviewed');
+    const hasPendingInList = list.some((qt) => (qt._filterTab || '') === 'pending');
     let controlsHtml = '';
+    if (hasPendingInList && !hideStatus) {
+        controlsHtml += `
+            <div class="active-tab-controls show">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; user-select: none; color: #5c4028;">
+                    <input type="checkbox" id="select-all-pending" onchange="toggleSelectAllPending(event)" style="width: 18px; height: 18px; cursor: pointer; accent-color: #4b9e6e;">
+                    Select All
+                </label>
+                <button type="button" id="bulk-review-pending-btn" onclick="performBulkReviewPending()" class="btn-bulk-review-pending" disabled>
+                    Mark selected as reviewed
+                </button>
+                <span id="selected-count-pending" style="margin-left: auto; font-size: 14px; color: #87684d; font-weight: 500;">0 selected</span>
+            </div>
+        `;
+    }
     if (hasReviewedInList && !hideStatus) {
-        controlsHtml = `
+        controlsHtml += `
             <div class="active-tab-controls show">
                 <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; user-select: none; color: #5c4028;">
                     <input type="checkbox" id="select-all-active" onchange="toggleSelectAllActive(event)" style="width: 18px; height: 18px; cursor: pointer; accent-color: #dc3545;">
                     Select All
                 </label>
                 <button id="bulk-delete-active-btn" onclick="showDeleteConfirmActive()" class="btn-delete-active" disabled>
-                    Delete Selected
+                    Batch cancel selected
                 </button>
                 <span id="selected-count-active" style="margin-left: auto; font-size: 14px; color: #87684d; font-weight: 500;">0 selected</span>
             </div>
@@ -491,10 +505,12 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
         const badgeColor = borderColor;
         const isSelected = Number(qt.DOCKEY) === Number(selectedQuotationDockey);
         
-        const checkboxHtml =
-            !hideStatus && isReviewed
-                ? `<input type="checkbox" class="quotation-checkbox-active" data-dockey="${qt.DOCKEY}" ${selectedActiveQuotations.has(Number(qt.DOCKEY)) ? 'checked' : ''} onchange="handleActiveCheckboxChange(); event.stopPropagation();" style="width: 18px; height: 18px; cursor: pointer; accent-color: #dc3545; flex-shrink: 0;">`
-                : '';
+        let checkboxHtml = '';
+        if (!hideStatus && isReviewed) {
+            checkboxHtml = `<input type="checkbox" class="quotation-checkbox-active" data-dockey="${qt.DOCKEY}" ${selectedActiveQuotations.has(Number(qt.DOCKEY)) ? 'checked' : ''} onchange="handleActiveCheckboxChange(); event.stopPropagation();" style="width: 18px; height: 18px; cursor: pointer; accent-color: #dc3545; flex-shrink: 0;">`;
+        } else if (!hideStatus && isPending) {
+            checkboxHtml = `<input type="checkbox" class="quotation-checkbox-pending" data-dockey="${qt.DOCKEY}" ${selectedPendingQuotations.has(Number(qt.DOCKEY)) ? 'checked' : ''} onchange="handlePendingCheckboxChange(); event.stopPropagation();" style="width: 18px; height: 18px; cursor: pointer; accent-color: #4b9e6e; flex-shrink: 0;">`;
+        }
 
         html += `
             <div class="quotation-card ${isSelected ? 'is-selected' : ''}" data-dockey="${qt.DOCKEY}" style="background: #fffaf0; padding: 12px; margin-bottom: 12px; border-radius: 8px; border-left: 3px solid ${borderColor}; cursor: pointer; display: flex; gap: 12px; align-items: flex-start; border: 1px solid #ead8b5;">
@@ -522,7 +538,7 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
                             <div class="quotation-card__side-actions">
                                 ${isDrafts && !hideStatus ? `<button class="edit-button" onclick="editQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #5a8fc4; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Edit</button>` : ''}
                                 ${isPending && !hideStatus ? `<button class="edit-button" onclick="editQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #5a8fc4; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Edit</button>` : ''}
-                                ${isPending && !hideStatus ? `<button class="activate-btn" onclick="activateQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #4b9e6e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Activate</button>` : ''}
+                                ${isPending && !hideStatus ? `<button class="activate-btn" onclick="activateQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #4b9e6e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Reviewed</button>` : ''}
                                 ${isReviewed && !hideStatus ? `<button class="toggle-cancelled-btn" onclick="event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, false);" style="background: #a65c5c; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Cancel</button>` : ''}
                                 ${isCancelled && !hideStatus ? `<button class="toggle-cancelled-btn" onclick="event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, true);" style="background: #4b6e9e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Restore</button>` : ''}
                             </div>
@@ -573,7 +589,7 @@ async function renderQuotationDetail(currentList, options = {}) {
         <div class="quotation-detail-actions">
             ${isDrafts && !hideStatus ? `<button class="edit-button" onclick="editQuotation(${selected.DOCKEY})">Edit</button>` : ''}
             ${isPending && !hideStatus ? `<button class="edit-button" onclick="editQuotation(${selected.DOCKEY})">Edit</button>` : ''}
-            ${isPending && !hideStatus ? `<button class="activate-btn" onclick="activateQuotation(${selected.DOCKEY})">Activate</button>` : ''}
+            ${isPending && !hideStatus ? `<button class="activate-btn" onclick="activateQuotation(${selected.DOCKEY})">Reviewed</button>` : ''}
             ${isReviewed && !hideStatus ? `<button class="toggle-cancelled-btn" onclick="toggleCancelledStatus(${selected.DOCKEY}, false)">Cancel</button>` : ''}
             ${isCancelled && !hideStatus ? `<button class="toggle-cancelled-btn" onclick="toggleCancelledStatus(${selected.DOCKEY}, true)">Restore</button>` : ''}
         </div>
@@ -645,7 +661,7 @@ function editQuotation(dockey) {
     window.location.href = `/admin/update-quotation?dockey=${dockey}`;
 }
 
-// Active Tab Delete Functions
+// Reviewed tab: batch cancel (CANCELLED status — same as /api/admin/delete_quotations)
 function toggleSelectAllActive(event) {
     const isChecked = event.target.checked;
     const checkboxes = document.querySelectorAll('.quotation-checkbox-active');
@@ -692,6 +708,88 @@ function updateActiveDeleteControls() {
     }
 }
 
+function toggleSelectAllPending(event) {
+    const isChecked = event.target.checked;
+    const checkboxes = document.querySelectorAll('.quotation-checkbox-pending');
+    selectedPendingQuotations.clear();
+
+    checkboxes.forEach((checkbox) => {
+        checkbox.checked = isChecked;
+        if (isChecked) {
+            selectedPendingQuotations.add(parseInt(checkbox.dataset.dockey, 10));
+        }
+    });
+
+    updatePendingReviewControls();
+}
+
+function handlePendingCheckboxChange() {
+    selectedPendingQuotations.clear();
+    document.querySelectorAll('.quotation-checkbox-pending').forEach((checkbox) => {
+        if (checkbox.checked) {
+            selectedPendingQuotations.add(parseInt(checkbox.dataset.dockey, 10));
+        }
+    });
+    updatePendingReviewControls();
+}
+
+function updatePendingReviewControls() {
+    const count = selectedPendingQuotations.size;
+    const countSpan = document.getElementById('selected-count-pending');
+    const reviewBtn = document.getElementById('bulk-review-pending-btn');
+    const selectAllCheckbox = document.getElementById('select-all-pending');
+
+    if (countSpan) countSpan.textContent = `${count} selected`;
+    if (reviewBtn) reviewBtn.disabled = count === 0;
+
+    if (selectAllCheckbox) {
+        const allCheckboxes = document.querySelectorAll('.quotation-checkbox-pending');
+        const allChecked = allCheckboxes.length > 0 && Array.from(allCheckboxes).every((cb) => cb.checked);
+        const someChecked = Array.from(allCheckboxes).some((cb) => cb.checked);
+        selectAllCheckbox.checked = allChecked;
+        selectAllCheckbox.indeterminate = someChecked && !allChecked;
+    }
+}
+
+window.performBulkReviewPending = async function performBulkReviewPending() {
+    if (hideQuotationStatusActionsFromPage()) {
+        return;
+    }
+    if (selectedPendingQuotations.size === 0) {
+        return;
+    }
+    const dockeyArray = Array.from(selectedPendingQuotations);
+    if (!confirm(`Mark ${dockeyArray.length} quotation(s) as reviewed?`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/admin/batch_review_quotations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dockeyList: dockeyArray }),
+        });
+        const result = await response.json();
+
+        if (result.success) {
+            const n = result.reviewed_count != null ? result.reviewed_count : dockeyArray.length;
+            const fail = result.failed_count || 0;
+            const msg =
+                fail > 0
+                    ? `Marked ${n} as reviewed (${fail} failed).`
+                    : `Marked ${n} quotation(s) as reviewed.`;
+            showSuccessActive(msg);
+            selectedPendingQuotations.clear();
+            setQuotationTab('reviewed');
+            setTimeout(() => loadQuotations(), 800);
+        } else {
+            showErrorActive(result.error || 'Batch review failed');
+        }
+    } catch (err) {
+        showErrorActive('Error: ' + err.message);
+    }
+};
+
 function showDeleteConfirmActive() {
     if (hideQuotationStatusActionsFromPage()) {
         return;
@@ -700,7 +798,7 @@ function showDeleteConfirmActive() {
     
     const modal = document.getElementById('delete-modal-active');
     if (!modal) {
-        showErrorActive('Delete modal not found');
+        showErrorActive('Batch cancel dialog not found');
         return;
     }
     
@@ -740,14 +838,20 @@ async function performBulkDeleteActive() {
         const result = await response.json();
         
         if (result.success) {
-            showSuccessActive(`${result.deleted_count || dockeyArray.length} quotation(s) deleted successfully`);
+            const n = result.cancelled_count != null ? result.cancelled_count : (result.deleted_count != null ? result.deleted_count : dockeyArray.length);
+            const fail = result.failed_count || 0;
+            const msg =
+                fail > 0
+                    ? `Batch cancel: ${n} quotation(s) set to CANCELLED (${fail} failed).`
+                    : `Batch cancel: ${n} quotation(s) set to CANCELLED.`;
+            showSuccessActive(msg);
             selectedActiveQuotations.clear();
             setTimeout(() => loadQuotations(), 1500);
         } else {
-            showErrorActive(result.error || 'Failed to delete quotations');
+            showErrorActive(result.error || 'Batch cancel failed');
         }
     } catch (error) {
-        showErrorActive('Error deleting quotations: ' + error.message);
+        showErrorActive('Batch cancel error: ' + error.message);
     }
 }
 

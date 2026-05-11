@@ -1,4 +1,4 @@
-// Delete Quotations Page - Handle checkbox selection and bulk delete
+// Batch cancel quotations (CANCELLED status via /api/admin/delete_quotations)
 
 let allQuotations = [];
 let selectedQuotations = new Set();
@@ -170,7 +170,7 @@ function closeDeleteModal() {
 async function performBulkDelete() {
     const dockeyArray = Array.from(selectedQuotations);
     
-    console.log('[DELETE] Starting bulk delete with DOCKEYs:', dockeyArray);
+    console.log('[BATCH CANCEL] DOCKEYs:', dockeyArray);
     
     if (dockeyArray.length === 0) {
         showError('No quotations selected');
@@ -178,12 +178,11 @@ async function performBulkDelete() {
     }
     
     try {
-        // Perform bulk delete via API
         const payload = {
             dockeyList: dockeyArray
         };
         
-        console.log('[DELETE] Sending payload:', JSON.stringify(payload));
+        console.log('[BATCH CANCEL] Payload:', JSON.stringify(payload));
         
         const response = await fetch('/api/admin/delete_quotations', {
             method: 'POST',
@@ -193,27 +192,28 @@ async function performBulkDelete() {
             body: JSON.stringify(payload)
         });
         
-        console.log('[DELETE] Response status:', response.status);
+        console.log('[BATCH CANCEL] Response status:', response.status);
         
         const result = await response.json();
-        console.log('[DELETE] Response data:', result);
+        console.log('[BATCH CANCEL] Response data:', result);
         
         closeDeleteModal();
         
         if (result.success) {
-            console.log('[DELETE] Success! Deleted count:', result.deleted_count);
-            showSuccess(`${result.deleted_count || dockeyArray.length} quotation(s) deleted successfully`);
+            const n = result.cancelled_count != null ? result.cancelled_count : (result.deleted_count != null ? result.deleted_count : dockeyArray.length);
+            console.log('[BATCH CANCEL] Success, count:', n);
+            showSuccess(`Batch cancel: ${n} quotation(s) set to CANCELLED.`);
             selectedQuotations.clear();
             await loadQuotations();
             updateControlsState();
         } else {
-            console.error('[DELETE] API returned error:', result.error);
-            showError(result.error || 'Failed to delete quotations');
+            console.error('[BATCH CANCEL] API error:', result.error);
+            showError(result.error || 'Batch cancel failed');
         }
     } catch (error) {
-        console.error('[DELETE] Exception:', error);
+        console.error('[BATCH CANCEL] Exception:', error);
         closeDeleteModal();
-        showError('Error deleting quotations: ' + error.message);
+        showError('Batch cancel error: ' + error.message);
     }
 }
 

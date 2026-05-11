@@ -36,6 +36,21 @@ function normalizeCancelledValue($value) {
     return in_array(strtolower(trim((string)$value)), ['1', 'true', 't', 'yes', 'y', 'on'], true);
 }
 
+/**
+ * Whether SL_QT has UDF_STATUS (workflow: PENDING / REVIEWED / CANCELLED).
+ */
+function slQtHasUdfStatusColumn(PDO $dbh) {
+    try {
+        $q = $dbh->query(
+            "SELECT 1 FROM RDB\$RELATION_FIELDS WHERE TRIM(RDB\$RELATION_NAME) = 'SL_QT' AND UPPER(TRIM(RDB\$FIELD_NAME)) = 'UDF_STATUS'"
+        );
+        return $q && (bool) $q->fetchColumn();
+    } catch (Exception $e) {
+        error_log('[UPDATE QUOTATION] UDF_STATUS column check failed: ' . $e->getMessage());
+        return false;
+    }
+}
+
 error_log("[UPDATE QUOTATION] Received request: dockey=$dockey, cancelled=" . ($cancelled ? 'true' : 'false'));
 
 if (!$dockey || $cancelledRaw === null) {
@@ -64,15 +79,33 @@ try {
     }
     
     error_log("[UPDATE QUOTATION] Found record: DOCNO=" . $record['DOCNO'] . ", current CANCELLED=" . $record['CANCELLED']);
+
+    $hasUdfStatus = slQtHasUdfStatusColumn($dbh);
+    // Align with admin/customer UI: cancel → CANCELLED; restore / mark reviewed (cancelled false) → REVIEWED.
+    // PENDING is set on submit elsewhere, not here.
+    $newUdfStatus = $cancelled ? 'CANCELLED' : 'REVIEWED';
     
     // Always bump UPDATECOUNT on any CANCELLED toggle (activate or cancel). Firebird-safe integer math.
-    $stmt = $dbh->prepare('
-        UPDATE SL_QT SET
-            CANCELLED = ?,
-            UPDATECOUNT = COALESCE(CAST(UPDATECOUNT AS INTEGER), 0) + 1
-        WHERE DOCKEY = ?
-    ');
-    $result = $stmt->execute([$cancelledValue, (int)$dockey]);
+    if ($hasUdfStatus) {
+        $stmt = $dbh->prepare('
+            UPDATE SL_QT SET
+                CANCELLED = ?,
+                UPDATECOUNT = COALESCE(CAST(UPDATECOUNT AS INTEGER), 0) + 1,
+                UDF_STATUS = ?
+            WHERE DOCKEY = ?
+        ');
+        $result = $stmt->execute([$cancelledValue, $newUdfStatus, (int)$dockey]);
+        error_log("[UPDATE QUOTATION] Also set UDF_STATUS='$newUdfStatus'");
+    } else {
+        $stmt = $dbh->prepare('
+            UPDATE SL_QT SET
+                CANCELLED = ?,
+                UPDATECOUNT = COALESCE(CAST(UPDATECOUNT AS INTEGER), 0) + 1
+            WHERE DOCKEY = ?
+        ');
+        $result = $stmt->execute([$cancelledValue, (int)$dockey]);
+        error_log('[UPDATE QUOTATION] SL_QT has no UDF_STATUS column; skipped workflow field');
+    }
     
     error_log("[UPDATE QUOTATION] Update executed. Result=" . ($result ? 'true' : 'false'));
     error_log("[UPDATE QUOTATION] Rows affected: " . $stmt->rowCount());
@@ -82,18 +115,28 @@ try {
     error_log("[UPDATE QUOTATION] Transaction committed");
     
     // Verify the update worked by querying again
-    $verifyStmt = $dbh->prepare('SELECT CANCELLED FROM SL_QT WHERE DOCKEY = ?');
+    $verifySql = $hasUdfStatus
+        ? 'SELECT CANCELLED, UDF_STATUS FROM SL_QT WHERE DOCKEY = ?'
+        : 'SELECT CANCELLED FROM SL_QT WHERE DOCKEY = ?';
+    $verifyStmt = $dbh->prepare($verifySql);
     $verifyStmt->execute([$dockey]);
     $verifiedRecord = $verifyStmt->fetch(PDO::FETCH_ASSOC);
     
     if ($verifiedRecord) {
         $verifiedValue = $verifiedRecord['CANCELLED'];
         error_log("[UPDATE QUOTATION] VERIFICATION: DOCKEY=$dockey now has CANCELLED='$verifiedValue'");
+        if ($hasUdfStatus && isset($verifiedRecord['UDF_STATUS'])) {
+            error_log("[UPDATE QUOTATION] VERIFICATION: UDF_STATUS='" . $verifiedRecord['UDF_STATUS'] . "'");
+        }
 
         $verifiedCancelled = normalizeCancelledValue($verifiedValue);
         if ($verifiedCancelled === $cancelled) {
             error_log("[UPDATE QUOTATION] ✓ SUCCESS: Update verified in database!");
-            echo json_encode(['success' => true, 'message' => "Quotation $dockey updated to CANCELLED=$cancelledValue"]);
+            $payload = ['success' => true, 'message' => "Quotation $dockey updated to CANCELLED=$cancelledValue"];
+            if ($hasUdfStatus) {
+                $payload['udf_status'] = $newUdfStatus;
+            }
+            echo json_encode($payload);
         } else {
             error_log("[UPDATE QUOTATION] ✗ VERIFICATION FAILED: Expected '" . ($cancelled ? 'true' : 'false') . "' but got '" . var_export($verifiedValue, true) . "'");
             echo json_encode(['success' => false, 'error' => "Update verification failed"]);

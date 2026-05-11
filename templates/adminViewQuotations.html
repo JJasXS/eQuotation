@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="/static/css/hamburger_menu.css">
     <link rel="stylesheet" href="/static/css/app_page_header.css">
     <link rel="stylesheet" href="/static/css/orderQuotation.css">
-    <link rel="stylesheet" href="/static/css/adminViewQuotations.css?v=20260430b">
+    <link rel="stylesheet" href="/static/css/adminViewQuotations.css?v=20260512_batch_cancel">
 </head>
 <body class="admin-quotations-view-page" data-hide-quotation-actions="{% if perm_hide_quotation_status_actions | default(false) %}true{% else %}false{% endif %}">
     <div class="container">
@@ -25,32 +25,32 @@
         </div>
     </div>
 
-    <!-- Delete Confirmation Modal -->
+    <!-- Batch cancel confirmation (sets CANCELLED / reviewed-tab “cancel” — not a hard delete) -->
     <div id="delete-modal-active" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5); z-index: 1000; align-items: center; justify-content: center;">
-        <div style="background: white; border-radius: 8px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15); max-width: 400px; width: 90%; overflow: hidden;">
+        <div style="background: white; border-radius: 8px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15); max-width: 420px; width: 90%; overflow: hidden;">
             <div style="padding: 20px; background-color: #f8f9fa; border-bottom: 1px solid #e0e0e0;">
-                <h2 style="margin: 0; font-size: 18px; color: #333;">Confirm Delete</h2>
+                <h2 style="margin: 0; font-size: 18px; color: #333;">Confirm batch cancel</h2>
             </div>
             <div style="padding: 20px;">
-                <p style="margin: 10px 0; color: #555; font-size: 14px;">Are you sure you want to delete <span id="delete-count-active">0</span> quotation(s)?</p>
-                <p style="color: #d32f2f !important; font-weight: 500; margin-top: 15px;">⚠️ This action will mark the quotations as cancelled.</p>
+                <p style="margin: 10px 0; color: #555; font-size: 14px;">Cancel <span id="delete-count-active">0</span> selected quotation(s)? Their status will be set to <strong>CANCELLED</strong> (same as the per-row Cancel action). Nothing is permanently removed from the database.</p>
+                <p style="color: #a65c5c !important; font-weight: 500; margin-top: 12px; font-size: 13px;">You can restore cancelled quotations individually from the Cancelled tab.</p>
             </div>
             <div style="padding: 15px 20px; background-color: #f8f9fa; border-top: 1px solid #e0e0e0; display: flex; justify-content: flex-end; gap: 10px;">
-                <button id="cancel-delete-active-btn" style="padding: 8px 16px; background-color: #e0e0e0; color: #333; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">Cancel</button>
-                <button id="confirm-delete-active-btn" style="padding: 8px 16px; background-color: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">Delete</button>
+                <button id="cancel-delete-active-btn" style="padding: 8px 16px; background-color: #e0e0e0; color: #333; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">Dismiss</button>
+                <button id="confirm-delete-active-btn" style="padding: 8px 16px; background-color: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">Batch cancel</button>
             </div>
         </div>
     </div>
 
     <!-- Success/Error Messages -->
     <div id="success-message-active" style="display: none; position: fixed; top: 20px; right: 20px; background: #4caf50; color: white; padding: 16px 24px; border-radius: 4px; z-index: 1001; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);">
-        <span>✓ Quotations deleted successfully!</span>
+        <span>✓ Batch cancel completed (status CANCELLED).</span>
     </div>
     <div id="error-message-active" style="display: none; position: fixed; top: 20px; right: 20px; background: #f44336; color: white; padding: 16px 24px; border-radius: 4px; z-index: 1001; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);">
         <span></span>
     </div>
 
     <script src="/static/js/hamburger_menu.js"></script>
-    <script src="/static/js/adminViewQuotations.js?v=20260511_workflow"></script>
+    <script src="/static/js/adminViewQuotations.js?v=20260512_batch_cancel"></script>
 </body>
 </html>

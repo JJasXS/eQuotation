@@ -286,7 +286,7 @@
     text-align: right;
 }
 
-/* Active tab bulk delete (view quotations) + quotation list card header grid
+/* Reviewed tab batch cancel (CANCELLED) + quotation list card header grid
    (shared by /admin/view-quotations and procurement View e-PR — was inline in adminViewQuotations.html) */
 .active-tab-controls {
     display: none;
@@ -316,6 +316,22 @@
 .btn-delete-active:disabled {
     background-color: #4a4f5a;
     opacity: 0.65;
+}
+
+.btn-bulk-review-pending {
+    padding: 8px 16px;
+    background-color: #4b9e6e;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.btn-bulk-review-pending:disabled {
+    background-color: #4a4f5a;
+    opacity: 0.65;
+    cursor: not-allowed;
 }
 
 .quotation-card__header-layout {

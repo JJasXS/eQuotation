@@ -1347,13 +1347,103 @@ def proxy_delete_order_detail():
         log_context='deleteOrderDetail'
     )
 
+def _coerce_bool_quotation_cancelled(value):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return int(value) != 0
+    s = str(value).strip().lower()
+    return s in ('1', 'true', 't', 'yes', 'y', 'on')
+
+
+def _apply_sl_qt_cancelled_toggle_firebird(dockey: int, cancelled: bool) -> tuple[bool, str | None]:
+    """
+    Toggle SL_QT quotation cancelled/reviewed state via Firebird only (replaces PHP updateQuotationCancelled.php).
+
+    Sets CANCELLED (same encoding as legacy PHP: 'True'/'False' strings), increments UPDATECOUNT when present,
+    and UDF_STATUS → REVIEWED or CANCELLED when present.
+    """
+    try:
+        dk = int(dockey)
+    except Exception:
+        return False, 'Invalid dockey'
+
+    udf_value = 'CANCELLED' if cancelled else 'REVIEWED'
+    # Legacy PHP / PDO stored Firebird booleans as these strings for SL_QT.CANCELLED
+    cancelled_display = 'True' if cancelled else 'False'
+
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+
+        cur.execute('SELECT 1 FROM SL_QT WHERE DOCKEY = ?', (dk,))
+        if not cur.fetchone():
+            return False, f'Quotation DOCKEY {dk} not found'
+
+        cur.execute(
+            '''
+            SELECT TRIM(RF.RDB$FIELD_NAME)
+            FROM RDB$RELATION_FIELDS RF
+            WHERE TRIM(RF.RDB$RELATION_NAME) = 'SL_QT'
+            '''
+        )
+        cols = {str(r[0]).strip().upper() for r in (cur.fetchall() or []) if r and r[0]}
+        if 'CANCELLED' not in cols:
+            return False, 'SL_QT.CANCELLED column not found'
+
+        set_parts = ['CANCELLED = ?']
+        params: list = [cancelled_display]
+
+        if 'UPDATECOUNT' in cols:
+            set_parts.append('UPDATECOUNT = COALESCE(CAST(UPDATECOUNT AS INTEGER), 0) + 1')
+
+        if 'UDF_STATUS' in cols:
+            set_parts.append('UDF_STATUS = ?')
+            params.append(udf_value)
+
+        sql = f"UPDATE SL_QT SET {', '.join(set_parts)} WHERE DOCKEY = ?"
+        params.append(dk)
+        cur.execute(sql, tuple(params))
+
+        con.commit()
+        print(
+            f"[SL_QT] DOCKEY {dk} CANCELLED={cancelled_display} UDF_STATUS={udf_value if 'UDF_STATUS' in cols else '—'}",
+            flush=True,
+        )
+        return True, None
+    except Exception as e:
+        err = str(e)
+        print(f"[SL_QT] cancel toggle failed DOCKEY {dockey}: {err}", flush=True)
+        if con:
+            try:
+                con.rollback()
+            except Exception:
+                pass
+        return False, err
+    finally:
+        if cur:
+            try:
+                cur.close()
+            except Exception:
+                pass
+        if con:
+            try:
+                con.close()
+            except Exception:
+                pass
+
+
 # ============================================
 # ROUTE: Update Quotation Cancelled Status
 # ============================================
 @app.route('/api/admin/update_quotation_cancelled', methods=['POST'])
 @api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
 def update_quotation_cancelled():
-    """Forward CANCELLED status update to PHP endpoint (admin only)."""
+    """Update SL_QT.CANCELLED / UDF_STATUS via Firebird (admin only)."""
     data = request.get_json() or {}
     dockey = data.get('dockey')
     cancelled = data.get('cancelled')
@@ -1361,18 +1451,15 @@ def update_quotation_cancelled():
     if not dockey or cancelled is None:
         return jsonify({'success': False, 'error': 'Missing dockey or cancelled'}), 400
 
+    cancelled_bool = _coerce_bool_quotation_cancelled(cancelled)
+
     try:
-        php_url = f"{BASE_API_URL}/php/updateQuotationCancelled.php"
-        result, _ = http_request_json(
-            'POST',
-            php_url,
-            json={'dockey': dockey, 'cancelled': cancelled},
-        )
-        if not result.get('success'):
-            return jsonify({'success': False, 'error': result.get('error', 'Failed to update quotation')}), 500
-        
+        ok, err = _apply_sl_qt_cancelled_toggle_firebird(int(dockey), cancelled_bool)
+        if not ok:
+            return jsonify({'success': False, 'error': err or 'Failed to update quotation'}), 400
+
         # If activating quotation (cancelled: false), send email to customer
-        if cancelled is False:
+        if cancelled_bool is False:
             print(f"[ACTIVATE DEBUG] Attempting to send email for DOCKEY {dockey}")
             try:
                 # Fetch quotation details
@@ -1440,31 +1527,15 @@ def cancel_single_quotation():
         return jsonify({'success': False, 'error': 'dockey parameter required'}), 400
 
     try:
-        # Call PHP endpoint to update database
-        php_url = f"{BASE_API_URL}/php/updateQuotationCancelled.php"
-        payload = {'dockey': dockey, 'cancelled': True}
-        
-        print(f"[CANCEL SINGLE] Calling PHP: {php_url}", flush=True)
-        print(f"[CANCEL SINGLE] Payload: {payload}", flush=True)
-        
-        result, _ = http_request_json('POST', php_url, json=payload)
-        
-        print(f"[CANCEL SINGLE] PHP Response: {result}", flush=True)
-        
-        if result.get('success'):
-            print(f"[CANCEL SINGLE] Successfully cancelled DOCKEY {dockey}", flush=True)
-            return jsonify({
-                'success': True,
-                'message': f'Quotation {dockey} cancelled successfully'
-            }), 200
-        else:
-            error_msg = result.get('error', 'Unknown error')
-            print(f"[CANCEL SINGLE] Failed: {error_msg}", flush=True)
-            return jsonify({
-                'success': False,
-                'error': error_msg
-            }), 500
-    
+        ok, err = _apply_sl_qt_cancelled_toggle_firebird(int(dockey), True)
+        if not ok:
+            print(f"[CANCEL SINGLE] Failed: {err}", flush=True)
+            return jsonify({'success': False, 'error': err or 'Failed to cancel quotation'}), 400
+        print(f"[CANCEL SINGLE] Successfully cancelled DOCKEY {dockey}", flush=True)
+        return jsonify({
+            'success': True,
+            'message': f'Quotation {dockey} cancelled successfully',
+        }), 200
     except Exception as e:
         print(f"[CANCEL SINGLE] Exception: {str(e)}", flush=True)
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -1473,82 +1544,99 @@ def cancel_single_quotation():
 @app.route('/api/admin/delete_quotations', methods=['POST'])
 @api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
 def delete_quotations():
-    """Delete (cancel) multiple quotations - main deletion API."""
+    """Batch-cancel multiple quotations (CANCELLED status via SL_QT — not a hard delete)."""
     data = request.get_json() or {}
     dockey_list = data.get('dockeyList', [])
 
-    print(f"\n[DELETE QUOTATIONS] ========== START ==========", flush=True)
-    print(f"[DELETE QUOTATIONS] Received request with {len(dockey_list)} quotations to delete", flush=True)
-    print(f"[DELETE QUOTATIONS] DOCKEYs: {dockey_list}", flush=True)
+    print(f"\n[BATCH CANCEL QUOTATIONS] ========== START ==========", flush=True)
+    print(f"[BATCH CANCEL QUOTATIONS] Received request with {len(dockey_list)} quotations", flush=True)
+    print(f"[BATCH CANCEL QUOTATIONS] DOCKEYs: {dockey_list}", flush=True)
 
     if not dockey_list or not isinstance(dockey_list, list):
-        print(f"[DELETE QUOTATIONS] ERROR: Invalid dockeyList format", flush=True)
+        print(f"[BATCH CANCEL QUOTATIONS] ERROR: Invalid dockeyList format", flush=True)
         return jsonify({'success': False, 'error': 'Invalid dockeyList - must be an array'}), 400
 
     try:
-        deleted_count = 0
+        cancelled_count = 0
         failed_count = 0
         failed_details = []
         
-        php_url = f"{BASE_API_URL}/php/updateQuotationCancelled.php"
-        
         for dockey in dockey_list:
-            print(f"\n[DELETE QUOTATIONS] Processing DOCKEY: {dockey}", flush=True)
+            print(f"\n[BATCH CANCEL QUOTATIONS] Processing DOCKEY: {dockey}", flush=True)
             
             try:
-                # Prepare payload
-                payload = {
-                    'dockey': int(dockey),
-                    'cancelled': True
-                }
-                print(f"[DELETE QUOTATIONS] Sending to PHP: {payload}", flush=True)
-                
-                try:
-                    result, response = http_request_json('POST', php_url, json=payload)
-                except Exception as del_exc:
-                    failed_count += 1
-                    failed_details.append(f"DOCKEY {dockey}: {del_exc}")
-                    print(f"[DELETE QUOTATIONS] ✗ REQUEST FAILED for DOCKEY {dockey}: {del_exc}", flush=True)
-                    continue
-                
-                print(f"[DELETE QUOTATIONS] PHP response status: {response.status_code}", flush=True)
-                print(f"[DELETE QUOTATIONS] PHP result: {result}", flush=True)
-                
-                if result.get('success'):
-                    deleted_count += 1
-                    print(f"[DELETE QUOTATIONS] ✓ DOCKEY {dockey} deleted successfully", flush=True)
+                ok, err = _apply_sl_qt_cancelled_toggle_firebird(int(dockey), True)
+                if ok:
+                    cancelled_count += 1
+                    print(f"[BATCH CANCEL QUOTATIONS] ✓ DOCKEY {dockey} → CANCELLED", flush=True)
                 else:
                     failed_count += 1
-                    error_msg = result.get('error', 'Unknown error')
-                    failed_details.append(f"DOCKEY {dockey}: {error_msg}")
-                    print(f"[DELETE QUOTATIONS] ✗ DOCKEY {dockey} failed: {error_msg}", flush=True)
-                    
+                    failed_details.append(f"DOCKEY {dockey}: {err or 'Failed'}")
+                    print(f"[BATCH CANCEL QUOTATIONS] ✗ DOCKEY {dockey} failed: {err}", flush=True)
             except Exception as e:
                 failed_count += 1
                 failed_details.append(f"DOCKEY {dockey}: {str(e)}")
-                print(f"[DELETE QUOTATIONS] ✗ EXCEPTION for DOCKEY {dockey}: {str(e)}", flush=True)
+                print(f"[BATCH CANCEL QUOTATIONS] ✗ EXCEPTION for DOCKEY {dockey}: {str(e)}", flush=True)
         
-        print(f"\n[DELETE QUOTATIONS] Summary: deleted={deleted_count}, failed={failed_count}", flush=True)
-        print(f"[DELETE QUOTATIONS] ========== END ==========\n", flush=True)
+        print(f"\n[BATCH CANCEL QUOTATIONS] Summary: cancelled={cancelled_count}, failed={failed_count}", flush=True)
+        print(f"[BATCH CANCEL QUOTATIONS] ========== END ==========\n", flush=True)
         
         return jsonify({
             'success': True,
-            'deleted_count': deleted_count,
+            'cancelled_count': cancelled_count,
+            'deleted_count': cancelled_count,  # legacy key (same operation)
             'failed_count': failed_count,
             'failed_details': failed_details if failed_details else None,
-            'message': f'Deleted {deleted_count} quotation(s)' + (f' ({failed_count} failed)' if failed_count > 0 else '')
+            'message': f'Batch cancel: {cancelled_count} quotation(s) set to CANCELLED'
+            + (f' ({failed_count} failed)' if failed_count > 0 else ''),
         }), 200
 
     except Exception as e:
-        print(f"[DELETE QUOTATIONS] CRITICAL ERROR: {str(e)}", flush=True)
-        print(f"[DELETE QUOTATIONS] ========== END (ERROR) ==========\n", flush=True)
+        print(f"[BATCH CANCEL QUOTATIONS] CRITICAL ERROR: {str(e)}", flush=True)
+        print(f"[BATCH CANCEL QUOTATIONS] ========== END (ERROR) ==========\n", flush=True)
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/batch_review_quotations', methods=['POST'])
+@api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
+def batch_review_quotations():
+    """Mark multiple pending quotations as reviewed (cancelled=false, UDF_STATUS=REVIEWED via Firebird)."""
+    data = request.get_json() or {}
+    dockey_list = data.get('dockeyList', [])
+
+    if not dockey_list or not isinstance(dockey_list, list):
+        return jsonify({'success': False, 'error': 'dockeyList array required'}), 400
+
+    reviewed_count = 0
+    failed_count = 0
+    failed_details = []
+
+    for dockey in dockey_list:
+        try:
+            ok, err = _apply_sl_qt_cancelled_toggle_firebird(int(dockey), False)
+            if ok:
+                reviewed_count += 1
+            else:
+                failed_count += 1
+                failed_details.append(f'DOCKEY {dockey}: {err or "Failed"}')
+        except Exception as e:
+            failed_count += 1
+            failed_details.append(f'DOCKEY {dockey}: {e}')
+
+    return jsonify({
+        'success': True,
+        'reviewed_count': reviewed_count,
+        'failed_count': failed_count,
+        'failed_details': failed_details if failed_details else None,
+        'message': f'Marked {reviewed_count} quotation(s) as reviewed'
+        + (f' ({failed_count} failed)' if failed_count > 0 else ''),
+    }), 200
 
 
 @app.route('/api/admin/bulk_cancel_quotations', methods=['POST'])
 @api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
 def bulk_cancel_quotations():
-    """Deprecated: Use /api/admin/delete_quotations instead. This endpoint now forwards to it."""
+    """Deprecated: forwards to batch cancel (/api/admin/delete_quotations)."""
     # Forward to the new endpoint
     return delete_quotations()
 
@@ -2629,7 +2717,7 @@ def admin_view_quotations():
 
 @app.route('/admin/delete-quotations')
 def admin_delete_quotations():
-    """Delete quotations UI (full admin + sales management)."""
+    """Batch cancel quotations UI (CANCELLED status — full admin + sales management)."""
     page_error = require_page_access(require_admin=True)
     if page_error:
         return page_error
