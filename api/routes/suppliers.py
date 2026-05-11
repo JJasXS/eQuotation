@@ -16,14 +16,18 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Suppliers"])
 
+# Reuse a single session across requests (connection pooling, not recreated per call).
+_supplier_session = requests.Session()
+
 
 def _make_sigv4_get(url: str, params: dict) -> requests.Response:
     """Send a SigV4-signed GET request to the SQL Accounting external API."""
     access_key = (os.getenv("SQL_API_ACCESS_KEY") or os.getenv("API_ACCESS_KEY") or "").strip()
     secret_key = (os.getenv("SQL_API_SECRET_KEY") or os.getenv("API_SECRET_KEY") or "").strip()
-    region = (os.getenv("SQL_API_REGION") or "ap-southeast-5").strip()
+    region = (os.getenv("SQL_API_REGION") or "ap-southeast-1").strip()
     service = (os.getenv("SQL_API_SERVICE") or "execute-api").strip()
-    timeout = float(os.getenv("SQL_API_TIMEOUT_SECONDS") or "30")
+    # Use a shorter timeout than the default 30s; the UI shows 504 in the logs when this hits.
+    timeout = float(os.getenv("SQL_API_TIMEOUT_SECONDS") or "12")
 
     # Build query string manually so SigV4 signs the canonical URL
     if params:
@@ -37,8 +41,7 @@ def _make_sigv4_get(url: str, params: dict) -> requests.Response:
     SigV4Auth(creds, service, region).add_auth(aws_request)
     prepared = aws_request.prepare()
 
-    session = requests.Session()
-    return session.get(
+    return _supplier_session.get(
         prepared.url,
         headers=dict(prepared.headers),
         timeout=timeout,

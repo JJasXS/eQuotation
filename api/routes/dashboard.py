@@ -4,6 +4,7 @@ import os
 import fdb
 from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException
+from utils.db_utils import build_firebird_dsn
 
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "../../.env"))
@@ -17,9 +18,9 @@ router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 
 def _connect_db():
-    if not DB_PATH or not DB_HOST or not DB_USER or DB_PASSWORD is None:
+    if not DB_PATH or not DB_USER or DB_PASSWORD is None:
         raise HTTPException(status_code=500, detail="Database credentials are not fully configured.")
-    return fdb.connect(dsn=f"{DB_HOST}:{DB_PATH}", user=DB_USER, password=DB_PASSWORD, charset="UTF8")
+    return fdb.connect(dsn=build_firebird_dsn(DB_PATH, DB_HOST), user=DB_USER, password=DB_PASSWORD, charset="UTF8")
 
 
 def _sales_cycle_cte_sql() -> str:

@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from api.routes.customers import verify_api_keys
+from utils.db_utils import build_firebird_dsn
 
 # PH_PQ column metadata is stable per process; avoid RDB$RELATION_FIELDS on every list call.
 _PH_PQ_COLS_FROZEN: frozenset[str] | None = None
@@ -18,10 +19,10 @@ _PH_PQ_COLS_FROZEN: frozenset[str] | None = None
 # Recommended: CREATE INDEX IDX_PH_PQ_DOCDATE ON PH_PQ (DOCDATE DESC); index DOCKEY for detail joins.
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '../../.env'))
-DB_PATH = os.getenv('DB_PATH')
-DB_HOST = os.getenv('DB_HOST')
-DB_USER = os.getenv('DB_USER')
-DB_PASSWORD = os.getenv('DB_PASSWORD')
+_DB_PATH = os.getenv('DB_PATH')
+_DB_HOST = os.getenv('DB_HOST')
+_DB_USER = os.getenv('DB_USER')
+_DB_PASSWORD = os.getenv('DB_PASSWORD')
 
 router = APIRouter(tags=["Purchase Requests"])
 
@@ -41,9 +42,15 @@ def verify_firebird_purchase_request_api_enabled(_: None = Depends(verify_api_ke
 
 
 def _connect_db() -> fdb.Connection:
-    if not DB_PATH or not DB_HOST or not DB_USER:
+    """Open a Firebird connection. Uses build_firebird_dsn for consistent path normalisation."""
+    if not _DB_PATH or not _DB_USER:
         raise RuntimeError("DB connection environment is not fully configured")
-    return fdb.connect(dsn=f"{DB_HOST}:{DB_PATH}", user=DB_USER, password=DB_PASSWORD, charset='UTF8')
+    return fdb.connect(
+        dsn=build_firebird_dsn(_DB_PATH, _DB_HOST),
+        user=_DB_USER,
+        password=_DB_PASSWORD,
+        charset='UTF8',
+    )
 
 
 def _cached_ph_pq_columns(cur: Any) -> set[str]:
@@ -244,25 +251,34 @@ def _fetch_detail_rows(cur: Any, dockey: int, detail_cols: set[str]) -> list[dic
     st_item_cols = _get_table_columns(cur, "ST_ITEM")
     st_desc_col = _pick_existing(st_item_cols, "DESCRIPTION")
 
-    def _lookup_st_item(item_code: str) -> str | None:
-        if not item_code:
-            return None
-        if not st_desc_col:
-            return None
-
-        cur.execute(
-            f"SELECT FIRST 1 {st_desc_col} FROM ST_ITEM WHERE CODE = ?",
-            (item_code,),
-        )
-        row = cur.fetchone()
-        if not row:
-            return None
-        return _to_text(row[0])
+    # Batch all ST_ITEM lookups into a single query (was N+1: one per detail row).
+    item_name_by_code: dict[str, str | None] = {}
+    if st_desc_col and rows:
+        unique_codes = {
+            (_to_text(r[3]) or "").strip()
+            for r in rows
+            if _to_text(r[3])
+        }
+        unique_codes.discard("")
+        if unique_codes:
+            placeholders = ",".join(["?"] * len(unique_codes))
+            try:
+                cur.execute(
+                    f"SELECT CODE, {st_desc_col} FROM ST_ITEM WHERE CODE IN ({placeholders})",
+                    tuple(unique_codes),
+                )
+                for code_val, desc_val in (cur.fetchall() or []):
+                    code_norm = (_to_text(code_val) or "").strip()
+                    if code_norm:
+                        item_name_by_code[code_norm] = _to_text(desc_val)
+            except Exception:
+                # Fall back silently — descriptions are nice-to-have, not critical.
+                item_name_by_code = {}
 
     details: list[dict[str, Any]] = []
     for idx, r in enumerate(rows, start=1):
         item_code = _to_text(r[3])
-        st_item_name = _lookup_st_item(item_code or "")
+        st_item_name = item_name_by_code.get((item_code or "").strip()) if item_code else None
         detail_unit_price = _to_number(r[9])
         sqty_val = _to_number(r[15])
         suom_val = _to_number(r[16])

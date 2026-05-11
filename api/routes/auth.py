@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException, Query
 
 from api.routes.suppliers import _external_supplier_url, _make_sigv4_get
+from utils.db_utils import build_firebird_dsn
 
 # Reuse Flask role helpers (same repo); FastAPI runs as separate process with same cwd.
 _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -84,9 +85,9 @@ def _lookup_supplier_via_external_api(normalized_email: str):
 
 
 def _connect_db():
-    if not DB_PATH or not DB_HOST or not DB_USER or DB_PASSWORD is None:
+    if not DB_PATH or not DB_USER or DB_PASSWORD is None:
         raise HTTPException(status_code=500, detail="Database credentials are not fully configured.")
-    return fdb.connect(dsn=f"{DB_HOST}:{DB_PATH}", user=DB_USER, password=DB_PASSWORD, charset="UTF8")
+    return fdb.connect(dsn=build_firebird_dsn(DB_PATH, DB_HOST), user=DB_USER, password=DB_PASSWORD, charset="UTF8")
 
 
 def _fetch_sy_user_profile_with_udfs(cur, normalized_email: str):

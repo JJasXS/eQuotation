@@ -21,8 +21,7 @@ from utils.email_utils import (
 )
 
 from utils.ai_utils import (
-    chat_with_gpt, detect_intent_hybrid, load_chatbot_instructions,
-    set_ai_config, init_local_classifier
+    chat_with_gpt, load_chatbot_instructions, set_ai_config
 )
 
 from utils.order_utils import (
@@ -55,8 +54,7 @@ __all__ = [
     'send_email', 'set_email_config',
     
     # AI utils
-    'chat_with_gpt', 'detect_intent_hybrid', 'load_chatbot_instructions',
-    'set_ai_config', 'init_local_classifier',
+    'chat_with_gpt', 'load_chatbot_instructions', 'set_ai_config',
     
     # Order utils
     'extract_product_and_quantity', 'get_product_price', 'set_order_config',

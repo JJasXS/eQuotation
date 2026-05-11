@@ -18,6 +18,31 @@ from api.config.sql_accounting_api import SqlAccountingApiSettings
 logger = logging.getLogger(__name__)
 
 
+def _is_read_timeout_transport_error(exc: BaseException) -> bool:
+    """True when the failure is a read timeout (do not retry POST).
+
+    urllib3 often surfaces read timeouts as ``ConnectionError`` with a message like
+    ``Max retries exceeded ... (Caused by ReadTimeoutError(...))`` rather than
+    ``requests.exceptions.ReadTimeout``, so the dedicated ``ReadTimeout`` handler
+    alone is not enough.
+    """
+    if isinstance(exc, requests.exceptions.ReadTimeout):
+        return True
+    cur: BaseException | None = exc
+    for _ in range(8):
+        if cur is None:
+            break
+        if isinstance(cur, requests.exceptions.ReadTimeout):
+            return True
+        if type(cur).__name__ == "ReadTimeoutError":
+            return True
+        cur = cur.__cause__ or cur.__context__
+    msg = str(exc).lower()
+    if "read timed out" in msg or "readtimeouterror" in msg:
+        return True
+    return False
+
+
 class SqlAccountingApiError(Exception):
     """Raised when the SQL Accounting API returns an error or the request fails."""
 
@@ -42,11 +67,15 @@ class SqlAccountingApiClient:
 
     def _build_session(self) -> requests.Session:
         session = requests.Session()
+        # Only retry on connection-level failures (not read timeouts).
+        # A read timeout means the server received the request but didn't respond in time —
+        # retrying a POST in that state can cause duplicate submissions.
+        # status_forcelist covers transient gateway errors only.
         retries = Retry(
             total=self._settings.max_retries,
             connect=self._settings.max_retries,
-            read=self._settings.max_retries,
-            backoff_factor=0.4,
+            read=0,
+            backoff_factor=0.3,
             status_forcelist=(429, 502, 503, 504),
             allowed_methods=frozenset({"POST"}),
             raise_on_status=False,
@@ -56,7 +85,13 @@ class SqlAccountingApiClient:
         session.mount("http://", adapter)
         return session
 
-    def _sign_and_post(self, url: str, body_bytes: bytes) -> requests.Response:
+    def _sign_and_post(
+        self,
+        url: str,
+        body_bytes: bytes,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> requests.Response:
         creds = Credentials(self._settings.access_key, self._settings.secret_key)
         aws_request = AWSRequest(
             method="POST",
@@ -66,14 +101,25 @@ class SqlAccountingApiClient:
         )
         SigV4Auth(creds, self._settings.service, self._settings.region).add_auth(aws_request)
         prepared = aws_request.prepare()
+        timeout = (
+            timeout_seconds
+            if timeout_seconds is not None
+            else self._settings.timeout_seconds
+        )
         return self._session.post(
             prepared.url,
             data=prepared.body,
             headers=dict(prepared.headers),
-            timeout=self._settings.timeout_seconds,
+            timeout=timeout,
         )
 
-    def post_json(self, url: str, payload: dict[str, Any]) -> tuple[int, dict[str, Any] | None, str]:
+    def post_json(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        *,
+        timeout_seconds: float | None = None,
+    ) -> tuple[int, dict[str, Any] | None, str]:
         """
         Send a signed POST with JSON body.
 
@@ -90,7 +136,7 @@ class SqlAccountingApiClient:
         attempts = self._settings.max_retries + 1
         for attempt in range(attempts):
             try:
-                resp = self._sign_and_post(url, body_bytes)
+                resp = self._sign_and_post(url, body_bytes, timeout_seconds=timeout_seconds)
                 text = resp.text or ""
                 parsed: dict[str, Any] | None = None
                 if text:
@@ -101,11 +147,39 @@ class SqlAccountingApiClient:
                     except json.JSONDecodeError:
                         parsed = None
                 return resp.status_code, parsed, text
-            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+            except requests.exceptions.ReadTimeout as exc:
+                # Read timeout = server got the request but didn't respond in time.
+                # Do NOT retry: the POST may already be processing on the remote side.
+                last_exc = exc
+                logger.warning("SQL Accounting API read timeout (%s) — not retrying POST", exc)
+                break
+            except requests.exceptions.ConnectionError as exc:
+                # Same as ReadTimeout when urllib3 wraps it (see _is_read_timeout_transport_error).
+                if _is_read_timeout_transport_error(exc):
+                    last_exc = exc
+                    logger.warning(
+                        "SQL Accounting API read timeout (ConnectionError wrapper) — not retrying POST: %s",
+                        exc,
+                    )
+                    break
                 last_exc = exc
                 if attempt >= attempts - 1:
                     break
-                wait = 0.5 * (2**attempt)
+                wait = 0.3 * (2 ** attempt)
+                logger.warning(
+                    "SQL Accounting API transport error (%s), retry %s/%s after %.1fs",
+                    exc,
+                    attempt + 1,
+                    self._settings.max_retries,
+                    wait,
+                )
+                time.sleep(wait)
+            except requests.exceptions.Timeout as exc:
+                # ConnectTimeout and other non-read timeouts (ReadTimeout handled above).
+                last_exc = exc
+                if attempt >= attempts - 1:
+                    break
+                wait = 0.3 * (2 ** attempt)
                 logger.warning(
                     "SQL Accounting API transport error (%s), retry %s/%s after %.1fs",
                     exc,

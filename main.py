@@ -32,8 +32,8 @@ from utils import (
     load_typo_corrections, normalize_intent_text, contains_intent_phrase,
     parse_order_intent, set_text_config,
     send_email, set_email_config,
-    chat_with_gpt, detect_intent_hybrid, load_chatbot_instructions,
-    set_ai_config, init_local_classifier,
+    chat_with_gpt, load_chatbot_instructions,
+    set_ai_config,
     extract_product_and_quantity, get_product_price, set_order_config,
     resolve_numbered_reference, get_selling_price,
     create_or_update_quotation, save_draft_quotation
@@ -109,24 +109,6 @@ from utils.sql_query_helpers import (
 
 # Load environment variables from .env file
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
-
-# Import local AI models (optional - graceful fallback if not available)
-# Note: This import can be slow on first run due to transformers/sklearn/scipy loading
-try:
-    from ai_models import IntentClassifier
-    LOCAL_AI_ENABLED = True
-    print("Local AI intent classifier enabled")
-except (ImportError, Exception) as e:
-    LOCAL_AI_ENABLED = False
-    print("Local AI not available - using OpenAI only")
-    if isinstance(e, ImportError):
-        print("   Run: python training/train_intent_model.py to enable local AI")
-    else:
-        print(f"   Error loading AI models: {type(e).__name__}")
-except KeyboardInterrupt:
-    LOCAL_AI_ENABLED = False
-    print("AI model import interrupted - using OpenAI only")
-    print("   To disable AI models, rename/move the ai_models folder")
 
 # Import validation functions
 from validationSignIn import validate_registration_fields
@@ -224,6 +206,21 @@ from config.endpoints_config import ENDPOINT_PATHS
 set_api_config(BASE_API_URL, ENDPOINT_PATHS)
 
 
+def _safe_float(value, default=0.0):
+    """Convert a value to float, stripping commas; returns default on None/empty/error."""
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip().replace(',', '')
+    if not text:
+        return default
+    try:
+        return float(text)
+    except Exception:
+        return default
+
+
 def _dashboard_cache_get(key):
     with ADMIN_DASHBOARD_API_CACHE_LOCK:
         cached = ADMIN_DASHBOARD_API_CACHE.get(key)
@@ -257,7 +254,6 @@ set_email_config(SMTP_SERVER, SMTP_PORT, SMTP_EMAIL, SMTP_PASSWORD)
 
 # Configure AI utils
 set_ai_config(OPENAI_API_KEY, OPENAI_MODEL)
-init_local_classifier(LOCAL_AI_ENABLED)
 
 # ============================================
 # OTP STORAGE & CONFIGURATION
@@ -266,7 +262,6 @@ init_local_classifier(LOCAL_AI_ENABLED)
 OTP_STORAGE = {}
 
 # Helper configuration
-from config.endpoints_config import ENDPOINT_PATHS
 MAX_HISTORY_MESSAGES = 50
 CHATBOT_SYSTEM_INSTRUCTIONS = load_chatbot_instructions()
 
@@ -938,7 +933,7 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
 
 # Register blueprints
 from routes.quotation_routes import quotation_bp
-from routes.quotation_routes_approved import quotation_approved_bp
+from routes.quotation_routes_approved import quotation_approved_bp, send_quotation_ready_email_direct
 app.register_blueprint(quotation_bp)
 app.register_blueprint(quotation_approved_bp)
 
@@ -1477,27 +1472,16 @@ def update_quotation_cancelled():
                     print(f"[ACTIVATE DEBUG] Customer email: '{customer_email}'")
                     
                     if customer_email:
-                        # Send email notification
-                        email_data = {
+                        print(f"[ACTIVATE DEBUG] Sending email to {customer_email}")
+                        email_sent = send_quotation_ready_email_direct({
                             'customerEmail': customer_email,
                             'docno': quotation.get('DOCNO', 'N/A'),
                             'dockey': dockey,
                             'totalAmount': quotation.get('DOCAMT', 0),
                             'items': quotation.get('items', []),
-                            'companyName': quotation.get('COMPANYNAME', 'Valued Customer')
-                        }
-                        print(f"[ACTIVATE DEBUG] Sending email to {customer_email}")
-                        
-                        email_payload, _ = http_request_json(
-                            'POST',
-                            f"http://localhost:{request.environ.get('SERVER_PORT', os.getenv('FLASK_PORT', '8880'))}/api/send_quotation_ready_email",
-                            json=email_data,
-                            timeout=parse_timeout_env('INTERNAL_HTTP_REQUEST_TIMEOUT', 2.0, 12.0),
-                        )
-                        
-                        if isinstance(email_payload, dict) and email_payload.get('success'):
-                            print(f"[EMAIL] Quotation activation email sent for DOCKEY {dockey}")
-                        else:
+                            'companyName': quotation.get('COMPANYNAME', 'Valued Customer'),
+                        })
+                        if not email_sent:
                             print(f"[EMAIL WARNING] Failed to send activation email for DOCKEY {dockey}")
                     else:
                         print(f"[ACTIVATE DEBUG] No customer email found")
@@ -2255,6 +2239,38 @@ def _login_otp_storage_key(email: str, login_mode: str) -> str:
     return f'{e}|{m}'
 
 
+# OTP send + verify both call /auth/email-lookup with the same (email, login_mode) within
+# seconds of each other. Cache the result briefly so the second call is a free dict hit.
+_AUTH_EMAIL_LOOKUP_TTL_SECONDS = 120.0
+
+
+def _resolve_email_identity(email: str, login_mode: str) -> dict:
+    """Cached wrapper around GET /auth/email-lookup keyed on (email, login_mode).
+
+    Raises the underlying transport exception so callers can return their own
+    user-facing error. The cache is in-process (TtlCache) and short-lived, so a
+    user role change is reflected on the next OTP cycle (worst case 120s).
+    """
+    norm_email = (email or '').strip().lower()
+    norm_mode = (login_mode or 'customer').strip().lower()
+    cache_key = ('auth', 'email_lookup', norm_email, norm_mode)
+
+    def _load():
+        identity, _resp = http_request_json(
+            'GET',
+            f"{FASTAPI_BASE_URL}/auth/email-lookup",
+            params={"email": norm_email, "login_mode": norm_mode},
+            timeout=(2.0, 6.0),
+        )
+        return identity if isinstance(identity, dict) else {}
+
+    return sql_api_master_cache.get_or_load(
+        cache_key,
+        _load,
+        ttl_seconds=_AUTH_EMAIL_LOOKUP_TTL_SECONDS,
+    )
+
+
 @app.route('/api/send_otp', methods=['POST'])
 def api_send_otp():
     """Send OTP to email"""
@@ -2279,17 +2295,13 @@ def api_send_otp():
     #     return jsonify({'success': False, 'error': 'Invalid email format'}), 400
     
     try:
-        # Use FastAPI identity lookup so auth flow stays on API port (default: 8000).
+        # Use cached FastAPI identity lookup so OTP send + verify share one round-trip.
         is_admin = False
         is_user = False
         is_customer = False
+        is_supplier = False
         try:
-            identity, _idr = http_request_json(
-                'GET',
-                f"{FASTAPI_BASE_URL}/auth/email-lookup",
-                params={"email": email, "login_mode": login_mode},
-                timeout=(2.0, 6.0),
-            )
+            identity = _resolve_email_identity(email, login_mode)
             is_admin = bool(identity.get('is_admin'))
             is_user = bool(identity.get('is_user'))
             is_customer = bool(identity.get('is_customer'))
@@ -2393,14 +2405,9 @@ def api_verify_otp():
         # One-time use: consume OTP immediately after successful verification
         del OTP_STORAGE[otp_key]
 
-        # Check identity via FastAPI so login checks stay on port 8000.
+        # Cached identity lookup — typically a hit because send_otp populated it ~seconds ago.
         try:
-            identity, _idr = http_request_json(
-                'GET',
-                f"{FASTAPI_BASE_URL}/auth/email-lookup",
-                params={"email": email, "login_mode": login_mode},
-                timeout=(2.0, 6.0),
-            )
+            identity = _resolve_email_identity(email, login_mode)
         except Exception as e:
             print(f"[AUTH] FastAPI identity lookup failed: {e}")
             return jsonify({
@@ -3639,40 +3646,14 @@ def check_user_has_draft():
     """Check if the user has any DRAFT orders across all chats"""
     user_email = session.get('user_email')
     customer_code = session.get('customer_code')
-    
+
+    con = None
+    cur = None
     try:
         con = get_db_connection()
         cur = con.cursor()
         has_draft = has_user_draft_orders(cur, user_email, customer_code)
-        cur.close()
-        con.close()
-        
         return jsonify({'success': True, 'hasDraft': has_draft})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/get_stock_items')
-@api_login_required(unauth_message='Unauthorized')
-def api_get_stock_items():
-    """Get stock items for autocomplete in order/quotation forms.
-
-    Prefer PHP stockitem endpoint (includes nested UOM rows like sdsuom), and
-    fall back to direct Firebird ST_ITEM when PHP data is unavailable.
-    """
-    con = None
-    cur = None
-    try:
-        api_items = fetch_data_from_api("stockitem")
-        if isinstance(api_items, list) and api_items:
-            return jsonify({'success': True, 'items': api_items})
-
-        con = get_db_connection()
-        cur = con.cursor()
-        items = fetch_stock_items(cur)
-
-        return jsonify({'success': True, 'items': items})
-    except ValueError as e:
-        return jsonify({'success': False, 'error': str(e), 'items': []}), 500
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
     finally:
@@ -3686,6 +3667,56 @@ def api_get_stock_items():
                 con.close()
         except Exception:
             pass
+
+def _fetch_stock_items_cached_uncached():
+    """Fetch stock items from PHP bridge first, fallback to Firebird. Used through cache below."""
+    api_items = fetch_data_from_api("stockitem")
+    if isinstance(api_items, list) and api_items:
+        return api_items
+
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        return fetch_stock_items(cur)
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if con:
+                con.close()
+        except Exception:
+            pass
+
+
+def _fetch_stock_items_cached():
+    """TTL-cached stock items list. Same TTL as customer/supplier master cache."""
+    return sql_api_master_cache.get_or_load(
+        ('sql_api', 'stock_items', 'all_v1'),
+        _fetch_stock_items_cached_uncached,
+        ttl_seconds=_sql_api_master_cache_ttl_seconds(),
+    )
+
+
+@app.route('/api/get_stock_items')
+@api_login_required(unauth_message='Unauthorized')
+def api_get_stock_items():
+    """Get stock items for autocomplete in order/quotation forms.
+
+    Prefers the PHP stockitem endpoint (includes nested UOM rows like sdsuom), and
+    falls back to direct Firebird ST_ITEM when the PHP bridge is unavailable.
+    Result is TTL-cached in process memory.
+    """
+    try:
+        return jsonify({'success': True, 'items': _fetch_stock_items_cached()})
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e), 'items': []}), 500
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/admin/procurement/locations')
@@ -3946,44 +3977,55 @@ def api_admin_procurement_stock_card_breakdown():
             con.close()
 
 
+def _fetch_all_suppliers_from_sql_api_uncached():
+    """Walk the paginated /supplier API once. Used through the TTL cache below."""
+    headers = _build_sql_api_auth_headers()
+    all_suppliers = []
+    offset = 0
+    limit = 100
+    while True:
+        payload, _resp = http_request_json(
+            'GET',
+            f"{FASTAPI_BASE_URL}/supplier",
+            params={'offset': offset, 'limit': limit},
+            headers=headers or None,
+        )
+        rows = payload.get('data', []) if isinstance(payload, dict) else []
+        if not isinstance(rows, list) or not rows:
+            break
+        all_suppliers.extend(rows)
+        pagination = payload.get('pagination', {})
+        total_count = pagination.get('count', len(rows)) if isinstance(pagination, dict) else len(rows)
+        offset += limit
+        if offset >= total_count:
+            break
+    return all_suppliers
+
+
+def _fetch_all_suppliers_from_sql_api():
+    """Cached supplier list. Same TTL knob as customer cache (SQL_API_MASTER_CACHE_TTL_SECONDS)."""
+    return sql_api_master_cache.get_or_load(
+        ('sql_api', 'supplier', 'all_v1'),
+        _fetch_all_suppliers_from_sql_api_uncached,
+        ttl_seconds=_sql_api_master_cache_ttl_seconds(),
+    )
+
+
 @app.route('/api/admin/procurement/suppliers')
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_procurement_suppliers():
     """Proxy full supplier list from the external accounting API, enriched with local UDF_EMAIL."""
     try:
-        headers = _build_sql_api_auth_headers()
-        all_suppliers = []
-        offset = 0
-        limit = 100
-        while True:
-            try:
-                payload, resp = http_request_json(
-                    'GET',
-                    f"{FASTAPI_BASE_URL}/supplier",
-                    params={'offset': offset, 'limit': limit},
-                    headers=headers or None,
-                )
-            except requests.exceptions.HTTPError as e:
-                st = e.response.status_code if e.response is not None else 502
-                return jsonify({'success': False, 'error': f'Supplier API returned {st}'}), 502
-            except (requests.exceptions.RequestException, ValueError) as e:
-                return jsonify({'success': False, 'error': str(e)}), 502
-            rows = payload.get('data', []) if isinstance(payload, dict) else []
-            if not isinstance(rows, list):
-                break
-            all_suppliers.extend(rows)
-            pagination = payload.get('pagination', {})
-            total_count = pagination.get('count', len(rows)) if isinstance(pagination, dict) else len(rows)
-            offset += limit
-            if offset >= total_count or not rows:
-                break
-
-        # Enrich with UDF_EMAIL — already returned by the external API in the udf_email field
-        return jsonify({'success': True, 'data': all_suppliers})
+        return jsonify({'success': True, 'data': _fetch_all_suppliers_from_sql_api()})
+    except requests.exceptions.HTTPError as e:
+        st = e.response.status_code if e.response is not None else 502
+        return jsonify({'success': False, 'error': f'Supplier API returned {st}'}), 502
     except requests.exceptions.Timeout:
         return jsonify({'success': False, 'error': 'Supplier list request timed out'}), 504
     except requests.exceptions.ConnectionError:
         return jsonify({'success': False, 'error': 'Cannot reach accounting API for supplier list'}), 503
+    except (requests.exceptions.RequestException, ValueError) as e:
+        return jsonify({'success': False, 'error': str(e)}), 502
     except Exception as exc:
         print(f"[PROCUREMENT SUPPLIERS] Error: {exc}", flush=True)
         return jsonify({'success': False, 'error': str(exc)}), 500
@@ -4484,64 +4526,42 @@ def api_admin_create_purchase_request():
 
 
 def _fetch_supplier_master_from_sql_api(codes: list[str]) -> dict[str, dict[str, str]]:
-    """Map supplier CODE (upper) -> companyname, udf_email from GET {FASTAPI_BASE_URL}/supplier list."""
-    remaining = {str(c).strip().upper() for c in codes if str(c).strip()}
-    if not remaining:
+    """Map supplier CODE (upper) -> companyname, udf_email using the cached supplier list.
+
+    Previously walked /supplier paginated on every call. Now a single dict lookup
+    over the TTL-cached list shared with /api/admin/procurement/suppliers.
+    """
+    wanted = {str(c).strip().upper() for c in codes if str(c).strip()}
+    if not wanted:
+        return {}
+
+    try:
+        all_rows = _fetch_all_suppliers_from_sql_api()
+    except Exception as exc:
+        print(f"[PROCUREMENT LIST PR] SQL API supplier master lookup warning: {exc}", flush=True)
         return {}
 
     out: dict[str, dict[str, str]] = {}
-    headers = _build_sql_api_auth_headers()
-    offset = 0
-    limit = 100
-    try:
-        while remaining:
-            try:
-                payload, resp = http_request_json(
-                    'GET',
-                    f"{FASTAPI_BASE_URL}/supplier",
-                    params={'offset': offset, 'limit': limit},
-                    headers=headers or None,
-                )
-            except requests.exceptions.RequestException as e:
-                print(f"[PROCUREMENT LIST PR] SQL API supplier list error: {e}", flush=True)
-                break
-            except ValueError as e:
-                print(f"[PROCUREMENT LIST PR] SQL API supplier list invalid JSON: {e}", flush=True)
-                break
-            rows = payload.get('data', []) if isinstance(payload, dict) else []
-            if not isinstance(rows, list) or not rows:
-                break
-
-            for row in rows:
-                if not isinstance(row, dict):
-                    continue
-                code = str(row.get('code') or '').strip()
-                if not code:
-                    continue
-                key_u = code.upper()
-                if key_u not in remaining:
-                    continue
-                out[key_u] = {
-                    'companyname': str(row.get('companyname') or row.get('companyName') or '').strip(),
-                    'udf_email': str(
-                        row.get('udf_email')
-                        or row.get('udfEmail')
-                        or row.get('UDF_EMAIL')
-                        or ''
-                    ).strip(),
-                }
-                remaining.discard(key_u)
-                if not remaining:
-                    return out
-
-            pagination = payload.get('pagination', {}) if isinstance(payload, dict) else {}
-            total_count = pagination.get('count', len(rows)) if isinstance(pagination, dict) else len(rows)
-            offset += limit
-            if offset >= total_count:
-                break
-    except Exception as exc:
-        print(f"[PROCUREMENT LIST PR] SQL API supplier master lookup warning: {exc}", flush=True)
-
+    for row in all_rows or []:
+        if not isinstance(row, dict):
+            continue
+        code = str(row.get('code') or '').strip()
+        if not code:
+            continue
+        key_u = code.upper()
+        if key_u not in wanted:
+            continue
+        out[key_u] = {
+            'companyname': str(row.get('companyname') or row.get('companyName') or '').strip(),
+            'udf_email': str(
+                row.get('udf_email')
+                or row.get('udfEmail')
+                or row.get('UDF_EMAIL')
+                or ''
+            ).strip(),
+        }
+        if len(out) == len(wanted):
+            break
     return out
 
 
@@ -6290,42 +6310,20 @@ def api_admin_transfer_purchase_request_to_po():
         awarded_lines = validate_transfer_against_line_awards(request_dockey, transfer_lines)
         request_for_transfer = apply_awarded_lines_to_request(request_header, awarded_lines)
 
-        # Resolve supplier master data (especially currency) from SQL supplier API by selected supplier code.
+        # Resolve supplier master data (especially currency) from cached supplier list.
+        # Previously page-walked /supplier API on every transfer request.
         def _resolve_supplier_master(selected_code: str, fallback_name: str = ''):
             code = str(selected_code or '').strip()
             if not code:
                 return {}
-            hit_supplier = {}
-            offset = 0
-            limit = 100
-            while True:
-                try:
-                    supplier_payload, _sup = http_request_json(
-                        'GET',
-                        f"{FASTAPI_BASE_URL}/supplier",
-                        params={'offset': offset, 'limit': limit},
-                        headers=headers or None,
-                    )
-                except (requests.exceptions.RequestException, ValueError):
-                    break
-                supplier_rows = supplier_payload.get('data', []) if isinstance(supplier_payload, dict) else []
-                if not isinstance(supplier_rows, list) or not supplier_rows:
-                    break
-
-                for row in supplier_rows:
-                    if not isinstance(row, dict):
-                        continue
-                    if str(row.get('code') or '').strip() == code:
+            hit_supplier: dict = {}
+            try:
+                for row in _fetch_all_suppliers_from_sql_api() or []:
+                    if isinstance(row, dict) and str(row.get('code') or '').strip() == code:
                         hit_supplier = row
                         break
-                if hit_supplier:
-                    break
-
-                pagination = supplier_payload.get('pagination', {}) if isinstance(supplier_payload, dict) else {}
-                total_count = pagination.get('count', len(supplier_rows)) if isinstance(pagination, dict) else len(supplier_rows)
-                offset += limit
-                if offset >= total_count:
-                    break
+            except Exception:
+                hit_supplier = {}
 
             if not hit_supplier:
                 hit_supplier = {}
@@ -7096,19 +7094,6 @@ def api_get_quotation_details():
         if requested_customer_code and requested_customer_code.strip().upper() != customer_code.upper():
             return jsonify({'success': False, 'error': 'Forbidden'}), 403
 
-    def _safe_float(value, default=0.0):
-        if value is None:
-            return default
-        if isinstance(value, (int, float)):
-            return float(value)
-        text = str(value).strip().replace(',', '')
-        if not text:
-            return default
-        try:
-            return float(text)
-        except Exception:
-            return default
-
     try:
         con = None
         cur = None
@@ -7267,21 +7252,26 @@ def api_get_quotation_details():
 @app.route('/api/admin/get_all_quotations')
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_get_all_quotations():
-    """Get all quotations for admin view with optional cancelled filter."""
+    """Get all quotations for admin view with optional cancelled filter.
+
+    Supports ?limit=N (default 500, max 2000) and ?offset=N pagination so the page
+    no longer pulls every SL_QT row at once. Pass limit=0 to fetch all rows
+    (legacy behaviour) — discouraged.
+    """
     cancelled = request.args.get('cancelled')
 
-    def _safe_float(value, default=0.0):
-        if value is None:
-            return default
-        if isinstance(value, (int, float)):
-            return float(value)
-        text = str(value).strip().replace(',', '')
-        if not text:
-            return default
-        try:
-            return float(text)
-        except Exception:
-            return default
+    try:
+        limit = int(request.args.get('limit', 500))
+    except (TypeError, ValueError):
+        limit = 500
+    try:
+        offset = max(0, int(request.args.get('offset', 0)))
+    except (TypeError, ValueError):
+        offset = 0
+    if limit < 0:
+        limit = 500
+    if limit > 2000:
+        limit = 2000
 
     def _to_bool_or_none(value):
         if value is None:
@@ -7315,8 +7305,16 @@ def api_admin_get_all_quotations():
                 fields.append('UDF_STATUS')
             fields.append('COMPANYNAME')
 
+            # Firebird: FIRST/SKIP must precede the column list.
+            if limit == 0:
+                paging_clause = ''
+            elif offset > 0:
+                paging_clause = f'FIRST {limit} SKIP {offset} '
+            else:
+                paging_clause = f'FIRST {limit} '
+
             select_sql = f'''
-                SELECT {', '.join('q.' + f for f in fields)}
+                SELECT {paging_clause}{', '.join('q.' + f for f in fields)}
                 FROM SL_QT q
                 ORDER BY q.DOCDATE DESC, q.DOCKEY DESC
             '''
@@ -7390,19 +7388,6 @@ def api_admin_get_quotation_detail():
     dockey = request.args.get('dockey')
     if not dockey:
         return jsonify({'success': False, 'error': 'dockey parameter required'}), 400
-
-    def _safe_float(value, default=0.0):
-        if value is None:
-            return default
-        if isinstance(value, (int, float)):
-            return float(value)
-        text = str(value).strip().replace(',', '')
-        if not text:
-            return default
-        try:
-            return float(text)
-        except Exception:
-            return default
 
     try:
         con = None
@@ -7670,27 +7655,16 @@ def api_admin_update_quotation():
                     print(f"[EDIT DEBUG] Customer email: '{customer_email}'")
                     
                     if customer_email:
-                        # Send email notification
-                        email_data = {
+                        print(f"[EDIT DEBUG] Sending email to {customer_email}")
+                        email_sent = send_quotation_ready_email_direct({
                             'customerEmail': customer_email,
                             'docno': quotation.get('DOCNO', 'N/A'),
                             'dockey': dockey,
                             'totalAmount': quotation.get('DOCAMT', 0),
                             'items': quotation.get('items', []),
-                            'companyName': quotation.get('COMPANYNAME', 'Valued Customer')
-                        }
-                        print(f"[EDIT DEBUG] Sending email to {customer_email}")
-                        
-                        email_payload, _ = http_request_json(
-                            'POST',
-                            f"http://localhost:{request.environ.get('SERVER_PORT', os.getenv('FLASK_PORT', '8880'))}/api/send_quotation_ready_email",
-                            json=email_data,
-                            timeout=parse_timeout_env('INTERNAL_HTTP_REQUEST_TIMEOUT', 2.0, 12.0),
-                        )
-                        
-                        if isinstance(email_payload, dict) and email_payload.get('success'):
-                            print(f"[EMAIL] Quotation update email sent for DOCKEY {dockey}")
-                        else:
+                            'companyName': quotation.get('COMPANYNAME', 'Valued Customer'),
+                        })
+                        if not email_sent:
                             print(f"[EMAIL WARNING] Failed to send update email for DOCKEY {dockey}")
                     else:
                         print(f"[EMAIL] No customer email found for DOCKEY {dockey}")

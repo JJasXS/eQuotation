@@ -102,6 +102,21 @@ class PricingService:
             })
         return rules
 
+    def _st_item_price_company_sql(self, company_column: str, customer_company: Optional[str]) -> Tuple[str, Tuple[Any, ...]]:
+        """When ST_ITEM_PRICE has a company column and the customer's company is known, require an exact match.
+
+        If the customer's company cannot be resolved from AR_CUSTOMER, no company predicate is applied (skip).
+        Only rows with a real COMPANY value matching the customer are eligible — not NULL/blank.
+        """
+        if not company_column or not customer_company:
+            return '', ()
+        co = company_column
+        clause = (
+            f' AND UPPER(TRIM(CAST({co} AS VARCHAR(200)))) = UPPER(TRIM(CAST(? AS VARCHAR(200))))'
+            f' AND {co} IS NOT NULL AND TRIM(CAST({co} AS VARCHAR(200))) <> \'\''
+        )
+        return clause, (customer_company,)
+
     def _evaluate_customer_price_tag(self, cursor, customer_code: str, item_code: str, uom: Optional[str]) -> Optional[PricingResult]:
         customer_tag = self._get_customer_price_tag(cursor, customer_code)
 
@@ -112,6 +127,10 @@ class PricingService:
         price_column = self._first_existing_column(cursor, 'ST_ITEM_PRICE', ['STOCKVALUE', 'PRICE', 'UNITPRICE'])
         tag_column = self._first_existing_column(cursor, 'ST_ITEM_PRICE', ['TAGTYPE', 'PRICETAG', 'PRICETAGCODE', 'PRICECATEGORY', 'PRICELEVEL'])
         disc_column = self._first_existing_column(cursor, 'ST_ITEM_PRICE', ['DISCOUNT', 'DISC'])
+        company_column = self._first_existing_column(cursor, 'ST_ITEM_PRICE', ['COMPANY', 'COMPANYCODE', 'COY'])
+        customer_company = self._get_customer_company(cursor, customer_code) if company_column else None
+        company_sql, company_params = self._st_item_price_company_sql(company_column or '', customer_company)
+
         if not code_column or not price_column:
             return None
 
@@ -124,9 +143,9 @@ class PricingService:
                 f'SELECT FIRST 1 {select_cols} '
                 f'FROM ST_ITEM_PRICE '
                 f'WHERE {code_column} = ? AND {tag_column} = ? AND {price_column} IS NOT NULL '
-                f'ORDER BY {price_column} DESC'
+                f'{company_sql} ORDER BY {price_column} DESC'
             )
-            cursor.execute(query, (item_code, customer_tag))
+            cursor.execute(query, (item_code, customer_tag, *company_params))
             row = cursor.fetchone()
 
         # If no tag match is found (or tag is not configured), fall back to item-only price.
@@ -135,9 +154,9 @@ class PricingService:
                 f'SELECT FIRST 1 {select_cols} '
                 f'FROM ST_ITEM_PRICE '
                 f'WHERE {code_column} = ? AND {price_column} IS NOT NULL '
-                f'ORDER BY {price_column} DESC'
+                f'{company_sql} ORDER BY {price_column} DESC'
             )
-            cursor.execute(query, (item_code,))
+            cursor.execute(query, (item_code, *company_params))
             row = cursor.fetchone()
 
         if not row:
@@ -401,6 +420,29 @@ class PricingService:
         cursor.execute(
             f'SELECT FIRST 1 {tag_column} FROM AR_CUSTOMER WHERE {customer_code_column} = ?',
             (customer_code,)
+        )
+        row = cursor.fetchone()
+        if not row or row[0] is None:
+            return None
+        return str(row[0]).strip() or None
+
+    def _get_customer_company(self, cursor, customer_code: str) -> Optional[str]:
+        """Company code/name on the customer master, aligned with ST_ITEM_PRICE.COMPANY when present."""
+        if not self._table_exists(cursor, 'AR_CUSTOMER'):
+            return None
+
+        customer_code_column = self._first_existing_column(cursor, 'AR_CUSTOMER', ['CODE', 'CUSTOMERCODE'])
+        company_column = self._first_existing_column(
+            cursor,
+            'AR_CUSTOMER',
+            ['COMPANY', 'COMPANYCODE', 'COY', 'COMPANYNAME', 'BILLINGCOMPANY', 'AREACOMPANY'],
+        )
+        if not customer_code_column or not company_column:
+            return None
+
+        cursor.execute(
+            f'SELECT FIRST 1 {company_column} FROM AR_CUSTOMER WHERE {customer_code_column} = ?',
+            (customer_code,),
         )
         row = cursor.fetchone()
         if not row or row[0] is None:

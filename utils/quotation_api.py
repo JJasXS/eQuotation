@@ -26,6 +26,16 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
+def _float_env(name: str, default: float) -> float:
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
 def _app_docno_range() -> tuple[int, int]:
     """Return inclusive app reservation range for QT-%.5d numbers."""
     min_seq = _int_env("SQL_API_QUOTATION_DOCNO_MIN", 80000)
@@ -347,6 +357,11 @@ def create_or_update_quotation(base_api_url, customer_code, data):
     provided_docno = str(data.get("docno") or data.get("docNo") or "").strip()
 
     client = SqlAccountingApiClient(settings)
+    # Quotation create is heavier than simple GETs; allow a separate read timeout (defaults to global).
+    quote_read_timeout = _float_env(
+        "SQL_API_QUOTATION_TIMEOUT_SECONDS",
+        float(settings.timeout_seconds),
+    )
     last_error = ""
     for attempt in range(20):
         if provided_docno:
@@ -372,7 +387,11 @@ def create_or_update_quotation(base_api_url, customer_code, data):
             return {"success": False, "error": "No valid quotation item rows to submit"}
 
         try:
-            status, parsed, raw = client.post_json(settings.resolved_quotation_create_url(), payload)
+            status, parsed, raw = client.post_json(
+                settings.resolved_quotation_create_url(),
+                payload,
+                timeout_seconds=quote_read_timeout,
+            )
         except SqlAccountingApiError as exc:
             return {"success": False, "error": str(exc)}
 
