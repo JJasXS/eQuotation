@@ -16,6 +16,67 @@ let adminDateTo = '';
 /** First page shows 5 rows; each "more" adds 10 */
 let listVisibleLimit = { drafts: 5, pending: 5, reviewed: 5, cancelled: 5 };
 
+function isCustomerMyQuotationsPage() {
+    try {
+        return document.body && document.body.getAttribute('data-quotations-list-source') === 'mine';
+    } catch (e) {
+        return false;
+    }
+}
+
+/** Avoid cache collisions between SL_QT and SL_QTDRAFT rows that share a dockey (edge case). */
+function quotationDetailCacheKey(row) {
+    if (!row || row.DOCKEY == null) return '';
+    const dk = Number(row.DOCKEY);
+    if (!Number.isFinite(dk)) return '';
+    return row._sourceSlQtDraft ? `${dk}_slqtdraft` : `${dk}_slqt`;
+}
+
+function buildViewQuotationsShellHtml(showAdminFilters) {
+    const filterInner = showAdminFilters
+        ? `
+                        <label style="display: flex; align-items: center; gap: 6px; color: #87684d; font-size: 13px;">From
+                            <input type="date" id="quotation-date-from" style="padding: 6px 10px; border-radius: 6px; border: 1px solid #e2cfab; background: #fffaf0; color: #4f3b2a; font-size: 13px;">
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; color: #87684d; font-size: 13px;">To
+                            <input type="date" id="quotation-date-to" style="padding: 6px 10px; border-radius: 6px; border: 1px solid #e2cfab; background: #fffaf0; color: #4f3b2a; font-size: 13px;">
+                        </label>
+                        <button type="button" id="quotation-date-apply" style="padding: 8px 12px; border-radius: 6px; background: #b9894a; color: #fff; border: none; cursor: pointer; font-size: 13px;">Apply</button>
+                        <button type="button" id="quotation-date-clear" style="padding: 8px 12px; border-radius: 6px; background: #f8efdd; color: #7b5a36; border: 1px solid #e2cfab; cursor: pointer; font-size: 13px;">Clear dates</button>
+                        <select id="company-filter-dropdown" style="padding: 8px 12px; border-radius: 6px; border: 1px solid #e2cfab; background: #fffaf0; color: #4f3b2a; font-size: 13px; width: 240px;">
+                            <option value="">All Companies</option>
+                        </select>
+                        <button id="company-filter-clear" style="padding: 8px 12px; border-radius: 6px; background: #f8efdd; color: #7b5a36; border: 1px solid #e2cfab; cursor: pointer; font-size: 13px;">Clear</button>
+                    `
+        : `
+                        <p style="margin:0;color:#87684d;font-size:13px;line-height:1.4;">Showing quotations for your customer account (read-only — same layout as staff view).</p>
+                    `;
+    return `
+            <div class="admin-quotations-view" style="padding: 16px;">
+                <div class="quotation-page-header">
+                    <div class="quotation-page-header-controls">
+                        ${filterInner}
+                    </div>
+                    <div class="approvals-tabs quotation-page-header-tabs">
+                        <button type="button" id="tab-drafts" class="approval-tab ${selectedQuotationTabFilters.has('drafts') ? 'active' : ''}" onclick="toggleQuotationFilter('drafts')">
+                            Drafts (${draftsQuotationsCache.length})
+                        </button>
+                        <button type="button" id="tab-pending" class="approval-tab ${selectedQuotationTabFilters.has('pending') ? 'active' : ''}" onclick="toggleQuotationFilter('pending')">
+                            Pending (${pendingQuotationsCache.length})
+                        </button>
+                        <button type="button" id="tab-reviewed" class="approval-tab ${selectedQuotationTabFilters.has('reviewed') ? 'active' : ''}" onclick="toggleQuotationFilter('reviewed')">
+                            Reviewed (${reviewedQuotationsCache.length})
+                        </button>
+                        <button type="button" id="tab-cancelled" class="approval-tab ${selectedQuotationTabFilters.has('cancelled') ? 'active' : ''}" onclick="toggleQuotationFilter('cancelled')">
+                            Cancelled (${cancelledQuotationsCache.length})
+                        </button>
+                    </div>
+                </div>
+                <div id="quotation-tab-content" style="padding-top: 12px;"></div>
+            </div>
+        `;
+}
+
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 function parseQuotationDate(raw) {
@@ -364,75 +425,86 @@ async function loadQuotations() {
     content.innerHTML = '<div style="padding: 20px; text-align: center; color: #888;">Loading...</div>';
 
     try {
-        // Fetch all quotations once; tabs use SL_QT.UDF_STATUS (same workflow as customer /view-quotation).
-        const response = await fetch('/api/admin/get_all_quotations');
-        const data = await response.json();
+        quotationDetailCache.clear();
+        const mine = isCustomerMyQuotationsPage();
+        let allQuotations = [];
 
-        if (!data.success) {
-            const message = data.error ? String(data.error) : 'Failed to load quotations';
-            content.innerHTML = `<div style="padding: 20px; text-align: center; color: #ff6b6b;">${message}</div>`;
-            return;
-        }
-
-        const allQuotations = data.data || [];
-
-        draftsQuotationsCache = [];
-        pendingQuotationsCache = [];
-        reviewedQuotationsCache = [];
-        cancelledQuotationsCache = [];
-        allQuotations.forEach((qt) => {
-            const b = quotationWorkflowBucket(qt);
-            if (b === 'drafts') {
-                draftsQuotationsCache.push(qt);
-            } else if (b === 'pending') {
-                pendingQuotationsCache.push(qt);
-            } else if (b === 'cancelled') {
-                cancelledQuotationsCache.push(qt);
-            } else {
-                reviewedQuotationsCache.push(qt);
+        if (mine) {
+            const [mainRes, draftRes] = await Promise.all([
+                fetch('/api/get_my_quotations').then((r) => r.json()),
+                fetch('/api/get_my_draft_quotations').then((r) => r.json()),
+            ]);
+            if (!mainRes.success) {
+                const message = mainRes.error ? String(mainRes.error) : 'Failed to load quotations';
+                content.innerHTML = `<div style="padding: 20px; text-align: center; color: #ff6b6b;">${message}</div>`;
+                return;
             }
-        });
+            allQuotations = mainRes.data || [];
+            draftsQuotationsCache = [];
+            pendingQuotationsCache = [];
+            reviewedQuotationsCache = [];
+            cancelledQuotationsCache = [];
+            allQuotations.forEach((qt) => {
+                const b = quotationWorkflowBucket(qt);
+                if (b === 'drafts') {
+                    draftsQuotationsCache.push(qt);
+                } else if (b === 'pending') {
+                    pendingQuotationsCache.push(qt);
+                } else if (b === 'cancelled') {
+                    cancelledQuotationsCache.push(qt);
+                } else {
+                    reviewedQuotationsCache.push(qt);
+                }
+            });
+            const slDrafts = draftRes && draftRes.success ? draftRes.data || [] : [];
+            slDrafts.forEach((d) => {
+                draftsQuotationsCache.push({
+                    ...d,
+                    _sourceSlQtDraft: true,
+                    COMPANYNAME: d.COMPANYNAME || 'N/A',
+                });
+            });
+        } else {
+            const response = await fetch('/api/admin/get_all_quotations');
+            const data = await response.json();
+
+            if (!data.success) {
+                const message = data.error ? String(data.error) : 'Failed to load quotations';
+                content.innerHTML = `<div style="padding: 20px; text-align: center; color: #ff6b6b;">${message}</div>`;
+                return;
+            }
+
+            allQuotations = data.data || [];
+
+            draftsQuotationsCache = [];
+            pendingQuotationsCache = [];
+            reviewedQuotationsCache = [];
+            cancelledQuotationsCache = [];
+            allQuotations.forEach((qt) => {
+                const b = quotationWorkflowBucket(qt);
+                if (b === 'drafts') {
+                    draftsQuotationsCache.push(qt);
+                } else if (b === 'pending') {
+                    pendingQuotationsCache.push(qt);
+                } else if (b === 'cancelled') {
+                    cancelledQuotationsCache.push(qt);
+                } else {
+                    reviewedQuotationsCache.push(qt);
+                }
+            });
+        }
 
         listVisibleLimit = { drafts: 5, pending: 5, reviewed: 5, cancelled: 5 };
 
-        const html = `
-            <div class="admin-quotations-view" style="padding: 16px;">
-                <div class="quotation-page-header">
-                    <div class="quotation-page-header-controls">
-                        <label style="display: flex; align-items: center; gap: 6px; color: #87684d; font-size: 13px;">From
-                            <input type="date" id="quotation-date-from" style="padding: 6px 10px; border-radius: 6px; border: 1px solid #e2cfab; background: #fffaf0; color: #4f3b2a; font-size: 13px;">
-                        </label>
-                        <label style="display: flex; align-items: center; gap: 6px; color: #87684d; font-size: 13px;">To
-                            <input type="date" id="quotation-date-to" style="padding: 6px 10px; border-radius: 6px; border: 1px solid #e2cfab; background: #fffaf0; color: #4f3b2a; font-size: 13px;">
-                        </label>
-                        <button type="button" id="quotation-date-apply" style="padding: 8px 12px; border-radius: 6px; background: #b9894a; color: #fff; border: none; cursor: pointer; font-size: 13px;">Apply</button>
-                        <button type="button" id="quotation-date-clear" style="padding: 8px 12px; border-radius: 6px; background: #f8efdd; color: #7b5a36; border: 1px solid #e2cfab; cursor: pointer; font-size: 13px;">Clear dates</button>
-                        <select id="company-filter-dropdown" style="padding: 8px 12px; border-radius: 6px; border: 1px solid #e2cfab; background: #fffaf0; color: #4f3b2a; font-size: 13px; width: 240px;">
-                            <option value="">All Companies</option>
-                        </select>
-                        <button id="company-filter-clear" style="padding: 8px 12px; border-radius: 6px; background: #f8efdd; color: #7b5a36; border: 1px solid #e2cfab; cursor: pointer; font-size: 13px;">Clear</button>
-                    </div>
-                    <div class="approvals-tabs quotation-page-header-tabs">
-                        <button type="button" id="tab-drafts" class="approval-tab ${selectedQuotationTabFilters.has('drafts') ? 'active' : ''}" onclick="toggleQuotationFilter('drafts')">
-                            Drafts (${draftsQuotationsCache.length})
-                        </button>
-                        <button type="button" id="tab-pending" class="approval-tab ${selectedQuotationTabFilters.has('pending') ? 'active' : ''}" onclick="toggleQuotationFilter('pending')">
-                            Pending (${pendingQuotationsCache.length})
-                        </button>
-                        <button type="button" id="tab-reviewed" class="approval-tab ${selectedQuotationTabFilters.has('reviewed') ? 'active' : ''}" onclick="toggleQuotationFilter('reviewed')">
-                            Reviewed (${reviewedQuotationsCache.length})
-                        </button>
-                        <button type="button" id="tab-cancelled" class="approval-tab ${selectedQuotationTabFilters.has('cancelled') ? 'active' : ''}" onclick="toggleQuotationFilter('cancelled')">
-                            Cancelled (${cancelledQuotationsCache.length})
-                        </button>
-                    </div>
-                </div>
-                <div id="quotation-tab-content" style="padding-top: 12px;"></div>
-            </div>
-        `;
+        const html = buildViewQuotationsShellHtml(!mine);
 
         content.innerHTML = html;
-        setupDateFilter();
+        if (!mine) {
+            setupDateFilter();
+        } else {
+            adminDateFrom = '';
+            adminDateTo = '';
+        }
         refreshQuotationListView();
     } catch (error) {
         content.innerHTML = '<div style="padding: 20px; text-align: center; color: #ff6b6b;">Failed to load quotations.</div>';
@@ -600,15 +672,21 @@ async function renderQuotationDetail(currentList, options = {}) {
 
     const detailContainer = document.getElementById('quotation-detail-items');
     try {
-        let items = quotationDetailCache.get(Number(selected.DOCKEY));
+        const cacheKey = quotationDetailCacheKey(selected);
+        let items = cacheKey ? quotationDetailCache.get(cacheKey) : null;
         if (!items) {
-            const response = await fetch(`/api/get_quotation_details?dockey=${selected.DOCKEY}`);
+            const detailUrl = selected._sourceSlQtDraft
+                ? `/api/get_draft_quotation_details?dockey=${encodeURIComponent(selected.DOCKEY)}`
+                : `/api/get_quotation_details?dockey=${encodeURIComponent(selected.DOCKEY)}`;
+            const response = await fetch(detailUrl);
             const data = await response.json();
             if (!data.success || !data.data || !Array.isArray(data.data.items)) {
                 throw new Error(data.error || 'Failed to load items');
             }
             items = data.data.items;
-            quotationDetailCache.set(Number(selected.DOCKEY), items);
+            if (cacheKey) {
+                quotationDetailCache.set(cacheKey, items);
+            }
         }
 
         if (!items.length) {
@@ -626,7 +704,8 @@ async function renderQuotationDetail(currentList, options = {}) {
             const qty = Number(item.QTY || 0).toFixed(2);
             const price = Number(item.UNITPRICE || 0).toFixed(2);
             const discount = Number(item.DISC || 0).toFixed(2);
-            const amountRow = Math.max(0, (item.QTY * item.UNITPRICE) - (item.DISC || 0)).toFixed(2);
+            const discNum = Number(item.DISC || 0);
+            const amountRow = Math.max(0, Number(item.QTY || 0) * Number(item.UNITPRICE || 0) - discNum).toFixed(2);
             total += parseFloat(amountRow);
             // SL_QTDTL.ITEMCODE can be NULL when the line is description-only; JSON null must not render as the string "null".
             const itemCode = item.ITEMCODE != null ? String(item.ITEMCODE).trim() : '';
@@ -883,5 +962,7 @@ function showErrorActive(message) {
 
 document.addEventListener('DOMContentLoaded', async () => {
     await loadQuotations();
-    await setupCompanyFilter();
+    if (!isCustomerMyQuotationsPage()) {
+        await setupCompanyFilter();
+    }
 });

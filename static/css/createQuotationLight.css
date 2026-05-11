@@ -1,6 +1,16 @@
 /* Create Quotation page — light warm theme (aligns with procurement / view-quotations) */
+/* No chat.css: that sheet is large and targets the main /chat UI; this page uses quotationChatPopup.css only. */
+html {
+    box-sizing: border-box;
+}
+*,
+*::before,
+*::after {
+    box-sizing: inherit;
+}
 
 body.create-quotation-page {
+    margin: 0;
     background: #f2e8d8;
     color: #3d2f1f;
 }

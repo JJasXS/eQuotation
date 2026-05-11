@@ -409,9 +409,25 @@ async function loadQuotations() {
     try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 12000);
-        const response = await fetch('/api/get_my_quotations', { signal: controller.signal });
-        clearTimeout(timeoutId);
-        const data = await response.json();
+        // Quotations list + SL_QTDRAFT list are independent — run both in parallel to cut first-paint latency.
+        const draftsCatch = (e) => {
+            console.error('fetchSavedDraftQuotations', e);
+            if (!slQtDraftLoaded) {
+                slQtDraftCache = [];
+                draftQuotationsCache = [];
+            }
+            return null;
+        };
+        let quotRes;
+        try {
+            [quotRes] = await Promise.all([
+                fetch('/api/get_my_quotations', { signal: controller.signal }).then((r) => r.json()),
+                fetchSavedDraftQuotations(true).catch(draftsCatch),
+            ]);
+        } finally {
+            clearTimeout(timeoutId);
+        }
+        const data = quotRes;
 
         if (!data.success) {
             const err = escapeHtml(data.error || 'Failed to load quotations');
@@ -419,15 +435,6 @@ async function loadQuotations() {
             cancelledQuotationsCache = [];
             reviewedQuotationsCache = [];
             slQtUdfDraftCache = [];
-            try {
-                await fetchSavedDraftQuotations(true);
-            } catch (e) {
-                console.error('fetchSavedDraftQuotations after list error', e);
-                if (!slQtDraftLoaded) {
-                    slQtDraftCache = [];
-                    draftQuotationsCache = [];
-                }
-            }
             content.innerHTML = shellHtml();
             ensureListClickDelegation();
             setQuotationTab(consumeTabQueryFromUrl() || 'reviewed');
@@ -437,15 +444,6 @@ async function loadQuotations() {
         }
 
         const quotations = data.data || [];
-        try {
-            await fetchSavedDraftQuotations(true);
-        } catch (e) {
-            console.error('fetchSavedDraftQuotations', e);
-            if (!slQtDraftLoaded) {
-                slQtDraftCache = [];
-                draftQuotationsCache = [];
-            }
-        }
 
         pendingQuotationsCache = [];
         cancelledQuotationsCache = [];

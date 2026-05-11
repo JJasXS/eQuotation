@@ -2695,9 +2695,12 @@ def view_quotation_page():
             return redirect(f'{PROCUREMENT_UI_PATH}?tab=view')
         return redirect('/chat')
     return render_protected_template(
-        'viewQuotation.html',
+        'adminViewQuotations.html',
         require_admin=False,
         user_type=session.get('user_type', ''),
+        customer_my_quotations_only=True,
+        page_header_subtitle='Welcome: ' + (session.get('user_email') or '—'),
+        perm_hide_quotation_status_actions=True,
     )
 
 @app.route('/admin/view-quotations')
@@ -2712,6 +2715,7 @@ def admin_view_quotations():
         'adminViewQuotations.html',
         require_admin=False,
         user_type=session.get('user_type', ''),
+        page_header_subtitle='Admin: ' + (session.get('user_email') or '—'),
     )
 
 
@@ -6899,22 +6903,42 @@ def api_get_draft_quotation_details():
     dockey = request.args.get('dockey')
     if not dockey:
         return jsonify({'success': False, 'error': 'dockey parameter required'}), 400
-    customer_code = session.get('customer_code')
+    user_type = (session.get('user_type') or '').strip().lower()
+    try:
+        resolved = (get_current_customer_code(resolve_missing=True) or '').strip()
+    except Exception:
+        resolved = ''
+    session_cc = (session.get('customer_code') or '').strip()
+    customer_code = (resolved or session_cc).strip()
     try:
         con = get_db_connection()
         cur = con.cursor()
         cur.execute(
-            'SELECT DOCKEY, DOCNO, DOCDATE, DESCRIPTION, DOCAMT, VALIDITY, TERMS, COMPANYNAME, ADDRESS1, ADDRESS2, PHONE1 FROM SL_QTDRAFT WHERE DOCKEY = ?',
-            (int(dockey),)
+            '''
+            SELECT DOCKEY, DOCNO, DOCDATE, DESCRIPTION, DOCAMT, VALIDITY, TERMS,
+                   COMPANYNAME, ADDRESS1, ADDRESS2, PHONE1, CODE
+            FROM SL_QTDRAFT WHERE DOCKEY = ?
+            ''',
+            (int(dockey),),
         )
         hdr = cur.fetchone()
         if not hdr:
             cur.close()
             con.close()
             return jsonify({'success': False, 'error': 'Draft not found'}), 404
+        draft_owner = (str(hdr[11]) if len(hdr) > 11 and hdr[11] is not None else '').strip()
+        if user_type != 'admin':
+            if not customer_code:
+                cur.close()
+                con.close()
+                return jsonify({'success': False, 'error': 'Customer code not found in session'}), 400
+            if draft_owner.upper() != customer_code.upper():
+                cur.close()
+                con.close()
+                return jsonify({'success': False, 'error': 'Draft not found'}), 404
         cur.execute(
             'SELECT DTLKEY, SEQ, ITEMCODE, DESCRIPTION, QTY, UNITPRICE, DISC, AMOUNT, UDF_STDPRICE, DELIVERYDATE FROM SL_QTDTLDRAFT WHERE DOCKEY = ? ORDER BY SEQ',
-            (int(dockey),)
+            (int(dockey),),
         )
         item_rows = cur.fetchall()
         cur.close()
@@ -6938,6 +6962,7 @@ def api_get_draft_quotation_details():
             'VALIDITY': str(hdr[5]) if hdr[5] is not None else None,
             'TERMS': hdr[6], 'COMPANYNAME': hdr[7],
             'ADDRESS1': hdr[8], 'ADDRESS2': hdr[9], 'PHONE1': hdr[10],
+            'CODE': draft_owner,
             'items': items
         }
         return jsonify({'success': True, 'data': data})
@@ -6965,7 +6990,7 @@ def api_get_my_quotations():
             '''
             SELECT TRIM(RF.RDB$FIELD_NAME)
             FROM RDB$RELATION_FIELDS RF
-            WHERE RF.RDB$RELATION_NAME = 'SL_QT'
+            WHERE TRIM(RF.RDB$RELATION_NAME) = 'SL_QT'
             '''
         )
         sl_qt_cols = {str(r[0]).strip() for r in (cur.fetchall() or []) if r and r[0]}
@@ -6976,6 +7001,7 @@ def api_get_my_quotations():
         ]
         if 'UDF_STATUS' in sl_qt_cols:
             fields.append('UDF_STATUS')
+        fields.append('CODE')
         fields.append('COMPANYNAME')
 
         select_sql = f'''
@@ -7028,6 +7054,7 @@ def api_get_my_quotations():
                 'CREDITTERM': str(row_map.get('TERMS')) if row_map.get('TERMS') is not None else 'N/A',
                 'CANCELLED': cancelled_value,
                 'UPDATECOUNT': updatecount_value,
+                'CODE': (str(row_map.get('CODE')).strip() if row_map.get('CODE') is not None else ''),
                 'COMPANYNAME': row_map.get('COMPANYNAME') or 'N/A',
             }
             if udf_status_val is not None:
@@ -7051,10 +7078,23 @@ def api_get_quotation_details():
     except (TypeError, ValueError):
         return jsonify({'success': False, 'error': 'Invalid dockey parameter'}), 400
 
-    requested_customer_code = (request.args.get('customer_code') or '').strip()
-    session_customer_code = (session.get('customer_code') or '').strip()
     user_type = (session.get('user_type') or '').strip().lower()
-    customer_code = requested_customer_code or session_customer_code
+    session_customer_code = (session.get('customer_code') or '').strip()
+    requested_customer_code = (request.args.get('customer_code') or '').strip()
+
+    resolved_customer_code = ''
+    try:
+        resolved_customer_code = (get_current_customer_code(resolve_missing=True) or '').strip()
+    except Exception:
+        resolved_customer_code = ''
+
+    if user_type == 'admin':
+        customer_code = (requested_customer_code or session_customer_code or resolved_customer_code).strip()
+    else:
+        # Same ownership rule as /api/get_my_quotations — do not rely on session alone (email → AR_CUSTOMERBRANCH).
+        customer_code = (resolved_customer_code or session_customer_code).strip()
+        if requested_customer_code and requested_customer_code.strip().upper() != customer_code.upper():
+            return jsonify({'success': False, 'error': 'Forbidden'}), 403
 
     def _safe_float(value, default=0.0):
         if value is None:
@@ -7097,7 +7137,7 @@ def api_get_quotation_details():
                 '''
                 SELECT TRIM(RF.RDB$FIELD_NAME)
                 FROM RDB$RELATION_FIELDS RF
-                WHERE RF.RDB$RELATION_NAME = 'SL_QT'
+                WHERE TRIM(RF.RDB$RELATION_NAME) = 'SL_QT'
                 '''
             )
             sl_qt_cols = {str(r[0]).strip() for r in (cur.fetchall() or []) if r and r[0]}
@@ -7130,7 +7170,7 @@ def api_get_quotation_details():
                 '''
                 SELECT TRIM(RF.RDB$FIELD_NAME)
                 FROM RDB$RELATION_FIELDS RF
-                WHERE RF.RDB$RELATION_NAME = 'SL_QTDTL'
+                WHERE TRIM(RF.RDB$RELATION_NAME) = 'SL_QTDTL'
                 '''
             )
             dtl_columns = {str(r[0]).strip() for r in (cur.fetchall() or []) if r and r[0]}
@@ -7390,7 +7430,7 @@ def api_admin_get_quotation_detail():
                 '''
                 SELECT TRIM(RF.RDB$FIELD_NAME)
                 FROM RDB$RELATION_FIELDS RF
-                WHERE RF.RDB$RELATION_NAME = 'SL_QTDTL'
+                WHERE TRIM(RF.RDB$RELATION_NAME) = 'SL_QTDTL'
                 '''
             )
             dtl_columns = {str(r[0]).strip() for r in (cur.fetchall() or []) if r and r[0]}

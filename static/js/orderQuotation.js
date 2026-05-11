@@ -593,7 +593,8 @@ function refreshQuotationMiniItemCodes() {
             parts.push(code);
         }
     });
-    el.textContent = parts.length ? parts.join(' · ') : '';
+    /* Hyphen separators (not middle dots) so codes read clearly next to slashes, e.g. ISCT - CCE/Grey-Chair - … */
+    el.textContent = parts.length ? parts.join(' - ') : '';
 }
 
 const orderForm = document.getElementById('order-form');
@@ -802,8 +803,7 @@ async function loadUserInfo() {
         }
 
         const data = await response.json();
-        console.log('Customer data response from /api/get_user_info:', data);
-        
+
         if (data.success && data.data) {
             const source = data.data || {};
             const addressObj = source.address && typeof source.address === 'object' ? source.address : null;
@@ -1095,34 +1095,31 @@ async function loadSlQtDraftForEdit(draftDockey) {
 }
 
 // Initialize on page load
-document.addEventListener('DOMContentLoaded', function() {
-    loadProducts();
-
+document.addEventListener('DOMContentLoaded', async function() {
     const quotationForm = document.getElementById('quotation-form');
     const urlParams = new URLSearchParams(window.location.search);
     const draftDockey = urlParams.get('draftDockey');
     const dockey = quotationForm ? quotationForm.dataset.dockey : null;
 
     if (draftDockey) {
-        // Load from SL_QTDRAFT
-        loadSlQtDraftForEdit(draftDockey);
+        await loadProducts();
+        await loadSlQtDraftForEdit(draftDockey);
     } else if (dockey) {
-        // Load draft quotation data
-        loadDraftQuotation(dockey);
+        await loadProducts();
+        await loadDraftQuotation(dockey);
     } else {
-        // Load user info only for new quotations
-        loadUserInfo();
+        await Promise.all([loadProducts(), loadUserInfo()]);
         const quotationDescription = document.getElementById('quotation-description');
         if (quotationDescription) {
             quotationDescription.value = 'Quotation';
         }
     }
-    
+
     // Add change listeners to calculate totals
     document.querySelectorAll('#order-items-list .item-qty, #order-items-list .item-price').forEach(input => {
         input.addEventListener('change', calculateOrderTotal);
     });
-    
+
     document.querySelectorAll('#quotation-items-list .item-qty, #quotation-items-list .item-price').forEach(input => {
         input.addEventListener('change', calculateQuotationTotal);
     });

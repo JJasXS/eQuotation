@@ -1,6 +1,16 @@
 /* View My Quotations — split list (left) + detail (right), warm palette */
+/* Avoid loading chat.css here (large dark-theme sheet unused on this page). */
+html {
+    box-sizing: border-box;
+}
+*,
+*::before,
+*::after {
+    box-sizing: inherit;
+}
 
 body.view-quotation-page {
+    margin: 0;
     background: #f2e8d8;
     color: #3d2f1f;
     min-height: 100vh;

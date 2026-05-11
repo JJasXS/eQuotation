@@ -4,12 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Request Quotation</title>
-    <link rel="stylesheet" href="/static/css/chat.css">
     <link rel="stylesheet" href="/static/css/hamburger_menu.css">
     <link rel="stylesheet" href="/static/css/app_page_header.css">
     <link rel="stylesheet" href="/static/css/orderQuotation.css?v=20260505_line_grid_balance">
     <link rel="stylesheet" href="/static/css/quotationChatPopup.css?v=20260505_rich_chat">
-    <link rel="stylesheet" href="/static/css/createQuotationLight.css?v=20260511_mini_codes">
+    <link rel="stylesheet" href="/static/css/createQuotationLight.css?v=20260511_perf_parallel_load">
 </head>
 <body class="create-quotation-page" data-php-base-url="{{ php_base_url }}">
     <div class="container">
@@ -166,7 +165,7 @@
     </datalist>
     
     <script src="/static/js/hamburger_menu.js"></script>
-    <script src="/static/js/orderQuotation.js?v=20260511_mini_codes"></script>
+    <script src="/static/js/orderQuotation.js?v=20260512_mini_code_dash_sep"></script>
     <script src="/static/js/quotationChatPopup.js?v=20260505_rich_chat"></script>
     <script>
         // Set today's date as default for all delivery date inputs on load
@@ -182,8 +181,7 @@
                 d.setDate(d.getDate() + 30);
                 validityInput.value = d.toISOString().split('T')[0];
             }
-            // Load customer information from database
-            loadUserInfo();
+            // Customer fields: orderQuotation.js loads /api/get_user_info once on DOMContentLoaded (avoid duplicate calls).
 
             // Open quotation chat by default; user closes when done
             if (window.location.pathname.includes('create-quotation')) {
