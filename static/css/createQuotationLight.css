@@ -69,6 +69,29 @@ body.create-quotation-page .create-quotation-lines-panel {
     -webkit-overflow-scrolling: touch;
 }
 
+body.create-quotation-page .quotation-mini-item-codes {
+    font-size: 11px;
+    color: #7b6550;
+    letter-spacing: 0.02em;
+    margin: 0 0 10px 0;
+    line-height: 1.35;
+    word-break: break-word;
+}
+
+body.create-quotation-page .quotation-mini-item-codes:empty {
+    display: none;
+}
+
+body.create-quotation-page .quotation-mini-item-codes::before {
+    content: 'Item codes: ';
+    font-weight: 600;
+    color: #5c4836;
+}
+
+body.create-quotation-page .quotation-mini-item-codes:empty::before {
+    content: none;
+}
+
 /* Keep line grid from crushing: horizontal scroll on narrow viewports */
 /* Match sum of grid minmax mins (~978px) + column gaps (~120px) so tracks are not squeezed */
 body.create-quotation-page #quotation-form .quotation-item-row-header,

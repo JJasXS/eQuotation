@@ -118,7 +118,6 @@
                                                     </div>
                                                 </div>
                                             </div>
-                                            <div id="report-summary-cards" class="report-summary-cards"></div>
                                         </div>
                                         <div class="stock-card-table-wrap" id="stock-card-table-wrap">
                                             <table class="stock-card-table" id="stock-card-table">
@@ -506,7 +505,7 @@
     </div>
 
     <script>
-        const STOCK_CARD_VISIBLE_BODY_ROWS = 10;
+        const STOCK_CARD_VISIBLE_BODY_ROWS = 16;
 
         function afterStockCardTableRender() {
             setTimeout(() => {
@@ -515,7 +514,7 @@
             }, 0);
         }
 
-        /** Limit vertical viewport to ~10 data rows so the vertical scrollbar appears when there are more items. */
+        /** Limit vertical viewport to ~16 data rows so the vertical scrollbar appears when there are more items. */
         function syncStockCardTableWrapMaxHeight() {
             const wrap = document.getElementById('stock-card-table-wrap');
             const tbody = document.getElementById('stock-card-table-body');

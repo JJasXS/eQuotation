@@ -405,9 +405,9 @@
 
             const thead = document.getElementById('bid-lines-thead');
             if (readOnly) {
-                thead.innerHTML = '<tr><th>Item</th><th>Delivery Date</th><th>Requested Qty</th><th>Bid Qty</th><th>Bid Unit Price</th><th>Tax</th><th>Amount</th><th>Lead Days</th><th>Remarks</th></tr>';
+                thead.innerHTML = '<tr><th>Item</th><th>Delivery Date</th><th>Requested Qty</th><th>S/U Qty</th><th>Bid Qty</th><th>Bid Unit Price</th><th>Tax</th><th>Amount</th><th>Lead Days</th><th>Remarks</th></tr>';
             } else {
-                thead.innerHTML = '<tr><th>Item</th><th>Delivery Date</th><th>Requested Qty</th><th>Bid Qty</th><th>Bid Unit Price</th><th>Lead Days</th><th>Remarks</th></tr>';
+                thead.innerHTML = '<tr><th>Item</th><th>Delivery Date</th><th>Requested Qty</th><th>S/U Qty</th><th>Bid Qty</th><th>Bid Unit Price</th><th>Lead Days</th><th>Remarks</th></tr>';
             }
 
             const rows = details.map((line) => {
@@ -421,6 +421,7 @@
                 const amt = Number(bl.amount != null ? bl.amount : 0).toFixed(2);
                 const ld = Number(bl.leadDays != null ? bl.leadDays : 0);
                 const rm = String(bl.remarks || '').trim();
+                const suomDisp = Number(line.suomQty != null ? line.suomQty : line.suomqty || 0).toFixed(2);
 
                 if (readOnly) {
                     return `
@@ -428,6 +429,7 @@
                             <td>${escapeHtml(line.itemCode)} - ${escapeHtml(line.itemName || line.description)}</td>
                             <td class="bid-readonly-cell">${escapeHtml(formatDateText(line.deliveryDate))}</td>
                             <td class="bid-readonly-cell">${Number(line.quantity || 0).toFixed(2)}</td>
+                            <td class="bid-readonly-cell">${suomDisp}</td>
                             <td class="bid-readonly-cell">${dq}</td>
                             <td class="bid-readonly-cell">${dup}</td>
                             <td class="bid-readonly-cell">${tax}</td>
@@ -446,6 +448,7 @@
                         <td>${escapeHtml(line.itemCode)} - ${escapeHtml(line.itemName || line.description)}</td>
                         <td>${escapeHtml(formatDateText(line.deliveryDate))}</td>
                         <td>${Number(line.quantity || 0).toFixed(2)}</td>
+                        <td class="bid-readonly-cell">${suomDisp}</td>
                         <td><input type="number" step="0.01" min="0" class="bid-qty" value="${qtyVal}"></td>
                         <td><input type="number" step="0.01" min="0" class="bid-unit-price" value="${priceVal}" placeholder="Enter quote unit price"></td>
                         <td><input type="number" step="1" min="0" class="bid-lead-days" value="${ldVal}"></td>
@@ -453,7 +456,7 @@
                     </tr>`;
             }).join('');
 
-            const colEmpty = readOnly ? 9 : 7;
+            const colEmpty = readOnly ? 10 : 8;
             document.getElementById('bid-lines-body').innerHTML = rows || ('<tr><td colspan="' + colEmpty + '" class="muted">No lines available</td></tr>');
             document.getElementById('submit-bid-btn').style.display = readOnly ? 'none' : 'inline-block';
             setDecisionPanel(mb, readOnly);

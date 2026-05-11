@@ -273,6 +273,7 @@ function addQuotationItem() {
     // Populate the new select with products
     const select = newItem.querySelector('.item-product');
     populateProductSelect(select);
+    refreshQuotationMiniItemCodes();
 }
 
 // Handle product source change (catalog vs custom)
@@ -298,6 +299,7 @@ function onProductSourceChange(selectElement) {
         suggestedPriceInput.value = '';
         clearQuotationLineStItemExtras(row);
     }
+    refreshQuotationMiniItemCodes();
 }
 
 // Remove Quotation Item
@@ -306,6 +308,7 @@ function removeQuotationItem(button) {
     if (items.length > 1) {
         button.closest('.order-item').remove();
         calculateQuotationTotal();
+        refreshQuotationMiniItemCodes();
     } else {
         alert('At least one item is required');
     }
@@ -424,6 +427,7 @@ function clearQuotationForm() {
         populateProductSelect(select);
         calculateQuotationTotal();
         loadUserInfo();
+        refreshQuotationMiniItemCodes();
     }
 }
 
@@ -496,6 +500,9 @@ async function fetchProductPrice(input) {
             clearQuotationLineStItemExtras(row);
         }
     }
+    if (input.closest('#quotation-items-list')) {
+        refreshQuotationMiniItemCodes();
+    }
 }
 
 // Store products globally
@@ -516,6 +523,7 @@ async function loadProducts() {
                     populateProductSelect(select);
                 }
             });
+            refreshQuotationMiniItemCodes();
         }
     } catch (error) {
         console.error('Failed to load products:', error);
@@ -538,6 +546,54 @@ function populateProductSelect(selectElement) {
     if (currentValue) {
         selectElement.value = currentValue;
     }
+}
+
+function resolveCatalogItemCodeFromDescription(description) {
+    const d = String(description || '').trim();
+    if (!d || !availableProducts.length) {
+        return '';
+    }
+    const hit = availableProducts.find(
+        (p) =>
+            (p.DESCRIPTION && String(p.DESCRIPTION).trim() === d) ||
+            (p.CODE && String(p.CODE).trim() === d)
+    );
+    if (hit && hit.CODE != null && String(hit.CODE).trim() !== '') {
+        return String(hit.CODE).trim();
+    }
+    return '';
+}
+
+function refreshQuotationMiniItemCodes() {
+    const el = document.getElementById('quotation-mini-item-codes');
+    if (!el) {
+        return;
+    }
+    const parts = [];
+    document.querySelectorAll('#quotation-items-list .order-item').forEach((orderItem) => {
+        const row = orderItem.querySelector('.item-row');
+        if (!row) {
+            return;
+        }
+        const sourceSel = row.querySelector('.item-source');
+        const source = sourceSel ? sourceSel.value : 'catalog';
+        if (source === 'custom') {
+            return;
+        }
+        const sel = row.querySelector('.item-product');
+        if (!sel || sel.tagName !== 'SELECT') {
+            return;
+        }
+        const desc = (sel.value || '').trim();
+        if (!desc) {
+            return;
+        }
+        const code = resolveCatalogItemCodeFromDescription(desc);
+        if (code) {
+            parts.push(code);
+        }
+    });
+    el.textContent = parts.length ? parts.join(' · ') : '';
 }
 
 const orderForm = document.getElementById('order-form');
@@ -918,6 +974,7 @@ async function loadDraftQuotation(dockey) {
                 });
                 
                 calculateQuotationTotal();
+                refreshQuotationMiniItemCodes();
             }
             
             // Update page title to indicate editing
@@ -1022,6 +1079,7 @@ async function loadSlQtDraftForEdit(draftDockey) {
                 }
             });
             calculateQuotationTotal();
+            refreshQuotationMiniItemCodes();
         }
 
         const quotationForm = document.getElementById('quotation-form');

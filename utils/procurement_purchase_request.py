@@ -123,7 +123,7 @@ def _normalize_stock_qty_uom(value: Any) -> str:
     return "SUOMQTY"
 
 
-def _parse_line_qty_sq_su(item: dict[str, Any]) -> tuple[float, float, float, str]:
+def parse_line_qty_sq_su(item: dict[str, Any]) -> tuple[float, float, float, str]:
     """
     Parse SQTY / SUOMQTY / pricing quantity / stored basis from a line item dict.
 
@@ -420,7 +420,7 @@ def _normalize_sql_api_payload(payload: dict[str, Any]) -> dict[str, Any]:
         line_uom = _clean_text(item.get("uom") or item.get("UOM"))
         line_project = _clean_text(item.get("project")) or header_project
 
-        qty_sq_api, qty_su_api, pricing_qty_api, basis_api = _parse_line_qty_sq_su(
+        qty_sq_api, qty_su_api, pricing_qty_api, basis_api = parse_line_qty_sq_su(
             {
                 "qtySqty": item.get("qtySqty") or item.get("sqty"),
                 "qtySuomqty": item.get("qtySuomqty") or item.get("suomqty"),
@@ -580,7 +580,7 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
         if not item_name:
             errors.append(f"lineItems[{idx}].itemName is required")
 
-        qty_sq_i, qty_su_i, pricing_qty_i, basis_i = _parse_line_qty_sq_su(item)
+        qty_sq_i, qty_su_i, pricing_qty_i, basis_i = parse_line_qty_sq_su(item)
         quantity = _as_decimal(str(pricing_qty_i), "0")
         unit_price = _as_decimal(item.get("unitPrice"))
         tax = _as_decimal(item.get("tax"))
@@ -1262,7 +1262,7 @@ def update_purchase_request(
         except Exception as exc:
             raise PurchaseRequestValidationError(f"lineItems[{idx}].detailId is required") from exc
 
-        qty_sq_e, qty_su_e, pricing_qty_e, basis_e = _parse_line_qty_sq_su(line)
+        qty_sq_e, qty_su_e, pricing_qty_e, basis_e = parse_line_qty_sq_su(line)
         quantity = _money(_as_decimal(str(pricing_qty_e), "0"))
         unit_price = _money(_as_decimal(line.get("unitPrice"), "0"))
         if qty_sq_e < 0 or qty_su_e < 0:

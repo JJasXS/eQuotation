@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="/static/css/app_page_header.css">
     <link rel="stylesheet" href="/static/css/orderQuotation.css?v=20260505_line_grid_balance">
     <link rel="stylesheet" href="/static/css/quotationChatPopup.css?v=20260505_rich_chat">
-    <link rel="stylesheet" href="/static/css/createQuotationLight.css?v=20260506_shell_force">
+    <link rel="stylesheet" href="/static/css/createQuotationLight.css?v=20260511_mini_codes">
 </head>
 <body class="create-quotation-page" data-php-base-url="{{ php_base_url }}">
     <div class="container">
@@ -73,6 +73,7 @@
 
                             <div class="create-quotation-lines-panel">
                                 <h4 class="create-quotation-panel-title">Quotation lines</h4>
+                                <div id="quotation-mini-item-codes" class="quotation-mini-item-codes" aria-live="polite"></div>
                                 <div class="item-row-header quotation-item-row-header">
                                     <span>Source</span>
                                     <span>Product</span>
@@ -135,7 +136,7 @@
     <!-- Quotation Chat Bubble -->
     <button id="quotation-chat-preview" class="quotation-chat-preview quotation-chat-preview-hidden" type="button" onclick="openQuotationChatFromPreview()">
         <span class="quotation-chat-preview-label">New message</span>
-        <span class="quotation-chat-preview-text">Hi! Need help with your quotation?</span>
+        <span class="quotation-chat-preview-text">How can I help you?</span>
     </button>
     <button id="quotation-chat-bubble" class="quotation-chat-bubble" onclick="toggleQuotationChatPopup()" title="Chat with us">
         <span>💬</span>
@@ -148,7 +149,7 @@
         </div>
         <div id="quotation-chat-popup-messages" class="quotation-chat-popup-messages">
             <div class="quotation-chat-message bot-message">
-                <div class="quotation-chat-popup-message-content">Hi! 👋 How can I help you with your quotation?</div>
+                <div class="quotation-chat-popup-message-content">How can I help you?</div>
             </div>
         </div>
         <div class="quotation-chat-popup-input">
@@ -165,7 +166,7 @@
     </datalist>
     
     <script src="/static/js/hamburger_menu.js"></script>
-    <script src="/static/js/orderQuotation.js?v=20260505_chat_scroll"></script>
+    <script src="/static/js/orderQuotation.js?v=20260511_mini_codes"></script>
     <script src="/static/js/quotationChatPopup.js?v=20260505_rich_chat"></script>
     <script>
         // Set today's date as default for all delivery date inputs on load
@@ -184,23 +185,16 @@
             // Load customer information from database
             loadUserInfo();
 
-            // Show quotation chat popup briefly as welcome prompt
+            // Open quotation chat by default; user closes when done
             if (window.location.pathname.includes('create-quotation')) {
                 setTimeout(function() {
                     var chatPopup = document.getElementById('quotation-chat-popup');
                     if (chatPopup) {
                         chatPopup.classList.remove('quotation-chat-popup-hidden');
-                        // Optionally scroll to bottom if needed
                         var messages = document.getElementById('quotation-chat-popup-messages');
                         if (messages) messages.scrollTop = messages.scrollHeight;
                     }
-                }, 200); // slight delay to ensure DOM is ready
-                setTimeout(function() {
-                    var chatPopup = document.getElementById('quotation-chat-popup');
-                    if (chatPopup) {
-                        chatPopup.classList.add('quotation-chat-popup-hidden');
-                    }
-                }, 1200); // show for 1 second
+                }, 200);
             }
         });
     </script>

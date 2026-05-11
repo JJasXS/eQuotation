@@ -237,9 +237,9 @@ def hide_quotation_status_actions(session) -> bool:
     return infer_access_tier_from_session(session) == ACCESS_TIER_SALES_STAFF
 
 
-def hide_pr_transfer_for_pstaff(session) -> bool:
-    """PSTAFF: hide transfer in view PR (UI flag for templates/JS)."""
-    return infer_access_tier_from_session(session) == ACCESS_TIER_PURCH_STAFF
+def hide_pr_transfer_for_pstaff(_session) -> bool:
+    """Transfer to PO is enabled for UDF_MANAGEMENT, UDF_PMANAGEMENT, and UDF_PUSER (purchase staff)."""
+    return False
 
 
 def template_permission_context(session) -> dict:

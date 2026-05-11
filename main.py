@@ -47,6 +47,7 @@ from utils.procurement_purchase_request import (
     PurchaseRequestValidationError,
     create_purchase_request,
     normalize_purchase_request_status_input,
+    parse_line_qty_sq_su,
     peek_purchase_request_status_by_request_number,
     preview_purchase_request_number,
     transition_purchase_request_status,
@@ -5968,6 +5969,14 @@ def api_supplier_bidding_request_details():
                     f"detail={detail_id_int or detail_id_raw} source={delivery_source} value={resolved_delivery}",
                     flush=True,
                 )
+            parse_src = {
+                'quantity': row.get('qty') or row.get('quantity'),
+                'qtySqty': row.get('qtySqty') or row.get('sqty') or row.get('SQTY'),
+                'qtySuomqty': row.get('qtySuomqty') or row.get('suomqty') or row.get('SUOMQTY'),
+                'stockQtyUom': row.get('stockQtyUom') or row.get('stock_qty_uom'),
+            }
+            qty_sq_line, qty_su_line, _pricing_line, stock_uom_line = parse_line_qty_sq_su(parse_src)
+
             details.append({
                 'id': row.get('dtlkey') or row.get('id'),
                 'seq': row.get('seq') if row.get('seq') is not None else idx,
@@ -5977,6 +5986,9 @@ def api_supplier_bidding_request_details():
                 'locationCode': str(row.get('location') or row.get('locationCode') or '').strip(),
                 'deliveryDate': resolved_delivery,
                 'quantity': float(row.get('qty') or row.get('quantity') or 0),
+                'sqty': float(qty_sq_line),
+                'suomQty': float(qty_su_line),
+                'stockQtyUom': stock_uom_line,
                 'unitPrice': float(row.get('unitprice') or row.get('unitPrice') or 0),
                 'tax': float(row.get('taxamt') or row.get('tax') or 0),
             })
@@ -7160,12 +7172,27 @@ def api_admin_get_all_quotations():
             cur = con.cursor()
             cur.execute(
                 '''
-                SELECT DOCKEY, DOCNO, DOCDATE, CODE, DESCRIPTION, DOCAMT,
-                       VALIDITY, STATUS, TERMS, CANCELLED, UPDATECOUNT, COMPANYNAME
-                FROM SL_QT
-                ORDER BY DOCDATE DESC, DOCKEY DESC
+                SELECT TRIM(RF.RDB$FIELD_NAME)
+                FROM RDB$RELATION_FIELDS RF
+                WHERE RF.RDB$RELATION_NAME = 'SL_QT'
                 '''
             )
+            sl_qt_cols = {str(r[0]).strip() for r in (cur.fetchall() or []) if r and r[0]}
+
+            fields = [
+                'DOCKEY', 'DOCNO', 'DOCDATE', 'CODE', 'DESCRIPTION', 'DOCAMT', 'VALIDITY',
+                'STATUS', 'TERMS', 'CANCELLED', 'UPDATECOUNT',
+            ]
+            if 'UDF_STATUS' in sl_qt_cols:
+                fields.append('UDF_STATUS')
+            fields.append('COMPANYNAME')
+
+            select_sql = f'''
+                SELECT {', '.join('q.' + f for f in fields)}
+                FROM SL_QT q
+                ORDER BY q.DOCDATE DESC, q.DOCKEY DESC
+            '''
+            cur.execute(select_sql)
             rows = cur.fetchall() or []
         finally:
             if cur:
@@ -7175,25 +7202,48 @@ def api_admin_get_all_quotations():
 
         quotations = []
         for row in rows:
-            status_int = row[7] if row[7] is not None else 0
-            status_str = 'COMPLETED' if status_int == 1 else 'DRAFT'
-            cancelled_value = _to_bool_or_none(row[9])
-            updatecount_value = int(row[10]) if row[10] is not None else None
+            row_map = dict(zip(fields, row))
+            raw_st = row_map.get('STATUS')
+            if isinstance(raw_st, (int, float)):
+                status_str = 'COMPLETED' if int(raw_st) == 1 else 'DRAFT'
+            else:
+                status_str = str(raw_st).strip() if raw_st is not None else 'DRAFT'
 
-            quotations.append({
-                'DOCKEY': int(row[0]) if row[0] is not None else None,
-                'DOCNO': row[1],
-                'DOCDATE': str(row[2]) if row[2] is not None else None,
-                'CODE': row[3] or '',
-                'DESCRIPTION': row[4],
-                'DOCAMT': _safe_float(row[5]),
-                'VALIDITY': str(row[6]) if row[6] is not None else None,
+            cancelled_raw = row_map.get('CANCELLED')
+            if cancelled_raw is None:
+                cancelled_value = None
+            elif isinstance(cancelled_raw, bool):
+                cancelled_value = cancelled_raw
+            elif isinstance(cancelled_raw, (int, float)):
+                cancelled_value = int(cancelled_raw) != 0
+            else:
+                cancelled_value = str(cancelled_raw).strip().lower() in (
+                    '1', 'true', 't', 'yes', 'y'
+                )
+            updatecount_raw = row_map.get('UPDATECOUNT')
+            updatecount_value = int(updatecount_raw) if updatecount_raw is not None else None
+
+            udf_status_val = None
+            if 'UDF_STATUS' in row_map and row_map.get('UDF_STATUS') is not None:
+                udf_status_val = str(row_map.get('UDF_STATUS')).strip()
+
+            rec = {
+                'DOCKEY': int(row_map['DOCKEY']) if row_map.get('DOCKEY') is not None else None,
+                'DOCNO': row_map.get('DOCNO'),
+                'DOCDATE': str(row_map['DOCDATE']) if row_map.get('DOCDATE') is not None else None,
+                'CODE': row_map.get('CODE') or '',
+                'DESCRIPTION': row_map.get('DESCRIPTION'),
+                'DOCAMT': _safe_float(row_map.get('DOCAMT')),
+                'VALIDITY': str(row_map['VALIDITY']) if row_map.get('VALIDITY') is not None else None,
                 'STATUS': status_str,
-                'CREDITTERM': str(row[8]) if row[8] is not None else 'N/A',
+                'CREDITTERM': str(row_map.get('TERMS')) if row_map.get('TERMS') is not None else 'N/A',
                 'CANCELLED': cancelled_value,
                 'UPDATECOUNT': updatecount_value,
-                'COMPANYNAME': row[11] or 'N/A',
-            })
+                'COMPANYNAME': row_map.get('COMPANYNAME') or 'N/A',
+            }
+            if udf_status_val is not None:
+                rec['UDF_STATUS'] = udf_status_val
+            quotations.append(rec)
 
         if cancelled is not None:
             cancelled_norm = str(cancelled).strip().lower() in ('1', 'true', 't', 'yes', 'y')

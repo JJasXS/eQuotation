@@ -305,7 +305,7 @@ body {
     max-width: 100%;
     overflow-x: auto;
     overflow-y: auto;
-    /* max-height set from JS to ~10 body rows so vertical scrollbar shows when there are more items */
+    /* max-height set from JS to ~16 body rows so vertical scrollbar shows when there are more items */
     box-sizing: border-box;
     padding: 0;
     scrollbar-color: #4a5568 #23293a;
