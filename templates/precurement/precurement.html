@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="/static/css/app_page_header.css">
     <link rel="stylesheet" href="/static/css/orderQuotation.css">
     <link rel="stylesheet" href="/static/css/adminViewQuotations.css?v=20260430">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr66_bulk_pending_selected">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr67_load_more_footer_scroll">
 </head>
 <body class="procurement-warm-ui{% if perm_hide_pr_transfer | default(false) %} procurement-hide-transfer{% endif %}{% if perm_hide_pr_approval_edits | default(false) %} procurement-hide-pr-approval-edits{% endif %}">
 
@@ -232,9 +232,11 @@
                                                 />
                                             </div>
                                         </div>
-                                        <div class="pr-view-list-scroll view-pr-list view-pr-list--cards" id="view-pr-list">
-                                            <div class="view-pr-empty">Loading e-Purchase Request records...</div>
-                                            <div id="view-pr-load-more-wrap" class="view-pr-load-more-wrap" style="display: none;">
+                                        <div class="pr-view-left-list-body">
+                                            <div class="pr-view-list-scroll view-pr-list view-pr-list--cards" id="view-pr-list">
+                                                <div class="view-pr-empty">Loading e-Purchase Request records...</div>
+                                            </div>
+                                            <div id="view-pr-load-more-wrap" class="view-pr-load-more-wrap view-pr-load-more-wrap--footer" style="display: none;">
                                                 <button type="button" class="view-pr-refresh-btn view-pr-load-more-btn" id="view-pr-load-more-btn" onclick="loadMoreViewPurchaseRequests()">… more (+5)</button>
                                             </div>
                                         </div>
@@ -1772,25 +1774,19 @@
             panel.innerHTML = buildViewPurchaseRequestDetailHtml(header);
         }
 
-        function getViewPrListLoadMoreAnchor() {
-            return document.getElementById('view-pr-load-more-wrap');
-        }
-
         function clearViewPrListDynamicNodes() {
             const pane = document.getElementById('view-pr-list');
-            const anchor = getViewPrListLoadMoreAnchor();
-            if (!pane || !anchor) {
+            if (!pane) {
                 return;
             }
-            while (pane.firstChild && pane.firstChild !== anchor) {
+            while (pane.firstChild) {
                 pane.removeChild(pane.firstChild);
             }
         }
 
         function insertBeforeViewPrLoadMore(htmlString) {
             const pane = document.getElementById('view-pr-list');
-            const anchor = getViewPrListLoadMoreAnchor();
-            if (!pane || !anchor) {
+            if (!pane) {
                 return;
             }
             const trimmed = String(htmlString || '').trim();
@@ -1800,7 +1796,7 @@
             const tpl = document.createElement('template');
             tpl.innerHTML = trimmed;
             while (tpl.content.firstChild) {
-                pane.insertBefore(tpl.content.firstChild, anchor);
+                pane.appendChild(tpl.content.firstChild);
             }
         }
 

@@ -8232,15 +8232,25 @@ if __name__ == "__main__":
         from asgiref.wsgi import WsgiToAsgi
         from starlette.applications import Starlette
         from starlette.routing import Mount
+        from starlette.staticfiles import StaticFiles
         import uvicorn
         from api.app import app as fastapi_app
 
         app.debug = flask_debug
         flask_asgi = WsgiToAsgi(app)
-        unified_asgi = Starlette(routes=[
+        # Serve /static via Starlette so CSS/JS do not go through WsgiToAsgi. That wrapper uses
+        # CurrentThreadExecutor; concurrent static requests can raise:
+        # RuntimeError: CurrentThreadExecutor already quit or is broken
+        _static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+        _unified_routes = [
             Mount(EQ_SQL_API_MOUNT_PATH, fastapi_app),
-            Mount('/', flask_asgi),
-        ])
+        ]
+        if os.path.isdir(_static_dir):
+            _unified_routes.append(
+                Mount('/static', StaticFiles(directory=_static_dir), name='eq_static'),
+            )
+        _unified_routes.append(Mount('/', flask_asgi))
+        unified_asgi = Starlette(routes=_unified_routes)
         print(
             f"Starting unified server at http://{flask_host}:{flask_port} "
             f"(Flask / + FastAPI {EQ_SQL_API_MOUNT_PATH}/ ; debug={flask_debug}) ...",
