@@ -49,7 +49,7 @@ function buildViewQuotationsShellHtml(showAdminFilters) {
                         <button id="company-filter-clear" style="padding: 8px 12px; border-radius: 6px; background: #f8efdd; color: #7b5a36; border: 1px solid #e2cfab; cursor: pointer; font-size: 13px;">Clear</button>
                     `
         : `
-                        <p style="margin:0;color:#87684d;font-size:13px;line-height:1.4;">Showing quotations for your customer account (read-only — same layout as staff view).</p>
+                        
                     `;
     return `
             <div class="admin-quotations-view" style="padding: 16px;">
