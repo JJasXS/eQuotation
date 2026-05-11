@@ -196,9 +196,14 @@ function buildQuotationPayload() {
         const price = parseFloat(item.querySelector('.item-price').value) || 0;
         const discount = parseFloat(item.querySelector('.item-discount')?.value) || 0;
         const deliveryDate = item.querySelector('.item-delivery-date')?.value || null;
+        // SQL Accounting /salesquotation expects ST_ITEM.CODE on lines; description-only rows can be very slow upstream.
+        let itemCode = '';
+        if (source === 'catalog') {
+            itemCode = resolveCatalogItemCodeFromDescription(product) || '';
+        }
 
         if (product && qty > 0 && price >= 0) {
-            items.push({ product, source, qty, price, discount, deliveryDate });
+            items.push({ product, source, itemCode, qty, price, discount, deliveryDate });
         }
     });
 
@@ -701,6 +706,19 @@ if (quotationForm) {
             return;
         }
 
+        const missingStockCodes = quotationData.items.filter(
+            (it) => it.source === 'catalog' && !it.itemCode
+        );
+        if (missingStockCodes.length) {
+            const ok = window.confirm(
+                'Some catalog lines have no stock item code (try reloading the page so products load, then pick again from the dropdown). ' +
+                    'Submitting without codes may be very slow or fail. Continue anyway?'
+            );
+            if (!ok) {
+                return;
+            }
+        }
+
         const items = quotationData.items;
         const dockey = quotationForm.dataset.dockey;
         const draftDockey = quotationForm.dataset.draftDockey;
@@ -783,7 +801,15 @@ if (quotationForm) {
                 // Redirect to view quotations — Pending tab (newly submitted / UDF_STATUS PENDING)
                 window.location.href = '/view-quotation?tab=pending';
             } else {
-                alert('Failed to save quotation: ' + (result.error || 'Unknown error'));
+                const err = result.error || 'Unknown error';
+                if (result.errorCode === 'SQL_API_TIMEOUT') {
+                    alert(
+                        err + '\n\n(HTTP 504: accounting service did not answer in time. ' +
+                        'Check SQL Accounting for a duplicate before trying again.)'
+                    );
+                } else {
+                    alert('Failed to save quotation: ' + err);
+                }
             }
         } catch (error) {
             console.error('Error saving quotation:', error);
@@ -1067,12 +1093,25 @@ async function loadSlQtDraftForEdit(draftDockey) {
 
                 const productSelect = newItem.querySelector('.item-product');
                 populateProductSelect(productSelect);
+                const savedCode = (item.ITEMCODE != null && String(item.ITEMCODE).trim())
+                    ? String(item.ITEMCODE).trim()
+                    : '';
                 if (!isCustom && item.DESCRIPTION) {
+                    let rowLabel = String(item.DESCRIPTION).trim();
+                    if (savedCode && availableProducts && availableProducts.length) {
+                        const byCode = availableProducts.find(
+                            (p) => String(p.CODE || '').trim() === savedCode
+                        );
+                        if (byCode) {
+                            rowLabel = String(byCode.DESCRIPTION || byCode.CODE || rowLabel).trim();
+                        }
+                    }
                     const option = document.createElement('option');
-                    option.value = item.DESCRIPTION;
-                    option.textContent = item.DESCRIPTION;
+                    option.value = rowLabel;
+                    option.textContent = rowLabel;
                     option.selected = true;
                     productSelect.appendChild(option);
+                    productSelect.value = rowLabel;
                 }
                 if (!isCustom && item.DESCRIPTION && productSelect) {
                     fetchProductPrice(productSelect);

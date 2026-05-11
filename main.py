@@ -6798,7 +6798,17 @@ def api_create_quotation():
         quotation_data = create_or_update_quotation(BASE_API_URL, customer_code, data)
         
         if not quotation_data.get('success'):
-            return jsonify({'success': False, 'error': quotation_data.get('error', 'Failed to create quotation')}), 500
+            err_code = quotation_data.get('errorCode')
+            http_status = 504 if err_code == 'SQL_API_TIMEOUT' else 500
+            body = {
+                'success': False,
+                'error': quotation_data.get('error', 'Failed to create quotation'),
+            }
+            if err_code:
+                body['errorCode'] = err_code
+            if quotation_data.get('detail'):
+                body['detail'] = quotation_data.get('detail')
+            return jsonify(body), http_status
 
         if draft_dockey:
             try:

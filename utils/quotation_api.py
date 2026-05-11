@@ -209,6 +209,10 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
         if not product_desc:
             continue
 
+        item_code = str(
+            item.get("itemCode") or item.get("itemcode") or item.get("code") or ""
+        ).strip()
+
         detail_rows.append(
             {
                 "dtlkey": 0,
@@ -216,7 +220,7 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
                 "seq": idx,
                 "styleid": "",
                 "number": "",
-                "itemcode": "",
+                "itemcode": item_code,
                 "location": "",
                 "batch": "",
                 "project": "",
@@ -249,7 +253,7 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
                 "transferable": False,
                 "remark1": "",
                 "remark2": "",
-                "companyitemcode": "",
+                "companyitemcode": item_code,
                 "initialpurchasecost": "0.00",
                 "changed": True,
             }
@@ -393,7 +397,19 @@ def create_or_update_quotation(base_api_url, customer_code, data):
                 timeout_seconds=quote_read_timeout,
             )
         except SqlAccountingApiError as exc:
-            return {"success": False, "error": str(exc)}
+            err_text = str(exc)
+            low = err_text.lower()
+            if "timed out" in low or "timeout" in low or "read time" in low:
+                return {
+                    "success": False,
+                    "errorCode": "SQL_API_TIMEOUT",
+                    "error": (
+                        "SQL Accounting API did not respond in time. Wait a minute, then check "
+                        "whether the quotation already exists in SQL Accounting before submitting again."
+                    ),
+                    "detail": err_text,
+                }
+            return {"success": False, "errorCode": "SQL_API_ERROR", "error": err_text}
 
         if status < 400:
             response_dict = parsed if isinstance(parsed, dict) else {}
@@ -463,7 +479,7 @@ def save_draft_quotation(base_api_url, customer_code, data):
 
         # Remove old draft items
         cur.execute("DELETE FROM SL_QTDTLDRAFT WHERE DOCKEY=?", (dockey,))
-        # Insert draft items
+        # Insert draft items (ITEMCODE must match SL_QTDTLDRAFT schema — used when reloading drafts / SQL API)
         for idx, item in enumerate(items, start=1):
             qty = float(item.get('qty', 0))
             price = float(item.get('price', 0))
@@ -471,16 +487,22 @@ def save_draft_quotation(base_api_url, customer_code, data):
             product_desc = str(item.get('product', '')).strip()
             if not product_desc:
                 continue
+            item_code = str(
+                item.get('itemCode') or item.get('itemcode') or item.get('code') or ''
+            ).strip()
             try:
                 cur.execute("SELECT GEN_ID(GEN_SL_QTDTLDRAFT_ID, 1) FROM RDB$DATABASE")
                 dtlkey = cur.fetchone()[0]
             except Exception:
                 cur.execute("SELECT COALESCE(MAX(DTLKEY), 0) + 1 FROM SL_QTDTLDRAFT")
                 dtlkey = cur.fetchone()[0]
-            cur.execute("""
-                INSERT INTO SL_QTDTLDRAFT (DTLKEY, DOCKEY, SEQ, DESCRIPTION, QTY, UNITPRICE, DISC)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (dtlkey, dockey, idx, product_desc, qty, price, str(discount)))
+            cur.execute(
+                """
+                INSERT INTO SL_QTDTLDRAFT (DTLKEY, DOCKEY, SEQ, ITEMCODE, DESCRIPTION, QTY, UNITPRICE, DISC)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (dtlkey, dockey, idx, item_code or None, product_desc, qty, price, str(discount)),
+            )
 
         con.commit()
         cur.close()
