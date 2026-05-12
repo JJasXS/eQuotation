@@ -348,6 +348,189 @@ def _read_sl_qt_header_for_sales_api(dockey: int) -> dict:
     return out
 
 
+def _safe_float_quotation_email(value, default: float = 0.0) -> float:
+    """Convert a value to float for quotation email payloads (comma-safe)."""
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip().replace(",", "")
+    if not text:
+        return default
+    try:
+        return float(text)
+    except Exception:
+        return default
+
+
+def fetch_quotation_details_for_email(dockey: int) -> dict:
+    """Return the same shape as legacy ``getQuotationDetails.php`` (Firebird only, no PHP/SQL API HTTP).
+
+    Used for customer notification emails (activate quotation, admin update email).
+    """
+    try:
+        dockey_int = int(dockey)
+    except (TypeError, ValueError):
+        return {"success": False, "error": "Invalid dockey"}
+    if dockey_int <= 0:
+        return {"success": False, "error": "Invalid dockey"}
+
+    try:
+        from utils import get_db_connection
+    except ImportError:
+        return {"success": False, "error": "Database module unavailable"}
+
+    con = cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        cur.execute(
+            """
+            SELECT FIRST 1
+                q.DOCKEY, q.DOCNO, q.DOCDATE, q.CODE, q.DESCRIPTION, q.DOCAMT,
+                q.CURRENCYCODE, q.VALIDITY, q.STATUS, q.TERMS,
+                q.COMPANYNAME, q.ADDRESS1, q.ADDRESS2, q.ADDRESS3, q.ADDRESS4, q.PHONE1,
+                c.COMPANYNAME, c.CREDITTERM, c.UDF_EMAIL,
+                cb.ADDRESS1, cb.ADDRESS2, cb.PHONE1
+            FROM SL_QT q
+            LEFT JOIN AR_CUSTOMER c ON q.CODE = c.CODE
+            LEFT JOIN AR_CUSTOMERBRANCH cb ON q.CODE = cb.CODE
+            WHERE q.DOCKEY = ?
+            """,
+            (dockey_int,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return {"success": False, "error": "Quotation not found"}
+
+        (
+            q_dockey,
+            q_docno,
+            q_docdate,
+            q_code,
+            q_description,
+            q_docamt,
+            q_currency,
+            q_validity,
+            q_status,
+            _q_terms,
+            qt_companyname,
+            qt_a1,
+            qt_a2,
+            qt_a3,
+            qt_a4,
+            qt_phone1,
+            c_companyname,
+            c_creditterm,
+            c_udf_email,
+            cb_a1,
+            cb_a2,
+            cb_phone1,
+        ) = row
+
+        def _st(x) -> str:
+            if x is None:
+                return ""
+            return str(x).strip()
+
+        company = _st(qt_companyname) or _st(c_companyname) or "N/A"
+        addr1 = _st(qt_a1) or _st(cb_a1) or "N/A"
+        addr2 = _st(qt_a2) or _st(cb_a2) or "N/A"
+        addr3 = _st(qt_a3)
+        addr4 = _st(qt_a4)
+        phone1 = _st(qt_phone1) or _st(cb_phone1) or "N/A"
+        creditterm = _st(c_creditterm) or "N/A"
+        udf_email = _st(c_udf_email)
+
+        cur.execute(
+            """
+            SELECT TRIM(RF.RDB$FIELD_NAME)
+            FROM RDB$RELATION_FIELDS RF
+            WHERE TRIM(RF.RDB$RELATION_NAME) = 'SL_QTDTL'
+            """
+        )
+        dtl_columns = {str(r[0]).strip() for r in (cur.fetchall() or []) if r and r[0]}
+        item_fields = [
+            "DTLKEY",
+            "DOCKEY",
+            "SEQ",
+            "ITEMCODE",
+            "DESCRIPTION",
+            "QTY",
+            "UNITPRICE",
+            "DISC",
+            "AMOUNT",
+        ]
+        for opt in ("UDF_STDPRICE", "DELIVERYDATE"):
+            if opt in dtl_columns:
+                item_fields.append(opt)
+
+        cur.execute(
+            f"SELECT {', '.join(item_fields)} FROM SL_QTDTL WHERE DOCKEY = ? ORDER BY SEQ ASC",
+            (dockey_int,),
+        )
+        item_rows = cur.fetchall() or []
+        formatted_items = []
+        for ir in item_rows:
+            row_map = {item_fields[i]: ir[i] for i in range(len(item_fields))}
+            dtl_raw = row_map.get("DTLKEY")
+            try:
+                dtlkey = int(dtl_raw) if dtl_raw is not None else 0
+            except (TypeError, ValueError):
+                dtlkey = 0
+            seq_raw = row_map.get("SEQ")
+            try:
+                seq = int(seq_raw) if seq_raw is not None else 0
+            except (TypeError, ValueError):
+                seq = 0
+            item = {
+                "DTLKEY": dtlkey,
+                "SEQ": seq,
+                "ITEMCODE": row_map.get("ITEMCODE"),
+                "DESCRIPTION": row_map.get("DESCRIPTION"),
+                "QTY": _safe_float_quotation_email(row_map.get("QTY")),
+                "UNITPRICE": _safe_float_quotation_email(row_map.get("UNITPRICE")),
+                "DISC": _safe_float_quotation_email(row_map.get("DISC")),
+                "AMOUNT": _safe_float_quotation_email(row_map.get("AMOUNT")),
+            }
+            if "UDF_STDPRICE" in item_fields:
+                item["UDF_STDPRICE"] = _safe_float_quotation_email(row_map.get("UDF_STDPRICE"))
+            if "DELIVERYDATE" in item_fields and row_map.get("DELIVERYDATE") is not None:
+                item["DELIVERYDATE"] = str(row_map.get("DELIVERYDATE"))
+            else:
+                item["DELIVERYDATE"] = None
+            formatted_items.append(item)
+
+        quotation_data = {
+            "DOCKEY": int(q_dockey) if q_dockey is not None else dockey_int,
+            "DOCNO": q_docno,
+            "DOCDATE": str(q_docdate) if q_docdate is not None else None,
+            "CODE": q_code,
+            "DESCRIPTION": q_description,
+            "DOCAMT": _safe_float_quotation_email(q_docamt),
+            "CURRENCYCODE": q_currency,
+            "VALIDITY": q_validity,
+            "STATUS": str(q_status) if q_status is not None else "",
+            "CREDITTERM": creditterm,
+            "COMPANYNAME": company,
+            "UDF_EMAIL": udf_email,
+            "ADDRESS1": addr1,
+            "ADDRESS2": addr2,
+            "ADDRESS3": addr3,
+            "ADDRESS4": addr4,
+            "PHONE1": phone1,
+            "items": formatted_items,
+        }
+        return {"success": True, "data": quotation_data}
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
+
+
 def _read_qt_sequences_from_db(limit: int = 2000) -> tuple[int, set[int]]:
     """Return (max_seq, existing_seq_set) for DOCNO values matching QT-%.5d."""
     db_path = (os.getenv("DB_PATH") or "").strip()

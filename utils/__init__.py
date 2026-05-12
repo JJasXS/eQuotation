@@ -34,7 +34,9 @@ from utils.pricing_service import (
 )
 
 from utils.quotation_api import (
-    create_or_update_quotation, save_draft_quotation
+    create_or_update_quotation,
+    fetch_quotation_details_for_email,
+    save_draft_quotation,
 )
 
 __all__ = [
@@ -64,5 +66,7 @@ __all__ = [
     'PricingResult', 'PricingService', 'get_selling_price',
 
     # Quotation API helpers
-    'create_or_update_quotation', 'save_draft_quotation'
+    'create_or_update_quotation',
+    'fetch_quotation_details_for_email',
+    'save_draft_quotation',
 ]

@@ -38,6 +38,7 @@ class PurchaseRequestTransferServiceTests(unittest.TestCase):
             "businessunit": "PROC",
             "project": "----",
             "transferable": True,
+            "udf_status": "APPROVED",
             "daddress1": "1, Jalan Setia Dagang AK U13/AK,",
             "daddress2": "Setia Alam, 40170,",
             "daddress3": "Shah Alam, Selangor.",

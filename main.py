@@ -36,7 +36,7 @@ from utils import (
     set_ai_config,
     extract_product_and_quantity, get_product_price, set_order_config,
     resolve_numbered_reference, get_selling_price,
-    create_or_update_quotation, save_draft_quotation
+    create_or_update_quotation, save_draft_quotation, fetch_quotation_details_for_email,
 )
 from utils.procurement_stock_card_queries import (
     fetch_procurement_metric_breakdown,
@@ -1460,12 +1460,8 @@ def update_quotation_cancelled():
             print(f"[ACTIVATE DEBUG] Attempting to send email for DOCKEY {dockey}")
             try:
                 # Fetch quotation details
-                print(f"[ACTIVATE DEBUG] Fetching quotation details from {BASE_API_URL}/php/getQuotationDetails.php")
-                qt_data, _qt = http_request_json(
-                    'GET',
-                    f"{BASE_API_URL}/php/getQuotationDetails.php",
-                    params={'dockey': dockey},
-                )
+                print(f"[ACTIVATE DEBUG] Fetching quotation details from Firebird (DOCKEY={dockey})")
+                qt_data = fetch_quotation_details_for_email(int(dockey))
                 print(f"[ACTIVATE DEBUG] Quotation details response success: {qt_data.get('success')}, has data: {bool(qt_data.get('data'))}")
                 
                 if qt_data.get('success') and qt_data.get('data'):
@@ -7652,11 +7648,7 @@ def api_admin_update_quotation():
     try:
         print(f"[EDIT DEBUG] Attempting to send email for DOCKEY {dockey}")
         print(f"[EDIT DEBUG] Fetching quotation details")
-        qt_data, _qt = http_request_json(
-            'GET',
-            f"{BASE_API_URL}/php/getQuotationDetails.php",
-            params={'dockey': dockey},
-        )
+        qt_data = fetch_quotation_details_for_email(int(dockey))
         print(f"[EDIT DEBUG] Quotation details response success: {qt_data.get('success')}, has data: {bool(qt_data.get('data'))}")
         
         if qt_data.get('success') and qt_data.get('data'):
