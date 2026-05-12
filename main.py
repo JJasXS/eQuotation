@@ -2605,24 +2605,6 @@ def proxy_get_order_remarks():
         log_context='getOrderRemarks'
     )
 
-@app.route('/php/insertDraftQuotation.php', methods=['POST'])
-def proxy_insert_draft_quotation():
-    """Proxy endpoint to create draft quotation via XAMPP PHP."""
-    return proxy_post_with_auth(
-        '/php/insertDraftQuotation.php',
-        error_message='Failed to create draft quotation',
-        log_context='insertDraftQuotation'
-    )
-
-@app.route('/php/updateDraftQuotation.php', methods=['POST'])
-def proxy_update_draft_quotation():
-    """Proxy endpoint to update draft quotation via XAMPP PHP."""
-    return proxy_post_with_auth(
-        '/php/updateDraftQuotation.php',
-        error_message='Failed to update draft quotation',
-        log_context='updateDraftQuotation'
-    )
-
 @app.route('/admin')
 def admin():
     """Display admin dashboard (full admin + sales management only)."""
@@ -7599,7 +7581,7 @@ def api_admin_save_pricing_priority_rules():
 @app.route('/api/admin/update_quotation', methods=['POST'])
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_update_quotation():
-    """Update quotation (admin only)."""
+    """Update quotation (admin only) via SQL Accounting API."""
     data = request.get_json() or {}
     dockey = data.get('dockey')
     
@@ -7609,10 +7591,32 @@ def api_admin_update_quotation():
     items = data.get('items', [])
     if not items:
         return jsonify({'success': False, 'error': 'At least one item is required'}), 400
-    
-    # Format data for PHP endpoint (must match updateDraftQuotation.php fields)
+
+    row = None
+    con = cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        cur.execute(
+            "SELECT TRIM(CODE) FROM SL_QT WHERE DOCKEY = ?",
+            (int(dockey),),
+        )
+        row = cur.fetchone()
+    except Exception as e:
+        print(f"Error resolving quotation customer for admin update: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
+
+    if not row or not str(row[0] or '').strip():
+        return jsonify({'success': False, 'error': 'Quotation not found'}), 404
+
+    customer_code = str(row[0]).strip()
     update_data = {
-        'dockey': dockey,
+        'dockey': int(dockey),
         'description': (data.get('description') or 'Quotation').strip(),
         'validUntil': data.get('validUntil'),
         'companyName': data.get('companyName'),
@@ -7625,59 +7629,60 @@ def api_admin_update_quotation():
     }
 
     try:
-        try:
-            result, _upd = http_request_json(
-                'POST',
-                f"{BASE_API_URL}/php/updateDraftQuotation.php",
-                json=update_data,
-            )
-        except ValueError:
-            return jsonify({
-                'success': False,
-                'error': 'Invalid response from quotation service',
-            }), 502
-        print(f"[EDIT DEBUG] UpdateDraftQuotation response success: {result.get('success')}")
+        result = create_or_update_quotation(BASE_API_URL, customer_code, update_data)
+    except Exception as exc:
+        print(f"Error updating quotation via SQL API: {exc}")
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+    if not result.get('success'):
+        err_code = result.get('errorCode')
+        http_status = 504 if err_code == 'SQL_API_TIMEOUT' else 500
+        body = {
+            'success': False,
+            'error': result.get('error', 'Failed to update quotation'),
+        }
+        if err_code:
+            body['errorCode'] = err_code
+        if result.get('detail'):
+            body['detail'] = result.get('detail')
+        return jsonify(body), http_status
+
+    print(f"[EDIT DEBUG] SQL API quotation update success for DOCKEY {dockey}")
+
+    try:
+        print(f"[EDIT DEBUG] Attempting to send email for DOCKEY {dockey}")
+        print(f"[EDIT DEBUG] Fetching quotation details")
+        qt_data, _qt = http_request_json(
+            'GET',
+            f"{BASE_API_URL}/php/getQuotationDetails.php",
+            params={'dockey': dockey},
+        )
+        print(f"[EDIT DEBUG] Quotation details response success: {qt_data.get('success')}, has data: {bool(qt_data.get('data'))}")
         
-        # If update successful, send email to customer
-        if result.get('success'):
-            print(f"[EDIT DEBUG] Attempting to send email for DOCKEY {dockey}")
-            try:
-                # Fetch quotation details
-                print(f"[EDIT DEBUG] Fetching quotation details")
-                qt_data, _qt = http_request_json(
-                    'GET',
-                    f"{BASE_API_URL}/php/getQuotationDetails.php",
-                    params={'dockey': dockey},
-                )
-                print(f"[EDIT DEBUG] Quotation details response success: {qt_data.get('success')}, has data: {bool(qt_data.get('data'))}")
-                
-                if qt_data.get('success') and qt_data.get('data'):
-                    quotation = qt_data['data']
-                    customer_email = quotation.get('UDF_EMAIL', '').strip()
-                    print(f"[EDIT DEBUG] Customer email: '{customer_email}'")
-                    
-                    if customer_email:
-                        print(f"[EDIT DEBUG] Sending email to {customer_email}")
-                        email_sent = send_quotation_ready_email_direct({
-                            'customerEmail': customer_email,
-                            'docno': quotation.get('DOCNO', 'N/A'),
-                            'dockey': dockey,
-                            'totalAmount': quotation.get('DOCAMT', 0),
-                            'items': quotation.get('items', []),
-                            'companyName': quotation.get('COMPANYNAME', 'Valued Customer'),
-                        })
-                        if not email_sent:
-                            print(f"[EMAIL WARNING] Failed to send update email for DOCKEY {dockey}")
-                    else:
-                        print(f"[EMAIL] No customer email found for DOCKEY {dockey}")
-            except Exception as email_error:
-                # Don't fail the update if email fails
-                print(f"[EMAIL ERROR] Failed to send update email: {email_error}")
-        
-        return jsonify(result)
-    except Exception as e:
-        print(f"Error updating quotation: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        if qt_data.get('success') and qt_data.get('data'):
+            quotation = qt_data['data']
+            customer_email = quotation.get('UDF_EMAIL', '').strip()
+            print(f"[EDIT DEBUG] Customer email: '{customer_email}'")
+            
+            if customer_email:
+                print(f"[EDIT DEBUG] Sending email to {customer_email}")
+                email_sent = send_quotation_ready_email_direct({
+                    'customerEmail': customer_email,
+                    'docno': quotation.get('DOCNO', 'N/A'),
+                    'dockey': dockey,
+                    'totalAmount': quotation.get('DOCAMT', 0),
+                    'items': quotation.get('items', []),
+                    'companyName': quotation.get('COMPANYNAME', 'Valued Customer'),
+                })
+                if not email_sent:
+                    print(f"[EMAIL WARNING] Failed to send update email for DOCKEY {dockey}")
+            else:
+                print(f"[EMAIL] No customer email found for DOCKEY {dockey}")
+    except Exception as email_error:
+        # Don't fail the update if email fails
+        print(f"[EMAIL ERROR] Failed to send update email: {email_error}")
+
+    return jsonify(result)
 
 
 def _customer_info_has_meaningful_data(info):

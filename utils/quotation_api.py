@@ -309,6 +309,45 @@ def _format_qt_docno(sequence: int) -> str:
     return f"QT-{sequence:05d}"
 
 
+def _read_sl_qt_header_for_sales_api(dockey: int) -> dict:
+    """Load CODE, DOCNO and UPDATECOUNT from SL_QT for SQL Accounting salesquotation updates."""
+    out: dict = {"code": "", "docno": "", "updatecount": None}
+    if dockey <= 0:
+        return out
+    try:
+        from utils import get_db_connection
+    except ImportError:
+        return out
+    con = cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        cur.execute(
+            "SELECT TRIM(CODE), TRIM(DOCNO), UPDATECOUNT FROM SL_QT WHERE DOCKEY = ?",
+            (int(dockey),),
+        )
+        row = cur.fetchone()
+        if not row:
+            return out
+        if row[0] is not None:
+            out["code"] = str(row[0]).strip()
+        if row[1] is not None:
+            out["docno"] = str(row[1]).strip()
+        if row[2] is not None:
+            try:
+                out["updatecount"] = int(row[2])
+            except (TypeError, ValueError):
+                pass
+    except Exception:
+        return out
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
+    return out
+
+
 def _read_qt_sequences_from_db(limit: int = 2000) -> tuple[int, set[int]]:
     """Return (max_seq, existing_seq_set) for DOCNO values matching QT-%.5d."""
     db_path = (os.getenv("DB_PATH") or "").strip()
@@ -394,6 +433,13 @@ def _is_unique_docno_error(status: int, parsed, raw: str) -> bool:
 
 
 def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
+    header_dockey = int(data.get("dockey") or data.get("docKey") or 0)
+    uc_raw = data.get("updatecount") if data.get("updatecount") is not None else data.get("updateCount")
+    try:
+        updatecount_val = int(uc_raw) if uc_raw is not None and str(uc_raw).strip() != "" else 0
+    except (TypeError, ValueError):
+        updatecount_val = 0
+
     today = date.today().isoformat()
     valid_until = str(data.get("validUntil") or data.get("validity") or "").strip()
     if not valid_until:
@@ -459,7 +505,7 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
 
         row = {
                 "dtlkey": 0,
-                "dockey": 0,
+                "dockey": header_dockey,
                 # SQL Accounting expects detail SEQ in 1000-steps (1000, 2000, …). seq=1,2 leaves ITEMCODE unset in SL_QTDTL.
                 "seq": idx * 1000,
                 "styleid": "",
@@ -518,7 +564,7 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
             raise ValueError(f"Quotation line {i} has no itemcode ({row.get('description')!r}). {hint}")
 
     return {
-        "dockey": 0,
+        "dockey": header_dockey,
         "docno": doc_no,
         "docnoex": "",
         "docdate": doc_date,
@@ -584,7 +630,7 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
         "submissiontype": 0,
         "note": "",
         "approvestate": "",
-        "updatecount": 0,
+        "updatecount": updatecount_val,
         "transferable": False,
         "printcount": 0,
         "lastmodified": 0,
@@ -598,12 +644,40 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
 
 
 def create_or_update_quotation(base_api_url, customer_code, data):
-    """Create quotation via SQL Accounting API salesquotation endpoint.
+    """Create or update a quotation via SQL Accounting API /salesquotation.
+
+    When ``dockey`` / ``docKey`` is set, DOCNO and UPDATECOUNT are read from ``SL_QT``
+    so the upstream document is updated in place.
 
     Returns a dict compatible with Flask caller expectations.
     """
     if not customer_code:
         return {"success": False, "error": "Customer code not found in session"}
+
+    data = dict(data or {})
+    upd_dockey = int(data.get("dockey") or data.get("docKey") or 0)
+    if upd_dockey:
+        hb = _read_sl_qt_header_for_sales_api(upd_dockey)
+        db_docno = str(hb.get("docno") or "").strip()
+        if not db_docno:
+            return {
+                "success": False,
+                "error": f"Quotation DOCKEY {upd_dockey} not found in SL_QT (or DOCNO missing).",
+            }
+        db_code = str(hb.get("code") or "").strip()
+        sess_code = str(customer_code or "").strip()
+        if db_code and sess_code and db_code != sess_code:
+            return {
+                "success": False,
+                "error": "Quotation does not belong to the signed-in customer (CODE mismatch).",
+            }
+        data["docno"] = db_docno
+        if (
+            data.get("updatecount") is None
+            and data.get("updateCount") is None
+            and hb.get("updatecount") is not None
+        ):
+            data["updatecount"] = hb["updatecount"]
 
     items = data.get("items") or []
     if not items:
