@@ -9,18 +9,36 @@ from utils.db_utils import build_firebird_dsn
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "../../.env"))
 
-DB_PATH = os.getenv("DB_PATH")
-DB_HOST = os.getenv("DB_HOST")
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
-
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 
 def _connect_db():
-    if not DB_PATH or not DB_USER or DB_PASSWORD is None:
-        raise HTTPException(status_code=500, detail="Database credentials are not fully configured.")
-    return fdb.connect(dsn=build_firebird_dsn(DB_PATH, DB_HOST), user=DB_USER, password=DB_PASSWORD, charset="UTF8")
+    db_path = (os.getenv("DB_PATH") or "").strip()
+    db_host = (os.getenv("DB_HOST") or "").strip()
+    db_user = (os.getenv("DB_USER") or "").strip()
+    db_password = os.getenv("DB_PASSWORD")
+    missing: list[str] = []
+    if not db_path:
+        missing.append("DB_PATH")
+    if not db_user:
+        missing.append("DB_USER")
+    if db_password is None:
+        missing.append("DB_PASSWORD")
+    if missing:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Database credentials are not fully configured. "
+                f"Missing or empty: {', '.join(missing)}. "
+                "Set them in .env or appsettings.Local.json, or ensure TENANT_CODE + tenant database fields load."
+            ),
+        )
+    return fdb.connect(
+        dsn=build_firebird_dsn(db_path, db_host or None),
+        user=db_user,
+        password=db_password,
+        charset="UTF8",
+    )
 
 
 def _sales_cycle_cte_sql() -> str:
