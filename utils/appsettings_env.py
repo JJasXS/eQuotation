@@ -8,6 +8,11 @@ Load order for minimal ``.env`` (e.g. only ``TENANT_CODE``):
 1. ``apply_appsettings_to_environ()``
 2. ``load_dotenv(..., override=False)`` so ``.env`` only fills gaps / adds tenant code
 3. ``apply_tenant_env_overrides()`` for Dynamo + Secrets Manager
+
+``EmailSettings`` (same shape as ProAccScanner ``appsettings.json``) is flattened to
+``EmailSettings__SmtpHost``, etc., then copied into ``SMTP_SERVER`` / ``SMTP_PORT`` /
+``SMTP_EMAIL`` / ``SMTP_PASSWORD`` / ``SMTP_SENDER_NAME`` when those are still empty
+(legacy root ``SMTP_*`` keys still win if present).
 """
 from __future__ import annotations
 
@@ -44,6 +49,32 @@ def _flatten_to_override(prefix: str, node: Any) -> None:
         os.environ[prefix] = str(node)
 
 
+def _apply_email_settings_to_smtp_env() -> None:
+    """
+    Map ProAccScanner-style ``EmailSettings`` section into ``SMTP_*`` used by ``main.py`` / ``email_utils``.
+
+    Flattening produces ``EmailSettings__SmtpHost``, ``EmailSettings__SmtpUser``, etc.
+    Only fills ``SMTP_*`` when the target is missing or blank so explicit env/root keys win.
+    """
+    host = (os.getenv("EmailSettings__SmtpHost") or "").strip()
+    port = (os.getenv("EmailSettings__SmtpPort") or "").strip()
+    user = (os.getenv("EmailSettings__SmtpUser") or "").strip()
+    pass_raw = os.getenv("EmailSettings__SmtpPass")
+    pass_str = "" if pass_raw is None else str(pass_raw).strip()
+    sender = (os.getenv("EmailSettings__SenderName") or "").strip()
+
+    if not (os.getenv("SMTP_SERVER") or "").strip() and host:
+        os.environ["SMTP_SERVER"] = host
+    if not (os.getenv("SMTP_PORT") or "").strip() and port:
+        os.environ["SMTP_PORT"] = port
+    if not (os.getenv("SMTP_EMAIL") or "").strip() and user:
+        os.environ["SMTP_EMAIL"] = user
+    if not (os.getenv("SMTP_PASSWORD") or "").strip() and pass_str:
+        os.environ["SMTP_PASSWORD"] = pass_str
+    if not (os.getenv("SMTP_SENDER_NAME") or "").strip() and sender:
+        os.environ["SMTP_SENDER_NAME"] = sender
+
+
 def apply_appsettings_to_environ(*, project_root: Path | None = None) -> bool:
     """
     Merge ``appsettings.json`` (and optional ``appsettings.Local.json``) into the environment.
@@ -75,6 +106,7 @@ def apply_appsettings_to_environ(*, project_root: Path | None = None) -> bool:
             loaded = True
 
     if loaded:
+        _apply_email_settings_to_smtp_env()
         region = (os.getenv("AWS__Region") or "").strip()
         if region and not (os.getenv("AWS_REGION") or "").strip():
             os.environ.setdefault("AWS_REGION", region)

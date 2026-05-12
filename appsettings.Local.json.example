@@ -1,11 +1,14 @@
 {
-  "__comment": "Copy to appsettings.Local.json (gitignored). Used when AWS credentials are missing: tenant bootstrap skips Secrets Manager reads if these vars are already set. Also works with TENANT_BOOTSTRAP_SKIP_SECRETS=1. Firebird: set DB_PASSWORD (and override DB_USER/DB_HOST if needed).",
+  "__comment": "Copy to appsettings.Local.json (gitignored). Optional ProAccScanner-style block: EmailSettings { SmtpUser, SmtpPass, ... } (same as appsettings.json) overrides and maps to SMTP_*.",
   "DB_PASSWORD": "",
+  "EmailSettings": {
+    "SmtpUser": "your.sender@gmail.com",
+    "SmtpPass": "your-gmail-app-password"
+  },
   "SQL_API_ACCESS_KEY": "",
   "SQL_API_SECRET_KEY": "",
   "API_ACCESS_KEY": "",
   "API_SECRET_KEY": "",
   "OPENAI_API_KEY": "",
-  "OPENAI_MODEL": "gpt-4o-mini",
-  "SMTP_PASSWORD": ""
+  "OPENAI_MODEL": "gpt-4o-mini"
 }
