@@ -59,7 +59,7 @@ class SqlAccountingApiError(Exception):
 
 
 class SqlAccountingApiClient:
-    """POST JSON payloads to API Gateway with AWS SigV4 (execute-api)."""
+    """SigV4-signed JSON HTTP calls to SQL Accounting API Gateway (POST and GET)."""
 
     def __init__(self, settings: SqlAccountingApiSettings) -> None:
         self._settings = settings
@@ -77,7 +77,7 @@ class SqlAccountingApiClient:
             read=0,
             backoff_factor=0.3,
             status_forcelist=(429, 502, 503, 504),
-            allowed_methods=frozenset({"POST"}),
+            allowed_methods=frozenset({"POST", "GET"}),
             raise_on_status=False,
         )
         adapter = HTTPAdapter(max_retries=retries)
@@ -109,6 +109,27 @@ class SqlAccountingApiClient:
         return self._session.post(
             prepared.url,
             data=prepared.body,
+            headers=dict(prepared.headers),
+            timeout=timeout,
+        )
+
+    def _sign_and_get(
+        self,
+        url: str,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> requests.Response:
+        creds = Credentials(self._settings.access_key, self._settings.secret_key)
+        aws_request = AWSRequest(method="GET", url=url)
+        SigV4Auth(creds, self._settings.service, self._settings.region).add_auth(aws_request)
+        prepared = aws_request.prepare()
+        timeout = (
+            timeout_seconds
+            if timeout_seconds is not None
+            else self._settings.timeout_seconds
+        )
+        return self._session.get(
+            prepared.url,
             headers=dict(prepared.headers),
             timeout=timeout,
         )
@@ -192,6 +213,78 @@ class SqlAccountingApiClient:
         assert last_exc is not None
         raise SqlAccountingApiError(
             f"SQL Accounting API request failed after retries: {last_exc}",
+            status_code=None,
+            response_body=None,
+        ) from last_exc
+
+    def get_json(
+        self,
+        url: str,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> tuple[int, dict[str, Any] | list[Any] | None, str]:
+        """
+        Send a signed GET; parse JSON object or array when possible.
+
+        Returns:
+            (http_status, parsed_json_or_none, raw_response_text)
+        """
+        last_exc: Exception | None = None
+        attempts = self._settings.max_retries + 1
+        for attempt in range(attempts):
+            try:
+                resp = self._sign_and_get(url, timeout_seconds=timeout_seconds)
+                text = resp.text or ""
+                parsed: dict[str, Any] | list[Any] | None = None
+                if text:
+                    try:
+                        parsed_any: Any = json.loads(text)
+                        if isinstance(parsed_any, dict) or isinstance(parsed_any, list):
+                            parsed = parsed_any
+                    except json.JSONDecodeError:
+                        parsed = None
+                return resp.status_code, parsed, text
+            except requests.exceptions.ReadTimeout as exc:
+                last_exc = exc
+                logger.warning("SQL Accounting API read timeout on GET (%s) — not retrying", exc)
+                break
+            except requests.exceptions.ConnectionError as exc:
+                if _is_read_timeout_transport_error(exc):
+                    last_exc = exc
+                    logger.warning(
+                        "SQL Accounting API read timeout (ConnectionError wrapper) on GET — not retrying: %s",
+                        exc,
+                    )
+                    break
+                last_exc = exc
+                if attempt >= attempts - 1:
+                    break
+                wait = 0.3 * (2**attempt)
+                logger.warning(
+                    "SQL Accounting API transport error on GET (%s), retry %s/%s after %.1fs",
+                    exc,
+                    attempt + 1,
+                    self._settings.max_retries,
+                    wait,
+                )
+                time.sleep(wait)
+            except requests.exceptions.Timeout as exc:
+                last_exc = exc
+                if attempt >= attempts - 1:
+                    break
+                wait = 0.3 * (2**attempt)
+                logger.warning(
+                    "SQL Accounting API transport error on GET (%s), retry %s/%s after %.1fs",
+                    exc,
+                    attempt + 1,
+                    self._settings.max_retries,
+                    wait,
+                )
+                time.sleep(wait)
+
+        assert last_exc is not None
+        raise SqlAccountingApiError(
+            f"SQL Accounting API GET failed after retries: {last_exc}",
             status_code=None,
             response_body=None,
         ) from last_exc

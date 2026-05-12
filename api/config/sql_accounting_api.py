@@ -45,6 +45,7 @@ class SqlAccountingApiSettings:
     service: str
     customer_create_path: str
     quotation_create_path: str
+    stock_item_list_path: str
     use_tls: bool
     timeout_seconds: float
     max_retries: int
@@ -61,6 +62,15 @@ class SqlAccountingApiSettings:
         # Path is used as-is; query strings are not expected for this endpoint.
         return f"{scheme}://{host}{quote(path, safe='/:?&=%')}"
 
+    def resolved_stock_item_list_url(self) -> str:
+        """Full URL for stock item list GET (SQL Accounting ``/stockitem`` style APIs)."""
+        scheme = "https" if self.use_tls else "http"
+        host = self.host.strip().rstrip("/")
+        path = (self.stock_item_list_path or "").strip()
+        if not path.startswith("/"):
+            path = "/" + path
+        return f"{scheme}://{host}{quote(path, safe='/:?&=%*')}"
+
     def resolved_quotation_create_url(self) -> str:
         """Full URL for sales quotation create POST."""
         scheme = "https" if self.use_tls else "http"
@@ -75,8 +85,8 @@ def load_sql_accounting_api_settings() -> SqlAccountingApiSettings:
     """
     Load settings from the environment.
 
-    Required for live calls (``SQL_API_DRY_RUN`` false): ``SQL_API_ACCESS_KEY``,
-    ``SQL_API_SECRET_KEY``, and ``SQL_API_CUSTOMER_CREATE_PATH`` (see validation in service).
+    Optional: ``SQL_API_STOCK_ITEM_LIST_PATH`` (e.g. ``/stockitem``) enables SigV4 GET for the stock catalog
+    used by ``/api/get_stock_items`` and chat (same host/keys as quotation).
     """
     access_key = (os.getenv("SQL_API_ACCESS_KEY") or "").strip()
     secret_key = (os.getenv("SQL_API_SECRET_KEY") or "").strip()
@@ -85,6 +95,7 @@ def load_sql_accounting_api_settings() -> SqlAccountingApiSettings:
     service = (os.getenv("SQL_API_SERVICE") or "execute-api").strip()
     path = (os.getenv("SQL_API_CUSTOMER_CREATE_PATH") or "").strip()
     quotation_path = (os.getenv("SQL_API_SALES_QUOTATION_PATH") or "/salesquotation").strip()
+    stock_item_list_path = (os.getenv("SQL_API_STOCK_ITEM_LIST_PATH") or "").strip()
     use_tls = _truthy("SQL_API_USE_TLS", True)
     timeout_seconds = _float("SQL_API_TIMEOUT_SECONDS", 30.0)
     max_retries = max(0, _int("SQL_API_MAX_RETRIES", 3))
@@ -99,6 +110,7 @@ def load_sql_accounting_api_settings() -> SqlAccountingApiSettings:
         service=service,
         customer_create_path=path,
         quotation_create_path=quotation_path,
+        stock_item_list_path=stock_item_list_path,
         use_tls=use_tls,
         timeout_seconds=timeout_seconds,
         max_retries=max_retries,
@@ -115,6 +127,7 @@ def redact_settings_for_log(settings: SqlAccountingApiSettings) -> dict[str, Any
         "service": settings.service,
         "customer_create_path": settings.customer_create_path or "(empty)",
         "quotation_create_path": settings.quotation_create_path or "(empty)",
+        "stock_item_list_path": settings.stock_item_list_path or "(empty)",
         "use_tls": settings.use_tls,
         "timeout_seconds": settings.timeout_seconds,
         "max_retries": settings.max_retries,

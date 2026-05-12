@@ -199,7 +199,10 @@ function buildQuotationPayload() {
         // SQL Accounting /salesquotation expects ST_ITEM.CODE on lines; description-only rows can be very slow upstream.
         let itemCode = '';
         if (source === 'catalog') {
-            itemCode = resolveCatalogItemCodeFromDescription(product) || '';
+            const prodEl = item.querySelector('.item-product');
+            const opt = prodEl && prodEl.tagName === 'SELECT' ? prodEl.selectedOptions[0] : null;
+            const fromOpt = opt && opt.getAttribute('data-stock-code');
+            itemCode = (fromOpt && String(fromOpt).trim()) || resolveCatalogItemCodeFromDescription(product) || '';
         }
 
         if (product && qty > 0 && price >= 0) {
@@ -542,8 +545,15 @@ function populateProductSelect(selectElement) {
     
     availableProducts.forEach(item => {
         const option = document.createElement('option');
-        option.value = item.DESCRIPTION || item.CODE;
-        option.textContent = item.DESCRIPTION || item.CODE;
+        const rawCode = item.CODE ?? item.code ?? item.StockCode ?? item.stockCode ?? '';
+        const code = rawCode != null ? String(rawCode).trim() : '';
+        const rawDesc = item.DESCRIPTION ?? item.description ?? item.Description ?? '';
+        const desc = rawDesc != null ? String(rawDesc).trim() : '';
+        option.value = desc || code;
+        option.textContent = desc ? (code ? `${desc} (${code})` : desc) : code;
+        if (code) {
+            option.setAttribute('data-stock-code', code);
+        }
         selectElement.appendChild(option);
     });
     
@@ -554,17 +564,27 @@ function populateProductSelect(selectElement) {
 }
 
 function resolveCatalogItemCodeFromDescription(description) {
-    const d = String(description || '').trim();
+    const d = String(description || '').trim().replace(/\s+/g, ' ');
     if (!d || !availableProducts.length) {
         return '';
     }
+    const norm = (s) => String(s || '').trim().replace(/\s+/g, ' ');
+    const codeOf = (p) => {
+        const c = p.CODE ?? p.code ?? p.StockCode ?? p.stockCode;
+        return c != null ? String(c).trim() : '';
+    };
+    const descOf = (p) => {
+        const x = p.DESCRIPTION ?? p.description ?? p.Description;
+        return x != null ? String(x).trim() : '';
+    };
     const hit = availableProducts.find(
         (p) =>
-            (p.DESCRIPTION && String(p.DESCRIPTION).trim() === d) ||
-            (p.CODE && String(p.CODE).trim() === d)
+            (descOf(p) && norm(descOf(p)) === d) ||
+            (codeOf(p) && norm(codeOf(p)) === d)
     );
-    if (hit && hit.CODE != null && String(hit.CODE).trim() !== '') {
-        return String(hit.CODE).trim();
+    const resolved = hit ? codeOf(hit) : '';
+    if (resolved) {
+        return resolved;
     }
     return '';
 }
@@ -593,7 +613,10 @@ function refreshQuotationMiniItemCodes() {
         if (!desc) {
             return;
         }
-        const code = resolveCatalogItemCodeFromDescription(desc);
+        const opt = sel.selectedOptions[0];
+        const fromAttr = opt && opt.getAttribute('data-stock-code');
+        const code =
+            (fromAttr && String(fromAttr).trim()) || resolveCatalogItemCodeFromDescription(desc);
         if (code) {
             parts.push(code);
         }
@@ -989,8 +1012,12 @@ async function loadDraftQuotation(dockey) {
                     populateProductSelect(productSelect);
                     if (!isCustom && item.DESCRIPTION) {
                         const option = document.createElement('option');
+                        const ic = (item.ITEMCODE != null && String(item.ITEMCODE).trim()) ? String(item.ITEMCODE).trim() : '';
                         option.value = item.DESCRIPTION;
-                        option.textContent = item.DESCRIPTION;
+                        option.textContent = ic ? `${item.DESCRIPTION} (${ic})` : item.DESCRIPTION;
+                        if (ic) {
+                            option.setAttribute('data-stock-code', ic);
+                        }
                         option.selected = true;
                         productSelect.appendChild(option);
                     }
@@ -1108,7 +1135,10 @@ async function loadSlQtDraftForEdit(draftDockey) {
                     }
                     const option = document.createElement('option');
                     option.value = rowLabel;
-                    option.textContent = rowLabel;
+                    option.textContent = savedCode ? `${rowLabel} (${savedCode})` : rowLabel;
+                    if (savedCode) {
+                        option.setAttribute('data-stock-code', savedCode);
+                    }
                     option.selected = true;
                     productSelect.appendChild(option);
                     productSelect.value = rowLabel;

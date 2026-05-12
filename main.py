@@ -3058,8 +3058,8 @@ def chat_api():
     if chatid:
         chat_history = get_chat_history(chatid, user_email)
     
-    # Stock catalog: PHP bridge (BASE_API_URL) when available; else same Firebird as /api/get_stock_items
-    stockitems = fetch_data_from_api("stockitem")
+    # Stock catalog: same source as /api/get_stock_items (SQL API → PHP → Firebird).
+    stockitems = _fetch_stock_items_cached()
     stockitemprices = fetch_data_from_api("stockitemprice")
     if not stockitems or not stockitemprices:
         con_fb = None
@@ -3669,34 +3669,16 @@ def check_user_has_draft():
             pass
 
 def _fetch_stock_items_cached_uncached():
-    """Fetch stock items from PHP bridge first, fallback to Firebird. Used through cache below."""
-    api_items = fetch_data_from_api("stockitem")
-    if isinstance(api_items, list) and api_items:
-        return api_items
+    """Stock catalog: SQL Accounting GET (optional) → PHP → Firebird. See ``utils.stock_items_catalog``."""
+    from utils.stock_items_catalog import fetch_stock_items_catalog_uncached
 
-    con = None
-    cur = None
-    try:
-        con = get_db_connection()
-        cur = con.cursor()
-        return fetch_stock_items(cur)
-    finally:
-        try:
-            if cur:
-                cur.close()
-        except Exception:
-            pass
-        try:
-            if con:
-                con.close()
-        except Exception:
-            pass
+    return fetch_stock_items_catalog_uncached()
 
 
 def _fetch_stock_items_cached():
     """TTL-cached stock items list. Same TTL as customer/supplier master cache."""
     return sql_api_master_cache.get_or_load(
-        ('sql_api', 'stock_items', 'all_v1'),
+        ('sql_api', 'stock_items', 'all_v3'),
         _fetch_stock_items_cached_uncached,
         ttl_seconds=_sql_api_master_cache_ttl_seconds(),
     )
@@ -3707,9 +3689,8 @@ def _fetch_stock_items_cached():
 def api_get_stock_items():
     """Get stock items for autocomplete in order/quotation forms.
 
-    Prefers the PHP stockitem endpoint (includes nested UOM rows like sdsuom), and
-    falls back to direct Firebird ST_ITEM when the PHP bridge is unavailable.
-    Result is TTL-cached in process memory.
+    Prefers SQL Accounting stock list GET when ``SQL_API_STOCK_ITEM_LIST_PATH`` is set,
+    else PHP ``stockitem``, else Firebird ``ST_ITEM``. Cached in process memory.
     """
     try:
         return jsonify({'success': True, 'items': _fetch_stock_items_cached()})
@@ -6775,7 +6756,7 @@ def api_create_quotation():
     """Create or update a quotation in the accounting system (SL_QT)"""
     if not can_access_create_quotation(session):
         return jsonify({'success': False, 'error': 'Forbidden'}), 403
-    customer_code = session.get('customer_code')
+    customer_code = get_current_customer_code(resolve_missing=True) or session.get('customer_code')
     data = request.get_json() or {}
     dockey = data.get('dockey', None)  # If present, update existing quotation
     draft_dockey = data.get('draftDockey', None)

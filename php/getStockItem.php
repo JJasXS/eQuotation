@@ -8,7 +8,8 @@ $dbh = null;
 try {
     $dbh = getFirebirdConnection();
     // Fetch only columns that exist on this DB to avoid runtime SQL failures across versions.
-    $wantedColumns = ['DESCRIPTION', 'STOCKGROUP', 'REMARK1', 'REMARK2', 'UDF_STDPRICE', 'UDF_MOQ', 'UDF_DLEADTIME', 'UDF_BUNDLE'];
+    // CODE is required for quotation/order UIs (data-stock-code → SQL /salesquotation ST_ITEM.CODE).
+    $wantedColumns = ['CODE', 'DESCRIPTION', 'STOCKGROUP', 'REMARK1', 'REMARK2', 'UDF_STDPRICE', 'UDF_MOQ', 'UDF_DLEADTIME', 'UDF_BUNDLE'];
     $metaStmt = $dbh->prepare('SELECT TRIM(RF.RDB$FIELD_NAME) AS COL FROM RDB$RELATION_FIELDS RF WHERE RF.RDB$RELATION_NAME = \'ST_ITEM\'');
     $metaStmt->execute();
     $existing = $metaStmt->fetchAll(PDO::FETCH_COLUMN);

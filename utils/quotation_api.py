@@ -3,7 +3,7 @@
 import json
 import os
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 import random
 
@@ -34,6 +34,226 @@ def _float_env(name: str, default: float) -> float:
         return float(raw)
     except ValueError:
         return default
+
+
+def _quotation_fallback_item_code() -> str:
+    """Stock code used when a line has no code (custom text / unresolved catalog). Must exist in ST_ITEM on the SQL API DB."""
+    return (os.getenv("SQL_API_QUOTATION_FALLBACK_ITEM_CODE") or "").strip()
+
+
+def _normalize_item_code(value: str) -> str:
+    """Collapse whitespace; ST_ITEM.CODE may contain spaces (e.g. ``SEMI BOM``)."""
+    s = (value or "").strip()
+    return re.sub(r"\s+", " ", s) if s else ""
+
+
+def _default_quotation_line_location() -> str:
+    return (os.getenv("SQL_API_QUOTATION_DEFAULT_LOCATION") or "----").strip() or "----"
+
+
+def _default_quotation_line_uom() -> str:
+    return (os.getenv("SQL_API_QUOTATION_DEFAULT_UOM") or "UNIT").strip() or "UNIT"
+
+
+def _default_quotation_line_project() -> str:
+    return (os.getenv("SQL_API_QUOTATION_DEFAULT_PROJECT") or "----").strip() or "----"
+
+
+def _default_quotation_line_irbm() -> str:
+    """Optional IRBM classification for all lines when ST_ITEM has none (Malaysia e-invoicing)."""
+    return (os.getenv("SQL_API_QUOTATION_DEFAULT_IRBM") or "").strip()
+
+
+def _lookup_st_item_uom_irbm(item_code: str, memo: dict[str, tuple[str, str]]) -> tuple[str, str]:
+    """Read ST_ITEM.UOM and IRBM_CLASSIFICATION from local DB when DB_PATH is set."""
+    key = _normalize_item_code(item_code).upper()
+    if not key:
+        return "", ""
+    if key in memo:
+        return memo[key]
+    db_path = (os.getenv("DB_PATH") or "").strip()
+    if not db_path:
+        memo[key] = ("", "")
+        return memo[key]
+    db_host = (os.getenv("DB_HOST") or "").strip()
+    db_user = (os.getenv("DB_USER") or "sysdba").strip()
+    db_password = (os.getenv("DB_PASSWORD") or "masterkey").strip()
+    uom, irbm = "", ""
+    try:
+        import fdb
+
+        dsn = db_path if not db_host else f"{db_host}:{db_path}"
+        con = fdb.connect(dsn=dsn, user=db_user, password=db_password, charset="UTF8")
+        cur = con.cursor()
+        try:
+            try:
+                cur.execute(
+                    "SELECT TRIM(COALESCE(IRBM_CLASSIFICATION, '')) FROM ST_ITEM WHERE TRIM(UPPER(CODE)) = TRIM(UPPER(?))",
+                    (item_code.strip(),),
+                )
+                row = cur.fetchone()
+                if row and row[0] is not None:
+                    irbm = str(row[0]).strip()
+            except Exception:
+                pass
+            try:
+                cur.execute(
+                    "SELECT TRIM(COALESCE(UOM, '')) FROM ST_ITEM WHERE TRIM(UPPER(CODE)) = TRIM(UPPER(?))",
+                    (item_code.strip(),),
+                )
+                row = cur.fetchone()
+                if row and row[0] is not None:
+                    uom = str(row[0]).strip()
+            except Exception:
+                pass
+            if not uom:
+                try:
+                    cur.execute(
+                        "SELECT FIRST 1 TRIM(UOM) FROM ST_ITEM_UOM WHERE TRIM(UPPER(CODE)) = TRIM(UPPER(?))",
+                        (item_code.strip(),),
+                    )
+                    row = cur.fetchone()
+                    if row and row[0] is not None:
+                        uom = str(row[0]).strip()
+                except Exception:
+                    pass
+        finally:
+            cur.close()
+            con.close()
+    except Exception:
+        pass
+    memo[key] = (uom, irbm)
+    return memo[key]
+
+
+def _local_itemcode_lookup_enabled() -> bool:
+    raw = (os.getenv("SQL_API_QUOTATION_LOCAL_ITEMCODE_LOOKUP") or "true").strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
+def _resolve_item_code_from_local_db(description_or_code: str) -> str:
+    """Match ST_ITEM.CODE when the UI sent a description (or code) but JS did not resolve a code."""
+    if not _local_itemcode_lookup_enabled():
+        return ""
+    needle = (description_or_code or "").strip()
+    if not needle:
+        return ""
+    db_path = (os.getenv("DB_PATH") or "").strip()
+    if not db_path:
+        return ""
+    db_host = (os.getenv("DB_HOST") or "").strip()
+    db_user = (os.getenv("DB_USER") or "sysdba").strip()
+    db_password = (os.getenv("DB_PASSWORD") or "masterkey").strip()
+    try:
+        import fdb
+
+        dsn = db_path if not db_host else f"{db_host}:{db_path}"
+        con = fdb.connect(dsn=dsn, user=db_user, password=db_password, charset="UTF8")
+        cur = con.cursor()
+        try:
+            cur.execute(
+                "SELECT FIRST 1 TRIM(CODE) FROM ST_ITEM WHERE TRIM(UPPER(CODE)) = TRIM(UPPER(?))",
+                (needle,),
+            )
+            row = cur.fetchone()
+            if row and row[0] and str(row[0]).strip():
+                return str(row[0]).strip()
+            cur.execute(
+                "SELECT FIRST 1 TRIM(CODE) FROM ST_ITEM WHERE TRIM(UPPER(DESCRIPTION)) = TRIM(UPPER(?))",
+                (needle,),
+            )
+            row = cur.fetchone()
+            if row and row[0] and str(row[0]).strip():
+                return str(row[0]).strip()
+            # Optional: substring match when description in UI differs slightly from ST_ITEM.
+            fuzz = (os.getenv("SQL_API_QUOTATION_LOCAL_ITEMCODE_CONTAINING") or "").strip().lower()
+            if fuzz in ("1", "true", "yes", "on") and len(needle) >= 6:
+                cur.execute(
+                    """
+                    SELECT FIRST 1 TRIM(CODE)
+                    FROM ST_ITEM
+                    WHERE TRIM(UPPER(DESCRIPTION)) CONTAINING TRIM(UPPER(?))
+                    ORDER BY CHAR_LENGTH(TRIM(DESCRIPTION))
+                    """,
+                    (needle,),
+                )
+                row = cur.fetchone()
+                if row and row[0] and str(row[0]).strip():
+                    return str(row[0]).strip()
+        finally:
+            cur.close()
+            con.close()
+        return ""
+    except Exception:
+        return ""
+
+
+def _local_precheck_quotation(customer_code: str, payload: dict) -> str | None:
+    """
+    When DB_PATH is set, verify customer and line stock codes exist in local Firebird.
+    Catches many 'Operation aborted' cases before calling the SQL API (same company file only).
+    Set SQL_API_QUOTATION_LOCAL_PRECHECK=false to skip.
+    """
+    raw = (os.getenv("SQL_API_QUOTATION_LOCAL_PRECHECK") or "true").strip().lower()
+    if raw in ("0", "false", "no", "off"):
+        return None
+    db_path = (os.getenv("DB_PATH") or "").strip()
+    if not db_path:
+        return None
+    cc = (customer_code or "").strip()
+    if not cc:
+        return None
+    db_host = (os.getenv("DB_HOST") or "").strip()
+    db_user = (os.getenv("DB_USER") or "sysdba").strip()
+    db_password = (os.getenv("DB_PASSWORD") or "masterkey").strip()
+    try:
+        import fdb
+
+        dsn = db_path if not db_host else f"{db_host}:{db_path}"
+        con = fdb.connect(dsn=dsn, user=db_user, password=db_password, charset="UTF8")
+        cur = con.cursor()
+        try:
+            cur.execute(
+                "SELECT COUNT(*) FROM AR_CUSTOMER WHERE TRIM(UPPER(CODE)) = TRIM(UPPER(?))",
+                (cc,),
+            )
+            row = cur.fetchone()
+            if not row or int(row[0] or 0) < 1:
+                return (
+                    f'Local DB ({db_path}): customer CODE {cc!r} not found in AR_CUSTOMER. '
+                    "Fix the customer in SQL Accounting or align session customer_code with this database."
+                )
+
+            missing_items: list[str] = []
+            for d in payload.get("sdsdocdetail") or []:
+                if not isinstance(d, dict):
+                    continue
+                ic = str(d.get("itemcode") or "").strip()
+                if not ic:
+                    missing_items.append("(blank itemcode)")
+                    continue
+                cur.execute(
+                    "SELECT COUNT(*) FROM ST_ITEM WHERE TRIM(UPPER(CODE)) = TRIM(UPPER(?))",
+                    (ic,),
+                )
+                r2 = cur.fetchone()
+                if not r2 or int(r2[0] or 0) < 1:
+                    missing_items.append(ic)
+
+            if missing_items:
+                uniq = sorted(set(missing_items))
+                return (
+                    f"Local DB ({db_path}): no ST_ITEM.CODE for: {', '.join(uniq)}. "
+                    "Create these stock items in SQL Accounting or set SQL_API_QUOTATION_FALLBACK_ITEM_CODE to an existing code."
+                )
+        finally:
+            cur.close()
+            con.close()
+    except Exception:
+        # Do not block quotation if local DB is unreachable; API may still work.
+        return None
+
+    return None
 
 
 def _app_docno_range() -> tuple[int, int]:
@@ -176,6 +396,8 @@ def _is_unique_docno_error(status: int, parsed, raw: str) -> bool:
 def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
     today = date.today().isoformat()
     valid_until = str(data.get("validUntil") or data.get("validity") or "").strip()
+    if not valid_until:
+        valid_until = (date.today() + timedelta(days=30)).isoformat()
     doc_date = today
     post_date = today
     tax_date = today
@@ -194,6 +416,12 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
 
     detail_rows = []
     total_doc_amt = Decimal("0.00")
+    fallback_code = _quotation_fallback_item_code()
+    line_uom_irbm_memo: dict[str, tuple[str, str]] = {}
+    def_loc = _default_quotation_line_location()
+    def_uom = _default_quotation_line_uom()
+    def_proj = _default_quotation_line_project()
+    def_irbm = _default_quotation_line_irbm()
     for idx, item in enumerate(data.get("items") or [], start=1):
         qty = _as_decimal(item.get("qty") or 0)
         unit_price = _as_decimal(item.get("price") or 0)
@@ -212,52 +440,82 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
         item_code = str(
             item.get("itemCode") or item.get("itemcode") or item.get("code") or ""
         ).strip()
+        if not item_code:
+            item_code = _resolve_item_code_from_local_db(product_desc)
+        if not item_code and fallback_code:
+            item_code = fallback_code
+        item_code = _normalize_item_code(item_code)
 
-        detail_rows.append(
-            {
+        db_uom, db_irbm = _lookup_st_item_uom_irbm(item_code, line_uom_irbm_memo)
+        line_uom = str(item.get("uom") or item.get("UOM") or "").strip() or db_uom or def_uom
+        line_irbm = (
+            str(item.get("irbmClassification") or item.get("irbm_classification") or "").strip()
+            or db_irbm
+            or def_irbm
+        )
+        line_location = str(item.get("location") or item.get("LOCATION") or "").strip() or def_loc
+        line_project = str(item.get("project") or item.get("PROJECT") or "").strip() or def_proj
+        disc_display = None if discount <= 0 else _fmt_money(discount)
+
+        row = {
                 "dtlkey": 0,
                 "dockey": 0,
-                "seq": idx,
+                # SQL Accounting expects detail SEQ in 1000-steps (1000, 2000, …). seq=1,2 leaves ITEMCODE unset in SL_QTDTL.
+                "seq": idx * 1000,
                 "styleid": "",
                 "number": "",
                 "itemcode": item_code,
-                "location": "",
+                "location": line_location,
                 "batch": "",
-                "project": "",
+                "project": line_project,
                 "description": product_desc,
                 "description2": "",
                 "description3": "",
                 "permitno": "",
                 "qty": _fmt_money(qty),
-                "uom": "",
-                "rate": "1.00",
+                "uom": line_uom,
+                "rate": "1",
                 "sqty": _fmt_money(qty),
                 "suomqty": _fmt_money(qty),
                 "unitprice": _fmt_money(unit_price),
                 "deliverydate": delivery_date,
-                "disc": "",
+                "disc": disc_display,
                 "tax": "",
                 "tariff": "",
                 "taxexemptionreason": "",
-                "irbm_classification": "",
+                "irbm_classification": line_irbm,
                 "taxrate": "",
-                "taxamt": "0.00",
-                "localtaxamt": "0.00",
+                "taxamt": "0",
+                "localtaxamt": "0",
                 "exempted_taxrate": "",
-                "exempted_taxamt": "0.00",
-                "taxinclusive": True,
+                "exempted_taxamt": "0",
+                "taxinclusive": False,
                 "amount": _fmt_money(line_amount),
                 "localamount": _fmt_money(line_amount * currency_rate),
                 "amountwithtax": _fmt_money(line_amount),
                 "printable": True,
-                "transferable": False,
+                "transferable": True,
                 "remark1": "",
                 "remark2": "",
-                "companyitemcode": item_code,
-                "initialpurchasecost": "0.00",
+                "companyitemcode": None,
+                "initialpurchasecost": "0",
+                "udf_status": str(item.get("udfStatus") or item.get("udf_status") or "").strip(),
+                "udf_stdprice": _fmt_money(_as_decimal(item.get("udfStdprice") or item.get("udf_stdprice") or "0")),
+                "udf_eprice": _fmt_money(_as_decimal(item.get("udfEprice") or item.get("udf_eprice") or "0")),
                 "changed": True,
-            }
-        )
+        }
+        detail_rows.append(row)
+
+    # SQL Accounting /salesquotation usually requires a valid ST_ITEM.CODE per line; empty codes often yield HTTP 500 "Operation aborted".
+    for i, row in enumerate(detail_rows, start=1):
+        if not str(row.get("itemcode") or "").strip():
+            hint = (
+                "Add SQL_API_QUOTATION_FALLBACK_ITEM_CODE to .env with a real miscellaneous stock code from ST_ITEM "
+                "(used for custom lines and when catalog item code cannot be resolved), or pick catalog products that load codes. "
+                "If DB_PATH points at the same company file as the SQL API, leave SQL_API_QUOTATION_LOCAL_ITEMCODE_LOOKUP=true (default) "
+                "so the server can resolve CODE from ST_ITEM by description."
+            )
+            raise ValueError(f"Quotation line {i} has no itemcode ({row.get('description')!r}). {hint}")
 
     return {
         "dockey": 0,
@@ -327,7 +585,6 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
         "note": "",
         "approvestate": "",
         "updatecount": 0,
-        "udf_status": str(data.get("udfStatus") or data.get("udf_status") or "PENDING").strip() or "PENDING",
         "transferable": False,
         "printcount": 0,
         "lastmodified": 0,
@@ -336,6 +593,7 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
         "docnosetkey": 0,
         "nextdocno": "",
         "im_scan_autokey": 0,
+        "udf_status": str(data.get("udfStatus") or data.get("udf_status") or "PENDING").strip() or "PENDING",
     }
 
 
@@ -367,6 +625,7 @@ def create_or_update_quotation(base_api_url, customer_code, data):
         float(settings.timeout_seconds),
     )
     last_error = ""
+    local_precheck_done = False
     for attempt in range(20):
         if provided_docno:
             doc_no = provided_docno
@@ -386,9 +645,23 @@ def create_or_update_quotation(base_api_url, customer_code, data):
                 ),
             }
 
-        payload = _build_salesquotation_payload(customer_code, data, doc_no=doc_no)
+        try:
+            payload = _build_salesquotation_payload(customer_code, data, doc_no=doc_no)
+        except ValueError as ve:
+            return {"success": False, "error": str(ve)}
+
         if not payload.get("sdsdocdetail"):
             return {"success": False, "error": "No valid quotation item rows to submit"}
+
+        if not local_precheck_done:
+            pre_err = _local_precheck_quotation(customer_code, payload)
+            local_precheck_done = True
+            if pre_err:
+                return {
+                    "success": False,
+                    "error": pre_err,
+                    "detail": "Local Firebird pre-check failed; SQL Accounting API was not called.",
+                }
 
         try:
             status, parsed, raw = client.post_json(
@@ -422,10 +695,31 @@ def create_or_update_quotation(base_api_url, customer_code, data):
                 "upstream": response_dict or {"raw": raw},
             }
 
+        if status >= 400 and (os.getenv("SQL_API_QUOTATION_LOG_UPSTREAM") or "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        ):
+            snippet = (raw or "")[:800].replace("\n", " ")
+            print(f"[quotation_api] salesquotation HTTP {status} docno={doc_no!r} upstream: {snippet}", flush=True)
+
         detail = raw
         if isinstance(parsed, dict):
             detail = str(parsed.get("message") or parsed.get("error") or parsed)
+            err_obj = parsed.get("error")
+            if isinstance(err_obj, dict) and err_obj.get("message"):
+                detail = str(err_obj.get("message"))
         last_error = f"SQL Accounting API returned HTTP {status}: {detail}"
+        if "operation aborted" in last_error.lower():
+            last_error += (
+                " — Common causes: invalid or blank ST_ITEM.CODE on a line, missing line UOM/location/IRBM, "
+                "or customer CODE not on the company DB used by the API. "
+                "Ensure DB_PATH matches the API book so UOM/IRBM are read from ST_ITEM; set "
+                "SQL_API_QUOTATION_DEFAULT_UOM, SQL_API_QUOTATION_DEFAULT_LOCATION, SQL_API_QUOTATION_DEFAULT_IRBM "
+                "if needed; set SQL_API_QUOTATION_FALLBACK_ITEM_CODE for custom lines. "
+                "Check SQL Accounting / Firebird logs for the underlying exception."
+            )
 
         if provided_docno or not _is_unique_docno_error(status, parsed, raw):
             return {"success": False, "error": last_error}
@@ -490,6 +784,11 @@ def save_draft_quotation(base_api_url, customer_code, data):
             item_code = str(
                 item.get('itemCode') or item.get('itemcode') or item.get('code') or ''
             ).strip()
+            if not item_code:
+                item_code = _resolve_item_code_from_local_db(product_desc)
+            if not item_code:
+                item_code = _quotation_fallback_item_code()
+            item_code = _normalize_item_code(item_code)
             try:
                 cur.execute("SELECT GEN_ID(GEN_SL_QTDTLDRAFT_ID, 1) FROM RDB$DATABASE")
                 dtlkey = cur.fetchone()[0]
