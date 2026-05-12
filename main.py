@@ -109,8 +109,16 @@ from utils.sql_query_helpers import (
 from utils.stock_items_catalog import derive_stock_prices_from_catalog
 from utils.sql_api_reference_lists import fetch_area_codes_sql_api, fetch_currency_codes_sql_api
 
-# Load environment variables from .env file
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
+from utils.appsettings_env import apply_appsettings_to_environ
+
+apply_appsettings_to_environ()
+
+# Load environment variables from .env file (does not override keys already set from appsettings.json).
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'), override=False)
+
+from utils.tenant_bootstrap import apply_tenant_env_overrides
+
+apply_tenant_env_overrides()
 
 # Import validation functions
 from validationSignIn import validate_registration_fields
@@ -184,14 +192,24 @@ ADMIN_DASHBOARD_API_CACHE_TTL_SEC = 300.0
 DB_HOST = os.getenv('DB_HOST')
 DB_USER = os.getenv('DB_USER', 'sysdba')
 DB_PASSWORD = os.getenv('DB_PASSWORD', 'masterkey')
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+OPENAI_API_KEY = (os.getenv('OPENAI_API_KEY') or '').strip()
 OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-3.5-turbo')
 
 if not DB_PATH:
-    raise ValueError("DB_PATH environment variable is not set. Please configure it in .env file.")
+    raise ValueError(
+        "DB_PATH is not set. Set DB_PATH/DB_HOST in .env, or set TENANT_CODE so the tenant API can supply database.dbPath/dbHost."
+    )
 
 if not OPENAI_API_KEY:
-    raise ValueError("OPENAI_API_KEY environment variable is not set. Please configure it in .env file.")
+    if (os.getenv('TENANT_CODE') or os.getenv('TenantBootstrap__TenantCode') or '').strip():
+        OPENAI_API_KEY = 'unset-use-real-key-for-chat'
+        print(
+            '[WARN] OPENAI_API_KEY is unset; GPT chat will fail until you set a real key. '
+            'Quotation and SQL API paths can still work with TENANT_CODE + tenant sqlApi.',
+            flush=True,
+        )
+    else:
+        raise ValueError("OPENAI_API_KEY environment variable is not set. Please configure it in .env file.")
 
 openai.api_key = OPENAI_API_KEY
 

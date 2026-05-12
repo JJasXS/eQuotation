@@ -17,6 +17,11 @@ from pathlib import Path
 
 def _load_dotenv() -> None:
     env_path = Path(__file__).resolve().parents[1] / ".env"
+    repo = env_path.parent
+    sys.path.insert(0, str(repo))
+    from utils.appsettings_env import apply_appsettings_to_environ
+
+    apply_appsettings_to_environ(project_root=repo)
     if not env_path.is_file():
         return
     for line in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
@@ -30,12 +35,16 @@ def _load_dotenv() -> None:
 def _pick_customer_and_item() -> tuple[str, str, str]:
     import fdb
 
+    from utils.db_utils import build_firebird_dsn
+
     db_path = (os.getenv("DB_PATH") or "").strip()
+    db_host = (os.getenv("DB_HOST") or "").strip()
     if not db_path:
         raise SystemExit("DB_PATH required to pick customer/item")
     user = (os.getenv("DB_USER") or "sysdba").strip()
     pw = (os.getenv("DB_PASSWORD") or "masterkey").strip()
-    con = fdb.connect(dsn=db_path, user=user, password=pw, charset="UTF8")
+    dsn = build_firebird_dsn(db_path, db_host or None)
+    con = fdb.connect(dsn=dsn, user=user, password=pw, charset="UTF8")
     cur = con.cursor()
     cur.execute(
         "SELECT FIRST 1 TRIM(CODE) FROM AR_CUSTOMER WHERE TRIM(COALESCE(CODE,''))<>'' ORDER BY CODE"
@@ -71,6 +80,10 @@ def main() -> int:
     _load_dotenv()
     repo = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(repo))
+
+    from utils.tenant_bootstrap import apply_tenant_env_overrides
+
+    apply_tenant_env_overrides()
 
     from api.clients import SqlAccountingApiClient, SqlAccountingApiError
     from api.config import load_sql_accounting_api_settings
