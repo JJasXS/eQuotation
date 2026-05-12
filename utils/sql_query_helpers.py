@@ -59,8 +59,8 @@ def find_draft_order_id_by_chatid(cur: Any, chatid: str) -> int | None:
 
 def fetch_stock_item_prices_for_chat(cur: Any) -> list[dict[str, Any]]:
     """
-    Rows compatible with php/getStockItemPrice.php: CODE, DESCRIPTION, STOCKVALUE (from UDF_STDPRICE).
-    Used when the PHP bridge is down so chat catalog matches the quotation ST_ITEM data.
+    Rows shaped for chat / legacy UI: CODE, DESCRIPTION, STOCKVALUE (from UDF_STDPRICE).
+    Used when the catalog does not expose prices and chat needs a price list from Firebird.
     """
     cur.execute(
         """

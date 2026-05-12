@@ -17,10 +17,8 @@ from difflib import SequenceMatcher
 
 from dotenv import load_dotenv
 import fdb
-import requests
 
-from config.endpoints_config import BASE_API_URL as DEFAULT_BASE_API_URL
-from config.endpoints_config import ENDPOINT_PATHS
+from utils.stock_items_catalog import derive_stock_prices_from_catalog
 
 
 def build_firebird_dsn(db_path, db_host=None):
@@ -42,31 +40,6 @@ def get_db_connection(db_path, db_user, db_password, db_host=""):
         password=db_password,
         charset="UTF8",
     )
-
-
-def fetch_data_from_api(base_api_url, endpoint_paths, endpoint_key):
-    path = endpoint_paths.get(endpoint_key)
-    if not path:
-        print(f"No path configured for endpoint: {endpoint_key}")
-        return []
-
-    url = f"{base_api_url}{path}"
-    try:
-        response = requests.get(url, timeout=15)
-        if response.status_code >= 400:
-            preview = (response.text or "").strip().replace("\n", " ")[:240]
-            print(f"API HTTP error for {endpoint_key}: {response.status_code} | {preview}")
-            return []
-
-        data = response.json()
-        if data.get("success"):
-            return data.get("data", [])
-
-        print(f"API error for {endpoint_key}: {data.get('error')}")
-        return []
-    except Exception as exc:
-        print(f"Failed to fetch from API {endpoint_key}: {exc}")
-        return []
 
 
 def normalize_text(value):
@@ -168,7 +141,6 @@ def main():
 
     load_dotenv()
 
-    base_api_url = os.getenv("BASE_API_URL", DEFAULT_BASE_API_URL).rstrip("/")
     db_path = os.getenv("DB_PATH")
     db_user = os.getenv("DB_USER")
     db_password = os.getenv("DB_PASSWORD")
@@ -178,17 +150,17 @@ def main():
         raise RuntimeError("Missing DB env vars. Required: DB_PATH, DB_USER, DB_PASSWORD")
 
     dropdown_items = get_dropdown_items(db_path, db_user, db_password, db_host)
-    stock_prices = fetch_data_from_api(base_api_url, ENDPOINT_PATHS, "stockitemprice")
+    stock_prices = derive_stock_prices_from_catalog(dropdown_items)
 
     print(f"Loaded dropdown items: {len(dropdown_items)}")
-    print(f"Loaded stock price entries: {len(stock_prices)}")
+    print(f"Loaded stock price entries (from ST_ITEM.UDF_STDPRICE): {len(stock_prices)}")
 
     if not dropdown_items:
         print("No dropdown items found in ST_ITEM.")
         return
 
     if not stock_prices:
-        print("No stock prices loaded from API endpoint 'stockitemprice'.")
+        print("No stock prices from UDF_STDPRICE on loaded ST_ITEM rows.")
         local_with_price = [
             i for i in dropdown_items
             if i.get("UDF_STDPRICE") is not None and str(i.get("UDF_STDPRICE")).strip() not in ("", "0", "0.0")

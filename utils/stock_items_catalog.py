@@ -2,8 +2,7 @@
 
 Priority (no duplicate sources in one response):
 1. SQL Accounting HTTP API list GET when ``SQL_API_STOCK_ITEM_LIST_PATH`` is set and keys exist.
-2. Legacy PHP ``stockitem`` bridge (``fetch_data_from_api``).
-3. Direct Firebird ``ST_ITEM`` via ``fetch_stock_items``.
+2. Direct Firebird ``ST_ITEM`` via ``fetch_stock_items``.
 """
 
 from __future__ import annotations
@@ -13,7 +12,6 @@ from typing import Any
 
 from api.clients import SqlAccountingApiClient, SqlAccountingApiError
 from api.config import load_sql_accounting_api_settings
-from utils.api_utils import fetch_data_from_api
 from utils.sql_query_helpers import fetch_stock_items
 
 
@@ -75,6 +73,32 @@ def _normalize_sql_api_stock_row(raw: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def derive_stock_prices_from_catalog(stockitems: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Build rows like ``fetch_stock_item_prices_for_chat``:
+    ``CODE``, ``DESCRIPTION``, ``STOCKVALUE`` from ``UDF_STDPRICE``.
+    """
+    out: list[dict[str, Any]] = []
+    for it in stockitems:
+        if not isinstance(it, dict):
+            continue
+        desc = str(it.get("DESCRIPTION") or "").strip()
+        if not desc:
+            continue
+        raw_val = it.get("UDF_STDPRICE")
+        if raw_val is None or str(raw_val).strip() == "":
+            continue
+        try:
+            val = float(str(raw_val).replace(",", "").strip())
+        except (ValueError, TypeError):
+            continue
+        if val <= 0:
+            continue
+        code = str(it.get("CODE") or "").strip()
+        out.append({"CODE": code, "DESCRIPTION": desc, "STOCKVALUE": raw_val})
+    return out
+
+
 def _parse_stock_list_json(parsed: Any) -> list[dict[str, Any]]:
     if isinstance(parsed, list):
         raw_list = parsed
@@ -133,20 +157,10 @@ def _try_fetch_stock_items_sql_api() -> list[dict[str, Any]] | None:
 
 
 def fetch_stock_items_catalog_uncached() -> list[dict[str, Any]]:
-    """Load catalog rows for dropdowns / chat; exactly one primary HTTP source when possible."""
+    """Load catalog rows for dropdowns / chat; SQL Accounting list GET when configured, else Firebird."""
     sql_items = _try_fetch_stock_items_sql_api()
     if sql_items:
         return sql_items
-
-    api_items = fetch_data_from_api("stockitem")
-    if isinstance(api_items, list) and api_items:
-        normalized = []
-        for row in api_items:
-            if isinstance(row, dict):
-                normalized.append(_normalize_sql_api_stock_row(row))
-        normalized = _dedupe_by_stock_code(normalized)
-        if normalized:
-            return normalized
 
     from utils.db_utils import get_db_connection
 

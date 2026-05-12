@@ -28,7 +28,7 @@ from api.services.local_customer_sync import LocalCustomerSyncRequest, sync_loca
 from utils import (
     get_db_connection, user_owns_chat, get_chat_history, update_chat_last_message, insert_chat_message_local,
     get_active_order, test_firebird_connection, set_db_config, build_firebird_dsn,
-    fetch_data_from_api, format_rm, set_api_config,
+    format_rm, set_api_config,
     load_typo_corrections, normalize_intent_text, contains_intent_phrase,
     parse_order_intent, set_text_config,
     send_email, set_email_config,
@@ -106,6 +106,8 @@ from utils.sql_query_helpers import (
     get_st_item_udf_stdprice,
     has_user_draft_orders,
 )
+from utils.stock_items_catalog import derive_stock_prices_from_catalog
+from utils.sql_api_reference_lists import fetch_area_codes_sql_api, fetch_currency_codes_sql_api
 
 # Load environment variables from .env file
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
@@ -2039,38 +2041,36 @@ def _fetch_code_list_from_firebird(table_name):
 
 @app.route('/api/get_currency_symbols', methods=['GET'])
 def get_currency_symbols():
-    """Fetch currency symbols for guest sign-in dropdown."""
+    """Fetch currency codes for guest sign-in dropdown (SQL Accounting ``/currency``, then Firebird)."""
     try:
-        php_url = f"{BASE_API_URL}/php/getCurrencySymbols.php"
-        result, response = http_request_json('GET', php_url)
-        if isinstance(result, dict) and result.get('success') and isinstance(result.get('data'), list):
-            return jsonify(result), response.status_code
-        raise ValueError('PHP endpoint returned unexpected payload shape')
+        sql_codes = fetch_currency_codes_sql_api()
+        if sql_codes is not None:
+            return jsonify({'success': True, 'data': sql_codes, 'source': 'sql-api'}), 200
     except Exception as e:
-        print(f"Error calling getCurrencySymbols.php: {e}")
-        try:
-            values = _fetch_code_list_from_firebird('CURRENCY')
-            return jsonify({'success': True, 'data': values, 'source': 'firebird-fallback'}), 200
-        except Exception as fb_error:
-            return jsonify({'success': False, 'error': f'{str(e)} | fallback failed: {str(fb_error)}'}), 500
+        print(f"[WARN] get_currency_symbols SQL API: {e}", flush=True)
+
+    try:
+        values = _fetch_code_list_from_firebird('CURRENCY')
+        return jsonify({'success': True, 'data': values, 'source': 'firebird-fallback'}), 200
+    except Exception as fb_error:
+        return jsonify({'success': False, 'error': str(fb_error)}), 500
 
 
 @app.route('/api/get_area_codes', methods=['GET'])
 def get_area_codes():
-    """Fetch AREA.CODE values for guest sign-in dropdown."""
+    """Fetch area codes for guest sign-in dropdown (SQL Accounting ``/area``, then Firebird)."""
     try:
-        php_url = f"{BASE_API_URL}/php/getAreaCodes.php"
-        result, response = http_request_json('GET', php_url)
-        if isinstance(result, dict) and result.get('success') and isinstance(result.get('data'), list):
-            return jsonify(result), response.status_code
-        raise ValueError('PHP endpoint returned unexpected payload shape')
+        sql_codes = fetch_area_codes_sql_api()
+        if sql_codes is not None:
+            return jsonify({'success': True, 'data': sql_codes, 'source': 'sql-api'}), 200
     except Exception as e:
-        print(f"Error calling getAreaCodes.php: {e}")
-        try:
-            values = _fetch_code_list_from_firebird('AREA')
-            return jsonify({'success': True, 'data': values, 'source': 'firebird-fallback'}), 200
-        except Exception as fb_error:
-            return jsonify({'success': False, 'error': f'{str(e)} | fallback failed: {str(fb_error)}'}), 500
+        print(f"[WARN] get_area_codes SQL API: {e}", flush=True)
+
+    try:
+        values = _fetch_code_list_from_firebird('AREA')
+        return jsonify({'success': True, 'data': values, 'source': 'firebird-fallback'}), 200
+    except Exception as fb_error:
+        return jsonify({'success': False, 'error': str(fb_error)}), 500
 
 # ============================================
 # AUTHENTICATION FUNCTIONS
@@ -3058,9 +3058,9 @@ def chat_api():
     if chatid:
         chat_history = get_chat_history(chatid, user_email)
     
-    # Stock catalog: same source as /api/get_stock_items (SQL API → PHP → Firebird).
+    # Stock catalog: same source as /api/get_stock_items (SQL API → Firebird); prices from UDF_STDPRICE.
     stockitems = _fetch_stock_items_cached()
-    stockitemprices = fetch_data_from_api("stockitemprice")
+    stockitemprices = derive_stock_prices_from_catalog(stockitems)
     if not stockitems or not stockitemprices:
         con_fb = None
         cur_fb = None
@@ -3669,7 +3669,7 @@ def check_user_has_draft():
             pass
 
 def _fetch_stock_items_cached_uncached():
-    """Stock catalog: SQL Accounting GET (optional) → PHP → Firebird. See ``utils.stock_items_catalog``."""
+    """Stock catalog: SQL Accounting GET (optional) → Firebird. See ``utils.stock_items_catalog``."""
     from utils.stock_items_catalog import fetch_stock_items_catalog_uncached
 
     return fetch_stock_items_catalog_uncached()
@@ -3690,7 +3690,7 @@ def api_get_stock_items():
     """Get stock items for autocomplete in order/quotation forms.
 
     Prefers SQL Accounting stock list GET when ``SQL_API_STOCK_ITEM_LIST_PATH`` is set,
-    else PHP ``stockitem``, else Firebird ``ST_ITEM``. Cached in process memory.
+    else Firebird ``ST_ITEM``. Cached in process memory.
     """
     try:
         return jsonify({'success': True, 'items': _fetch_stock_items_cached()})
@@ -6593,8 +6593,27 @@ def api_get_product_price():
             if con:
                 con.close()
 
-        # Legacy fallback path: stockitemprice API.
-        stock_prices = fetch_data_from_api("stockitemprice")
+        # Fallback price list from Firebird (same data the old PHP bridge returned).
+        stock_prices = []
+        con_pr = None
+        cur_pr = None
+        try:
+            con_pr = get_db_connection()
+            cur_pr = con_pr.cursor()
+            stock_prices = fetch_stock_item_prices_for_chat(cur_pr)
+        except Exception as price_list_err:
+            print(f"[PRICING WARNING] stock price list DB load failed: {price_list_err}", flush=True)
+        finally:
+            try:
+                if cur_pr:
+                    cur_pr.close()
+            except Exception:
+                pass
+            try:
+                if con_pr:
+                    con_pr.close()
+            except Exception:
+                pass
 
         for price_item in stock_prices:
             price_desc = price_item.get('DESCRIPTION', '')
