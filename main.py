@@ -450,7 +450,7 @@ def require_page_access(
             return redirect('/admin')
         return None
     if require_admin and user_type != 'admin':
-        return redirect('/chat')
+        return redirect('/create-quotation')
     if block_admin and user_type == 'admin':
         return redirect(admin_redirect)
     return None
@@ -2632,7 +2632,7 @@ def admin():
     if not can_access_admin_dashboard(session):
         if can_access_purchase_menu(session):
             return redirect(f'{PROCUREMENT_UI_PATH}?tab=view')
-        return redirect('/chat')
+        return redirect('/create-quotation')
     return render_protected_template('admin.html', require_admin=False)
 
 
@@ -2677,7 +2677,7 @@ def create_quotation_page():
             return redirect('/supplier/bidding')
         if can_access_purchase_menu(session):
             return redirect(f'{PROCUREMENT_UI_PATH}?tab=view')
-        return redirect('/chat')
+        return redirect('/create-quotation')
     dockey = request.args.get('dockey', '')
     draft_dockey = request.args.get('draftDockey', '')
     return render_protected_template(
@@ -2700,7 +2700,7 @@ def view_quotation_page():
     if not can_access_view_quotation_customer_ui(session):
         if can_access_purchase_menu(session):
             return redirect(f'{PROCUREMENT_UI_PATH}?tab=view')
-        return redirect('/chat')
+        return redirect('/create-quotation')
     return render_protected_template(
         'adminViewQuotations.html',
         require_admin=False,
@@ -2758,7 +2758,7 @@ def admin_procurement_module():
     if page_error:
         return page_error
     if not can_access_purchase_menu(session):
-        return redirect('/admin' if can_access_admin_dashboard(session) else '/chat')
+        return redirect('/admin' if can_access_admin_dashboard(session) else '/create-quotation')
     ctx = {'user_type': session.get('user_type', ''), 'user_email': session.get('user_email', '')}
     ctx.update(template_permission_context(session))
     return render_template('precurement/precurement.html', **ctx)
@@ -2771,7 +2771,7 @@ def admin_procurement_legacy_typo_redirect():
     if page_error:
         return page_error
     if not can_access_purchase_menu(session):
-        return redirect('/admin' if can_access_admin_dashboard(session) else '/chat')
+        return redirect('/admin' if can_access_admin_dashboard(session) else '/create-quotation')
     tab = request.args.get('tab') or 'report'
     return redirect(f'{PROCUREMENT_UI_PATH}?tab={quote(str(tab), safe="")}', code=308)
 @app.route('/admin/procurement/bidding')
@@ -2781,7 +2781,7 @@ def admin_procurement_bidding_page():
     if page_error:
         return page_error
     if not can_access_purchase_menu(session) and not can_access_admin_dashboard(session):
-        return redirect('/chat')
+        return redirect('/create-quotation')
     return render_protected_template(
         'adminBidding.html',
         require_admin=False,
@@ -2799,7 +2799,7 @@ def supplier_bidding_page():
     if infer_access_tier_from_session(session) != ACCESS_TIER_SUPPLIER:
         if can_access_purchase_menu(session):
             return redirect(f'{PROCUREMENT_UI_PATH}?tab=view')
-        return redirect('/chat')
+        return redirect('/create-quotation')
     return render_protected_template(
         'supplierBidding.html',
         block_admin=True,
@@ -3025,17 +3025,9 @@ def index():
                 return redirect('/admin')
             if can_access_purchase_menu(session):
                 return redirect(f'{PROCUREMENT_UI_PATH}?tab=view')
-            return redirect('/chat')
+            return redirect('/create-quotation')
         return redirect('/create-quotation')
     return redirect('/login')
-
-@app.route('/chat', methods=['GET'])
-def chat():
-    """Display chat page (requires authentication and must be regular user)"""
-    page_error = require_page_access(block_admin=True, admin_redirect='/admin')
-    if page_error:
-        return page_error
-    return render_template('chat.html', user_email=session.get('user_email', ''))
 
 @app.route('/chat', methods=['POST'])
 @api_login_required(unauth_message='Unauthorized')

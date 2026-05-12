@@ -95,7 +95,7 @@ function handleMenuAction(action) {
 
     switch (action) {
         case 'chat':
-            window.location.href = '/chat';
+            window.location.href = '/create-quotation';
             break;
         case 'createOrder':
             window.location.href = '/create-order';

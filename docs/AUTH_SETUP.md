@@ -119,7 +119,7 @@ SMTP_EMAIL=noreply@your-domain.mailgun.org
 {
   "success": true,
   "message": "Login successful",
-  "redirect": "/chat"
+  "redirect": "/create-quotation"
 }
 ```
 
@@ -139,9 +139,8 @@ SMTP_EMAIL=noreply@your-domain.mailgun.org
 - `POST /api/verify_otp` - Verify OTP and create session
 
 ### Protected Routes (Requires Authentication)
-- `GET /` - Redirects to /chat if authenticated, /login if not
-- `GET /chat` - Chat interface
-- `POST /chat` - Send message
+- `GET /` - Redirects to `/create-quotation` (or role-specific home) if authenticated, `/login` if not
+- `POST /chat` - Assistant message API (used by quotation popup; not a standalone page)
 - `GET /get_chats` - List all chats
 - `GET /get_chat_details` - Get chat history
 - `POST /api/insert_chat` - Create new chat

@@ -69,15 +69,14 @@ Chatbot/
 │   ├── completeOrder.php
 │   └── ...
 ├── templates/                  # HTML templates
-│   ├── chat.html
 │   └── pages/
 │       └── userApproval.html
 └── static/                     # CSS/JS assets
     ├── css/
-    │   ├── chat.css
+    │   ├── chat.css            # Shared layout styles (quotation popup, etc.)
     │   └── hamburger_menu.css
     └── js/
-        ├── chat.js
+        ├── quotationChatPopup.js
         └── hamburger_menu.js
 ```
 

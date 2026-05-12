@@ -340,7 +340,7 @@ function handleOtpSubmit(event) {
             submitBtn.textContent = 'Verify';
 
             if (data.success) {
-                const redirectUrl = data.redirect || '/chat';
+                const redirectUrl = data.redirect || '/create-quotation';
                 console.log(`Redirecting ${data.user_type} to ${redirectUrl}`);
                 window.location.href = redirectUrl;
             } else {

@@ -63,11 +63,10 @@ Starting Flask web server at http://localhost:5000 ...
 - Copy the 6-digit code from email
 - Enter in the OTP field (auto-formats)
 - Click "Verify"
-- Expected: Redirected to `/chat` page
+- Expected: Redirected to `/create-quotation` (or role-specific home from API `redirect`)
 
-#### Step 4: Use Chat
-- You should see the chat interface
-- All chat, order, and message features should work
+#### Step 4: Use the app
+- You should land on Create Quotation or the URL returned in `redirect`
 - Session is active for 7 days
 
 #### Step 5: Logout
@@ -108,7 +107,7 @@ Starting Flask web server at http://localhost:5000 ...
 **Status:** ✅
 
 ### Scenario 6: Unauthorized Access
-**URL:** `http://localhost:5000/chat` (without authentication)
+**URL:** `http://localhost:5000/create-quotation` (without authentication)
 **Expected:** Redirect to `/login`
 **Status:** ✅
 
@@ -173,7 +172,7 @@ curl -X POST http://localhost:5000/api/verify_otp \
 {
   "success": true,
   "message": "Login successful",
-  "redirect": "/chat"
+  "redirect": "/create-quotation"
 }
 ```
 
@@ -271,10 +270,10 @@ curl -X GET http://localhost:5000/get_chats \
 2. Use immediately (600 seconds = 10 minutes)
 3. Check Flask console output if SMTP not configured
 
-### Issue: Can't access /chat after login
+### Issue: Can't open app home after login
 **Cause:** Session not created
 **Solution:**
-1. Check that `/api/verify_otp` returns `redirect: /chat`
+1. Check that `/api/verify_otp` returns a `redirect` URL (e.g. `/create-quotation`)
 2. Verify browser cookies are enabled
 3. Check Flask console for errors
 4. Restart Flask app and try again
