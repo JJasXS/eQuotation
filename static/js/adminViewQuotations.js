@@ -24,6 +24,16 @@ function isCustomerMyQuotationsPage() {
     }
 }
 
+function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 /** Avoid cache collisions between SL_QT and SL_QTDRAFT rows that share a dockey (edge case). */
 function quotationDetailCacheKey(row) {
     if (!row || row.DOCKEY == null) return '';
@@ -537,7 +547,7 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
                     Select All
                 </label>
                 <button type="button" id="bulk-review-pending-btn" onclick="performBulkReviewPending()" class="btn-bulk-review-pending" disabled>
-                    Mark selected as reviewed
+                    Reviewed
                 </button>
                 <span id="selected-count-pending" style="margin-left: auto; font-size: 14px; color: #87684d; font-weight: 500;">0 selected</span>
             </div>
@@ -558,15 +568,38 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
         `;
     }
 
+    const docLabel = (qtRow) => escapeHtml(qtRow.DOCNO || (`DOCKEY #${qtRow.DOCKEY}`));
+    const docDateEsc = (qtRow) => escapeHtml(formatDateForDisplay(qtRow.DOCDATE));
+
     let html = controlsHtml;
-    list.forEach(qt => {
+    html += `
+        <table class="quotation-list-table" role="grid" aria-label="Quotations">
+            <colgroup>
+                <col class="quotation-list-col quotation-list-col--chk" />
+                <col class="quotation-list-col quotation-list-col--doc" />
+                <col class="quotation-list-col quotation-list-col--date" />
+                <col class="quotation-list-col quotation-list-col--amount" />
+                <col class="quotation-list-col quotation-list-col--actions" />
+            </colgroup>
+            <thead>
+                <tr>
+                    <th class="quotation-list-th quotation-list-th--chk" scope="col"><span class="visually-hidden">Select</span></th>
+                    <th class="quotation-list-th quotation-list-th--doc" scope="col">QT code</th>
+                    <th class="quotation-list-th quotation-list-th--date" scope="col">Date</th>
+                    <th class="quotation-list-th quotation-list-th--amount" scope="col">Amount</th>
+                    <th class="quotation-list-th quotation-list-th--actions" scope="col">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+
+    list.forEach((qt) => {
         const filterTab = qt._filterTab || 'reviewed';
         const isPending = filterTab === 'pending';
         const isCancelled = filterTab === 'cancelled';
         const isReviewed = filterTab === 'reviewed';
         const isDrafts = filterTab === 'drafts';
         const amount = Number(qt.DOCAMT || 0).toFixed(2);
-        const docDate = formatDateForDisplay(qt.DOCDATE);
         const borderColor = isCancelled
             ? '#a65c5c'
             : isPending
@@ -576,7 +609,7 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
                 : '#2d5a8a';
         const badgeColor = borderColor;
         const isSelected = Number(qt.DOCKEY) === Number(selectedQuotationDockey);
-        
+
         let checkboxHtml = '';
         if (!hideStatus && isReviewed) {
             checkboxHtml = `<input type="checkbox" class="quotation-checkbox-active" data-dockey="${qt.DOCKEY}" ${selectedActiveQuotations.has(Number(qt.DOCKEY)) ? 'checked' : ''} onchange="handleActiveCheckboxChange(); event.stopPropagation();" style="width: 18px; height: 18px; cursor: pointer; accent-color: #dc3545; flex-shrink: 0;">`;
@@ -584,42 +617,50 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
             checkboxHtml = `<input type="checkbox" class="quotation-checkbox-pending" data-dockey="${qt.DOCKEY}" ${selectedPendingQuotations.has(Number(qt.DOCKEY)) ? 'checked' : ''} onchange="handlePendingCheckboxChange(); event.stopPropagation();" style="width: 18px; height: 18px; cursor: pointer; accent-color: #4b9e6e; flex-shrink: 0;">`;
         }
 
+        const chkCell = checkboxHtml
+            ? `<div class="quotation-card__chk-cell-inner">${checkboxHtml}</div>`
+            : '<div class="quotation-card__chk-cell-inner quotation-card__chk-cell-inner--empty" aria-hidden="true"></div>';
+
         html += `
-            <div class="quotation-card ${isSelected ? 'is-selected' : ''}" data-dockey="${qt.DOCKEY}" style="background: #fffaf0; padding: 12px; margin-bottom: 12px; border-radius: 8px; border-left: 3px solid ${borderColor}; cursor: pointer; display: flex; gap: 12px; align-items: flex-start; border: 1px solid #ead8b5;">
-                ${checkboxHtml}
-                <div style="flex: 1; min-width: 0;">
-                    <div class="quotation-card__header-layout">
-                        <div class="quotation-card__info">
-                            <div class="quotation-card__info-grid">
-                                <div class="quotation-card__field">
-                                    <span class="quotation-card__field-label">QT Code</span>
-                                    <div class="quotation-card__field-value">
-                                        <span>${qt.DOCNO || ('DOCKEY #' + qt.DOCKEY)}</span>
-                                    </div>
-                                </div>
-                                <div class="quotation-card__field">
-                                    <span class="quotation-card__field-label">Date</span>
-                                    <div class="quotation-card__field-value">${docDate}</div>
-                                </div>
-                            </div>
-                        </div>
+            <tr class="quotation-card ${isSelected ? 'is-selected' : ''}" data-dockey="${qt.DOCKEY}" style="--quotation-accent: ${borderColor};">
+                <td class="quotation-card__cell quotation-card__cell--chk">${chkCell}</td>
+                <td class="quotation-card__cell quotation-card__cell--doc">
+                    <div class="quotation-list-cell-center">
+                        <span class="quotation-card__doc-value">${docLabel(qt)}</span>
+                    </div>
+                </td>
+                <td class="quotation-card__cell quotation-card__cell--date">
+                    <div class="quotation-list-cell-center">
+                        <span class="quotation-card__date-value">${docDateEsc(qt)}</span>
+                    </div>
+                </td>
+                <td class="quotation-card__cell quotation-card__cell--amount">
+                    <div class="quotation-list-cell-center quotation-list-cell-center--amount">
                         <div class="quotation-card__amount-col">
                             <span class="quotation-card__amount" style="background: ${badgeColor};">RM ${amount}</span>
                         </div>
+                    </div>
+                </td>
+                <td class="quotation-card__cell quotation-card__cell--actions">
+                    <div class="quotation-list-cell-center quotation-list-cell-center--actions">
                         <div class="quotation-card__button-col">
                             <div class="quotation-card__side-actions">
-                                ${isDrafts && !hideStatus ? `<button class="edit-button" onclick="editQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #5a8fc4; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Edit</button>` : ''}
-                                ${isPending && !hideStatus ? `<button class="edit-button" onclick="editQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #5a8fc4; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Edit</button>` : ''}
-                                ${isPending && !hideStatus ? `<button class="activate-btn" onclick="activateQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #4b9e6e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Reviewed</button>` : ''}
-                                ${isReviewed && !hideStatus ? `<button class="toggle-cancelled-btn" onclick="event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, false);" style="background: #a65c5c; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Cancel</button>` : ''}
-                                ${isCancelled && !hideStatus ? `<button class="toggle-cancelled-btn" onclick="event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, true);" style="background: #4b6e9e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Restore</button>` : ''}
-                            </div>
+                            ${isDrafts && !hideStatus ? `<button class="edit-button" onclick="editQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #5a8fc4; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Edit</button>` : ''}
+                            ${isPending && !hideStatus ? `<button class="edit-button" onclick="editQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #5a8fc4; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Edit</button>` : ''}
+                            ${isPending && !hideStatus ? `<button class="activate-btn" onclick="activateQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #4b9e6e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Reviewed</button>` : ''}
+                            ${isReviewed && !hideStatus ? `<button class="toggle-cancelled-btn" onclick="event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, false);" style="background: #a65c5c; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Cancel</button>` : ''}
+                            ${isCancelled && !hideStatus ? `<button class="toggle-cancelled-btn" onclick="event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, true);" style="background: #4b6e9e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Restore</button>` : ''}
                         </div>
                     </div>
-                </div>
-            </div>
+                </td>
+            </tr>
         `;
     });
+
+    html += `
+            </tbody>
+        </table>
+    `;
 
     return html;
 }

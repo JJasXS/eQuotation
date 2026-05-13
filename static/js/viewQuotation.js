@@ -105,27 +105,33 @@ async function fetchSavedDraftQuotations(forceReload = false) {
 function shellHtml() {
     return `
     <div class="view-quotation-page">
-        <div class="view-quotation-tabs" role="tablist">
-            <button type="button" id="tab-drafts" data-tab="drafts" onclick="setQuotationTab('drafts')">
-                📋 Drafts (${totalDraftTabCount()})
-            </button>
-            <button type="button" id="tab-pending" data-tab="pending" onclick="setQuotationTab('pending')">
-                ⏳ Pending (${pendingQuotationsCache.length})
-            </button>
-            <button type="button" id="tab-reviewed" data-tab="reviewed" onclick="setQuotationTab('reviewed')">
-                Reviewed (${reviewedQuotationsCache.length})
-            </button>
-            <button type="button" id="tab-cancelled" data-tab="cancelled" onclick="setQuotationTab('cancelled')">
-                Cancelled (${cancelledQuotationsCache.length})
-            </button>
-        </div>
-        <div class="view-quotation-split">
-            <aside class="view-quotation-list-pane" aria-label="Quotation list">
-                <div id="view-quotation-list" class="view-quotation-list-scroll"></div>
-            </aside>
-            <section class="view-quotation-detail-pane" aria-label="Quotation details">
-                <div id="view-quotation-detail-body" class="view-quotation-detail-scroll"></div>
-            </section>
+        <div class="view-quotation-workspace">
+            <div class="view-quotation-tabs" role="tablist">
+                <button type="button" id="tab-drafts" data-tab="drafts" onclick="setQuotationTab('drafts')">
+                    📋 Drafts (${totalDraftTabCount()})
+                </button>
+                <button type="button" id="tab-pending" data-tab="pending" onclick="setQuotationTab('pending')">
+                    ⏳ Pending (${pendingQuotationsCache.length})
+                </button>
+                <button type="button" id="tab-reviewed" data-tab="reviewed" onclick="setQuotationTab('reviewed')">
+                    Reviewed (${reviewedQuotationsCache.length})
+                </button>
+                <button type="button" id="tab-cancelled" data-tab="cancelled" onclick="setQuotationTab('cancelled')">
+                    Cancelled (${cancelledQuotationsCache.length})
+                </button>
+            </div>
+            <table class="view-quotation-split" role="presentation">
+                <tbody>
+                    <tr>
+                        <td class="quotation-detail-pane view-quotation-list-pane" aria-label="Quotation list">
+                            <div id="view-quotation-list" class="view-quotation-list-scroll"></div>
+                        </td>
+                        <td class="quotation-detail-pane view-quotation-detail-pane" aria-label="Quotation details">
+                            <div id="view-quotation-detail-body" class="view-quotation-detail-scroll"></div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
         </div>
     </div>
     `;
@@ -200,26 +206,29 @@ function renderLineItemsBlock(items) {
         rows += '</tr>';
     });
     return `
-    <div class="view-qt-line-items-block">
-        <div class="view-qt-line-items-scroll">
-            <table class="view-quotation-items-table">
-                <thead>
-                    <tr>
-                        <th>Item</th>
-                        <th class="num">Unit (RM)</th>
-                        <th class="num">Qty</th>
-                        <th class="num">Discount (RM)</th>
-                        <th class="num">Subtotal (RM)</th>
-                    </tr>
-                </thead>
-                <tbody>${rows}</tbody>
-            </table>
+    <section class="view-qt-detail-doc__lines" aria-labelledby="view-qt-lines-heading">
+        <h4 id="view-qt-lines-heading" class="view-qt-detail-lines-heading">Line items</h4>
+        <div class="view-qt-line-items-block">
+            <div class="view-qt-line-items-scroll">
+                <table class="view-quotation-items-table">
+                    <thead>
+                        <tr>
+                            <th>Item</th>
+                            <th class="num">Price</th>
+                            <th class="num">Qty</th>
+                            <th class="num">Discount</th>
+                            <th class="num">Subtotal</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>
+            <footer class="view-quotation-total-footer" role="region" aria-label="Line items total">
+                <span class="view-quotation-total-footer__label">Total</span>
+                <span class="view-quotation-total-footer__value">RM ${total.toFixed(2)}</span>
+            </footer>
         </div>
-        <footer class="view-quotation-total-footer" role="region" aria-label="Line items total">
-            <span class="view-quotation-total-footer__label">Total (RM)</span>
-            <span class="view-quotation-total-footer__value">${total.toFixed(2)}</span>
-        </footer>
-    </div>`;
+    </section>`;
 }
 
 function listTypeLabel(listType, cardSource) {
@@ -239,19 +248,13 @@ function listTypeLabel(listType, cardSource) {
     return 'Reviewed';
 }
 
-function renderMetaTwoColumns(metaPairs) {
-    const n = metaPairs.length;
-    if (n === 0) {
+/** Remaining fields after hero / dates strip (compact grid, one surface). */
+function renderMetaSecondaryGrid(metaPairs) {
+    if (!metaPairs || metaPairs.length === 0) {
         return '';
     }
-    const mid = Math.ceil(n / 2);
-    const left = metaPairs.slice(0, mid);
-    const right = metaPairs.slice(mid);
-    const dlHtml = (pairs) =>
-        pairs.length
-            ? `<dl class="view-quotation-detail-meta">${pairs.map((m) => m[0] + m[1]).join('')}</dl>`
-            : '';
-    return `<div class="view-quotation-detail-meta-wrap">${dlHtml(left)}${dlHtml(right)}</div>`;
+    const cells = metaPairs.map(([dt, dd]) => `${dt}${dd}`).join('');
+    return `<dl class="view-qt-detail-meta-grid">${cells}</dl>`;
 }
 
 function renderDetailPanel(data, listType, cardSource) {
@@ -262,17 +265,38 @@ function renderDetailPanel(data, listType, cardSource) {
         d.UDF_STATUS != null && String(d.UDF_STATUS).trim() !== ''
             ? String(d.UDF_STATUS).trim()
             : listTypeLabel(listType, cardSource);
+    const docAmt = d.DOCAMT != null ? Number(d.DOCAMT).toFixed(2) : null;
+    const codeStr = d.CODE != null && String(d.CODE).trim() !== '' ? String(d.CODE).trim() : '';
+    const company = d.COMPANYNAME ? escapeHtml(d.COMPANYNAME) : '';
+    const customerSubtitle =
+        company || codeStr
+            ? `<p class="view-qt-detail-doc__customer">${company}${
+                  codeStr ? ` <span class="view-qt-detail-doc__customer-code">(${escapeHtml(codeStr)})</span>` : ''
+              }</p>`
+            : '';
+
+    const datesStrip =
+        d.DOCDATE || d.VALIDITY
+            ? `<section class="view-qt-detail-doc__dates" aria-label="Quotation dates">
+                    ${
+                        d.DOCDATE
+                            ? `<span><span class="view-qt-detail-doc__dates-k">Date</span> ${escapeHtml(d.DOCDATE)}</span>`
+                            : ''
+                    }
+                    ${
+                        d.DOCDATE && d.VALIDITY
+                            ? '<span class="view-qt-detail-doc__dates-sep" aria-hidden="true">·</span>'
+                            : ''
+                    }
+                    ${
+                        d.VALIDITY
+                            ? `<span><span class="view-qt-detail-doc__dates-k">Valid until</span> ${escapeHtml(d.VALIDITY)}</span>`
+                            : ''
+                    }
+               </section>`
+            : '';
+
     const meta = [];
-    meta.push(['<dt>Status</dt>', `<dd>${escapeHtml(displayStatus)}</dd>`]);
-    if (d.COMPANYNAME) {
-        meta.push(['<dt>Customer</dt>', `<dd>${escapeHtml(d.COMPANYNAME)}</dd>`]);
-    }
-    if (d.DOCDATE) {
-        meta.push(['<dt>Date</dt>', `<dd>${escapeHtml(d.DOCDATE)}</dd>`]);
-    }
-    if (d.VALIDITY) {
-        meta.push(['<dt>Valid until</dt>', `<dd>${escapeHtml(d.VALIDITY)}</dd>`]);
-    }
     const credit = d.CREDITTERM != null && d.CREDITTERM !== '' ? d.CREDITTERM : d.TERMS;
     if (credit != null && String(credit) !== '') {
         meta.push(['<dt>Terms</dt>', `<dd>${escapeHtml(String(credit))}</dd>`]);
@@ -292,18 +316,33 @@ function renderDetailPanel(data, listType, cardSource) {
     if (d.DESCRIPTION) {
         meta.push(['<dt>Description</dt>', `<dd>${escapeHtml(d.DESCRIPTION)}</dd>`]);
     }
-    if (d.DOCAMT != null) {
-        meta.push(['<dt>Document amount (RM)</dt>', `<dd>${Number(d.DOCAMT).toFixed(2)}</dd>`]);
-    }
+
+    const secondaryMeta =
+        meta.length > 0
+            ? `<section class="view-qt-detail-doc__details" aria-label="Quotation details">${renderMetaSecondaryGrid(meta)}</section>`
+            : '';
 
     return `
         <div class="view-qt-detail-inner">
-            <div class="view-qt-detail-top">
-                <h3 class="view-quotation-detail-title">${escapeHtml(docno)}</h3>
-                <p class="view-quotation-detail-status">${escapeHtml(displayStatus)}</p>
-                ${renderMetaTwoColumns(meta)}
-            </div>
-            ${renderLineItemsBlock(items)}
+            <article class="view-qt-detail-doc">
+                <header class="view-qt-detail-doc__header">
+                    <div class="view-qt-detail-doc__header-main">
+                        <div class="view-qt-detail-doc__title-row">
+                            <h3 class="view-quotation-detail-title">${escapeHtml(docno)}</h3>
+                            <span class="view-qt-detail-doc__status" title="Workflow status">${escapeHtml(displayStatus)}</span>
+                        </div>
+                        ${customerSubtitle}
+                    </div>
+                    ${
+                        docAmt != null
+                            ? `<div class="view-qt-detail-doc__total" aria-label="Document total">RM ${escapeHtml(docAmt)}</div>`
+                            : ''
+                    }
+                </header>
+                ${datesStrip}
+                ${secondaryMeta}
+                ${renderLineItemsBlock(items)}
+            </article>
         </div>
     `;
 }

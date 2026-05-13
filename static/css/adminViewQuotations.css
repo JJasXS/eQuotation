@@ -1,14 +1,172 @@
-/* Admin View All Quotations — force left-aligned rows (overrides inherited flex) */
+/* Admin View All Quotations — list rows are <tr class="quotation-card"> in .quotation-list-table */
 
 .admin-quotations-view {
     text-align: left;
 }
 
-.admin-quotations-view .quotation-card {
-    display: block;
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.quotation-list-table {
     width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 13px;
+    color: #4f341e;
+}
+
+.quotation-list-table thead {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+
+.quotation-list-col--chk {
+    width: 48px;
+}
+
+.quotation-list-col--date {
+    width: 122px;
+}
+
+.quotation-list-col--amount {
+    width: 118px;
+}
+
+.quotation-list-col--actions {
+    width: 188px;
+}
+
+.quotation-list-th {
+    text-align: center;
+    vertical-align: middle;
+    padding: 8px 6px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #6f5238;
+    background: #f8efdd;
+    border-bottom: 1px solid #e2cfab;
+}
+
+.quotation-list-th--chk {
+    width: 48px;
+    padding-left: 4px;
+    padding-right: 4px;
+}
+
+tr.quotation-card {
+    cursor: pointer;
+    background: #fffaf0;
+    border-left: 3px solid var(--quotation-accent, #2d5a8a);
+    box-sizing: border-box;
+}
+
+tr.quotation-card:hover {
+    background: #fff4e0;
+}
+
+tr.quotation-card td {
+    border-bottom: 1px solid #ead8b5;
+}
+
+.quotation-card__cell {
+    padding: 10px 8px;
+    vertical-align: middle;
+}
+
+.quotation-card__cell--chk {
+    width: 48px;
+    text-align: center;
+    vertical-align: middle;
+    padding-left: 4px;
+    padding-right: 4px;
+}
+
+.quotation-card__chk-cell-inner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 28px;
+}
+
+.quotation-card__chk-cell-inner--empty {
+    visibility: hidden;
+}
+
+.quotation-list-cell-center {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    box-sizing: border-box;
+}
+
+.quotation-list-cell-center--amount .quotation-card__amount-col {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+}
+
+.quotation-list-cell-center--actions .quotation-card__button-col {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+}
+
+.quotation-card__cell--doc {
+    min-width: 0;
+    text-align: center;
+    vertical-align: middle;
+}
+
+.quotation-card__cell--date {
+    text-align: center;
+    vertical-align: middle;
+}
+
+.quotation-card__doc-value {
+    display: block;
+    min-width: 0;
     max-width: 100%;
-    text-align: left;
+    margin: 0 auto;
+    font-weight: 700;
+    font-size: 13px;
+    color: #4f341e;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.quotation-card__date-value {
+    display: block;
+    font-size: 12px;
+    color: #5c4028;
+    white-space: nowrap;
+}
+
+.quotation-card__cell--amount {
+    text-align: center;
+    vertical-align: middle;
+}
+
+.quotation-card__cell--actions {
+    text-align: center;
+    vertical-align: middle;
 }
 
 .admin-quotations-view .quotation-card__row {
@@ -171,9 +329,21 @@
     box-shadow: 0 2px 8px rgba(112, 86, 45, 0.08);
 }
 
-.quotation-card.is-selected {
-    border-color: #b9894a !important;
-    box-shadow: 0 0 0 1px rgba(185, 137, 74, 0.28);
+tr.quotation-card.is-selected {
+    background: #fff4e0;
+    box-shadow: inset 0 0 0 1px rgba(185, 137, 74, 0.35);
+}
+
+.quotation-list-table .quotation-card__amount-col {
+    justify-items: center;
+}
+
+.quotation-list-table .quotation-card__button-col {
+    justify-items: center;
+}
+
+.quotation-list-table .quotation-card__side-actions {
+    justify-content: center;
 }
 
 .quotation-list-pane .quotation-card__field-value--wrap {

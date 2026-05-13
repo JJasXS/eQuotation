@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="/static/css/hamburger_menu.css">
     <link rel="stylesheet" href="/static/css/app_page_header.css">
     <link rel="stylesheet" href="/static/css/orderQuotation.css">
-    <link rel="stylesheet" href="/static/css/adminViewQuotations.css?v=20260512_customer_unified">
+    <link rel="stylesheet" href="/static/css/adminViewQuotations.css?v=20260513_list_cols_centered">
 </head>
 <body class="admin-quotations-view-page" data-quotations-list-source="{% if customer_my_quotations_only | default(false) %}mine{% else %}all{% endif %}" data-hide-quotation-actions="{% if customer_my_quotations_only | default(false) or perm_hide_quotation_status_actions | default(false) %}true{% else %}false{% endif %}">
     <div class="container">
@@ -53,6 +53,6 @@
     </div>
 
     <script src="/static/js/hamburger_menu.js"></script>
-    <script src="/static/js/adminViewQuotations.js?v=20260512_customer_unified"></script>
+    <script src="/static/js/adminViewQuotations.js?v=20260513_list_cols_centered"></script>
 </body>
 </html>

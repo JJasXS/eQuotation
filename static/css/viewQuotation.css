@@ -27,12 +27,17 @@ body.view-quotation-page .main-content {
     background: #f2e8d8;
 }
 
+/* orderQuotation.css uses heavy padding on .tab-content — tighten on this page */
+body.view-quotation-page .tab-content {
+    padding: 0 8px 0;
+}
+
 body.view-quotation-page .tab-content.active {
     display: flex;
     flex-direction: column;
     flex: 1;
     min-height: 0;
-    padding: 0 0 16px;
+    padding: 0 0 10px;
     background: transparent;
     overflow: hidden;
 }
@@ -57,13 +62,27 @@ body.view-quotation-page .tab-content.active {
     box-sizing: border-box;
 }
 
+/* One card: tabs + list/detail share an outer shell (less “floating divs”). */
+.view-quotation-workspace {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    border-radius: 10px;
+    border: 1px solid #dccfb8;
+    background: #fffef9;
+    box-shadow: 0 1px 10px rgba(80, 60, 30, 0.06);
+    overflow: hidden;
+}
+
 .view-quotation-tabs {
     display: flex;
     flex-wrap: wrap;
-    gap: 5px;
-    padding: 8px 0 10px;
+    gap: 4px;
+    padding: 6px 8px 7px;
     border-bottom: 1px solid #e2cfab;
     flex-shrink: 0;
+    background: #faf6ee;
 }
 
 .view-quotation-tabs button {
@@ -110,31 +129,45 @@ body.view-quotation-page .tab-content.active {
 }
 
 .view-quotation-split {
-    display: grid;
-    grid-template-columns: minmax(300px, 32%) 1fr;
-    gap: 0;
+    display: table;
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
     flex: 1;
     min-height: 0;
-    border: 1px solid #e2cfab;
-    border-radius: 12px;
+    border: none;
+    border-radius: 0;
     overflow: hidden;
     background: #fffef9;
-    box-shadow: 0 2px 14px rgba(80, 60, 30, 0.08);
+    box-shadow: none;
 }
 
-.view-quotation-list-pane {
+.view-quotation-split > tbody > tr > td.quotation-detail-pane {
+    display: table-cell;
+    vertical-align: top;
+    box-sizing: border-box;
+    padding: 0;
+}
+
+.view-quotation-split > tbody > tr > td.quotation-detail-pane.view-quotation-list-pane {
+    width: 26%;
     border-right: 1px solid #e2cfab;
     background: #faf6ee;
     min-height: 0;
     overflow: hidden;
-    display: flex;
-    flex-direction: column;
+}
+
+.view-quotation-split > tbody > tr > td.quotation-detail-pane.view-quotation-detail-pane {
+    width: 74%;
+    min-width: 0;
+    min-height: 0;
+    background: #fffef9;
 }
 
 .view-quotation-list-scroll {
     flex: 1;
     overflow-y: auto;
-    padding: 10px 10px 12px;
+    padding: 8px 8px 10px;
     -webkit-overflow-scrolling: touch;
 }
 
@@ -151,9 +184,9 @@ body.view-quotation-page .tab-content.active {
     box-sizing: border-box;
     border: 1px solid #e8deca;
     background: #fffef9;
-    border-radius: 10px;
-    padding: 10px 12px;
-    margin-bottom: 8px;
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
     cursor: pointer;
     transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
     border-left-width: 3px;
@@ -241,20 +274,13 @@ body.view-quotation-page .tab-content.active {
     background: #3d5d86;
 }
 
-.view-quotation-detail-pane {
-    min-width: 0;
-    min-height: 0;
-    background: #fffef9;
-    display: flex;
-    flex-direction: column;
-}
-
 .view-quotation-detail-scroll {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
     padding: 14px 16px 18px;
     -webkit-overflow-scrolling: touch;
+    min-height: min(400px, calc(100vh - 240px));
 }
 
 /* Structured detail: meta fixed at top, lines scroll, total bar pinned to bottom of pane */
@@ -273,13 +299,144 @@ body.view-quotation-page .tab-content.active {
     overflow: hidden;
 }
 
-.view-qt-detail-top {
-    flex-shrink: 0;
-    padding: 14px 16px 0;
+/* Single “document” surface: header → dates → optional meta → line items */
+.view-qt-detail-doc {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 0 10px 8px;
 }
 
-.view-qt-detail-inner .view-quotation-detail-meta-wrap {
-    margin-bottom: 12px;
+.view-qt-detail-doc__header {
+    flex-shrink: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px 12px;
+    padding: 10px 2px 10px;
+    border-bottom: 1px solid #efe6d4;
+}
+
+.view-qt-detail-doc__header-main {
+    flex: 1 1 200px;
+    min-width: 0;
+}
+
+.view-qt-detail-doc__title-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+}
+
+.view-qt-detail-doc__status {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: #ede4d4;
+    color: #5c4028;
+    border: 1px solid #dccfb8;
+}
+
+.view-qt-detail-doc__customer {
+    margin: 4px 0 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: #4a3b28;
+    line-height: 1.35;
+}
+
+.view-qt-detail-doc__customer-code {
+    font-weight: 600;
+    color: #6b5a45;
+}
+
+.view-qt-detail-doc__total {
+    flex-shrink: 0;
+    font-size: 14px;
+    font-weight: 800;
+    color: #fff;
+    padding: 6px 12px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #a67c32 0%, #8a6828 100%);
+    font-variant-numeric: tabular-nums;
+    align-self: flex-start;
+}
+
+.view-qt-detail-doc__dates {
+    flex-shrink: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px 10px;
+    padding: 8px 2px;
+    font-size: 12px;
+    color: #4a3b28;
+    border-bottom: 1px solid #f0e8d8;
+}
+
+.view-qt-detail-doc__dates-k {
+    color: #7a6a52;
+    font-weight: 600;
+    margin-right: 4px;
+}
+
+.view-qt-detail-doc__dates-sep {
+    color: #c4b49a;
+    user-select: none;
+}
+
+.view-qt-detail-doc__details {
+    flex-shrink: 0;
+    padding: 8px 2px 4px;
+}
+
+.view-qt-detail-meta-grid {
+    display: grid;
+    grid-template-columns: minmax(72px, auto) 1fr;
+    gap: 4px 10px 8px 10px;
+    margin: 0;
+    font-size: 12px;
+    color: #3d2f1f;
+}
+
+.view-qt-detail-meta-grid dt {
+    color: #7a6a52;
+    font-weight: 600;
+    margin: 0;
+}
+
+.view-qt-detail-meta-grid dd {
+    margin: 0;
+    word-break: break-word;
+}
+
+.view-qt-detail-doc__lines {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid #efe6d4;
+}
+
+.view-qt-detail-lines-heading {
+    flex-shrink: 0;
+    margin: 0 0 6px;
+    padding: 0 2px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: #8a7a62;
 }
 
 .view-qt-line-items-block {
@@ -288,7 +445,7 @@ body.view-quotation-page .tab-content.active {
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    margin-top: 4px;
+    margin-top: 0;
 }
 
 .view-qt-line-items-scroll {
@@ -296,7 +453,7 @@ body.view-quotation-page .tab-content.active {
     min-height: 0;
     overflow-y: auto;
     overflow-x: auto;
-    padding: 0 16px 8px;
+    padding: 0 2px 6px;
     -webkit-overflow-scrolling: touch;
 }
 
@@ -312,12 +469,12 @@ body.view-quotation-page .tab-content.active {
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 14px;
-    padding: 12px 16px 14px;
+    gap: 10px;
+    padding: 8px 10px 10px;
     margin-top: auto;
     background: #faf6ee;
     border-top: 1px solid #e2cfab;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 700;
     color: #2d4a6e;
     font-variant-numeric: tabular-nums;
@@ -354,55 +511,11 @@ body.view-quotation-page .tab-content.active {
 }
 
 .view-quotation-detail-title {
-    margin: 0 0 4px 0;
-    font-size: 1.15rem;
-    font-weight: 700;
-    color: #4f3a1f;
-}
-
-.view-quotation-detail-status {
-    display: inline-block;
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    padding: 2px 8px;
-    border-radius: 6px;
-    margin-bottom: 14px;
-    background: #e8e0d0;
-    color: #4f3a1f;
-}
-
-.view-quotation-detail-meta-wrap {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px 20px;
-    align-items: start;
-    margin-bottom: 16px;
-}
-
-.view-quotation-detail-meta-wrap .view-quotation-detail-meta {
-    margin-bottom: 0;
-}
-
-.view-quotation-detail-meta {
-    display: grid;
-    grid-template-columns: minmax(100px, 140px) 1fr;
-    gap: 6px 12px;
-    font-size: 13px;
-    margin-bottom: 16px;
-    color: #3d2f1f;
-}
-
-.view-quotation-detail-meta dt {
-    color: #7a6a52;
-    font-weight: 500;
     margin: 0;
-}
-
-.view-quotation-detail-meta dd {
-    margin: 0;
-    word-break: break-word;
+    font-size: 1.2rem;
+    font-weight: 800;
+    color: #3d2a14;
+    line-height: 1.2;
 }
 
 .view-quotation-items-table {
@@ -448,18 +561,34 @@ body.view-quotation-page .tab-content.active {
 
 @media (max-width: 960px) {
     .view-quotation-split {
-        grid-template-columns: 1fr;
-        grid-template-rows: minmax(200px, 40vh) minmax(280px, 1fr);
+        display: block;
     }
 
-    .view-quotation-list-pane {
+    .view-quotation-split tbody,
+    .view-quotation-split tr {
+        display: block;
+    }
+
+    .view-quotation-split > tbody > tr > td.quotation-detail-pane {
+        display: block;
+        width: 100% !important;
+    }
+
+    .view-quotation-split > tbody > tr > td.quotation-detail-pane.view-quotation-list-pane {
         border-right: none;
         border-bottom: 1px solid #e2cfab;
+        max-height: 40vh;
+        overflow-y: auto;
     }
 }
 
 @media (max-width: 720px) {
-    .view-quotation-detail-meta-wrap {
-        grid-template-columns: 1fr;
+    .view-qt-detail-doc__header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .view-qt-detail-doc__total {
+        align-self: flex-end;
     }
 }
