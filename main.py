@@ -944,6 +944,14 @@ def format_chatbot_response(text):
 
 app = Flask(__name__, template_folder="templates", static_folder="static", static_url_path="/static")
 
+
+@app.context_processor
+def inject_tenant_code_for_ui():
+    """Expose current tenant code to all Jinja templates (ApprovalPO-style env chip)."""
+    code = (os.getenv("TENANT_CODE") or os.getenv("TenantBootstrap__TenantCode") or "").strip()
+    return {"tenant_code": code}
+
+
 # Configure Flask session
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'dev-secret-key-change-in-production')
 app.config['SESSION_COOKIE_SECURE'] = False  # Set to True in production with HTTPS

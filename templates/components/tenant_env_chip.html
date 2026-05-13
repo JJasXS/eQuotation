@@ -1,0 +1,4 @@
+{# Same behaviour as ApprovalPO _Layout: chip is invisible until the user highlights the text. #}
+{% if tenant_code %}
+<div class="tenant-env-chip" title="Drag to highlight and read tenant code (TENANT_CODE / TenantBootstrap__TenantCode).">Tenant: <strong>{{ tenant_code }}</strong></div>
+{% endif %}

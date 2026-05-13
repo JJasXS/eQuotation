@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Order Receipt - #{{ order.ORDERID }}</title>
     <link rel="stylesheet" href="/static/css/orderReceipt.css">
+    <link rel="stylesheet" href="/static/css/tenant_env_chip.css">
 </head>
 <body>
     <div class="receipt-container" id="receipt-content" data-orderid="{{ order.ORDERID }}">
@@ -126,6 +127,7 @@
         <button class="print-button" data-orderid="{{ order.ORDERID }}">⬇️ Download PDF</button>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    {% include 'components/tenant_env_chip.html' %}
     <script src="/static/js/orderReceipt.js"></script>
 </body>
 </html>

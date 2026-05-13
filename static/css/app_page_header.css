@@ -1,4 +1,6 @@
 /* Unified app top bar (warm palette, matches admin header). Include after hamburger_menu.css. */
+@import url("tenant_env_chip.css");
+
 .admin-header.app-page-header {
     background-color: #f3e3c7;
     border-bottom: 1px solid #d9c6a0;
