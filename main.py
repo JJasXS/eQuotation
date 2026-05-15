@@ -2526,6 +2526,27 @@ def api_verify_otp():
         session['customer_code'] = customer_code  # Store customer/supplier code in session
         if user_type == 'supplier':
             session['supplier_code'] = customer_code
+        session.pop('login_customer_department', None)
+        session.pop('login_matched_udf_email_column', None)
+        session.pop('login_udf_email_suffix', None)
+        user_blob = identity.get('user')
+        if (
+            isinstance(user_blob, dict)
+            and (identity.get('is_user') or identity.get('is_customer'))
+            and not identity.get('is_supplier')
+        ):
+            dept = str(user_blob.get('department') or '').strip()
+            mcol = str(user_blob.get('matched_udf_email_column') or '').strip()
+            suf_raw = user_blob.get('udf_email_suffix')
+            suf = '' if suf_raw is None else str(suf_raw).strip()
+            session['login_customer_department'] = dept or None
+            session['login_matched_udf_email_column'] = mcol or None
+            session['login_udf_email_suffix'] = suf
+            print(
+                f"[AUTH] Customer login — department: {dept!r} | matched column: {mcol!r} | "
+                f"udf_suffix={suf!r} | AR_CUSTOMER.CODE={customer_code!r} | login_email={email!r}",
+                flush=True,
+            )
         session.permanent = True
         
         print(f"[SESSION] user_email: {email}")
@@ -7744,10 +7765,25 @@ def _customer_info_has_meaningful_data(info):
     ])
 
 
+def _ar_customer_column_set(cur) -> set[str]:
+    """Uppercase AR_CUSTOMER column names from Firebird metadata."""
+    cur.execute(
+        """
+        SELECT TRIM(RDB$FIELD_NAME)
+        FROM RDB$RELATION_FIELDS
+        WHERE RDB$RELATION_NAME = 'AR_CUSTOMER'
+        """,
+    )
+    return {str(r[0]).strip().upper() for r in (cur.fetchall() or []) if r and r[0]}
+
+
 def _fetch_customer_info_from_local_ar(customer_code):
     """
-    Load customer profile from local Firebird AR_CUSTOMER + AR_CUSTOMERBRANCH
-    (same tables used at sign-in). Used when SQL API is down, misconfigured, or returns no usable fields.
+    Load customer profile from local Firebird AR_CUSTOMER + AR_CUSTOMERBRANCH.
+
+    Prefer billing branch (BRANCHTYPE 'B') for address/phone when present; otherwise any branch row.
+    When branch lines are empty, fall back to master AR_CUSTOMER columns (ADDRESS1..4, PHONE1, etc.)
+    if they exist — many sites store mail-to / bill-to only on the master.
     """
     if not customer_code:
         return None
@@ -7760,42 +7796,70 @@ def _fetch_customer_info_from_local_ar(customer_code):
         con = get_db_connection()
         cur = con.cursor()
 
-        company = ''
-        credit = ''
-        phone_master = ''
-        udf_email = ''
-        row = None
-        try:
-            cur.execute(
-                """
-                SELECT FIRST 1 COMPANYNAME, CREDITTERM, PHONE1, UDF_EMAIL
-                FROM AR_CUSTOMER
-                WHERE CODE = ?
-                """,
-                (code,),
+        ar_cols = _ar_customer_column_set(cur)
+        if not ar_cols:
+            return None
+
+        master_order = [
+            "COMPANYNAME",
+            "CREDITTERM",
+            "PHONE1",
+            "PHONE2",
+            "TEL",
+            "MOBILE",
+            "UDF_EMAIL",
+            "EMAIL",
+            "ADDRESS1",
+            "ADDRESS2",
+            "ADDRESS3",
+            "ADDRESS4",
+        ]
+        select_cols = [c for c in master_order if c in ar_cols]
+        if "COMPANYNAME" not in select_cols:
+            return None
+
+        login_suffix = str(session.get("login_udf_email_suffix") or "").strip()
+        login_dept = str(session.get("login_customer_department") or "").strip()
+        login_matched_col = str(session.get("login_matched_udf_email_column") or "").strip()
+        if login_suffix or login_dept or login_matched_col:
+            print(
+                f"[get_user_info] AR_CUSTOMER code={code!r} login_department={login_dept!r} "
+                f"matched_udf_email_column={login_matched_col!r} udf_suffix={login_suffix!r}",
+                flush=True,
             )
-            row = cur.fetchone()
-        except Exception:
-            try:
-                cur.execute(
-                    """
-                    SELECT FIRST 1 COMPANYNAME, CREDITTERM
-                    FROM AR_CUSTOMER
-                    WHERE CODE = ?
-                    """,
-                    (code,),
-                )
-                row = cur.fetchone()
-            except Exception as cust_err:
-                print(f"[DEBUG] get_user_info local: AR_CUSTOMER read failed: {cust_err}", flush=True)
-                return None
-        if row:
-            company = str(row[0] or '').strip()
-            credit = str(row[1] or '').strip()
-            if len(row) > 2 and row[2] is not None:
-                phone_master = str(row[2] or '').strip()
-            if len(row) > 3 and row[3] is not None:
-                udf_email = str(row[3] or '').strip()
+
+        if login_suffix:
+            for extra in (
+                f"UDF_PHONE{login_suffix}",
+                f"UDF_TEL{login_suffix}",
+                f"UDF_MOBILE{login_suffix}",
+                f"UDF_HP{login_suffix}",
+                f"UDF_OFFICENO{login_suffix}",
+                f"UDF_ADDRESS1{login_suffix}",
+                f"UDF_ADDRESS2{login_suffix}",
+                f"UDF_ADDRESS3{login_suffix}",
+                f"UDF_ADDRESS4{login_suffix}",
+            ):
+                if extra in ar_cols and extra not in select_cols:
+                    select_cols.append(extra)
+
+        col_sql = ", ".join(select_cols)
+        cur.execute(f"SELECT FIRST 1 {col_sql} FROM AR_CUSTOMER WHERE CODE = ?", (code,))
+        row = cur.fetchone()
+        if not row:
+            return None
+
+        m = {select_cols[i].upper(): row[i] for i in range(len(select_cols))}
+
+        def mstr(key: str) -> str:
+            v = m.get(key.upper())
+            return str(v or "").strip()
+
+        company = mstr("COMPANYNAME")
+        credit = mstr("CREDITTERM")
+        phone_master = mstr("PHONE1") or mstr("PHONE2") or mstr("TEL") or mstr("MOBILE")
+        udf_email = mstr("UDF_EMAIL") or mstr("EMAIL")
+        ma1, ma2, ma3, ma4 = mstr("ADDRESS1"), mstr("ADDRESS2"), mstr("ADDRESS3"), mstr("ADDRESS4")
 
         branch_row = None
         try:
@@ -7803,7 +7867,7 @@ def _fetch_customer_info_from_local_ar(customer_code):
                 """
                 SELECT FIRST 1 ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, PHONE1, EMAIL
                 FROM AR_CUSTOMERBRANCH
-                WHERE CODE = ? AND TRIM(BRANCHTYPE) = 'B'
+                WHERE CODE = ? AND UPPER(TRIM(BRANCHTYPE)) = 'B'
                 ORDER BY DTLKEY
                 """,
                 (code,),
@@ -7813,49 +7877,87 @@ def _fetch_customer_info_from_local_ar(customer_code):
             print(f"[DEBUG] get_user_info local: billing branch query failed ({branch_err}); trying any branch", flush=True)
 
         if not branch_row:
-            cur.execute(
-                """
-                SELECT FIRST 1 ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, PHONE1, EMAIL
-                FROM AR_CUSTOMERBRANCH
-                WHERE CODE = ?
-                ORDER BY DTLKEY
-                """,
-                (code,),
-            )
-            branch_row = cur.fetchone()
+            try:
+                cur.execute(
+                    """
+                    SELECT FIRST 1 ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, PHONE1, EMAIL
+                    FROM AR_CUSTOMERBRANCH
+                    WHERE CODE = ?
+                    ORDER BY DTLKEY
+                    """,
+                    (code,),
+                )
+                branch_row = cur.fetchone()
+            except Exception as any_branch_err:
+                print(f"[DEBUG] get_user_info local: any-branch query failed ({any_branch_err})", flush=True)
+                branch_row = None
 
-        a1 = a2 = a3 = a4 = ''
-        phone_branch = ''
-        branch_email = ''
+        ba1 = ba2 = ba3 = ba4 = ""
+        phone_branch = ""
+        branch_email = ""
         if branch_row:
-            a1 = str(branch_row[0] or '').strip()
-            a2 = str(branch_row[1] or '').strip()
-            a3 = str(branch_row[2] or '').strip()
-            a4 = str(branch_row[3] or '').strip()
-            phone_branch = str(branch_row[4] or '').strip()
-            branch_email = str(branch_row[5] or '').strip()
+            ba1 = str(branch_row[0] or "").strip()
+            ba2 = str(branch_row[1] or "").strip()
+            ba3 = str(branch_row[2] or "").strip()
+            ba4 = str(branch_row[3] or "").strip()
+            phone_branch = str(branch_row[4] or "").strip()
+            branch_email = str(branch_row[5] or "").strip()
 
+        a1 = ba1 or ma1
+        a2 = ba2 or ma2
+        a3 = ba3 or ma3
+        a4 = ba4 or ma4
         phone = phone_branch or phone_master
+
+        if login_suffix:
+            udf_phone = (
+                mstr(f"UDF_PHONE{login_suffix}")
+                or mstr(f"UDF_TEL{login_suffix}")
+                or mstr(f"UDF_MOBILE{login_suffix}")
+                or mstr(f"UDF_HP{login_suffix}")
+                or mstr(f"UDF_OFFICENO{login_suffix}")
+            )
+            if udf_phone:
+                phone = phone or udf_phone
+            ua1 = mstr(f"UDF_ADDRESS1{login_suffix}")
+            ua2 = mstr(f"UDF_ADDRESS2{login_suffix}")
+            ua3 = mstr(f"UDF_ADDRESS3{login_suffix}")
+            ua4 = mstr(f"UDF_ADDRESS4{login_suffix}")
+            if ua1:
+                a1 = a1 or ua1
+            if ua2:
+                a2 = a2 or ua2
+            if ua3:
+                a3 = a3 or ua3
+            if ua4:
+                a4 = a4 or ua4
+
         if not udf_email and branch_email:
             udf_email = branch_email
         if not udf_email:
-            udf_email = str(session.get('user_email') or '').strip()
+            udf_email = str(session.get("user_email") or "").strip()
 
-        def nz(val, placeholder='N/A'):
-            s = str(val or '').strip()
+        def nz(val, placeholder="N/A"):
+            s = str(val or "").strip()
             return s if s else placeholder
 
         payload = {
-            'CODE': code,
-            'COMPANYNAME': nz(company),
-            'CREDITTERM': nz(credit),
-            'ADDRESS1': nz(a1),
-            'ADDRESS2': nz(a2),
-            'ADDRESS3': a3,
-            'ADDRESS4': a4,
-            'PHONE1': nz(phone),
-            'UDF_EMAIL': udf_email,
+            "CODE": code,
+            "COMPANYNAME": nz(company),
+            "CREDITTERM": nz(credit),
+            "ADDRESS1": nz(a1),
+            "ADDRESS2": nz(a2),
+            "ADDRESS3": a3,
+            "ADDRESS4": a4,
+            "PHONE1": nz(phone),
+            "UDF_EMAIL": udf_email,
         }
+        if login_dept:
+            payload["DEPARTMENT"] = login_dept
+        if login_matched_col:
+            payload["MATCHED_UDF_EMAIL_COLUMN"] = login_matched_col
+        if login_suffix:
+            payload["LOGIN_UDF_EMAIL_SUFFIX"] = login_suffix
         return payload if _customer_info_has_meaningful_data(payload) else None
     except Exception as exc:
         print(f"[DEBUG] get_user_info: local AR_CUSTOMER lookup failed: {exc}", flush=True)
@@ -7865,6 +7967,22 @@ def _fetch_customer_info_from_local_ar(customer_code):
             cur.close()
         if con:
             con.close()
+
+
+def _merge_session_login_customer_udf_meta(payload):
+    """Add login-time department / matched UDF email column from OTP session (customer tab)."""
+    if not isinstance(payload, dict):
+        return payload
+    d = session.get("login_customer_department")
+    if d:
+        payload["DEPARTMENT"] = str(d).strip()
+    mcol = session.get("login_matched_udf_email_column")
+    if mcol:
+        payload["MATCHED_UDF_EMAIL_COLUMN"] = str(mcol).strip()
+    suf = session.get("login_udf_email_suffix")
+    if suf is not None and str(suf).strip() != "":
+        payload["LOGIN_UDF_EMAIL_SUFFIX"] = str(suf).strip()
+    return payload
 
 
 @app.route('/api/get_user_info')
@@ -7990,13 +8108,25 @@ def api_get_user_info():
                 'CREDITTERM', 'creditTerm', 'creditterm', 'TERMS', 'terms', 'CnTerms', 'CNTERMS',
                 default='N/A',
             ),
-            'ADDRESS1': pick('ADDRESS1', 'address1', 'addr1', 'line1', 'street1', default='N/A'),
-            'ADDRESS2': pick('ADDRESS2', 'address2', 'addr2', 'line2', 'street2', default='N/A'),
-            'ADDRESS3': pick('ADDRESS3', 'address3', 'addr3', 'line3', 'city', default=''),
-            'ADDRESS4': pick('ADDRESS4', 'address4', 'addr4', 'line4', 'state', 'country', default=''),
+            'ADDRESS1': pick(
+                'ADDRESS1', 'address1', 'addr1', 'line1', 'street1', 'ADDR1', 'Add1',
+                'BillAddr1', 'billaddr1', 'BILLADDRESS1', 'Street1', default='N/A',
+            ),
+            'ADDRESS2': pick(
+                'ADDRESS2', 'address2', 'addr2', 'line2', 'street2', 'ADDR2', 'BillAddr2', 'billaddr2',
+                'BILLADDRESS2', default='N/A',
+            ),
+            'ADDRESS3': pick(
+                'ADDRESS3', 'address3', 'addr3', 'line3', 'city', 'ADDR3', 'BillAddr3', 'Postcode', 'POSTCODE',
+                default='',
+            ),
+            'ADDRESS4': pick(
+                'ADDRESS4', 'address4', 'addr4', 'line4', 'state', 'country', 'ADDR4', 'BillAddr4',
+                'Region', 'STATE', default='',
+            ),
             'PHONE1': pick(
                 'PHONE1', 'phone', 'phone1', 'tel', 'telephone', 'TEL', 'MOBILE', 'mobile',
-                'FAX1', 'fax1', default='N/A',
+                'FAX1', 'fax1', 'HP', 'Hp', 'CONTACT', 'Contact', 'PHONENO', 'PhoneNo', default='N/A',
             ),
             'UDF_EMAIL': pick('UDF_EMAIL', 'udf_email', 'EMAIL', 'email', default=''),
         }
@@ -8137,16 +8267,28 @@ def api_get_user_info():
                 phone1 = str(normalized.get('PHONE1', '')).strip().upper()
                 if addr1 not in ('', 'N/A') or phone1 not in ('', 'N/A'):
                     _debug_log_user_info_payload(f'sql_api_variant_{idx}', normalized)
-                    return jsonify({'success': True, 'data': normalized, 'source': f'sql_api_variant_{idx}'})
+                    return jsonify({
+                        'success': True,
+                        'data': _merge_session_login_customer_udf_meta(normalized),
+                        'source': f'sql_api_variant_{idx}',
+                    })
 
             if best_normalized is not None:
                 _debug_log_user_info_payload(best_source or 'sql_api', best_normalized)
-                return jsonify({'success': True, 'data': best_normalized, 'source': best_source or 'sql_api'})
+                return jsonify({
+                    'success': True,
+                    'data': _merge_session_login_customer_udf_meta(best_normalized),
+                    'source': best_source or 'sql_api',
+                })
 
             local_payload = _fetch_customer_info_from_local_ar(customer_code)
             if local_payload:
                 _debug_log_user_info_payload('local_firebird_ar', local_payload)
-                return jsonify({'success': True, 'data': local_payload, 'source': 'local_firebird_ar'})
+                return jsonify({
+                    'success': True,
+                    'data': _merge_session_login_customer_udf_meta(local_payload),
+                    'source': 'local_firebird_ar',
+                })
 
             # Upstream errors (e.g. 500 "Regenerate views are required") are not "not found"; use 502 for 5xx.
             fail_status = 502 if (last_sql_status and last_sql_status >= 500) else 404
@@ -8163,7 +8305,11 @@ def api_get_user_info():
         local_only = _fetch_customer_info_from_local_ar(customer_code)
         if local_only:
             _debug_log_user_info_payload('local_firebird_ar', local_only)
-            return jsonify({'success': True, 'data': local_only, 'source': 'local_firebird_ar'})
+            return jsonify({
+                'success': True,
+                'data': _merge_session_login_customer_udf_meta(local_only),
+                'source': 'local_firebird_ar',
+            })
         return jsonify({'success': False, 'error': 'No customer data from SQL API or local database'}), 404
     except Exception as e:
         print(f"[DEBUG] get_user_info: Exception occurred: {str(e)}", flush=True)

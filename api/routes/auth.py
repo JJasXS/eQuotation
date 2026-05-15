@@ -1,5 +1,6 @@
 """Authentication helper endpoints backed by Firebird lookups."""
 import os
+import re
 import sys
 
 import fdb
@@ -153,6 +154,51 @@ def _table_has_column(cur, table_name: str, column_name: str) -> bool:
     return cur.fetchone() is not None
 
 
+def _department_column_for_udf_email(email_col: str) -> str:
+    """
+    Pair ``UDF_EMAIL`` → ``UDF_DEPARTMENT``, ``UDF_EMAIL2`` → ``UDF_DEPARTMENT2``, etc.
+    Suffix digits must match between the two names.
+    """
+    m = re.fullmatch(r"UDF_EMAIL(\d*)", (email_col or "").strip(), re.IGNORECASE)
+    if not m:
+        return "UDF_DEPARTMENT"
+    suffix = m.group(1)
+    return f"UDF_DEPARTMENT{suffix}" if suffix else "UDF_DEPARTMENT"
+
+
+def _udf_email_column_suffix(email_col: str | None) -> str:
+    """``UDF_EMAIL`` → ''; ``UDF_EMAIL2`` → ``'2'``; non-matching → ``''``."""
+    if not email_col:
+        return ""
+    m = re.fullmatch(r"UDF_EMAIL(\d*)", str(email_col).strip(), re.IGNORECASE)
+    return m.group(1) if m else ""
+
+
+def _sorted_ar_customer_udf_email_columns(cur) -> list[str]:
+    """
+    All ``AR_CUSTOMER`` columns named ``UDF_EMAIL`` or ``UDF_EMAIL`` + digits, ordered by numeric suffix
+    (``UDF_EMAIL`` first as 0, then ``UDF_EMAIL1``, ``UDF_EMAIL2``, …).
+    """
+    cur.execute(
+        """
+        SELECT TRIM(RDB$FIELD_NAME)
+        FROM RDB$RELATION_FIELDS
+        WHERE RDB$RELATION_NAME = 'AR_CUSTOMER'
+        """,
+    )
+    cols = [str(r[0]).strip() for r in (cur.fetchall() or []) if r and r[0]]
+    email_cols = [c for c in cols if re.fullmatch(r"UDF_EMAIL\d*", c, re.IGNORECASE)]
+
+    def sort_key(c: str) -> tuple[int, str]:
+        m = re.fullmatch(r"UDF_EMAIL(\d*)", c, re.IGNORECASE)
+        if not m:
+            return (10**9, c.upper())
+        digits = m.group(1)
+        return (int(digits, 10) if digits else 0, c.upper())
+
+    return sorted(email_cols, key=sort_key)
+
+
 def _lookup_supplier_by_email(cur, normalized_email: str):
     """AR_SUPPLIER / AP_SUPPLIER (+ external API fallback). Returns (supplier_dict|None, supplier_code|None)."""
     supplier = None
@@ -199,7 +245,12 @@ def _lookup_supplier_by_email(cur, normalized_email: str):
 
 
 def _lookup_customer_by_email(cur, normalized_email: str):
-    """AR_CUSTOMERBRANCH then AR_CUSTOMER (UDF_EMAIL, EMAIL). Returns (user_dict|None, customer_code|None)."""
+    """
+    AR_CUSTOMERBRANCH (EMAIL), then AR_CUSTOMER dynamic ``UDF_EMAIL`` / ``UDF_EMAIL2`` / … with paired
+    ``UDF_DEPARTMENT`` / ``UDF_DEPARTMENT2`` / … when those columns exist, then AR_CUSTOMER.EMAIL.
+
+    UDF email columns are discovered from ``RDB$RELATION_FIELDS`` so numbering is open-ended.
+    """
     user = None
     customer_code = None
     cur.execute(
@@ -216,30 +267,55 @@ def _lookup_customer_by_email(cur, normalized_email: str):
             "code": user_row[0],
             "email": user_row[1],
             "source": "AR_CUSTOMERBRANCH.EMAIL",
+            "matched_udf_email_column": None,
+            "udf_email_suffix": "",
         }
         customer_code = user_row[0]
         return user, customer_code
 
-    try:
-        cur.execute(
-            """
-            SELECT CODE, UDF_EMAIL
-            FROM AR_CUSTOMER
-            WHERE UPPER(TRIM(UDF_EMAIL)) = UPPER(TRIM(?))
-            """,
-            [normalized_email],
-        )
-        user_row = cur.fetchone()
-        if user_row:
-            user = {
-                "code": user_row[0],
-                "email": user_row[1],
-                "source": "AR_CUSTOMER.UDF_EMAIL",
-            }
-            customer_code = user_row[0]
-            return user, customer_code
-    except Exception:
-        pass
+    table = "AR_CUSTOMER"
+    for email_col in _sorted_ar_customer_udf_email_columns(cur):
+        if not _table_has_column(cur, table, email_col):
+            continue
+        dept_col = _department_column_for_udf_email(email_col)
+        has_dept = _table_has_column(cur, table, dept_col)
+        ec = email_col.upper()
+        try:
+            if has_dept:
+                dc = dept_col.upper()
+                cur.execute(
+                    f"""
+                    SELECT CODE, {ec}, {dc}
+                    FROM {table}
+                    WHERE UPPER(TRIM({ec})) = UPPER(TRIM(?))
+                    """,
+                    [normalized_email],
+                )
+            else:
+                cur.execute(
+                    f"""
+                    SELECT CODE, {ec}
+                    FROM {table}
+                    WHERE UPPER(TRIM({ec})) = UPPER(TRIM(?))
+                    """,
+                    [normalized_email],
+                )
+            user_row = cur.fetchone()
+            if user_row:
+                suf = _udf_email_column_suffix(email_col)
+                user = {
+                    "code": user_row[0],
+                    "email": user_row[1],
+                    "source": f"{table}.{email_col}",
+                    "matched_udf_email_column": email_col,
+                    "udf_email_suffix": suf,
+                }
+                if has_dept and len(user_row) > 2:
+                    user["department"] = user_row[2]
+                customer_code = user_row[0]
+                return user, customer_code
+        except Exception as exc:
+            print(f"[AUTH] customer lookup failed on {table}.{email_col}: {exc}", flush=True)
 
     try:
         cur.execute(
@@ -256,6 +332,8 @@ def _lookup_customer_by_email(cur, normalized_email: str):
                 "code": user_row[0],
                 "email": user_row[1],
                 "source": "AR_CUSTOMER.EMAIL",
+                "matched_udf_email_column": "EMAIL",
+                "udf_email_suffix": "",
             }
             customer_code = user_row[0]
     except Exception:

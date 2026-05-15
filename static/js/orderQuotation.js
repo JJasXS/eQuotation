@@ -886,27 +886,78 @@ async function loadUserInfo() {
 
             writeQuotationCustomerField(
                 'quotation-address1',
-                pickValue('ADDRESS1', 'address1', 'addr1', 'line1', 'street1') || 'N/A',
+                pickValue(
+                    'ADDRESS1',
+                    'address1',
+                    'addr1',
+                    'line1',
+                    'street1',
+                    'BillAddr1',
+                    'billAddr1',
+                    'BILLADDRESS1',
+                ) || 'N/A',
             );
 
             writeQuotationCustomerField(
                 'quotation-address2',
-                pickValue('ADDRESS2', 'address2', 'addr2', 'line2', 'street2') || 'N/A',
+                pickValue(
+                    'ADDRESS2',
+                    'address2',
+                    'addr2',
+                    'line2',
+                    'street2',
+                    'BillAddr2',
+                    'billAddr2',
+                    'BILLADDRESS2',
+                ) || 'N/A',
             );
 
             writeQuotationCustomerField(
                 'quotation-address3',
-                pickValue('ADDRESS3', 'address3', 'addr3', 'line3', 'city') || '',
+                pickValue(
+                    'ADDRESS3',
+                    'address3',
+                    'addr3',
+                    'line3',
+                    'city',
+                    'BillAddr3',
+                    'Postcode',
+                    'POSTCODE',
+                ) || '',
             );
 
             writeQuotationCustomerField(
                 'quotation-address4',
-                pickValue('ADDRESS4', 'address4', 'addr4', 'line4', 'state', 'country') || '',
+                pickValue(
+                    'ADDRESS4',
+                    'address4',
+                    'addr4',
+                    'line4',
+                    'state',
+                    'country',
+                    'BillAddr4',
+                    'Region',
+                    'STATE',
+                ) || '',
             );
 
             writeQuotationCustomerField(
                 'quotation-phone',
-                pickValue('PHONE1', 'phone1', 'PHONE', 'phone', 'tel', 'telephone', 'MOBILE', 'mobile') || 'N/A',
+                pickValue(
+                    'PHONE1',
+                    'phone1',
+                    'PHONE',
+                    'phone',
+                    'tel',
+                    'telephone',
+                    'TEL',
+                    'MOBILE',
+                    'mobile',
+                    'CONTACT',
+                    'Contact',
+                    'HP',
+                    'Hp',
+                ) || 'N/A',
             );
 
             writeQuotationCustomerField(
@@ -914,10 +965,21 @@ async function loadUserInfo() {
                 pickValue('CREDITTERM', 'creditTerm', 'creditterm', 'TERMS', 'terms') || 'N/A',
             );
 
-            const apiEmail = pickValue('UDF_EMAIL', 'udf_email', 'EMAIL', 'email');
-            if (apiEmail) {
-                writeQuotationCustomerField('quotation-customer', apiEmail);
+            const dept = pickFrom(source, ['DEPARTMENT', 'department']) || '';
+            const deptRow = document.getElementById('quotation-department-row');
+            const deptEl = document.getElementById('quotation-department');
+            if (deptRow && deptEl) {
+                if (dept) {
+                    deptEl.textContent = dept;
+                    deptRow.style.display = '';
+                } else {
+                    deptRow.style.display = 'none';
+                    deptEl.textContent = '';
+                }
             }
+
+            // Customer email: keep server-rendered session login email (#quotation-customer). Do not replace
+            // with AR_CUSTOMER master UDF_EMAIL/EMAIL — users may log in via UDF_EMAIL2/3… (jason.choo…).
         } else {
             // Set default N/A values if data not found
             console.warn('Customer data not found:', data.error);
@@ -935,6 +997,12 @@ function setDefaultCustomerInfo() {
     fields.forEach((fieldId) => writeQuotationCustomerField(fieldId, 'N/A'));
     writeQuotationCustomerField('quotation-address3', '');
     writeQuotationCustomerField('quotation-address4', '');
+    const deptRow = document.getElementById('quotation-department-row');
+    const deptEl = document.getElementById('quotation-department');
+    if (deptRow && deptEl) {
+        deptRow.style.display = 'none';
+        deptEl.textContent = '';
+    }
 }
 
 // Load draft quotation data if dockey is present
