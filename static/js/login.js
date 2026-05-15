@@ -452,6 +452,12 @@ function startResendTimer() {
     }, 1000);
 }
 
+function syncOtpDigitFilledClasses() {
+    document.querySelectorAll('.otp-digit').forEach((input) => {
+        input.classList.toggle('otp-digit--filled', input.value.length > 0);
+    });
+}
+
 function backToEmail() {
     showStep('email-step');
     document.getElementById('email').focus();
@@ -464,10 +470,16 @@ function showStep(stepId) {
 
     document.getElementById(stepId).classList.add('active');
 
+    const loginPage = document.querySelector('.login-page');
+    if (loginPage) {
+        loginPage.classList.toggle('login-page--otp', stepId === 'otp-step');
+    }
+
     if (stepId === 'otp-step') {
         const otpInputs = Array.from(document.querySelectorAll('.otp-digit'));
         otpInputs.forEach((input) => {
             input.value = '';
+            input.classList.remove('otp-digit--filled');
         });
         if (otpInputs.length > 0) {
             otpInputs[0].focus();
@@ -477,24 +489,22 @@ function showStep(stepId) {
 
 function showError(errorElement, message, type = 'error') {
     errorElement.textContent = message;
+    errorElement.classList.remove('error-message--success', 'error-message--warning');
     errorElement.classList.add('show');
 
+    let autoHideMs = 0;
     if (type === 'success') {
-        errorElement.style.background = 'rgba(75, 110, 158, 0.1)';
-        errorElement.style.color = '#4b6e9e';
-        setTimeout(() => {
-            errorElement.classList.remove('show');
-            errorElement.style.background = '';
-            errorElement.style.color = '';
-        }, 3000);
+        errorElement.classList.add('error-message--success');
+        autoHideMs = 3000;
     } else if (type === 'warning') {
-        errorElement.style.background = 'rgba(180, 120, 40, 0.12)';
-        errorElement.style.color = '#a86a1a';
+        errorElement.classList.add('error-message--warning');
+        autoHideMs = 12000;
+    }
+
+    if (autoHideMs > 0) {
         setTimeout(() => {
-            errorElement.classList.remove('show');
-            errorElement.style.background = '';
-            errorElement.style.color = '';
-        }, 12000);
+            errorElement.classList.remove('show', 'error-message--success', 'error-message--warning');
+        }, autoHideMs);
     }
 }
 
@@ -519,6 +529,7 @@ document.addEventListener('DOMContentLoaded', function () {
         otpInputs.forEach((input, index) => {
             input.addEventListener('input', function () {
                 this.value = this.value.replace(/[^0-9]/g, '').slice(0, 1);
+                this.classList.toggle('otp-digit--filled', this.value.length > 0);
                 if (this.value && index < otpInputs.length - 1) {
                     otpInputs[index + 1].focus();
                 }
@@ -564,6 +575,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 for (let i = 0; i < otpInputs.length; i++) {
                     otpInputs[i].value = pasted[i] || '';
                 }
+                syncOtpDigitFilledClasses();
 
                 const focusIndex = Math.min(pasted.length, otpInputs.length - 1);
                 otpInputs[focusIndex].focus();

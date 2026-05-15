@@ -4,13 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Request Quotation</title>
-    <link rel="stylesheet" href="/static/css/hamburger_menu.css">
-    <link rel="stylesheet" href="/static/css/app_page_header.css">
+    <link rel="stylesheet" href="/static/css/hamburger_menu.css?v=20260515_sidebar">
+    <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
+    <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515">
     <link rel="stylesheet" href="/static/css/orderQuotation.css?v=20260505_line_grid_balance">
-    <link rel="stylesheet" href="/static/css/quotationChatPopup.css?v=20260505_rich_chat">
-    <link rel="stylesheet" href="/static/css/createQuotationLight.css?v=20260511_perf_parallel_load">
+    <link rel="stylesheet" href="/static/css/quotationChatPopup.css?v=20260515_greeting_bubble">
+    <link rel="stylesheet" href="/static/css/createQuotationLight.css?v=20260515_create_compact">
 </head>
-<body class="create-quotation-page" data-php-base-url="{{ php_base_url }}">
+<body class="equotation-icy-theme create-quotation-page" data-php-base-url="{{ php_base_url }}">
     <div class="container">
         <div class="main-content">
             {% set page_header_title = "Quotation > Create Quotation" %}
@@ -77,6 +78,7 @@
                             <div class="create-quotation-lines-panel">
                                 <h4 class="create-quotation-panel-title">Quotation lines</h4>
                                 <div id="quotation-mini-item-codes" class="quotation-mini-item-codes" aria-live="polite"></div>
+                                <div class="create-quotation-lines-grid">
                                 <div class="item-row-header quotation-item-row-header">
                                     <span>Source</span>
                                     <span>Product</span>
@@ -85,9 +87,9 @@
                                     <span>Bundle</span>
                                     <span>Qty</span>
                                     <span>Discount</span>
-                                    <span class="item-header-ref-price">Reference<br>Price</span>
-                                    <span>Unit Price</span>
-                                    <span>Delivery Date</span>
+                                    <span class="item-header-ref-price">Ref. price</span>
+                                    <span>Unit price</span>
+                                    <span>Delivery</span>
                                     <span class="item-header-actions" aria-hidden="true"></span>
                                 </div>
                                 <div id="quotation-items-list">
@@ -113,6 +115,7 @@
                                         </div>
                                     </div>
                                 </div>
+                                </div>
 
                                 <button type="button" class="btn-add-item" onclick="addQuotationItem()">+ Add Item</button>
 
@@ -137,9 +140,8 @@
     </div>
     
     <!-- Quotation Chat Bubble -->
-    <button id="quotation-chat-preview" class="quotation-chat-preview quotation-chat-preview-hidden" type="button" onclick="openQuotationChatFromPreview()">
-        <span class="quotation-chat-preview-label">New message</span>
-        <span class="quotation-chat-preview-text">How can I help you?</span>
+    <button id="quotation-chat-preview" class="quotation-chat-preview quotation-chat-preview-hidden" type="button" onclick="openQuotationChatFromPreview()" aria-label="Open chat assistant">
+        <span class="quotation-chat-preview-text">Hi, How can I help you?</span>
     </button>
     <button id="quotation-chat-bubble" class="quotation-chat-bubble" onclick="toggleQuotationChatPopup()" title="Chat with us">
         <span>💬</span>
@@ -170,7 +172,7 @@
     
     <script src="/static/js/hamburger_menu.js"></script>
     <script src="/static/js/orderQuotation.js?v=20260511_stockitem_code"></script>
-    <script src="/static/js/quotationChatPopup.js?v=20260505_rich_chat"></script>
+    <script src="/static/js/quotationChatPopup.js?v=20260515_bubble_1_5s"></script>
     <script>
         // Set today's date as default for all delivery date inputs on load
         document.addEventListener('DOMContentLoaded', function() {
@@ -186,18 +188,7 @@
                 validityInput.value = d.toISOString().split('T')[0];
             }
             // Customer fields: orderQuotation.js loads /api/get_user_info once on DOMContentLoaded (avoid duplicate calls).
-
-            // Open quotation chat by default; user closes when done
-            if (window.location.pathname.includes('create-quotation')) {
-                setTimeout(function() {
-                    var chatPopup = document.getElementById('quotation-chat-popup');
-                    if (chatPopup) {
-                        chatPopup.classList.remove('quotation-chat-popup-hidden');
-                        var messages = document.getElementById('quotation-chat-popup-messages');
-                        if (messages) messages.scrollTop = messages.scrollHeight;
-                    }
-                }, 200);
-            }
+            // Chat stays closed on load; quotationChatPopup.js shows the greeting bubble then fades it out.
         });
     </script>
 </body>

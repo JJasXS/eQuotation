@@ -529,9 +529,207 @@ def get_current_customer_code(*, resolve_missing=False):
         row = cur.fetchone()
         if row and row[0]:
             customer_code = row[0]
+            session.pop('customer_company_name', None)
             session['customer_code'] = customer_code
             return customer_code
         return None
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
+
+
+def _normalize_company_name_key(name):
+    """Normalize company name for equality checks (case and internal whitespace)."""
+    return ''.join(str(name or '').upper().split())
+
+
+def _resolve_session_customer_company_name():
+    """AR_CUSTOMER.COMPANYNAME for the logged-in customer code; cached on session."""
+    cc = (session.get('customer_code') or '').strip()
+    if not cc:
+        return ''
+    cached = session.get('customer_company_name')
+    if isinstance(cached, str) and cached.strip():
+        return cached.strip()
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        cur.execute(
+            'SELECT FIRST 1 COMPANYNAME FROM AR_CUSTOMER WHERE CODE = ?',
+            (cc,),
+        )
+        row = cur.fetchone()
+        cn = str(row[0] or '').strip() if row else ''
+        if cn:
+            session['customer_company_name'] = cn
+        return cn
+    except Exception:
+        return ''
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
+
+
+def _quotation_visible_to_customer_session(qt_code, qt_companyname):
+    """True if the quotation belongs to this session customer or same master company name."""
+    my_code = (
+        get_current_customer_code(resolve_missing=True)
+        or session.get('customer_code')
+        or ''
+    )
+    my_code = str(my_code).strip()
+    if my_code and str(qt_code or '').strip().upper() == my_code.upper():
+        return True
+    my_company = _resolve_session_customer_company_name()
+    if not my_company:
+        return False
+    return _normalize_company_name_key(qt_companyname) == _normalize_company_name_key(my_company)
+
+
+_CREATOR_LOGIN_MARK = 'eQuotation login:'
+_DEPT_NOTE_MARK = 'department:'
+
+# Optional SL_QT columns used to resolve submitter email / department (RDB$ check before SELECT).
+_SL_QT_OPTIONAL_CREATOR_METADATA_COLS = (
+    'UDF_CREATOR_EMAIL',
+    'UDF_CREATOR_DEPARTMENT',
+    'NOTE',
+    'NOTES',
+    'CC',
+    'UDF_DEPARTMENT1',
+    'UDF_DEPARTMENT2',
+    'DEPARTMENT2',
+    'DEPARTMENT',
+)
+
+
+def _parse_creator_email_from_sl_qt_note(note):
+    """Extract login email embedded by quotation_api._build_salesquotation_payload in NOTE."""
+    if note is None:
+        return ''
+    text = str(note)
+    for line in text.replace('\r\n', '\n').split('\n'):
+        s = line.strip()
+        if _CREATOR_LOGIN_MARK in s:
+            after = s.split(_CREATOR_LOGIN_MARK, 1)[1].strip()
+            if not after:
+                continue
+            return after.split('|', 1)[0].strip()
+    return ''
+
+
+def _parse_creator_department_from_sl_qt_note(note):
+    """Extract `department: …` segment from NOTE/NOTES (see quotation_api meta line)."""
+    if note is None:
+        return ''
+    text = str(note)
+    mark = _DEPT_NOTE_MARK
+    for line in text.replace('\r\n', '\n').split('\n'):
+        for segment in line.split('|'):
+            s = segment.strip()
+            if s.lower().startswith(mark):
+                return s.split(':', 1)[1].strip() if ':' in s else ''
+    return ''
+
+
+def _resolve_quotation_creator_email(row_map):
+    """Prefer SL_QT.UDF_CREATOR_EMAIL; else parse NOTE; else CC when it looks like a single email."""
+    if not row_map:
+        return ''
+    udf = row_map.get('UDF_CREATOR_EMAIL')
+    if udf is not None and str(udf).strip():
+        return str(udf).strip()
+    note = row_map.get('NOTE')
+    if note is None:
+        note = row_map.get('NOTES')
+    if note is not None:
+        parsed = _parse_creator_email_from_sl_qt_note(note)
+        if parsed:
+            return parsed
+    cc = row_map.get('CC')
+    if cc is None:
+        return ''
+    c = str(cc).strip()
+    if c and '@' in c and len(c) <= 254 and ',' not in c and ';' not in c:
+        return c
+    return ''
+
+
+def _resolve_quotation_creator_department(row_map):
+    """Prefer UDF_CREATOR_DEPARTMENT; else NOTE department segment; else SL_QT UDF/dept columns."""
+    if not row_map:
+        return ''
+    udf = row_map.get('UDF_CREATOR_DEPARTMENT')
+    if udf is not None and str(udf).strip():
+        return str(udf).strip()
+    note = row_map.get('NOTE')
+    if note is None:
+        note = row_map.get('NOTES')
+    if note is not None:
+        parsed = _parse_creator_department_from_sl_qt_note(note)
+        if parsed:
+            return parsed[:120]
+    for key in ('UDF_DEPARTMENT1', 'UDF_DEPARTMENT2', 'DEPARTMENT2', 'DEPARTMENT'):
+        v = row_map.get(key)
+        if v is not None and str(v).strip():
+            return str(v).strip()[:120]
+    return ''
+
+
+def _try_set_sl_qt_creator_meta_after_submit(dockey, login_email, login_department):
+    """Back-fill SL_QT UDF_CREATOR_* from session (first submit only, column must exist)."""
+    email = (login_email or '').strip()
+    dept = (login_department or '').strip()
+    if not email and not dept:
+        return
+    try:
+        dk = int(dockey)
+    except (TypeError, ValueError):
+        return
+    if dk <= 0:
+        return
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        cur.execute(
+            '''
+            SELECT TRIM(RF.RDB$FIELD_NAME)
+            FROM RDB$RELATION_FIELDS RF
+            WHERE TRIM(RF.RDB$RELATION_NAME) = 'SL_QT'
+            '''
+        )
+        cols = {str(r[0]).strip() for r in (cur.fetchall() or []) if r and r[0]}
+        if email and 'UDF_CREATOR_EMAIL' in cols:
+            cur.execute(
+                '''
+                UPDATE SL_QT
+                SET UDF_CREATOR_EMAIL = ?
+                WHERE DOCKEY = ?
+                  AND (UDF_CREATOR_EMAIL IS NULL OR TRIM(COALESCE(UDF_CREATOR_EMAIL, '')) = '')
+                ''',
+                (email[:254], dk),
+            )
+        if dept and 'UDF_CREATOR_DEPARTMENT' in cols:
+            cur.execute(
+                '''
+                UPDATE SL_QT
+                SET UDF_CREATOR_DEPARTMENT = ?
+                WHERE DOCKEY = ?
+                  AND (UDF_CREATOR_DEPARTMENT IS NULL OR TRIM(COALESCE(UDF_CREATOR_DEPARTMENT, '')) = '')
+                ''',
+                (dept[:120], dk),
+            )
+        con.commit()
+    except Exception as exc:
+        print(f"[api_create_quotation] UDF_CREATOR_* update skipped: {exc}", flush=True)
     finally:
         if cur:
             cur.close()
@@ -2523,6 +2721,7 @@ def api_verify_otp():
         session['access_tier'] = access_tier or ('supplier' if user_type == 'supplier' else 'customer')
         session['staff_udf'] = staff_udf
         session['user_type'] = user_type
+        session.pop('customer_company_name', None)
         session['customer_code'] = customer_code  # Store customer/supplier code in session
         if user_type == 'supplier':
             session['supplier_code'] = customer_code
@@ -2548,6 +2747,12 @@ def api_verify_otp():
                 flush=True,
             )
         session.permanent = True
+
+        if customer_code and user_type not in ('supplier', 'admin'):
+            try:
+                _resolve_session_customer_company_name()
+            except Exception:
+                pass
         
         print(f"[SESSION] user_email: {email}")
         print(f"[SESSION] user_type: {user_type}")
@@ -4662,26 +4867,6 @@ def _fetch_supplier_emails_by_codes(codes: list[str]) -> dict[str, str]:
             pass
 
 
-def _parse_additional_email_recipients(raw) -> list[str]:
-    """Split optional textarea input into validated-looking email addresses."""
-    if raw is None:
-        return []
-    s = str(raw).strip()
-    if not s:
-        return []
-    parts = re.split(r'[\s,;]+', s)
-    out: list[str] = []
-    for p in parts:
-        em = p.strip()
-        if not em or '@' not in em:
-            continue
-        domain = em.split('@', 1)[-1]
-        if '.' not in domain:
-            continue
-        out.append(em)
-    return out
-
-
 def _rfq_invite_safe_html(value) -> str:
     return (
         str(value or '')
@@ -5812,13 +5997,12 @@ def api_admin_create_bidding_invitations():
     raw_request_id = str(payload.get('requestId') or '').strip()
     request_no = str(payload.get('requestNumber') or '').strip()
     suppliers = payload.get('suppliers') if isinstance(payload.get('suppliers'), list) else []
-    extra_raw = str(payload.get('additionalEmails') or payload.get('extraEmails') or '').strip()
     actor = (session.get('user_email') or session.get('user_name') or 'admin').strip()
 
     if not raw_request_id and not request_no:
         return jsonify({'success': False, 'error': 'requestId or requestNumber is required'}), 400
-    if not suppliers and not extra_raw:
-        return jsonify({'success': False, 'error': 'Select supplier(s) or provide additionalEmails'}), 400
+    if not suppliers:
+        return jsonify({'success': False, 'error': 'Select at least one supplier'}), 400
 
     try:
         headers = _build_sql_api_auth_headers()
@@ -5837,21 +6021,10 @@ def api_admin_create_bidding_invitations():
 
         request_dockey = int(request_header.get('dockey'))
         request_docno = str(request_header.get('docno') or request_no or '').strip()
-        if suppliers:
-            result = create_bid_invitations(request_dockey, request_docno, suppliers, actor)
-        else:
-            result = {
-                'requestDockey': request_dockey,
-                'requestNumber': request_docno,
-                'invitedCount': 0,
-                'inserted': 0,
-                'updated': 0,
-            }
+        result = create_bid_invitations(request_dockey, request_docno, suppliers, actor)
         try:
-            normalized = _normalize_supplier_rows(suppliers) if suppliers else []
+            normalized = _normalize_supplier_rows(suppliers)
             email_targets = _resolve_invitation_email_targets(normalized)
-            for em in _parse_additional_email_recipients(extra_raw):
-                email_targets.append({'email': em, 'code': '', 'name': 'Colleague'})
             email_targets = _dedupe_invitation_targets_by_email(email_targets)
             lines, req_date = _local_pr_lines_for_rfq_email(request_dockey, request_docno)
             if email_targets:
@@ -5865,7 +6038,7 @@ def api_admin_create_bidding_invitations():
                 result['rfqEmailsQueued'] = 0
                 result['rfqEmailNote'] = (
                     'No supplier emails on file; invitations are saved for portal access. '
-                    'Add UDF email in accounting or use “Additional notify emails” below.'
+                    'Add UDF email in accounting.'
                 )
         except Exception as mail_exc:
             print(f"[PROCUREMENT BIDDING INVITE] RFQ email queue error: {mail_exc}", flush=True)
@@ -6498,6 +6671,7 @@ def api_get_product_price():
                 cur = con.cursor()
                 customer_code = find_customer_code_by_email(cur, user_email)
                 if customer_code:
+                    session.pop('customer_company_name', None)
                     session['customer_code'] = customer_code
             except Exception as backfill_error:
                 print(f"[PRICING WARNING] Failed to backfill customer_code for {user_email}: {backfill_error}", flush=True)
@@ -6820,14 +6994,30 @@ def api_create_quotation():
     if not can_access_create_quotation(session):
         return jsonify({'success': False, 'error': 'Forbidden'}), 403
     customer_code = get_current_customer_code(resolve_missing=True) or session.get('customer_code')
-    data = request.get_json() or {}
+    data = dict(request.get_json() or {})
+    # Same identity as OTP login (e.g. UDF_EMAIL2) — carried into SQL Accounting header note / cc / attention.
+    data['loginEmail'] = (session.get('user_email') or '').strip()
+    mc = session.get('login_matched_udf_email_column')
+    if mc:
+        data['loginMatchedUdfEmailColumn'] = mc
+    suf = session.get('login_udf_email_suffix')
+    if suf is not None and str(suf).strip() != '':
+        data['loginUdfEmailSuffix'] = str(suf).strip()
+    dept = session.get('login_customer_department')
+    if dept:
+        data['loginDepartment'] = str(dept).strip()
     dockey = data.get('dockey', None)  # If present, update existing quotation
     draft_dockey = data.get('draftDockey', None)
     items = data.get('items', [])
     company_name = data.get('companyName', '')
     
     # DEBUG: Log entry point and dockey value
-    print(f"DEBUG [Flask api_create_quotation]: ENTERED - dockey={dockey}, companyName={company_name}", flush=True)
+    print(
+        f"DEBUG [Flask api_create_quotation]: loginEmail={data.get('loginEmail')!r} "
+        f"matchedUdf={data.get('loginMatchedUdfEmailColumn')!r} suffix={data.get('loginUdfEmailSuffix')!r} "
+        f"department={data.get('loginDepartment')!r}",
+        flush=True,
+    )
     
     if not items:
         print(f"DEBUG [Flask api_create_quotation]: No items provided", flush=True)
@@ -6866,7 +7056,13 @@ def api_create_quotation():
                 print(f"DEBUG [Flask api_create_quotation]: Deleted draft DOCKEY={draft_dockey} after successful submission", flush=True)
             except Exception as cleanup_error:
                 print(f"WARNING [Flask api_create_quotation]: Failed to delete draft DOCKEY={draft_dockey}: {cleanup_error}", flush=True)
-        
+
+        _try_set_sl_qt_creator_meta_after_submit(
+            quotation_data.get('dockey'),
+            (data.get('loginEmail') or session.get('user_email') or ''),
+            (data.get('loginDepartment') or session.get('login_customer_department') or ''),
+        )
+
         return jsonify({
             'success': True, 
             'dockey': quotation_data.get('dockey'),
@@ -7054,15 +7250,33 @@ def api_get_my_quotations():
         if 'UDF_STATUS' in sl_qt_cols:
             fields.append('UDF_STATUS')
         fields.append('CODE')
-        fields.append('COMPANYNAME')
+        if 'COMPANYNAME' in sl_qt_cols:
+            fields.append('COMPANYNAME')
+        for opt_col in _SL_QT_OPTIONAL_CREATOR_METADATA_COLS:
+            if opt_col in sl_qt_cols and opt_col not in fields:
+                fields.append(opt_col)
+
+        company_name = _resolve_session_customer_company_name() if 'COMPANYNAME' in sl_qt_cols else ''
+        if company_name:
+            where_clause = '''(
+                q.CODE = ?
+                OR (
+                    TRIM(COALESCE(q.COMPANYNAME, '')) <> ''
+                    AND UPPER(TRIM(q.COMPANYNAME)) = UPPER(TRIM(?))
+                )
+            )'''
+            where_params = (customer_code, company_name)
+        else:
+            where_clause = 'q.CODE = ?'
+            where_params = (customer_code,)
 
         select_sql = f'''
             SELECT {', '.join('q.' + f for f in fields)}
             FROM SL_QT q
-            WHERE q.CODE = ?
+            WHERE {where_clause}
             ORDER BY q.DOCDATE DESC, q.DOCKEY DESC
         '''
-        cur.execute(select_sql, (customer_code,))
+        cur.execute(select_sql, where_params)
         rows = cur.fetchall()
         cur.close()
         con.close()
@@ -7107,10 +7321,16 @@ def api_get_my_quotations():
                 'CANCELLED': cancelled_value,
                 'UPDATECOUNT': updatecount_value,
                 'CODE': (str(row_map.get('CODE')).strip() if row_map.get('CODE') is not None else ''),
-                'COMPANYNAME': row_map.get('COMPANYNAME') or 'N/A',
+                'COMPANYNAME': (
+                    (row_map.get('COMPANYNAME') or 'N/A')
+                    if 'COMPANYNAME' in fields
+                    else 'N/A'
+                ),
             }
             if udf_status_val is not None:
                 rec['UDF_STATUS'] = udf_status_val
+            rec['creatorEmail'] = _resolve_quotation_creator_email(row_map)
+            rec['creatorDepartment'] = _resolve_quotation_creator_department(row_map)
             quotations.append(rec)
 
         return jsonify({'success': True, 'data': quotations})
@@ -7143,10 +7363,8 @@ def api_get_quotation_details():
     if user_type == 'admin':
         customer_code = (requested_customer_code or session_customer_code or resolved_customer_code).strip()
     else:
-        # Same ownership rule as /api/get_my_quotations — do not rely on session alone (email → AR_CUSTOMERBRANCH).
+        # Session viewer code (email → AR_CUSTOMERBRANCH). Access to the document is decided by CODE or shared COMPANYNAME.
         customer_code = (resolved_customer_code or session_customer_code).strip()
-        if requested_customer_code and requested_customer_code.strip().upper() != customer_code.upper():
-            return jsonify({'success': False, 'error': 'Forbidden'}), 403
 
     try:
         con = None
@@ -7155,22 +7373,35 @@ def api_get_quotation_details():
             con = get_db_connection()
             cur = con.cursor()
 
-            if not customer_code and user_type == 'admin':
-                cur.execute(
-                    '''
-                    SELECT CODE
-                    FROM SL_QT
-                    WHERE DOCKEY = ?
-                    ''',
-                    (dockey_int,)
-                )
-                admin_row = cur.fetchone()
-                if not admin_row or not admin_row[0]:
-                    return jsonify({'success': False, 'error': 'Quotation not found'}), 404
-                customer_code = str(admin_row[0]).strip()
+            cur.execute(
+                '''
+                SELECT CODE, COMPANYNAME
+                FROM SL_QT
+                WHERE DOCKEY = ?
+                ''',
+                (dockey_int,),
+            )
+            acl_row = cur.fetchone()
+            if not acl_row:
+                return jsonify({'success': False, 'error': 'Quotation not found'}), 404
+            qt_code = str(acl_row[0] or '').strip()
+            qt_company = str(acl_row[1] or '').strip() if len(acl_row) > 1 else ''
+
+            if user_type != 'admin':
+                if not customer_code:
+                    return jsonify({'success': False, 'error': 'Customer code not found in session'}), 400
+                if not _quotation_visible_to_customer_session(qt_code, qt_company):
+                    return jsonify({'success': False, 'error': 'Forbidden'}), 403
+                customer_code = qt_code
+            elif not customer_code:
+                customer_code = qt_code
 
             if not customer_code:
                 return jsonify({'success': False, 'error': 'Customer code not found in session'}), 400
+
+            # Header row must use this document's CODE. Admin sessions often carry a different
+            # customer_code; using it here caused 404 on get_quotation_details while the list still showed the QT.
+            code_for_header = qt_code
 
             cur.execute(
                 '''
@@ -7189,6 +7420,9 @@ def api_get_quotation_details():
             for opt in ('CANCELLED', 'UPDATECOUNT', 'UDF_STATUS'):
                 if opt in sl_qt_cols:
                     header_fields.append(opt)
+            for opt in _SL_QT_OPTIONAL_CREATOR_METADATA_COLS:
+                if opt in sl_qt_cols and opt not in header_fields:
+                    header_fields.append(opt)
 
             cur.execute(
                 f'''
@@ -7196,7 +7430,7 @@ def api_get_quotation_details():
                 FROM SL_QT
                 WHERE DOCKEY = ? AND CODE = ?
                 ''',
-                (dockey_int, customer_code)
+                (dockey_int, code_for_header)
             )
             header = cur.fetchone()
 
@@ -7286,6 +7520,9 @@ def api_get_quotation_details():
             if 'UDF_STATUS' in header_map and header_map.get('UDF_STATUS') is not None:
                 data['UDF_STATUS'] = str(header_map.get('UDF_STATUS')).strip()
 
+            data['creatorEmail'] = _resolve_quotation_creator_email(header_map)
+            data['creatorDepartment'] = _resolve_quotation_creator_department(header_map)
+
             return jsonify({'success': True, 'data': data})
         finally:
             if cur:
@@ -7358,6 +7595,9 @@ def api_admin_get_all_quotations():
             if 'UDF_STATUS' in sl_qt_cols:
                 fields.append('UDF_STATUS')
             fields.append('COMPANYNAME')
+            for opt_col in _SL_QT_OPTIONAL_CREATOR_METADATA_COLS:
+                if opt_col in sl_qt_cols and opt_col not in fields:
+                    fields.append(opt_col)
 
             # Firebird: FIRST/SKIP must precede the column list.
             if limit == 0:
@@ -7420,6 +7660,8 @@ def api_admin_get_all_quotations():
                 'CANCELLED': cancelled_value,
                 'UPDATECOUNT': updatecount_value,
                 'COMPANYNAME': row_map.get('COMPANYNAME') or 'N/A',
+                'creatorEmail': _resolve_quotation_creator_email(row_map),
+                'creatorDepartment': _resolve_quotation_creator_department(row_map),
             }
             if udf_status_val is not None:
                 rec['UDF_STATUS'] = udf_status_val
@@ -7452,18 +7694,39 @@ def api_admin_get_quotation_detail():
 
             cur.execute(
                 '''
-                SELECT DOCKEY, DOCNO, DOCDATE, CODE, DESCRIPTION, DOCAMT,
-                       CURRENCYCODE, VALIDITY, STATUS, TERMS,
-                       COMPANYNAME, ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, PHONE1
+                SELECT TRIM(RF.RDB$FIELD_NAME)
+                FROM RDB$RELATION_FIELDS RF
+                WHERE TRIM(RF.RDB$RELATION_NAME) = 'SL_QT'
+                '''
+            )
+            sl_qt_cols = {str(r[0]).strip() for r in (cur.fetchall() or []) if r and r[0]}
+
+            header_fields = [
+                'DOCKEY', 'DOCNO', 'DOCDATE', 'CODE', 'DESCRIPTION', 'DOCAMT',
+                'CURRENCYCODE', 'VALIDITY', 'STATUS', 'TERMS',
+                'COMPANYNAME', 'ADDRESS1', 'ADDRESS2', 'ADDRESS3', 'ADDRESS4', 'PHONE1',
+            ]
+            for opt in ('CANCELLED', 'UPDATECOUNT', 'UDF_STATUS'):
+                if opt in sl_qt_cols:
+                    header_fields.append(opt)
+            for opt in _SL_QT_OPTIONAL_CREATOR_METADATA_COLS:
+                if opt in sl_qt_cols and opt not in header_fields:
+                    header_fields.append(opt)
+
+            cur.execute(
+                f'''
+                SELECT {', '.join(header_fields)}
                 FROM SL_QT
                 WHERE DOCKEY = ?
                 ''',
-                (int(dockey),)
+                (int(dockey),),
             )
-            header = cur.fetchone()
+            header_row = cur.fetchone()
 
-            if not header:
+            if not header_row:
                 return jsonify({'success': False, 'error': 'Quotation not found'}), 404
+
+            header_map = dict(zip(header_fields, header_row))
 
             cur.execute(
                 '''
@@ -7502,26 +7765,51 @@ def api_admin_get_quotation_detail():
                     'DELIVERYDATE': str(row_map.get('DELIVERYDATE')) if row_map.get('DELIVERYDATE') is not None else None,
                 })
 
+            raw_st = header_map.get('STATUS')
+            if isinstance(raw_st, (int, float)):
+                status_display = 'COMPLETED' if int(raw_st) == 1 else 'DRAFT'
+            else:
+                status_display = str(raw_st).strip() if raw_st is not None else ''
+
             quotation = {
-                'DOCKEY': int(header[0]) if header[0] is not None else None,
-                'DOCNO': header[1],
-                'DOCDATE': str(header[2]) if header[2] is not None else None,
-                'CODE': header[3],
-                'DESCRIPTION': header[4],
-                'DOCAMT': _safe_float(header[5]),
-                'CURRENCYCODE': header[6],
-                'VALIDITY': str(header[7]) if header[7] is not None else None,
-                'STATUS': str(header[8]) if header[8] is not None else '',
-                'TERMS': header[9],
-                'CREDITTERM': str(header[9]) if header[9] is not None else 'N/A',
-                'COMPANYNAME': header[10] or 'N/A',
-                'ADDRESS1': header[11] or 'N/A',
-                'ADDRESS2': header[12] or 'N/A',
-                'ADDRESS3': header[13] or '',
-                'ADDRESS4': header[14] or '',
-                'PHONE1': header[15] or 'N/A',
+                'DOCKEY': int(header_map['DOCKEY']) if header_map.get('DOCKEY') is not None else None,
+                'DOCNO': header_map.get('DOCNO'),
+                'DOCDATE': str(header_map['DOCDATE']) if header_map.get('DOCDATE') is not None else None,
+                'CODE': header_map.get('CODE'),
+                'DESCRIPTION': header_map.get('DESCRIPTION'),
+                'DOCAMT': _safe_float(header_map.get('DOCAMT')),
+                'CURRENCYCODE': header_map.get('CURRENCYCODE'),
+                'VALIDITY': str(header_map['VALIDITY']) if header_map.get('VALIDITY') is not None else None,
+                'STATUS': status_display,
+                'TERMS': header_map.get('TERMS'),
+                'CREDITTERM': str(header_map.get('TERMS')) if header_map.get('TERMS') is not None else 'N/A',
+                'COMPANYNAME': header_map.get('COMPANYNAME') or 'N/A',
+                'ADDRESS1': header_map.get('ADDRESS1') or 'N/A',
+                'ADDRESS2': header_map.get('ADDRESS2') or 'N/A',
+                'ADDRESS3': header_map.get('ADDRESS3') or '',
+                'ADDRESS4': header_map.get('ADDRESS4') or '',
+                'PHONE1': header_map.get('PHONE1') or 'N/A',
                 'items': items,
+                'creatorEmail': _resolve_quotation_creator_email(header_map),
+                'creatorDepartment': _resolve_quotation_creator_department(header_map),
             }
+            if 'CANCELLED' in header_map:
+                cr = header_map.get('CANCELLED')
+                if cr is None:
+                    quotation['CANCELLED'] = None
+                elif isinstance(cr, bool):
+                    quotation['CANCELLED'] = cr
+                elif isinstance(cr, (int, float)):
+                    quotation['CANCELLED'] = int(cr) != 0
+                else:
+                    quotation['CANCELLED'] = str(cr).strip().lower() in ('1', 'true', 't', 'yes', 'y')
+            if 'UPDATECOUNT' in header_map and header_map.get('UPDATECOUNT') is not None:
+                try:
+                    quotation['UPDATECOUNT'] = int(header_map.get('UPDATECOUNT'))
+                except (TypeError, ValueError):
+                    quotation['UPDATECOUNT'] = None
+            if 'UDF_STATUS' in header_map and header_map.get('UDF_STATUS') is not None:
+                quotation['UDF_STATUS'] = str(header_map.get('UDF_STATUS')).strip()
 
             return jsonify({'success': True, 'quotation': quotation, 'items': items})
         finally:
@@ -7533,6 +7821,25 @@ def api_admin_get_quotation_detail():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+def _normalize_pricing_priority_context(raw_value):
+    context = (raw_value or 'SALES').strip().upper()
+    if context not in ('SALES', 'PURCHASING'):
+        raise ValueError('Invalid context; use SALES or PURCHASING')
+    return context
+
+
+def _pricing_priority_rules_has_context_column(cur) -> bool:
+    cur.execute(
+        '''
+        SELECT 1
+        FROM RDB$RELATION_FIELDS
+        WHERE RDB$RELATION_NAME = 'PRICINGPRIORITYRULE'
+          AND RDB$FIELD_NAME = 'RULECONTEXT'
+        '''
+    )
+    return bool(cur.fetchone())
+
+
 @app.route('/api/admin/pricing-priority-rules', methods=['GET'])
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_get_pricing_priority_rules():
@@ -7540,15 +7847,41 @@ def api_admin_get_pricing_priority_rules():
     con = None
     cur = None
     try:
+        try:
+            rule_context = _normalize_pricing_priority_context(request.args.get('context'))
+        except ValueError as context_error:
+            return jsonify({'success': False, 'status': 'error', 'error': str(context_error)}), 400
+
         con = get_db_connection()
         cur = con.cursor()
-        cur.execute(
-            '''
-            SELECT PricingPriorityRuleId, RuleCode, RuleName, PriorityNo, IsEnabled
-            FROM PricingPriorityRule
-            ORDER BY PriorityNo ASC, PricingPriorityRuleId ASC
-            '''
-        )
+        has_context_column = _pricing_priority_rules_has_context_column(cur)
+        if rule_context == 'PURCHASING' and not has_context_column:
+            return jsonify({
+                'success': True,
+                'status': 'success',
+                'message': 'Purchasing rules are not available until the database is upgraded',
+                'context': rule_context,
+                'data': [],
+            }), 200
+
+        if has_context_column:
+            cur.execute(
+                '''
+                SELECT PricingPriorityRuleId, RuleCode, RuleName, PriorityNo, IsEnabled, RuleContext
+                FROM PricingPriorityRule
+                WHERE RuleContext = ?
+                ORDER BY PriorityNo ASC, PricingPriorityRuleId ASC
+                ''',
+                (rule_context,),
+            )
+        else:
+            cur.execute(
+                '''
+                SELECT PricingPriorityRuleId, RuleCode, RuleName, PriorityNo, IsEnabled
+                FROM PricingPriorityRule
+                ORDER BY PriorityNo ASC, PricingPriorityRuleId ASC
+                '''
+            )
 
         rules = []
         for row in cur.fetchall():
@@ -7558,12 +7891,18 @@ def api_admin_get_pricing_priority_rules():
                 'RuleName': str(row[2]).strip() if row[2] is not None else '',
                 'PriorityNo': int(row[3]) if row[3] is not None else 0,
                 'IsEnabled': int(row[4]) if row[4] is not None else 0,
+                'RuleContext': (
+                    str(row[5]).strip().upper()
+                    if has_context_column and row[5] is not None
+                    else 'SALES'
+                ),
             })
 
         return jsonify({
             'success': True,
             'status': 'success',
             'message': 'Pricing priority rules loaded successfully',
+            'context': rule_context,
             'data': rules,
         }), 200
     except Exception as e:
@@ -7592,6 +7931,13 @@ def api_admin_save_pricing_priority_rules():
     con = None
     cur = None
     try:
+        try:
+            rule_context = _normalize_pricing_priority_context(
+                payload.get('context') if isinstance(payload, dict) else None
+            )
+        except ValueError as context_error:
+            return jsonify({'success': False, 'status': 'error', 'error': str(context_error)}), 400
+
         rule_ids = []
         for rule in rules:
             rule_id = int(rule.get('PricingPriorityRuleId', 0))
@@ -7603,38 +7949,80 @@ def api_admin_save_pricing_priority_rules():
 
         con = get_db_connection()
         cur = con.cursor()
+        has_context_column = _pricing_priority_rules_has_context_column(cur)
+        if rule_context == 'PURCHASING' and not has_context_column:
+            return jsonify({
+                'success': False,
+                'status': 'error',
+                'error': 'Purchasing rules require a database upgrade (RuleContext column)',
+            }), 400
 
         placeholders = ','.join(['?'] * len(rule_ids))
-        cur.execute(
-            f'SELECT COUNT(*) FROM PricingPriorityRule WHERE PricingPriorityRuleId IN ({placeholders})',
-            tuple(rule_ids)
-        )
+        if has_context_column:
+            cur.execute(
+                f'''
+                SELECT COUNT(*)
+                FROM PricingPriorityRule
+                WHERE PricingPriorityRuleId IN ({placeholders})
+                  AND RuleContext = ?
+                ''',
+                tuple(rule_ids) + (rule_context,),
+            )
+        else:
+            cur.execute(
+                f'SELECT COUNT(*) FROM PricingPriorityRule WHERE PricingPriorityRuleId IN ({placeholders})',
+                tuple(rule_ids),
+            )
         matched_count = int(cur.fetchone()[0])
         if matched_count != len(rule_ids):
-            return jsonify({'success': False, 'status': 'error', 'error': 'One or more pricing priority rules do not exist'}), 400
+            return jsonify({
+                'success': False,
+                'status': 'error',
+                'error': f'One or more pricing priority rules do not exist for context {rule_context}',
+            }), 400
 
         for index, rule in enumerate(rules, start=1):
-            cur.execute(
-                '''
-                UPDATE PricingPriorityRule
-                SET PriorityNo = ?,
-                    IsEnabled = ?,
-                    EditDate = CURRENT_TIMESTAMP
-                WHERE PricingPriorityRuleId = ?
-                ''',
-                (
-                    index,
-                    1 if int(rule.get('IsEnabled', 0)) else 0,
-                    int(rule['PricingPriorityRuleId'])
+            if has_context_column:
+                cur.execute(
+                    '''
+                    UPDATE PricingPriorityRule
+                    SET PriorityNo = ?,
+                        IsEnabled = ?,
+                        EditDate = CURRENT_TIMESTAMP
+                    WHERE PricingPriorityRuleId = ?
+                      AND RuleContext = ?
+                    ''',
+                    (
+                        index,
+                        1 if int(rule.get('IsEnabled', 0)) else 0,
+                        int(rule['PricingPriorityRuleId']),
+                        rule_context,
+                    ),
                 )
-            )
+            else:
+                cur.execute(
+                    '''
+                    UPDATE PricingPriorityRule
+                    SET PriorityNo = ?,
+                        IsEnabled = ?,
+                        EditDate = CURRENT_TIMESTAMP
+                    WHERE PricingPriorityRuleId = ?
+                    ''',
+                    (
+                        index,
+                        1 if int(rule.get('IsEnabled', 0)) else 0,
+                        int(rule['PricingPriorityRuleId']),
+                    ),
+                )
 
         con.commit()
+        label = 'Sales' if rule_context == 'SALES' else 'Purchasing'
         return jsonify({
             'success': True,
             'status': 'success',
-            'message': 'Pricing priority rules saved successfully',
-            'savedCount': len(rules)
+            'message': f'{label} pricing priority rules saved successfully',
+            'context': rule_context,
+            'savedCount': len(rules),
         }), 200
     except Exception as e:
         if con:
@@ -7695,8 +8083,14 @@ def api_admin_update_quotation():
         'address3': data.get('address3'),
         'address4': data.get('address4'),
         'phone1': data.get('phone1'),
+        'terms': data.get('terms') or data.get('creditTerm'),
         'items': items,
+        'adminUpdate': True,
+        'skipCustomerCodeCheck': True,
     }
+    uc = data.get('updatecount') if data.get('updatecount') is not None else data.get('updateCount')
+    if uc is not None and str(uc).strip() != '':
+        update_data['updatecount'] = uc
 
     try:
         result = create_or_update_quotation(BASE_API_URL, customer_code, update_data)
@@ -8317,8 +8711,50 @@ def api_get_user_info():
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
 
+def _fetch_company_names_from_local_firebird():
+    """
+    Same data as legacy php/getCompanyNames.php: distinct AR_CUSTOMER.COMPANYNAME (non-empty).
+    Returns (list[str], None) on success, or (None, error_string) on failure.
+    """
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        cur.execute(
+            '''
+            SELECT DISTINCT TRIM(ac.COMPANYNAME)
+            FROM AR_CUSTOMER ac
+            WHERE TRIM(COALESCE(ac.COMPANYNAME, '')) <> ''
+            ORDER BY 1 ASC
+            '''
+        )
+        rows = cur.fetchall() or []
+        names = []
+        seen = set()
+        for r in rows:
+            if not r:
+                continue
+            n = str(r[0]).strip() if r[0] is not None else ''
+            if not n:
+                continue
+            key = n.upper()
+            if key in seen:
+                continue
+            seen.add(key)
+            names.append(n)
+        return names, None
+    except Exception as e:
+        return None, str(e)
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
+
+
 def _company_names_empty_ok(warning_message):
-    """Stable JSON for UI when PHP company-name bridge is down or returns junk (admin filter uses data[])."""
+    """Stable JSON for UI when company-name list cannot be loaded (admin filter uses data[])."""
     return jsonify({
         'success': True,
         'count': 0,
@@ -8330,43 +8766,20 @@ def _company_names_empty_ok(warning_message):
 
 @app.route('/api/get_company_names')
 def api_get_company_names():
-    """Get all unique company names from AR_CUSTOMER via PHP bridge; never 500 on bad upstream JSON."""
-    php_url = f"{BASE_API_URL}{ENDPOINT_PATHS['getcompanynames']}"
-    tmo = _php_bridge_requests_timeout()
-    try:
-        result, _r = http_request_json('GET', php_url, timeout=tmo)
-    except requests.exceptions.Timeout:
-        print(f"[WARN] api_get_company_names: timeout {tmo!r} {php_url}", flush=True)
-        return _company_names_empty_ok(f'Request timed out after {tmo!r}s')
-    except requests.exceptions.RequestException as e:
-        print(f"[WARN] api_get_company_names: {type(e).__name__}: {e} url={php_url}", flush=True)
-        return _company_names_empty_ok(f'Request failed: {e}')
-    except ValueError as e:
-        print(f"[WARN] api_get_company_names: {e} url={php_url}", flush=True)
-        return _company_names_empty_ok('Response was not valid JSON')
+    """Distinct company names from AR_CUSTOMER (local Firebird — same as legacy PHP, no PHP server)."""
+    names, err = _fetch_company_names_from_local_firebird()
+    if names is not None:
+        print(f"[DEBUG] api_get_company_names: {len(names)} companies from local Firebird", flush=True)
+        return jsonify({
+            'success': True,
+            'count': len(names),
+            'data': names,
+            'source': 'local_firebird',
+        })
 
-    if not isinstance(result, dict):
-        return _company_names_empty_ok('Unexpected JSON type from company API')
+    print(f"[WARN] api_get_company_names: local Firebird failed: {err}", flush=True)
+    return _company_names_empty_ok(f'Local database: {err}')
 
-    if not result.get('success'):
-        err = result.get('error') or 'Upstream reported failure'
-        print(f"[WARN] api_get_company_names: success=false error={err!r}", flush=True)
-        return _company_names_empty_ok(str(err))
-
-    data = result.get('data')
-    if data is None:
-        data = []
-    if not isinstance(data, list):
-        print(f"[WARN] api_get_company_names: data is not a list (type={type(data).__name__})", flush=True)
-        return _company_names_empty_ok('Company list payload was not an array')
-
-    out = {
-        'success': True,
-        'count': int(result.get('count', len(data))),
-        'data': data,
-    }
-    print(f"[DEBUG] api_get_company_names: {out['count']} companies from PHP", flush=True)
-    return jsonify(out)
 
 if __name__ == "__main__":
     initialize_database(DB_DSN, DB_USER, DB_PASSWORD)

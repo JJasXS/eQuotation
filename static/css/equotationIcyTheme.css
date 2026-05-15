@@ -1,0 +1,1391 @@
+/* eQuotation — shared icy blue theme (load after hamburger_menu + app_page_header; before page CSS) */
+:root {
+    --ice-bg: #e3f2fa;
+    --ice-bg-deep: #d4eaf6;
+    --ice-surface: #f7fbff;
+    --ice-surface-alt: #eef6fc;
+    --ice-surface-input: #f0f9ff;
+    --ice-surface-muted: #e8f4fc;
+    --ice-border: #b8d4e8;
+    --ice-border-soft: #c5dce9;
+    --ice-text: #1e3a52;
+    --ice-text-muted: #5a7a94;
+    --ice-heading: #1a4d6e;
+    --ice-accent: #3b8fc4;
+    --ice-accent-hover: #2d74a3;
+    --ice-accent-soft: #dbeafe;
+    --ice-shadow: rgba(30, 80, 120, 0.1);
+    --ice-overlay: rgba(20, 50, 80, 0.28);
+}
+
+/* ---- App shell (overrides orderQuotation.css dark layout) ---- */
+body.equotation-icy-theme {
+    background: var(--ice-bg) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme .container,
+body.equotation-icy-theme .main-content {
+    background: var(--ice-bg) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme .tab-content,
+body.equotation-icy-theme .tab-content.active {
+    background: transparent !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme .form-container {
+    background: var(--ice-surface) !important;
+    color: var(--ice-text) !important;
+    border: 1px solid var(--ice-border) !important;
+    box-shadow: 0 4px 16px var(--ice-shadow) !important;
+}
+
+body.equotation-icy-theme .form-container h3,
+body.equotation-icy-theme .form-container h4 {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme .form-group label {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme .form-group input,
+body.equotation-icy-theme .form-group textarea,
+body.equotation-icy-theme .form-group select,
+body.equotation-icy-theme .item-row input,
+body.equotation-icy-theme .item-row select,
+body.equotation-icy-theme .order-item {
+    background: var(--ice-surface-input) !important;
+    border-color: var(--ice-border-soft) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme .form-group input:focus,
+body.equotation-icy-theme .form-group textarea:focus,
+body.equotation-icy-theme .form-group select:focus,
+body.equotation-icy-theme .item-row input:focus,
+body.equotation-icy-theme .item-row select:focus {
+    background: #fff !important;
+    border-color: var(--ice-accent) !important;
+    box-shadow: 0 0 0 2px rgba(59, 143, 196, 0.2);
+}
+
+body.equotation-icy-theme .item-row-header,
+body.equotation-icy-theme .total-row span:first-child {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme .total-section {
+    background: var(--ice-surface-muted) !important;
+    border-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme .total-row span:last-child {
+    color: var(--ice-accent-hover) !important;
+}
+
+body.equotation-icy-theme .btn-primary {
+    background: var(--ice-accent) !important;
+    border-color: var(--ice-accent) !important;
+    color: #fff !important;
+}
+
+body.equotation-icy-theme .btn-primary:hover {
+    background: var(--ice-accent-hover) !important;
+}
+
+body.equotation-icy-theme .btn-secondary {
+    background: var(--ice-surface-muted) !important;
+    color: var(--ice-heading) !important;
+    border: 1px solid var(--ice-border-soft) !important;
+}
+
+body.equotation-icy-theme .btn-secondary:hover {
+    background: var(--ice-accent-soft) !important;
+}
+
+body.equotation-icy-theme .btn-add-item {
+    background: var(--ice-surface-input) !important;
+    border-color: var(--ice-border) !important;
+    color: var(--ice-accent) !important;
+}
+
+body.equotation-icy-theme .btn-add-item:hover {
+    background: var(--ice-accent-soft) !important;
+    border-color: var(--ice-accent) !important;
+}
+
+/* ---- Admin dashboard ---- */
+body.equotation-icy-theme {
+    background-color: var(--ice-bg) !important;
+}
+
+body.equotation-icy-theme .admin-container {
+    background-color: var(--ice-bg) !important;
+}
+
+body.equotation-icy-theme .admin-header:not(.app-page-header) {
+    background-color: var(--ice-surface-alt) !important;
+    border-bottom-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme .admin-header:not(.app-page-header) h2 {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme .admin-welcome {
+    background: linear-gradient(135deg, var(--ice-surface) 0%, var(--ice-bg-deep) 100%) !important;
+}
+
+body.equotation-icy-theme .dashboard-widget {
+    background: linear-gradient(180deg, var(--ice-surface) 0%, var(--ice-surface-alt) 100%) !important;
+    border-color: var(--ice-border) !important;
+    box-shadow: 0 14px 30px var(--ice-shadow) !important;
+}
+
+body.equotation-icy-theme .dashboard-widget-header h3,
+body.equotation-icy-theme .dashboard-widget-meta strong,
+body.equotation-icy-theme .analytics-stat-value {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme .dashboard-widget-header p,
+body.equotation-icy-theme .dashboard-widget-meta,
+body.equotation-icy-theme .analytics-stat-label {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme .analytics-stat {
+    background: var(--ice-surface-input) !important;
+    border-color: var(--ice-border-soft) !important;
+}
+
+/* ---- Admin report pages ---- */
+body.equotation-icy-theme.admin-report-ui {
+    background: var(--ice-bg) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.admin-report-ui .analytics-page {
+    background:
+        radial-gradient(circle at 12% 4%, rgba(255, 255, 255, 0.85) 0%, rgba(255, 255, 255, 0) 28%),
+        linear-gradient(135deg, var(--ice-surface) 0%, var(--ice-bg-deep) 100%) !important;
+}
+
+body.equotation-icy-theme.admin-report-ui .analytics-toolbar--hero,
+body.equotation-icy-theme.admin-report-ui .analytics-card,
+body.equotation-icy-theme.admin-report-ui .analytics-chart-panel {
+    background: linear-gradient(180deg, var(--ice-surface) 0%, var(--ice-surface-alt) 100%) !important;
+    border-color: var(--ice-border) !important;
+    box-shadow: 0 14px 30px var(--ice-shadow) !important;
+}
+
+body.equotation-icy-theme.admin-report-ui .analytics-title h1,
+body.equotation-icy-theme.admin-report-ui .analytics-stat-value {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.admin-report-ui .analytics-title p,
+body.equotation-icy-theme.admin-report-ui .analytics-stat-label {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.admin-report-ui .analytics-back-link,
+body.equotation-icy-theme.admin-report-ui .analytics-more-btn {
+    background: var(--ice-accent) !important;
+    border-color: var(--ice-accent-hover) !important;
+    color: #fff !important;
+}
+
+body.equotation-icy-theme.admin-report-ui .analytics-list-item,
+body.equotation-icy-theme.admin-report-ui .analytics-stat {
+    background: var(--ice-surface-input) !important;
+    border-color: var(--ice-border-soft) !important;
+    color: var(--ice-text) !important;
+}
+
+/* ---- View quotations page ---- */
+body.equotation-icy-theme.view-quotation-page {
+    background: var(--ice-bg) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.view-quotation-page .container,
+body.equotation-icy-theme.view-quotation-page .main-content {
+    background: var(--ice-bg) !important;
+}
+
+body.equotation-icy-theme.view-quotation-page .view-quotation-workspace {
+    border-color: var(--ice-border) !important;
+    background: var(--ice-surface) !important;
+    box-shadow: 0 1px 10px var(--ice-shadow) !important;
+}
+
+/* ---- Procurement module (body keeps procurement-warm-ui class) ---- */
+body.equotation-icy-theme.procurement-warm-ui {
+    background: linear-gradient(160deg, var(--ice-bg) 0%, var(--ice-bg-deep) 45%, #c5e3f5 100%) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .location-filter-shell,
+body.equotation-icy-theme.procurement-warm-ui .stock-dashboard-cutoff-strip,
+body.equotation-icy-theme.procurement-warm-ui .stock-dashboard-layout-toggle {
+    background: var(--ice-surface) !important;
+    border-color: var(--ice-border) !important;
+    color: var(--ice-text) !important;
+    box-shadow: 0 2px 14px var(--ice-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .procurement-warm-section-title {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-report select,
+body.equotation-icy-theme.procurement-warm-ui #panel-report input[type='date'],
+body.equotation-icy-theme.procurement-warm-ui #panel-report input[type='text'],
+body.equotation-icy-theme.procurement-warm-ui #panel-report input[type='number'] {
+    color: var(--ice-text) !important;
+    background: var(--ice-surface-input) !important;
+    border: 1px solid var(--ice-border-soft) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui,
+body.equotation-icy-theme.procurement-warm-ui .main-content,
+body.equotation-icy-theme.procurement-warm-ui #content-view,
+body.equotation-icy-theme.procurement-warm-ui .tab-content,
+body.equotation-icy-theme.procurement-warm-ui .panel-content {
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .location-filter-locations {
+    background: linear-gradient(180deg, var(--ice-surface) 0%, var(--ice-surface-alt) 100%) !important;
+    border-left-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .location-filter-label,
+body.equotation-icy-theme.procurement-warm-ui .procurement-warm-section-title,
+body.equotation-icy-theme.procurement-warm-ui #panel-report .location-filter-main .pr-field span,
+body.equotation-icy-theme.procurement-warm-ui .pr-field span,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-metric-group-label,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-hdr-metric,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-hdr-condensed-metric,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-item-search-label {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-item-search-input {
+    border-color: var(--ice-border-soft) !important;
+    background: linear-gradient(180deg, #fff 0%, var(--ice-surface-input) 100%) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-item-search-input::placeholder {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-item-search-input:focus {
+    border-color: var(--ice-accent) !important;
+    background: #fff !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-uom-toggle,
+body.equotation-icy-theme.procurement-warm-ui .qty-mode-toggle,
+body.equotation-icy-theme.procurement-warm-ui .stock-dashboard-layout-toggle {
+    border-color: var(--ice-border) !important;
+    background: var(--ice-surface) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-dashboard-layout-toggle__label {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .qty-mode-btn {
+    background: var(--ice-surface-alt) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .qty-mode-btn:not(:last-child) {
+    border-right-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .qty-mode-btn:hover {
+    background: var(--ice-accent-soft) !important;
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .qty-mode-btn.qty-mode-active {
+    background: var(--ice-accent) !important;
+    color: #fff !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-refresh-btn,
+body.equotation-icy-theme.procurement-warm-ui .location-buy-btn,
+body.equotation-icy-theme.procurement-warm-ui .stock-report-advanced-btn,
+body.equotation-icy-theme.procurement-warm-ui .pr-primary-btn {
+    border: 1px solid var(--ice-accent-hover) !important;
+    background: var(--ice-accent) !important;
+    color: #fff !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-refresh-btn:hover,
+body.equotation-icy-theme.procurement-warm-ui .location-buy-btn:hover,
+body.equotation-icy-theme.procurement-warm-ui .stock-report-advanced-btn:hover,
+body.equotation-icy-theme.procurement-warm-ui .pr-primary-btn:hover {
+    background: var(--ice-accent-hover) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-refresh-btn:disabled {
+    background: var(--ice-surface-muted) !important;
+    border-color: var(--ice-border) !important;
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .location-pill,
+body.equotation-icy-theme.procurement-warm-ui .location-add-btn {
+    background: var(--ice-surface) !important;
+    border-color: var(--ice-border) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .location-pill button {
+    color: var(--ice-accent-hover) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .location-add-btn:hover {
+    background: var(--ice-accent-soft) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .location-empty,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-status {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-field input,
+body.equotation-icy-theme.procurement-warm-ui .pr-field select,
+body.equotation-icy-theme.procurement-warm-ui .pr-field textarea {
+    border-color: var(--ice-border-soft) !important;
+    background: var(--ice-surface-input) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table-wrap {
+    background: var(--ice-surface) !important;
+    border-color: var(--ice-border) !important;
+    box-shadow: 0 2px 14px var(--ice-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
+    scrollbar-color: var(--ice-accent) var(--ice-surface-alt) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table-wrap::-webkit-scrollbar-thumb {
+    background: var(--ice-accent) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table-wrap::-webkit-scrollbar-corner {
+    background: var(--ice-surface) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table th,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table td {
+    border-color: var(--ice-border-soft) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table th {
+    background: var(--ice-surface-alt) !important;
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead:not(:has(> tr:nth-child(2))) tr:nth-child(1) th,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead:has(> tr:nth-child(2)) tr:nth-child(2) th {
+    box-shadow: 0 2px 0 var(--ice-accent) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead:has(> tr:nth-child(2)) tr:nth-child(1) th {
+    border-bottom-color: var(--ice-accent) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table th.qty-group-col {
+    background: linear-gradient(180deg, var(--ice-surface-alt) 0%, var(--ice-bg-deep) 100%) !important;
+    border-left-color: var(--ice-accent) !important;
+    border-right-color: var(--ice-accent) !important;
+    box-shadow: inset 0 -4px 0 rgba(59, 143, 196, 0.22) !important;
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead tr:first-child th.stock-card-header-cell.location-first {
+    border-left-color: var(--ice-accent) !important;
+    box-shadow: inset 3px 0 0 rgba(59, 143, 196, 0.15), 0 2px 0 var(--ice-accent) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead tr:first-child th.stock-card-header-cell.location-last {
+    border-right-color: var(--ice-accent) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-hdr-code {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table th.qty-col,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table td.qty-col {
+    border-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .report-summary-card {
+    border-color: var(--ice-border) !important;
+    box-shadow: 0 1px 4px var(--ice-shadow) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table th.code-col,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table td.code-col {
+    background: var(--ice-surface-alt) !important;
+    border-right-color: var(--ice-border) !important;
+    box-shadow: 6px 0 10px -6px var(--ice-shadow) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table tbody tr:hover {
+    background: linear-gradient(180deg, #fff 0%, var(--ice-surface-input) 100%) !important;
+    border-top-color: var(--ice-accent) !important;
+    border-bottom-color: var(--ice-accent) !important;
+    box-shadow: 0 2px 8px var(--ice-shadow) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table tbody tr:hover > .code-col {
+    background: var(--ice-surface-alt) !important;
+}
+
+/* Location columns: light icy tints — distinct bands without heavy saturation */
+body.equotation-icy-theme.procurement-warm-ui .location-bg-1 { background: #d8ecf8 !important; }
+body.equotation-icy-theme.procurement-warm-ui .location-bg-2 { background: #cfe6f5 !important; }
+body.equotation-icy-theme.procurement-warm-ui .location-bg-3 { background: #d4e3f6 !important; }
+body.equotation-icy-theme.procurement-warm-ui .location-bg-4 { background: #dcd8f2 !important; }
+body.equotation-icy-theme.procurement-warm-ui .location-bg-5 { background: #c8eaf4 !important; }
+body.equotation-icy-theme.procurement-warm-ui .location-bg-6 { background: #d2e2f4 !important; }
+body.equotation-icy-theme.procurement-warm-ui .location-bg-7 { background: #caf0e8 !important; }
+body.equotation-icy-theme.procurement-warm-ui .location-bg-8 { background: #e2d6f2 !important; }
+body.equotation-icy-theme.procurement-warm-ui .location-bg-9 { background: #ccdff2 !important; }
+body.equotation-icy-theme.procurement-warm-ui .location-bg-10 { background: #d4f0dc !important; }
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table th.qty-col.location-bg-1,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table th.qty-col.location-bg-2,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table th.qty-col.location-bg-3,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table th.qty-col.location-bg-4,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table th.qty-col.location-bg-5,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table th.qty-col.location-bg-6,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table th.qty-col.location-bg-7,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table th.qty-col.location-bg-8,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table th.qty-col.location-bg-9,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table th.qty-col.location-bg-10,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table td.qty-col.location-bg-1,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table td.qty-col.location-bg-2,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table td.qty-col.location-bg-3,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table td.qty-col.location-bg-4,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table td.qty-col.location-bg-5,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table td.qty-col.location-bg-6,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table td.qty-col.location-bg-7,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table td.qty-col.location-bg-8,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table td.qty-col.location-bg-9,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table td.qty-col.location-bg-10 {
+    box-shadow: inset 0 0 0 1px rgba(30, 80, 120, 0.12) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-breakdown-panel,
+body.equotation-icy-theme.procurement-warm-ui .pr-form,
+body.equotation-icy-theme.procurement-warm-ui .pr-supplier-invite-card,
+body.equotation-icy-theme.procurement-warm-ui .pr-summary-block,
+body.equotation-icy-theme.procurement-warm-ui .pr-form-message,
+body.equotation-icy-theme.procurement-warm-ui .supplier-dropdown,
+body.equotation-icy-theme.procurement-warm-ui .pr-supplier-table-wrap {
+    background: var(--ice-surface) !important;
+    border-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-breakdown-header {
+    background: linear-gradient(180deg, var(--ice-surface) 0%, var(--ice-surface-alt) 100%) !important;
+    border-bottom-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-breakdown-close,
+body.equotation-icy-theme.procurement-warm-ui .pr-add-item-btn,
+body.equotation-icy-theme.procurement-warm-ui .pr-secondary-btn,
+body.equotation-icy-theme.procurement-warm-ui .pr-row-remove {
+    border-color: var(--ice-border) !important;
+    background: var(--ice-surface) !important;
+    color: var(--ice-accent-hover) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-breakdown-close:hover {
+    background: var(--ice-accent-soft) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-breakdown-table th {
+    background: var(--ice-surface-alt) !important;
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .location-filter-shell .report-summary-cards {
+    border-top-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip,
+body.equotation-icy-theme.procurement-warm-ui .location-filter-locations__settings {
+    border-color: var(--ice-border) !important;
+}
+
+/* ---- Procurement: Create e-PR / View e-PR / invite suppliers ---- */
+body.equotation-icy-theme.procurement-warm-ui .pr-create-panel {
+    background: var(--ice-surface) !important;
+    border-color: var(--ice-border) !important;
+    box-shadow: 0 2px 14px var(--ice-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-create-panel-head {
+    border-bottom-color: var(--ice-border) !important;
+    background: linear-gradient(180deg, var(--ice-surface) 0%, var(--ice-surface-alt) 100%) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-create-panel-title,
+body.equotation-icy-theme.procurement-warm-ui .pr-line-items-head h3,
+body.equotation-icy-theme.procurement-warm-ui .pr-supplier-invite-title {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-supplier-invite-hint,
+body.equotation-icy-theme.procurement-warm-ui .pr-supplier-empty,
+body.equotation-icy-theme.procurement-warm-ui .pr-loc-readonly {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-supplier-invite-card,
+body.equotation-icy-theme.procurement-warm-ui .pr-supplier-table--invite th {
+    background: var(--ice-surface-alt) !important;
+    border-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-supplier-table--invite td {
+    background: var(--ice-surface) !important;
+    border-bottom-color: var(--ice-border-soft) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-stock-uom-badge {
+    background: var(--ice-surface-input) !important;
+    border-color: var(--ice-border) !important;
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-line-items-wrap {
+    border-color: var(--ice-border) !important;
+    background: var(--ice-surface) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-line-items-table th,
+body.equotation-icy-theme.procurement-warm-ui .pr-line-items-table td {
+    border-color: var(--ice-border-soft) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-line-items-table th {
+    background: var(--ice-surface-alt) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-line-items-table input,
+body.equotation-icy-theme.procurement-warm-ui .pr-line-items-table select {
+    border-color: var(--ice-border-soft) !important;
+    background: var(--ice-surface-input) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-primary-btn {
+    background: var(--ice-accent) !important;
+    border-color: var(--ice-accent-hover) !important;
+    color: #fff !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-filter-label,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-field-label,
+body.equotation-icy-theme.procurement-warm-ui #panel-view .view-pr-card .view-pr-field-label,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-amount-label,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-meta-row,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-summary,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-head-meta,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-panel-sub {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-filter-select,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-udf-status,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-transfer-qty-input {
+    border-color: var(--ice-border-soft) !important;
+    background: var(--ice-surface-input) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-transfer-qty-input:focus {
+    border-color: var(--ice-accent) !important;
+    box-shadow: 0 0 0 2px rgba(59, 143, 196, 0.25) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-approved-cell input[type="checkbox"] {
+    accent-color: var(--ice-accent) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-list-wrap {
+    background: var(--ice-surface) !important;
+    border-color: var(--ice-border) !important;
+    box-shadow: 0 2px 14px var(--ice-shadow) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-header-panel {
+    border-right-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-items-panel,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-host {
+    background: var(--ice-surface-alt) !important;
+    border-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-card {
+    background: var(--ice-surface) !important;
+    border-color: var(--ice-border) !important;
+    border-left-color: var(--ice-accent) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-card.is-selected {
+    border-left-color: var(--ice-accent-hover) !important;
+    box-shadow: inset 3px 0 0 var(--ice-accent) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-card.is-selected .view-pr-card-summary,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-card-summary:hover {
+    background: var(--ice-accent-soft) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-view .view-pr-card .view-pr-docno,
+body.equotation-icy-theme.procurement-warm-ui #panel-view .view-pr-card .view-pr-text,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-docno,
+body.equotation-icy-theme.procurement-warm-ui #panel-view .view-pr-text {
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-toggle {
+    color: var(--ice-accent-hover) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-transfer-btn {
+    border-color: var(--ice-accent-hover) !important;
+    background: linear-gradient(180deg, var(--ice-accent) 0%, var(--ice-accent-hover) 100%) !important;
+    color: #fff !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-transfer-btn.is-disabled,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-transfer-btn:disabled {
+    border-color: var(--ice-border) !important;
+    background: var(--ice-surface-muted) !important;
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-view .quotation-page-header .approvals-tabs.quotation-page-header-tabs,
+body.equotation-icy-theme.procurement-warm-ui #panel-view .view-pr-filter-tabs--bar {
+    background: var(--ice-surface-alt) !important;
+    border-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-view .quotation-page-header .approval-tab.view-pr-filter-tab,
+body.equotation-icy-theme.procurement-warm-ui #panel-view .view-pr-filter-tabs--bar .view-pr-filter-tab {
+    background: var(--ice-surface) !important;
+    color: var(--ice-text) !important;
+    border-right-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-view .quotation-page-header .approval-tab.view-pr-filter-tab:hover,
+body.equotation-icy-theme.procurement-warm-ui #panel-view .view-pr-filter-tabs--bar .view-pr-filter-tab:hover {
+    background: var(--ice-accent-soft) !important;
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-view .quotation-page-header .approval-tab.view-pr-filter-tab.is-active {
+    color: var(--ice-heading) !important;
+    background: var(--ice-accent-soft) !important;
+    border-bottom-color: var(--ice-accent) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-view .view-pr-filter-tabs--bar .view-pr-filter-tab.is-active {
+    background: var(--ice-accent) !important;
+    color: #fff !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-list-column .view-pr-list::-webkit-scrollbar-track {
+    background: var(--ice-surface-alt) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-list-column .view-pr-list::-webkit-scrollbar-thumb {
+    background: var(--ice-accent) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-list-column .view-pr-list::-webkit-scrollbar-thumb:hover {
+    background: var(--ice-accent-hover) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-list-column .view-pr-list {
+    scrollbar-color: var(--ice-accent) var(--ice-surface-alt) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-view .view-pr-load-more-wrap--footer {
+    background: var(--ice-surface-alt) !important;
+    border-top-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-table {
+    border-color: var(--ice-border) !important;
+    background: var(--ice-surface) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-table th {
+    background: var(--ice-surface-alt) !important;
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-table th,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-table td {
+    border-bottom-color: var(--ice-border-soft) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-table tbody tr:nth-child(odd),
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-table tbody tr:nth-child(odd) td {
+    background: var(--ice-surface) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-table tbody tr:nth-child(even),
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-table tbody tr:nth-child(even) td {
+    background: var(--ice-surface-input) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-table tbody tr:hover,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-table tbody tr:hover td {
+    background: var(--ice-accent-soft) !important;
+}
+
+/* View e-PR unified detail (warm rules use !important on thead — match specificity) */
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--card,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified {
+    background: var(--ice-surface) !important;
+    border-color: var(--ice-border) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 1px 6px var(--ice-shadow) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-actions--toolbar {
+    background: var(--ice-surface-alt) !important;
+    border-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-host--panel .view-pr-detail-summary,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-unified .view-pr-detail-summary {
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-host--panel .view-pr-detail-summary strong,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-unified .view-pr-detail-summary strong {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-table thead th,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--card .view-pr-detail-table thead th,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table thead th {
+    background: var(--ice-surface-alt) !important;
+    color: var(--ice-heading) !important;
+    border-bottom: 2px solid var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-table tbody td,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table tbody td {
+    border-color: var(--ice-border-soft) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-table tbody tr:nth-child(odd) td,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table tbody tr:nth-child(odd) td {
+    background: var(--ice-surface) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-table tbody tr:nth-child(even) td,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table tbody tr:nth-child(even) td {
+    background: var(--ice-surface-input) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-table tbody tr:hover td,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table tbody tr:hover td {
+    background: var(--ice-accent-soft) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-table .col-line,
+body.equotation-icy-theme.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-table .col-line {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-table .col-location,
+body.equotation-icy-theme.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-table .col-location {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-table-empty {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-panel-empty--hero p {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-empty-hint {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-status.draft {
+    color: var(--ice-heading) !important;
+    background: var(--ice-surface-muted) !important;
+    border-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-status.submitted {
+    color: #0f4a6e !important;
+    background: #dbeafe !important;
+    border-color: #93c5fd !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-status.approved {
+    color: #0f5132 !important;
+    background: #d1fae5 !important;
+    border-color: #6ee7b7 !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-status.rejected,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-status.cancelled {
+    color: #7f1d1d !important;
+    background: #fee2e2 !important;
+    border-color: #fca5a5 !important;
+}
+
+/* ---- View e-PR tab (quotation-like split layout) ---- */
+body.equotation-icy-theme.procurement-warm-ui .pr-panel-view-quotation-like .quotation-page-header {
+    background: linear-gradient(180deg, var(--ice-surface) 0%, var(--ice-surface-alt) 100%) !important;
+    border-color: var(--ice-border) !important;
+    box-shadow: 0 1px 8px var(--ice-shadow) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-panel-view-quotation-like .pr-view-page-title {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-panel-view-quotation-like .pr-view-page-subtitle,
+body.equotation-icy-theme.procurement-warm-ui .pr-panel-view-quotation-like .pr-view-title,
+body.equotation-icy-theme.procurement-warm-ui .pr-panel-view-quotation-like .view-pr-list-perf,
+body.equotation-icy-theme.procurement-warm-ui .pr-panel-view-quotation-like .view-pr-list-perf--inline,
+body.equotation-icy-theme.procurement-warm-ui .pr-panel-view-quotation-like .view-pr-search-label,
+body.equotation-icy-theme.procurement-warm-ui .pr-view-left-search-label {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-panel-view-quotation-like .view-pr-search-input,
+body.equotation-icy-theme.procurement-warm-ui .pr-view-left-search-input {
+    border-color: var(--ice-border-soft) !important;
+    background: var(--ice-surface-input) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-panel-view-quotation-like .view-pr-search-input:focus,
+body.equotation-icy-theme.procurement-warm-ui .pr-view-left-search-input:focus {
+    border-color: var(--ice-accent) !important;
+    box-shadow: 0 0 0 2px rgba(59, 143, 196, 0.2) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-panel-view-quotation-like .pr-view-filter-tabs {
+    border-top-color: var(--ice-border) !important;
+    background: var(--ice-surface-alt) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-panel-view-quotation-like .pr-view-header-row {
+    border-bottom-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-left-pane {
+    background: linear-gradient(180deg, var(--ice-surface) 0%, var(--ice-surface-alt) 100%) !important;
+    border-color: var(--ice-border) !important;
+    box-shadow: 0 2px 12px var(--ice-shadow) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-left-sticky-header {
+    background: rgba(247, 251, 255, 0.97) !important;
+    border-bottom-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-card {
+    background: var(--ice-surface) !important;
+    border-color: var(--ice-border) !important;
+    border-left-color: var(--ice-accent) !important;
+    box-shadow: 0 1px 3px var(--ice-shadow) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-card:hover {
+    background: var(--ice-accent-soft) !important;
+    border-color: var(--ice-accent) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-card.is-selected {
+    background: var(--ice-accent-soft) !important;
+    border-color: var(--ice-accent) !important;
+    border-left-color: var(--ice-accent-hover) !important;
+    box-shadow: 0 0 0 2px rgba(59, 143, 196, 0.35), 0 2px 10px var(--ice-shadow) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-card__code {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-card__approval-label {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-quotation-detail {
+    color: var(--ice-text) !important;
+    background: linear-gradient(180deg, var(--ice-surface) 0%, var(--ice-surface-alt) 100%) !important;
+    border-color: var(--ice-border) !important;
+    box-shadow: 0 3px 16px var(--ice-shadow) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-unified {
+    background: var(--ice-surface) !important;
+    border-color: var(--ice-border) !important;
+    box-shadow: 0 2px 12px var(--ice-shadow) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-unified .view-pr-detail-actions--toolbar {
+    border-top-color: var(--ice-border) !important;
+    background: linear-gradient(180deg, var(--ice-surface-alt) 0%, var(--ice-surface-muted) 100%) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-unified .view-pr-detail-wrap--unified {
+    border-top-color: var(--ice-border) !important;
+    background: var(--ice-surface) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-panel-head--rich {
+    background: var(--ice-surface) !important;
+    border-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-head-primary {
+    background: linear-gradient(165deg, #fff 0%, var(--ice-surface-alt) 100%) !important;
+    border-bottom-color: var(--ice-border-soft) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-panel-head--rich .view-pr-detail-panel-title {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-doc-pill {
+    background: var(--ice-accent) !important;
+    box-shadow: 0 1px 2px rgba(59, 143, 196, 0.25) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-head-amount-wrap .view-pr-detail-amount-label {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-amount-pill {
+    background: linear-gradient(145deg, var(--ice-accent) 0%, var(--ice-accent-hover) 100%) !important;
+    box-shadow: 0 1px 5px var(--ice-shadow) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-meta-strip {
+    background: var(--ice-surface) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-meta-item {
+    border-color: var(--ice-border-soft) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-meta-item dt {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-meta-item dd {
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-view .view-pr-list-colhead {
+    border-bottom-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-view .view-pr-ch {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-view .view-pr-load-more-wrap--footer {
+    background: var(--ice-surface-alt) !important;
+    border-top-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-update-btn,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-update-availability-btn {
+    border-color: var(--ice-accent-hover) !important;
+    background: var(--ice-accent) !important;
+    color: #fff !important;
+}
+
+/* ---- Admin supplier bidding page ---- */
+body.equotation-icy-theme.admin-bidding-page {
+    background: linear-gradient(160deg, var(--ice-bg) 0%, var(--ice-bg-deep) 45%, #c5e3f5 100%) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.admin-bidding-page .container,
+body.equotation-icy-theme.admin-bidding-page .main-content {
+    background: transparent !important;
+}
+
+/* ---- View quotation page ---- */
+body.equotation-icy-theme.view-quotation-page .view-quotation-tabs {
+    background: var(--ice-surface-alt) !important;
+    border-bottom-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.view-quotation-page .view-quotation-tabs button {
+    border-color: var(--ice-border) !important;
+    background: var(--ice-surface) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.view-quotation-page .view-quotation-tabs button:hover {
+    background: var(--ice-accent-soft) !important;
+    border-color: var(--ice-accent) !important;
+}
+
+body.equotation-icy-theme.view-quotation-page #tab-pending.is-active {
+    background: var(--ice-accent) !important;
+    border-color: var(--ice-accent-hover) !important;
+}
+
+body.equotation-icy-theme.view-quotation-page .view-quotation-split,
+body.equotation-icy-theme.view-quotation-page .view-quotation-split > tbody > tr > td.quotation-detail-pane.view-quotation-detail-pane {
+    background: var(--ice-surface) !important;
+}
+
+body.equotation-icy-theme.view-quotation-page .view-quotation-split > tbody > tr > td.quotation-detail-pane.view-quotation-list-pane {
+    background: var(--ice-surface-alt) !important;
+    border-right-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.view-quotation-page .view-qt-list-card {
+    background: var(--ice-surface) !important;
+    border-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.view-quotation-page .view-qt-list-card:hover {
+    background: var(--ice-accent-soft) !important;
+    border-color: var(--ice-accent) !important;
+}
+
+body.equotation-icy-theme.view-quotation-page .view-qt-list-card.is-selected {
+    background: var(--ice-accent-soft) !important;
+    border-color: var(--ice-accent) !important;
+    box-shadow: 0 0 0 1px rgba(59, 143, 196, 0.35) !important;
+}
+
+body.equotation-icy-theme.view-quotation-page .view-qt-list-card__docno {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.view-quotation-page .view-qt-list-card__meta,
+body.equotation-icy-theme.view-quotation-page .view-qt-list-card__row2,
+body.equotation-icy-theme.view-quotation-page .view-quotation-list-empty {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.view-quotation-page .view-qt-detail-doc__header,
+body.equotation-icy-theme.view-quotation-page .view-qt-detail-doc__dates {
+    border-bottom-color: var(--ice-border-soft) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.view-quotation-page .view-qt-detail-doc__status {
+    background: var(--ice-accent-soft) !important;
+    color: var(--ice-heading) !important;
+    border-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.view-quotation-page .view-qt-detail-doc__customer {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.view-quotation-page .view-qt-detail-doc__total {
+    background: linear-gradient(135deg, var(--ice-accent) 0%, var(--ice-accent-hover) 100%) !important;
+}
+
+body.equotation-icy-theme.view-quotation-page .view-qt-detail-doc__dates-k {
+    color: var(--ice-text-muted) !important;
+}
+
+/* ---- Admin view all quotations ---- */
+body.equotation-icy-theme.admin-quotations-view-page .container {
+    background: var(--ice-bg) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .tab-content.active {
+    background: linear-gradient(135deg, var(--ice-surface) 0%, var(--ice-bg-deep) 100%) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .approvals-tabs,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-page-header {
+    background: var(--ice-surface-alt) !important;
+    border-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .approval-tab {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .approval-tab:hover {
+    background: var(--ice-accent-soft) !important;
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .approval-tab.active {
+    color: var(--ice-heading) !important;
+    border-bottom-color: var(--ice-accent) !important;
+    background: var(--ice-accent-soft) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .admin-quotations-view,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-list-table {
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-list-th {
+    color: var(--ice-heading) !important;
+    background: var(--ice-surface-alt) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page tr.quotation-card {
+    background: var(--ice-surface) !important;
+    border-left-color: var(--ice-accent) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page tr.quotation-card:hover {
+    background: var(--ice-accent-soft) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page tr.quotation-card td {
+    border-bottom-color: var(--ice-border-soft) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page tr.quotation-card.is-selected {
+    background: var(--ice-accent-soft) !important;
+    box-shadow: inset 0 0 0 1px rgba(59, 143, 196, 0.35) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-card__doc-value,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-title {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-card__date-value,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-sub {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane {
+    background: var(--ice-surface) !important;
+    border-color: var(--ice-border) !important;
+    box-shadow: 0 2px 8px var(--ice-shadow) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .admin-quotations-view .quotation-items-table thead th {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .admin-quotations-view .quotation-items-table tbody td {
+    border-top-color: var(--ice-border-soft) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .admin-quotations-view .quotation-items-table .quotation-items-total td {
+    background: var(--ice-surface-alt) !important;
+    color: var(--ice-heading) !important;
+}
+
+/* Admin view quotations — filter + bulk bar (beat legacy warm / cached rules) */
+body.equotation-icy-theme.admin-quotations-view-page .quotation-filter-label {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-filter-input,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-company-select,
+body.equotation-icy-theme.admin-quotations-view-page #quotation-date-from,
+body.equotation-icy-theme.admin-quotations-view-page #quotation-date-to,
+body.equotation-icy-theme.admin-quotations-view-page #company-filter-dropdown {
+    background: var(--ice-surface-input) !important;
+    border-color: var(--ice-border-soft) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-filter-btn--primary,
+body.equotation-icy-theme.admin-quotations-view-page #quotation-date-apply {
+    background: var(--ice-accent) !important;
+    color: #fff !important;
+    border: none !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-filter-btn--primary:hover,
+body.equotation-icy-theme.admin-quotations-view-page #quotation-date-apply:hover {
+    background: var(--ice-accent-hover) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-filter-btn--secondary,
+body.equotation-icy-theme.admin-quotations-view-page #quotation-date-clear,
+body.equotation-icy-theme.admin-quotations-view-page #company-filter-clear {
+    background: var(--ice-surface) !important;
+    color: var(--ice-accent-hover) !important;
+    border: 1px solid var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-filter-btn--secondary:hover,
+body.equotation-icy-theme.admin-quotations-view-page #quotation-date-clear:hover,
+body.equotation-icy-theme.admin-quotations-view-page #company-filter-clear:hover {
+    background: var(--ice-accent-soft) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .active-tab-controls {
+    background: var(--ice-surface-alt) !important;
+    border-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-bulk-select-label {
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-bulk-selected-count {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-meta {
+    color: var(--ice-text-muted) !important;
+    border-top-color: var(--ice-border) !important;
+    border-bottom-color: var(--ice-border) !important;
+}
+
+/* ---- Pricing priority rules ---- */
+body.equotation-icy-theme.pricing-priority-rules-page {
+    background: linear-gradient(160deg, var(--ice-bg) 0%, var(--ice-bg-deep) 45%, #c5e3f5 100%) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.pricing-priority-rules-page .container,
+body.equotation-icy-theme.pricing-priority-rules-page .main-content {
+    background: transparent !important;
+}
+
+body.equotation-icy-theme.pricing-priority-rules-page .priority-shell {
+    background: var(--ice-surface) !important;
+    border-color: var(--ice-border) !important;
+    box-shadow: 0 2px 14px var(--ice-shadow) !important;
+}
+
+body.equotation-icy-theme.pricing-priority-rules-page .priority-shell__header h2,
+body.equotation-icy-theme.pricing-priority-rules-page .rule-name {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.pricing-priority-rules-page .priority-shell__header p,
+body.equotation-icy-theme.pricing-priority-rules-page .rule-code,
+body.equotation-icy-theme.pricing-priority-rules-page .priority-list-header {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.pricing-priority-rules-page .primary-btn,
+body.equotation-icy-theme.pricing-priority-rules-page #save-rules-btn {
+    background: var(--ice-accent) !important;
+    color: #fff !important;
+    border-color: transparent !important;
+}
+
+body.equotation-icy-theme.pricing-priority-rules-page .primary-btn:hover,
+body.equotation-icy-theme.pricing-priority-rules-page #save-rules-btn:hover {
+    background: var(--ice-accent-hover) !important;
+}
+
+body.equotation-icy-theme.pricing-priority-rules-page .secondary-btn,
+body.equotation-icy-theme.pricing-priority-rules-page #reload-rules-btn {
+    background: var(--ice-surface) !important;
+    color: var(--ice-accent-hover) !important;
+    border-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.pricing-priority-rules-page .secondary-btn:hover,
+body.equotation-icy-theme.pricing-priority-rules-page #reload-rules-btn:hover {
+    background: var(--ice-accent-soft) !important;
+}
+
+body.equotation-icy-theme.pricing-priority-rules-page .priority-rule-row {
+    background: var(--ice-surface) !important;
+    border-color: var(--ice-border-soft) !important;
+}
+
+body.equotation-icy-theme.pricing-priority-rules-page .priority-rule-row.drag-target {
+    border-color: var(--ice-accent) !important;
+    box-shadow: 0 0 0 1px rgba(59, 143, 196, 0.35) !important;
+}
+
+body.equotation-icy-theme.pricing-priority-rules-page .drag-handle {
+    background: var(--ice-surface-input) !important;
+    border-color: var(--ice-border-soft) !important;
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.pricing-priority-rules-page .priority-loading,
+body.equotation-icy-theme.pricing-priority-rules-page .priority-empty {
+    background: var(--ice-surface-alt) !important;
+    border-color: var(--ice-border) !important;
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.pricing-priority-rules-page .rule-toggle input {
+    accent-color: var(--ice-accent) !important;
+}
+
+body.equotation-icy-theme.pricing-priority-rules-page .priority-context-tabs {
+    border-bottom-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.pricing-priority-rules-page .priority-context-tab {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.pricing-priority-rules-page .priority-context-tab:hover,
+body.equotation-icy-theme.pricing-priority-rules-page .priority-context-tab.is-active {
+    background: var(--ice-accent-soft) !important;
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.pricing-priority-rules-page .priority-context-tab.is-active {
+    border-bottom-color: var(--ice-accent) !important;
+}
+
+/* ---- Supplier bidding ---- */
+body.equotation-icy-theme.supplier-bidding-page {
+    background: var(--ice-bg) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.supplier-bidding-page .container,
+body.equotation-icy-theme.supplier-bidding-page .main-content {
+    background: var(--ice-bg) !important;
+}
+
+body.equotation-icy-theme.supplier-bidding-page .supplier-bidding-split {
+    background: var(--ice-surface) !important;
+    border-color: var(--ice-border) !important;
+    box-shadow: 0 4px 20px var(--ice-shadow) !important;
+}

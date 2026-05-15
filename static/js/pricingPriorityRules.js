@@ -179,7 +179,9 @@ async function loadRules(showLoadingMessage = true) {
             loadController.abort();
         }
         loadController = new AbortController();
-        const response = await fetch('/api/admin/pricing-priority-rules', { signal: loadController.signal });
+        const response = await fetch('/api/admin/pricing-priority-rules?context=SALES', {
+            signal: loadController.signal,
+        });
         const result = await response.json();
         if (!response.ok || !result.success) {
             throw new Error(result.error || result.message || 'Failed to load pricing priority rules');
@@ -217,6 +219,7 @@ async function saveRules() {
 
     try {
         const payload = {
+            context: 'SALES',
             rules: pricingRules.map(rule => ({
                 PricingPriorityRuleId: rule.PricingPriorityRuleId,
                 PriorityNo: rule.PriorityNo,
@@ -236,7 +239,6 @@ async function saveRules() {
             throw new Error(result.error || result.message || 'Failed to save pricing priority rules');
         }
 
-        // Keep current UI order/toggles (already up to date) and avoid an extra round-trip reload.
         pricingRules = normalizeRules(pricingRules);
         writeRulesCache(pricingRules);
         renderRules();

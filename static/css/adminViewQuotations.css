@@ -4,6 +4,81 @@
     text-align: left;
 }
 
+/* Filter toolbar (classes used by adminViewQuotations.js — icy palette) */
+.quotation-filter-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--ice-text-muted, #5a7a94);
+    font-size: 13px;
+}
+
+.quotation-filter-input,
+.quotation-company-select {
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--ice-border-soft, #c5dce9);
+    background: var(--ice-surface-input, #f0f9ff);
+    color: var(--ice-text, #1e3a52);
+    font-size: 13px;
+}
+
+.quotation-company-select {
+    padding: 8px 12px;
+    width: 240px;
+}
+
+.quotation-filter-btn {
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.quotation-filter-btn--primary {
+    background: var(--ice-accent, #3b8fc4);
+    color: #fff;
+    border: none;
+}
+
+.quotation-filter-btn--primary:hover {
+    background: var(--ice-accent-hover, #2d74a3);
+}
+
+.quotation-filter-btn--secondary {
+    background: var(--ice-surface, #f7fbff);
+    color: var(--ice-accent-hover, #2d74a3);
+    border: 1px solid var(--ice-border, #b8d4e8);
+}
+
+.quotation-filter-btn--secondary:hover {
+    background: var(--ice-accent-soft, #dbeafe);
+}
+
+.quotation-bulk-select-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-weight: 500;
+    user-select: none;
+    color: var(--ice-text, #1e3a52);
+}
+
+.quotation-bulk-selected-count {
+    margin-left: auto;
+    font-size: 14px;
+    color: var(--ice-text-muted, #5a7a94);
+    font-weight: 500;
+}
+
+.quotation-list-empty {
+    padding: 12px;
+    text-align: center;
+    color: var(--ice-text-muted, #5a7a94);
+}
+
 .visually-hidden {
     position: absolute;
     width: 1px;
@@ -21,7 +96,7 @@
     border-collapse: collapse;
     table-layout: fixed;
     font-size: 13px;
-    color: #4f341e;
+    color: var(--ice-text, #1e3a52);
 }
 
 .quotation-list-table thead {
@@ -35,7 +110,17 @@
 }
 
 .quotation-list-col--date {
-    width: 122px;
+    width: 100px;
+}
+
+.quotation-list-col--creator {
+    width: 16%;
+    min-width: 120px;
+}
+
+.quotation-list-col--department {
+    width: 12%;
+    min-width: 88px;
 }
 
 .quotation-list-col--amount {
@@ -54,9 +139,9 @@
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    color: #6f5238;
-    background: #f8efdd;
-    border-bottom: 1px solid #e2cfab;
+    color: var(--ice-heading, #1a4d6e);
+    background: var(--ice-surface-alt, #eef6fc);
+    border-bottom: 1px solid var(--ice-border, #b8d4e8);
 }
 
 .quotation-list-th--chk {
@@ -67,17 +152,17 @@
 
 tr.quotation-card {
     cursor: pointer;
-    background: #fffaf0;
-    border-left: 3px solid var(--quotation-accent, #2d5a8a);
+    background: var(--ice-surface, #f7fbff);
+    border-left: 3px solid var(--ice-accent, #3b8fc4);
     box-sizing: border-box;
 }
 
 tr.quotation-card:hover {
-    background: #fff4e0;
+    background: var(--ice-accent-soft, #dbeafe);
 }
 
 tr.quotation-card td {
-    border-bottom: 1px solid #ead8b5;
+    border-bottom: 1px solid var(--ice-border-soft, #c5dce9);
 }
 
 .quotation-card__cell {
@@ -139,6 +224,26 @@ tr.quotation-card td {
     vertical-align: middle;
 }
 
+.quotation-card__cell--creator {
+    text-align: center;
+    vertical-align: middle;
+}
+
+.quotation-card__cell--department {
+    text-align: center;
+    vertical-align: middle;
+}
+
+.quotation-list-cell--creator,
+.quotation-list-cell--department {
+    font-size: 12px;
+    color: #3d5a78;
+    word-break: break-word;
+    line-height: 1.25;
+    padding: 2px 4px;
+    text-align: center;
+}
+
 .quotation-card__doc-value {
     display: block;
     min-width: 0;
@@ -146,7 +251,7 @@ tr.quotation-card td {
     margin: 0 auto;
     font-weight: 700;
     font-size: 13px;
-    color: #4f341e;
+    color: var(--ice-heading, #1a4d6e);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -155,7 +260,7 @@ tr.quotation-card td {
 .quotation-card__date-value {
     display: block;
     font-size: 12px;
-    color: #5c4028;
+    color: var(--ice-text-muted, #5a7a94);
     white-space: nowrap;
 }
 
@@ -203,12 +308,12 @@ tr.quotation-card td {
 }
 
 .admin-quotations-view .quotation-items-table thead th {
-    color: #87684d;
+    color: var(--ice-text-muted, #5a7a94);
     font-size: 12px;
     font-weight: 600;
     padding: 8px 10px;
     vertical-align: bottom;
-    border-bottom: 1px solid #e2cfab;
+    border-bottom: 1px solid var(--ice-border, #b8d4e8);
 }
 
 .admin-quotations-view .quotation-items-table thead th:first-child {
@@ -220,11 +325,11 @@ tr.quotation-card td {
 }
 
 .admin-quotations-view .quotation-items-table tbody td {
-    color: #4f3b2a;
+    color: var(--ice-heading, #1a4d6e);
     font-size: 13px;
     padding: 8px 10px;
     vertical-align: top;
-    border-top: 1px solid #ead8b5;
+    border-top: 1px solid var(--ice-border, #b8d4e8);
     box-sizing: border-box;
 }
 
@@ -243,13 +348,13 @@ tr.quotation-card td {
 .admin-quotations-view .quotation-items-table .quotation-items-total td {
     vertical-align: middle;
     font-weight: bold;
-    background: #f8efdd;
-    color: #7b5a36;
-    border-top: 1px solid #e2cfab;
+    background: var(--ice-surface-alt, #eef6fc);
+    color: var(--ice-heading, #1a4d6e);
+    border-top: 1px solid var(--ice-border, #b8d4e8);
 }
 
 .admin-quotations-view-page .container {
-    background: #f6efe2;
+    background: var(--ice-bg, #e3f2fa);
 }
 
 /* Top bar: shared app_page_header.css; keep page chrome only if needed */
@@ -258,17 +363,17 @@ tr.quotation-card td {
 }
 
 .admin-quotations-view-page .tab-content.active {
-    background: linear-gradient(135deg, #fbf4e6 0%, #f1e1c5 100%);
+    background: linear-gradient(135deg, var(--ice-surface, #f7fbff) 0%, var(--ice-bg-deep, #d4eaf6) 100%);
 }
 
 .admin-quotations-view-page .approvals-tabs {
-    background: #f7edda;
-    border-bottom: 1px solid #e2cfab;
+    background: var(--ice-surface-alt, #eef6fc);
+    border-bottom: 1px solid var(--ice-border, #b8d4e8);
 }
 
 .quotation-page-header {
-    background: #f8efdd;
-    border: 1px solid #e2cfab;
+    background: var(--ice-surface-alt, #eef6fc);
+    border: 1px solid var(--ice-border, #b8d4e8);
     border-radius: 10px;
     overflow: hidden;
     margin-bottom: 12px;
@@ -280,7 +385,7 @@ tr.quotation-card td {
     gap: 8px;
     align-items: center;
     padding: 10px 12px;
-    border-bottom: 1px solid #e2cfab;
+    border-bottom: 1px solid var(--ice-border, #b8d4e8);
 }
 
 .quotation-page-header-tabs {
@@ -288,22 +393,22 @@ tr.quotation-card td {
 }
 
 .admin-quotations-view-page .approval-tab {
-    color: #6f5238;
+    color: var(--ice-text-muted, #5a7a94);
 }
 
 .admin-quotations-view-page .approval-tab:hover {
-    background: #f4e6c8;
-    color: #5c4028;
+    background: var(--ice-accent-soft, #dbeafe);
+    color: var(--ice-heading, #1a4d6e);
 }
 
 .admin-quotations-view-page .approval-tab.active {
-    color: #5c4028;
-    border-bottom: 2px solid #b9894a;
-    background: #f5e7c9;
+    color: var(--ice-heading, #1a4d6e);
+    border-bottom: 2px solid var(--ice-accent, #3b8fc4);
+    background: var(--ice-accent-soft, #dbeafe);
 }
 
 .admin-quotations-view-page .admin-quotations-view {
-    color: #5c4028;
+    color: var(--ice-text, #1e3a52);
 }
 
 .quotation-split-wrap {
@@ -321,17 +426,17 @@ tr.quotation-card td {
 }
 
 .quotation-detail-pane {
-    background: #fffaf0;
-    border: 1px solid #e2cfab;
+    background: var(--ice-surface, #f7fbff);
+    border: 1px solid var(--ice-border, #b8d4e8);
     border-radius: 10px;
     padding: 12px;
     min-height: 420px;
-    box-shadow: 0 2px 8px rgba(112, 86, 45, 0.08);
+    box-shadow: 0 2px 8px var(--ice-shadow, rgba(30, 80, 120, 0.1));
 }
 
 tr.quotation-card.is-selected {
-    background: #fff4e0;
-    box-shadow: inset 0 0 0 1px rgba(185, 137, 74, 0.35);
+    background: var(--ice-accent-soft, #dbeafe);
+    box-shadow: inset 0 0 0 1px rgba(59, 143, 196, 0.35);
 }
 
 .quotation-list-table .quotation-card__amount-col {
@@ -373,17 +478,17 @@ tr.quotation-card.is-selected {
 .quotation-detail-title {
     font-size: 17px;
     font-weight: 700;
-    color: #4f341e;
+    color: var(--ice-heading, #1a4d6e);
 }
 
 .quotation-detail-sub {
     font-size: 13px;
-    color: #6d5238;
+    color: var(--ice-text-muted, #5a7a94);
     margin-top: 3px;
 }
 
 .quotation-detail-amount {
-    background: #b9894a;
+    background: var(--ice-accent, #3b8fc4);
     color: #fff;
     font-weight: 700;
     border-radius: 8px;
@@ -396,9 +501,9 @@ tr.quotation-card.is-selected {
     flex-wrap: wrap;
     gap: 10px 18px;
     font-size: 13px;
-    color: #5c4028;
-    border-top: 1px solid #ead8b5;
-    border-bottom: 1px solid #ead8b5;
+    color: var(--ice-text-muted, #5a7a94);
+    border-top: 1px solid var(--ice-border, #b8d4e8);
+    border-bottom: 1px solid var(--ice-border, #b8d4e8);
     padding: 8px 0;
     margin-bottom: 10px;
 }
@@ -427,7 +532,7 @@ tr.quotation-card.is-selected {
 
 .quotation-detail-loading,
 .quotation-detail-empty {
-    color: #6d5238;
+    color: var(--ice-text-muted, #5a7a94);
     text-align: center;
     padding: 14px 8px;
 }
@@ -463,10 +568,10 @@ tr.quotation-card.is-selected {
     gap: 15px;
     align-items: center;
     padding: 12px;
-    background: #f8efdd;
+    background: var(--ice-surface-alt, #eef6fc);
     border-radius: 6px;
     margin-bottom: 12px;
-    border: 1px solid #e2cfab;
+    border: 1px solid var(--ice-border, #b8d4e8);
 }
 
 .active-tab-controls.show {
@@ -530,7 +635,7 @@ tr.quotation-card.is-selected {
 .quotation-card__field-label {
     display: block;
     margin-bottom: 2px;
-    color: #6f5238;
+    color: var(--ice-text-muted, #5a7a94);
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.03em;
@@ -542,7 +647,7 @@ tr.quotation-card.is-selected {
     align-items: center;
     gap: 6px;
     min-width: 0;
-    color: #4f341e;
+    color: var(--ice-text, #1e3a52);
     font-size: 12px;
 }
 

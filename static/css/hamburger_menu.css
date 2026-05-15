@@ -1,31 +1,38 @@
-/* Hamburger Menu */
+/* Hamburger Menu — icy blue (eQuotation) */
 .hamburger-menu-container {
     position: relative;
 }
 
 .hamburger-btn {
-    background: transparent;
-    border: none;
+    background: var(--ice-surface, #f7fbff);
+    border: 1px solid var(--ice-border-soft, #c5dce9);
+    border-radius: 8px;
     cursor: pointer;
     display: flex;
     flex-direction: column;
     gap: 4px;
     padding: 8px;
-    transition: all 0.3s ease;
+    transition: all 0.25s ease;
     z-index: 1002;
     position: relative;
+    box-shadow: 0 1px 4px rgba(30, 80, 120, 0.08);
 }
 
 .hamburger-btn span {
     width: 24px;
     height: 3px;
-    background: #8b5a1f;
+    background: var(--ice-heading, #1a4d6e);
     border-radius: 3px;
-    transition: all 0.3s ease;
+    transition: all 0.25s ease;
+}
+
+.hamburger-btn:hover {
+    background: var(--ice-accent-soft, #dbeafe);
+    border-color: var(--ice-accent, #3b8fc4);
 }
 
 .hamburger-btn:hover span {
-    background: #b6812f;
+    background: var(--ice-accent-hover, #2d74a3);
 }
 
 /* Overlay backdrop */
@@ -35,7 +42,7 @@
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(42, 36, 27, 0.32);
+    background: var(--ice-overlay, rgba(20, 50, 80, 0.28));
     opacity: 0;
     visibility: hidden;
     transition: opacity 0.3s ease, visibility 0.3s ease;
@@ -54,15 +61,17 @@
     left: -280px;
     width: 280px;
     height: 100%;
-    background: #fffef9;
-    border-right: 1px solid #dccfb8;
-    box-shadow: 3px 0 16px rgba(42, 36, 27, 0.16);
+    max-height: 100vh;
+    background: linear-gradient(180deg, var(--ice-surface, #f7fbff) 0%, var(--ice-surface-alt, #eef6fc) 100%);
+    border-right: 1px solid var(--ice-border, #b8d4e8);
+    box-shadow: 3px 0 20px rgba(30, 80, 120, 0.14);
     display: flex;
     flex-direction: column;
-    overflow-y: auto;
+    overflow: hidden;
     z-index: 1000;
     transition: left 0.3s ease;
     padding-top: 60px;
+    box-sizing: border-box;
 }
 
 .hamburger-dropdown.active {
@@ -71,34 +80,47 @@
 
 .hamburger-dropdown a {
     padding: 16px 24px;
-    color: #5c4a32;
+    color: var(--ice-text, #1e3a52);
     text-decoration: none;
     font-size: 15px;
-    transition: background 0.2s ease;
-    border-bottom: 1px solid #efe6d8;
+    transition: background 0.2s ease, color 0.2s ease;
+    border-bottom: 1px solid var(--ice-border-soft, #c5dce9);
     display: block;
 }
 
-.hamburger-dropdown a:last-child {
-    border-bottom: none;
+.hamburger-dropdown__body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.hamburger-dropdown__body a:last-child {
+    border-bottom: 1px solid var(--ice-border-soft, #c5dce9);
 }
 
 .hamburger-dropdown a:hover {
-    background: #fff8ed;
-    color: #2a241b;
+    background: var(--ice-accent-soft, #dbeafe);
+    color: var(--ice-heading, #1a4d6e);
+}
+
+.hamburger-dropdown__footer {
+    flex-shrink: 0;
+    margin-top: auto;
+    border-top: 1px solid var(--ice-border, #b8d4e8);
+    background: var(--ice-surface-alt, #eef6fc);
+    box-shadow: 0 -4px 12px rgba(30, 80, 120, 0.06);
 }
 
 .hamburger-dropdown a.logout-link {
-    margin-top: auto;
-    border-top: 1px solid #efe6d8;
     border-bottom: none;
     color: #b42318;
+    font-weight: 600;
     padding-top: 16px;
     padding-bottom: 16px;
 }
 
 .hamburger-dropdown a.logout-link:hover {
-    background: #fdecef;
-    color: #8a1c1c;
+    background: #fee2e2;
+    color: #991b1b;
 }
-

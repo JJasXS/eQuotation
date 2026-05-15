@@ -1,75 +1,76 @@
-﻿<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin - Batch cancel quotations</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/chat.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/hamburger_menu.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/app_page_header.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/adminViewQuotations.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/deleteQuotations.css') }}">
-</head>
-<body>
-    <div class="container">
-        <div class="main-content">
-            {% set page_header_title = "Quotation > Batch cancel" %}
-            {% set page_header_subtitle = "Admin: " ~ (user_email or "—") %}
-            {% include 'components/app_page_header.html' %}
-
-            <div class="tab-content active">
-                <div id="quotation-content" style="padding: 20px;">
-                    <div class="header-subtitle" style="margin-bottom: 16px;">Select reviewed quotations to batch-cancel. Status becomes <strong>CANCELLED</strong> (same as Cancel on View Quotations). Nothing is permanently removed.</div>
-
-                    <!-- Select All / Clear All Controls -->
-                    <div class="delete-controls">
-                        <label class="select-all-label">
-                            <input type="checkbox" id="select-all-checkbox"> Select All
-                        </label>
-                        <button id="bulk-delete-btn" class="btn-delete-bulk" disabled>
-                            Batch Cancellation
-                        </button>
-                        <span class="selected-count">0 selected</span>
-                    </div>
-
-                    <!-- Quotations List -->
-                    <div id="quotations-container" class="quotations-list">
-                        <div class="loading">Loading quotations...</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Batch cancel confirmation -->
-    <div id="delete-modal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>Confirm batch cancel</h2>
-            </div>
-            <div class="modal-body">
-                <p>Cancel <span id="delete-count">0</span> quotation(s)? Each will be set to status <strong>CANCELLED</strong>.</p>
-                <p class="warning-text">You can restore them later from the Cancelled list on View Quotations.</p>
-            </div>
-            <div class="modal-footer">
-                <button id="cancel-delete-btn" class="btn-cancel">Dismiss</button>
-                <button id="confirm-delete-btn" class="btn-delete-confirm">Batch cancel</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Success Message -->
-    <div id="success-message" class="success-message">
-        <span>✓ Batch cancel completed (CANCELLED).</span>
-    </div>
-
-    <!-- Error Message -->
-    <div id="error-message" class="error-message">
-        <span></span>
-    </div>
-
-    <script src="/static/js/deleteQuotations.js"></script>
-    <script src="/static/js/hamburger_menu.js"></script>
-</body>
-</html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Batch cancel quotations</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/chat.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/hamburger_menu.css') }}?v=20260515_icy">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app_page_header.css') }}?v=20260515_icy">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/equotationIcyTheme.css') }}?v=20260515">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/adminViewQuotations.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/deleteQuotations.css') }}">
+</head>
+<body class="equotation-icy-theme">
+    <div class="container">
+        <div class="main-content">
+            {% set page_header_title = "Quotation > Batch cancel" %}
+            {% set page_header_subtitle = "Admin: " ~ (user_email or "—") %}
+            {% include 'components/app_page_header.html' %}
+
+            <div class="tab-content active">
+                <div id="quotation-content" style="padding: 20px;">
+                    <div class="header-subtitle" style="margin-bottom: 16px;">Select reviewed quotations to batch-cancel. Status becomes <strong>CANCELLED</strong> (same as Cancel on View Quotations). Nothing is permanently removed.</div>
+
+                    <!-- Select All / Clear All Controls -->
+                    <div class="delete-controls">
+                        <label class="select-all-label">
+                            <input type="checkbox" id="select-all-checkbox"> Select All
+                        </label>
+                        <button id="bulk-delete-btn" class="btn-delete-bulk" disabled>
+                            Batch Cancellation
+                        </button>
+                        <span class="selected-count">0 selected</span>
+                    </div>
+
+                    <!-- Quotations List -->
+                    <div id="quotations-container" class="quotations-list">
+                        <div class="loading">Loading quotations...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Batch cancel confirmation -->
+    <div id="delete-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Confirm batch cancel</h2>
+            </div>
+            <div class="modal-body">
+                <p>Cancel <span id="delete-count">0</span> quotation(s)? Each will be set to status <strong>CANCELLED</strong>.</p>
+                <p class="warning-text">You can restore them later from the Cancelled list on View Quotations.</p>
+            </div>
+            <div class="modal-footer">
+                <button id="cancel-delete-btn" class="btn-cancel">Dismiss</button>
+                <button id="confirm-delete-btn" class="btn-delete-confirm">Batch cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Success Message -->
+    <div id="success-message" class="success-message">
+        <span>? Batch cancel completed (CANCELLED).</span>
+    </div>
+
+    <!-- Error Message -->
+    <div id="error-message" class="error-message">
+        <span></span>
+    </div>
+
+    <script src="/static/js/deleteQuotations.js"></script>
+    <script src="/static/js/hamburger_menu.js"></script>
+</body>
+</html>

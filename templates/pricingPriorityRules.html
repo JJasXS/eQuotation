@@ -1,15 +1,16 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin - Pricing Priority Rules</title>
     <link rel="stylesheet" href="/static/css/chat.css">
-    <link rel="stylesheet" href="/static/css/hamburger_menu.css">
-    <link rel="stylesheet" href="/static/css/app_page_header.css">
-    <link rel="stylesheet" href="/static/css/pricingPriorityRules.css">
+    <link rel="stylesheet" href="/static/css/hamburger_menu.css?v=20260515_sidebar">
+    <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
+    <link rel="stylesheet" href="/static/css/pricingPriorityRules.css?v=20260515_sales_only">
+    <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515_sales_only">
 </head>
-<body>
+<body class="equotation-icy-theme pricing-priority-rules-page">
     <div class="container pricing-priority-page">
         <div class="main-content">
             {% set page_header_title = "Admin > Set Priority Rules" %}
@@ -20,7 +21,7 @@
                 <div class="priority-shell__header">
                     <div>
                         <h2>Pricing Priority Rules</h2>
-                        <p>Drag rules to change sequence. Only enabled rules are evaluated, from top to bottom.</p>
+                        <p>Drag rules to change sequence. Only enabled rules are evaluated for sales pricing, from top to bottom.</p>
                     </div>
                     <div class="priority-shell__actions">
                         <button id="reload-rules-btn" type="button" class="secondary-btn">Reload</button>
@@ -43,6 +44,6 @@
     </div>
 
     <script src="/static/js/hamburger_menu.js"></script>
-    <script src="/static/js/pricingPriorityRules.js"></script>
+    <script src="/static/js/pricingPriorityRules.js?v=20260515_sales_only"></script>
 </body>
 </html>

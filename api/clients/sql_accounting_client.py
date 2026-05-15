@@ -77,7 +77,7 @@ class SqlAccountingApiClient:
             read=0,
             backoff_factor=0.3,
             status_forcelist=(429, 502, 503, 504),
-            allowed_methods=frozenset({"POST", "GET"}),
+            allowed_methods=frozenset({"POST", "PUT", "GET"}),
             raise_on_status=False,
         )
         adapter = HTTPAdapter(max_retries=retries)
@@ -85,8 +85,9 @@ class SqlAccountingApiClient:
         session.mount("http://", adapter)
         return session
 
-    def _sign_and_post(
+    def _sign_and_send_json(
         self,
+        method: str,
         url: str,
         body_bytes: bytes,
         *,
@@ -94,7 +95,7 @@ class SqlAccountingApiClient:
     ) -> requests.Response:
         creds = Credentials(self._settings.access_key, self._settings.secret_key)
         aws_request = AWSRequest(
-            method="POST",
+            method=method.upper(),
             url=url,
             data=body_bytes,
             headers={"Content-Type": "application/json; charset=utf-8"},
@@ -106,11 +107,23 @@ class SqlAccountingApiClient:
             if timeout_seconds is not None
             else self._settings.timeout_seconds
         )
-        return self._session.post(
+        return self._session.request(
+            prepared.method,
             prepared.url,
             data=prepared.body,
             headers=dict(prepared.headers),
             timeout=timeout,
+        )
+
+    def _sign_and_post(
+        self,
+        url: str,
+        body_bytes: bytes,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> requests.Response:
+        return self._sign_and_send_json(
+            "POST", url, body_bytes, timeout_seconds=timeout_seconds
         )
 
     def _sign_and_get(
@@ -213,6 +226,82 @@ class SqlAccountingApiClient:
         assert last_exc is not None
         raise SqlAccountingApiError(
             f"SQL Accounting API request failed after retries: {last_exc}",
+            status_code=None,
+            response_body=None,
+        ) from last_exc
+
+    def put_json(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        *,
+        timeout_seconds: float | None = None,
+    ) -> tuple[int, dict[str, Any] | None, str]:
+        """Send a signed PUT with JSON body (e.g. update ``/salesquotation/{dockey}``)."""
+        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        body_bytes = body.encode("utf-8")
+
+        if self._settings.debug_payload:
+            logger.info("SQL Accounting API PUT payload (debug): %s", body)
+
+        last_exc: Exception | None = None
+        attempts = self._settings.max_retries + 1
+        for attempt in range(attempts):
+            try:
+                resp = self._sign_and_send_json(
+                    "PUT", url, body_bytes, timeout_seconds=timeout_seconds
+                )
+                text = resp.text or ""
+                parsed: dict[str, Any] | None = None
+                if text:
+                    try:
+                        parsed_any: Any = json.loads(text)
+                        if isinstance(parsed_any, dict):
+                            parsed = parsed_any
+                    except json.JSONDecodeError:
+                        parsed = None
+                return resp.status_code, parsed, text
+            except requests.exceptions.ReadTimeout as exc:
+                last_exc = exc
+                logger.warning("SQL Accounting API read timeout (%s) — not retrying PUT", exc)
+                break
+            except requests.exceptions.ConnectionError as exc:
+                if _is_read_timeout_transport_error(exc):
+                    last_exc = exc
+                    logger.warning(
+                        "SQL Accounting API read timeout (ConnectionError wrapper) — not retrying PUT: %s",
+                        exc,
+                    )
+                    break
+                last_exc = exc
+                if attempt >= attempts - 1:
+                    break
+                wait = 0.3 * (2 ** attempt)
+                logger.warning(
+                    "SQL Accounting API transport error on PUT (%s), retry %s/%s after %.1fs",
+                    exc,
+                    attempt + 1,
+                    self._settings.max_retries,
+                    wait,
+                )
+                time.sleep(wait)
+            except requests.exceptions.Timeout as exc:
+                last_exc = exc
+                if attempt >= attempts - 1:
+                    break
+                wait = 0.3 * (2 ** attempt)
+                logger.warning(
+                    "SQL Accounting API transport error on PUT (%s), retry %s/%s after %.1fs",
+                    exc,
+                    attempt + 1,
+                    self._settings.max_retries,
+                    wait,
+                )
+                time.sleep(wait)
+
+        assert last_exc is not None
+        raise SqlAccountingApiError(
+            f"SQL Accounting API PUT failed after retries: {last_exc}",
             status_code=None,
             response_body=None,
         ) from last_exc

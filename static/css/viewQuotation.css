@@ -1,4 +1,4 @@
-/* View My Quotations — split list (left) + detail (right), warm palette */
+/* View My Quotations — split list (left) + detail (right), icy palette */
 /* Avoid loading chat.css here (large dark-theme sheet unused on this page). */
 html {
     box-sizing: border-box;
@@ -11,20 +11,20 @@ html {
 
 body.view-quotation-page {
     margin: 0;
-    background: #f2e8d8;
-    color: #3d2f1f;
+    background: var(--ice-bg, #e3f2fa);
+    color: var(--ice-text, #1e3a52);
     min-height: 100vh;
 }
 
 body.view-quotation-page .container {
-    background: #f2e8d8;
+    background: var(--ice-bg, #e3f2fa);
     min-height: 100vh;
     height: auto;
 }
 
 body.view-quotation-page .container,
 body.view-quotation-page .main-content {
-    background: #f2e8d8;
+    background: var(--ice-bg, #e3f2fa);
 }
 
 /* orderQuotation.css uses heavy padding on .tab-content — tighten on this page */
@@ -69,9 +69,9 @@ body.view-quotation-page .tab-content.active {
     display: flex;
     flex-direction: column;
     border-radius: 10px;
-    border: 1px solid #dccfb8;
-    background: #fffef9;
-    box-shadow: 0 1px 10px rgba(80, 60, 30, 0.06);
+    border: 1px solid var(--ice-border, #b8d4e8);
+    background: var(--ice-surface, #f7fbff);
+    box-shadow: 0 1px 10px var(--ice-shadow, rgba(30, 80, 120, 0.1));
     overflow: hidden;
 }
 
@@ -80,7 +80,7 @@ body.view-quotation-page .tab-content.active {
     flex-wrap: wrap;
     gap: 4px;
     padding: 6px 8px 7px;
-    border-bottom: 1px solid #e2cfab;
+    border-bottom: 1px solid var(--ice-border, #b8d4e8);
     flex-shrink: 0;
     background: #faf6ee;
 }
@@ -151,7 +151,7 @@ body.view-quotation-page .tab-content.active {
 
 .view-quotation-split > tbody > tr > td.quotation-detail-pane.view-quotation-list-pane {
     width: 26%;
-    border-right: 1px solid #e2cfab;
+    border-right: 1px solid var(--ice-border, #b8d4e8);
     background: #faf6ee;
     min-height: 0;
     overflow: hidden;
@@ -236,6 +236,14 @@ body.view-quotation-page .tab-content.active {
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+}
+
+.view-qt-list-card__creator {
+    font-size: 11px;
+    color: #4a6682;
+    line-height: 1.35;
+    margin-bottom: 4px;
+    word-break: break-all;
 }
 
 .view-qt-list-card__row2 {
@@ -341,7 +349,7 @@ body.view-quotation-page .tab-content.active {
     border-radius: 999px;
     background: #ede4d4;
     color: #5c4028;
-    border: 1px solid #dccfb8;
+    border: 1px solid var(--ice-border-soft, #c5dce9);
 }
 
 .view-qt-detail-doc__customer {
@@ -354,7 +362,7 @@ body.view-quotation-page .tab-content.active {
 
 .view-qt-detail-doc__customer-code {
     font-weight: 600;
-    color: #6b5a45;
+    color: var(--ice-text-muted, #5a7a94);
 }
 
 .view-qt-detail-doc__total {
@@ -461,7 +469,7 @@ body.view-quotation-page .tab-content.active {
     position: sticky;
     top: 0;
     z-index: 1;
-    box-shadow: 0 1px 0 #e2cfab;
+    box-shadow: 0 1px 0 var(--ice-border, #b8d4e8);
 }
 
 .view-quotation-total-footer {
@@ -473,7 +481,7 @@ body.view-quotation-page .tab-content.active {
     padding: 8px 10px 10px;
     margin-top: auto;
     background: #faf6ee;
-    border-top: 1px solid #e2cfab;
+    border-top: 1px solid var(--ice-border, #b8d4e8);
     font-size: 13px;
     font-weight: 700;
     color: #2d4a6e;
@@ -527,12 +535,12 @@ body.view-quotation-page .tab-content.active {
 .view-quotation-items-table th {
     text-align: left;
     padding: 8px 6px;
-    color: #6b5a45;
+    color: var(--ice-text-muted, #5a7a94);
     font-weight: 600;
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    border-bottom: 1px solid #e2cfab;
+    border-bottom: 1px solid var(--ice-border, #b8d4e8);
     background: #f8f0e0;
 }
 
@@ -576,7 +584,7 @@ body.view-quotation-page .tab-content.active {
 
     .view-quotation-split > tbody > tr > td.quotation-detail-pane.view-quotation-list-pane {
         border-right: none;
-        border-bottom: 1px solid #e2cfab;
+        border-bottom: 1px solid var(--ice-border, #b8d4e8);
         max-height: 40vh;
         overflow-y: auto;
     }

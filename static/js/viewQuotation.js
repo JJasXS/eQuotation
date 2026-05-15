@@ -41,6 +41,16 @@ function escapeHtml(s) {
         .replace(/'/g, '&#39;');
 }
 
+/** Escaped `email from (department)` for list/detail; empty if both missing. */
+function formatSubmittedByCreatorInner(emailRaw, deptRaw) {
+    const e = emailRaw != null ? String(emailRaw).trim() : '';
+    const d = deptRaw != null ? String(deptRaw).trim() : '';
+    if (!e && !d) return '';
+    if (e && d) return `${escapeHtml(e)} from (${escapeHtml(d)})`;
+    if (e) return escapeHtml(e);
+    return `(${escapeHtml(d)})`;
+}
+
 function normalizeWorkflowUdfStatus(qt) {
     return (qt.UDF_STATUS != null ? String(qt.UDF_STATUS) : '').trim().toUpperCase();
 }
@@ -316,6 +326,10 @@ function renderDetailPanel(data, listType, cardSource) {
     if (d.DESCRIPTION) {
         meta.push(['<dt>Description</dt>', `<dd>${escapeHtml(d.DESCRIPTION)}</dd>`]);
     }
+    const creatorDetail = formatSubmittedByCreatorInner(d.creatorEmail, d.creatorDepartment);
+    if (creatorDetail) {
+        meta.push(['<dt>Submitted by</dt>', `<dd>${creatorDetail}</dd>`]);
+    }
 
     const secondaryMeta =
         meta.length > 0
@@ -557,6 +571,10 @@ function renderQuotationList(list, listType) {
         const validity = escapeHtml(qt.VALIDITY || '—');
         const companyName = escapeHtml(qt.COMPANYNAME || 'N/A');
         const docno = escapeHtml(qt.DOCNO || 'DOCKEY #' + qt.DOCKEY);
+        const creatorInner = formatSubmittedByCreatorInner(qt.creatorEmail, qt.creatorDepartment);
+        const creatorLine = creatorInner
+            ? `<div class="view-qt-list-card__creator" title="Submitted by">Submitted by: ${creatorInner}</div>`
+            : '';
         const isCancelled = listType === 'cancelled';
         const isPending = listType === 'pending';
         const isReviewed = listType === 'reviewed';
@@ -585,6 +603,7 @@ function renderQuotationList(list, listType) {
                     <span class="view-qt-list-card__amount" style="background:${badgeColor}">RM ${amount}</span>
                 </div>
                 <div class="view-qt-list-card__meta">${companyName}</div>
+                ${creatorLine}
                 <div class="view-qt-list-card__row2">Date: ${docDate} · Valid: ${validity}</div>
                 ${draftActions}
             </div>

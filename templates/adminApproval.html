@@ -1,14 +1,15 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Approvals</title>
     <link rel="stylesheet" href="/static/css/admin.css">
-    <link rel="stylesheet" href="/static/css/hamburger_menu.css">
-    <link rel="stylesheet" href="/static/css/app_page_header.css">
+    <link rel="stylesheet" href="/static/css/hamburger_menu.css?v=20260515_sidebar">
+    <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
+    <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515">
 </head>
-<body>
+<body class="equotation-icy-theme">
     <div class="admin-container">
         {% set page_header_title = "Admin > Approval" %}
         {% include 'components/app_page_header.html' %}
@@ -16,7 +17,7 @@
         <div class="admin-approvals" style="display: flex;">
             <div class="approvals-header">
                 <h3>Approvals</h3>
-                <a class="back-btn" href="/admin">← Back</a>
+                <a class="back-btn" href="/admin">? Back</a>
             </div>
             <div class="approvals-tabs">
                 <button class="approval-tab active" onclick="switchApprovalTab('PENDING', event)">Pending</button>

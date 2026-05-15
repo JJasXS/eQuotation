@@ -1,725 +1,1160 @@
-﻿<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Supplier Bidding</title>
-    <link rel="stylesheet" href="/static/css/chat.css">
-    <link rel="stylesheet" href="/static/css/hamburger_menu.css">
-    <link rel="stylesheet" href="/static/css/app_page_header.css">
-    <style>
-        html, body { height: 100%; margin: 0; }
-        body {
-            background: linear-gradient(160deg, #f4f0e8 0%, #e8dfd0 45%, #ddd2c4 100%);
-            color: #2a241b;
-        }
-        .bidding-page { min-height: 100vh; display: flex; flex-direction: column; box-sizing: border-box; }
-        .bidding-page .main-content { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 0 8px 8px; max-width: none; width: 100%; }
-        #admin-bidding-message {
-            font-size: 11px; padding: 4px 3px 6px; min-height: 1.1em;
-            color: #4f5b49;
-        }
-        .bidding-grid {
-            display: grid;
-            grid-template-columns: minmax(200px, 0.9fr) minmax(260px, 1.25fr) minmax(280px, 1.15fr);
-            gap: 8px;
-            flex: 1;
-            min-height: 0;
-            align-items: stretch;
-        }
-        .bidding-col-stack {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            min-height: 0;
-            min-width: 0;
-            align-self: stretch;
-        }
-        .bidding-col-stack .bidding-col {
-            flex: 1 1 0;
-            min-height: 0;
-        }
-        @media (max-width: 1400px) {
-            .bidding-grid { grid-template-columns: minmax(170px, 1fr) minmax(210px, 1fr); grid-template-rows: auto minmax(210px, 1fr); }
-            .bidding-col-stack { grid-column: 1 / -1; flex-direction: row; align-items: stretch; }
-            .bidding-col-stack .bidding-col { flex: 1 1 0; min-width: 0; }
-        }
-        @media (max-width: 980px) {
-            .bidding-page .main-content { padding: 0 6px 6px; }
-            .bidding-grid { gap: 6px; }
-            .bidding-col-stack { gap: 6px; }
-            .bidding-col { border-radius: 10px; }
-            .bidding-col-head { padding: 8px 9px; }
-            .bidding-col-head h2 { font-size: 11px; letter-spacing: 0.03em; }
-            .bidding-col-sub { padding: 6px 9px; font-size: 11px; }
-            .bidding-col-body { padding: 7px 8px; }
-            .toolbar { gap: 5px; }
-            .btn { padding: 5px 9px; font-size: 11px; }
-            .pr-item { padding: 7px 8px; }
-            .pr-item .title { font-size: 12px; }
-        }
-        @media (max-width: 720px) {
-            .bidding-grid { grid-template-columns: 1fr; grid-template-rows: auto; }
-            .bidding-col-stack { grid-column: auto; flex-direction: column; }
-        }
-        .bidding-col {
-            background: #fffef9;
-            border: 1px solid #dccfb8;
-            border-radius: 12px;
-            box-shadow: 0 2px 14px rgba(42, 36, 27, 0.06), inset 0 1px 0 rgba(255,255,255,0.85);
-            display: flex;
-            flex-direction: column;
-            min-height: 0;
-            overflow: hidden;
-        }
-        .bidding-col-head {
-            padding: 9px 10px;
-            border-bottom: 1px solid #ebe3d4;
-            background: linear-gradient(180deg, #fffbf5 0%, #faf6ee 100%);
-            flex-shrink: 0;
-        }
-        .bidding-col-head h2 {
-            margin: 0;
-            font-size: 12px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-            color: #5c4a32;
-        }
-        .bidding-col-head .toolbar { margin-top: 6px; }
-        .bidding-col-sub {
-            padding: 6px 10px;
-            font-size: 11px;
-            color: #6b6254;
-            border-bottom: 1px solid #f0eadf;
-            flex-shrink: 0;
-        }
-        .bidding-col-body {
-            padding: 8px 9px;
-            flex: 1;
-            min-height: 0;
-            overflow-y: auto;
-            overflow-x: hidden;
-        }
-        .muted { color: #6b6254; font-size: 11px; }
-        .pr-list { display: grid; gap: 6px; }
-        .pr-item { border: 1px solid #e9deca; border-radius: 9px; padding: 8px 9px; background: #fff; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
-        .pr-item:hover { border-color: #c9a86a; box-shadow: 0 2px 8px rgba(139, 90, 31, 0.08); }
-        .pr-item.active { border-color: #b6812f; background: linear-gradient(180deg, #fffdfa 0%, #fff8ed 100%); box-shadow: inset 0 0 0 1px rgba(182, 129, 47, 0.2); }
-        .pr-item .title { font-weight: 700; font-size: 12px; line-height: 1.2; }
-        .toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-        .btn { border: none; border-radius: 7px; padding: 6px 10px; cursor: pointer; background: #8b5a1f; color: #fff; font-size: 11px; font-weight: 600; line-height: 1.2; }
-        .btn.secondary { background: #fff; color: #8b5a1f; border: 1px solid #c9a86a; }
-        .btn:disabled { opacity: 0.55; cursor: not-allowed; }
-        .invite-help { font-size: 10px; line-height: 1.35; color: #6b6254; margin: 0 0 6px; }
-        .supplier-invite-tools {
-            display: flex; flex-wrap: wrap; align-items: center; gap: 7px;
-            margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid #efe6d8;
-        }
-        .supplier-invite-tools label { font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 5px; user-select: none; }
-        .invite-extra-emails {
-            width: 100%; box-sizing: border-box; min-height: 44px;
-            padding: 7px 8px; border: 1px solid #ecdfca; border-radius: 9px;
-            font-size: 11px; font-family: inherit; resize: vertical;
-            background: #fff; color: #2a241b;
-        }
-        .invite-extra-emails:focus { outline: none; border-color: #c9a86a; box-shadow: 0 0 0 2px rgba(201, 168, 106, 0.2); }
-        .supplier-list { border: 1px solid #ecdfca; border-radius: 10px; background: #fff; }
-        .invited-table-wrap { border: 1px solid #ecdfca; border-radius: 10px; background: #fff; margin-bottom: 8px; overflow: auto; }
-        .invited-table { width: 100%; border-collapse: collapse; font-size: 10px; }
-        .invited-table th, .invited-table td { border-bottom: 1px solid #f2eadf; padding: 4px 6px; text-align: left; white-space: nowrap; }
-        .invited-table th { background: #faf6ee; color: #5c4a32; font-weight: 600; font-size: 10px; }
-        .invited-table tr:last-child td { border-bottom: none; }
-        .supplier-row { display: flex; gap: 6px; padding: 6px 8px; border-bottom: 1px solid #f2eadf; font-size: 11px; }
-        .supplier-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-        .supplier-row:last-child { border-bottom: none; }
-        .bid-card { border: 1px solid #e5dcc8; border-radius: 9px; padding: 8px; margin-bottom: 8px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
-        .compare-card { border: none; border-radius: 0; padding: 0; margin-bottom: 8px; background: transparent; }
-        .compare-title { font-weight: 700; color: #5f4120; margin-bottom: 4px; font-size: 12px; }
-        .compare-note { font-size: 10px; color: #7a6a52; margin-bottom: 6px; line-height: 1.3; }
-        .best-cost { color: #0f6d3f; font-weight: 700; }
-        .status { padding: 2px 6px; border-radius: 999px; font-size: 10px; font-weight: 700; }
-        .status.APPROVED { background: #dff0ff; color: #115282; }
-        .status.SUBMITTED { background: #fff3d7; color: #8a6300; }
-        .status.REJECTED { background: #f6e2e2; color: #832525; }
-        .new-badge { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: #dc2626; color: #fff; font-size: 9px; font-weight: 700; letter-spacing: 0.02em; }
-        .bidding-col-body table { width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 10px; }
-        .bidding-col-body th, .bidding-col-body td { border-bottom: 1px solid #efe6d8; padding: 4px 4px; text-align: left; }
-        .bidding-col-body th { background: #faf6ee; color: #5c4a32; font-weight: 600; font-size: 10px; }
-        .bidding-placeholder { color: #9a8f7e; font-size: 11px; padding: 10px 5px; text-align: center; line-height: 1.35; }
+<!DOCTYPE html>
 
-    </style>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Admin Supplier Bidding</title>
+
+    <link rel="stylesheet" href="/static/css/chat.css">
+
+    <link rel="stylesheet" href="/static/css/hamburger_menu.css?v=20260515_sidebar">
+
+    <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
+
+    <link rel="stylesheet" href="/static/css/adminBidding.css?v=20260515_icy">
+
+    <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515_admin_blue">
+
 </head>
-<body>
+
+<body class="equotation-icy-theme admin-bidding-page">
+
     <div class="container bidding-page" style="min-height: 100vh; max-width: none;">
+
         <div class="main-content">
+
             {% set page_header_title = "Purchase > Supplier Bidding" %}
-            {% set page_header_subtitle = "Welcome, " ~ (user_name or "—") %}
+
+            {% set page_header_subtitle = "Welcome, " ~ (user_name or "-") %}
+
             {% set page_header_right %}
+
             <button class="btn" type="button" onclick="loadRequests()">Refresh PR</button>
+
             {% endset %}
+
             {% include 'components/app_page_header.html' %}
+
             <div id="admin-bidding-message"></div>
 
+
+
             <div class="bidding-grid">
+
                 <section class="bidding-col" aria-label="Purchase requests">
+
                     <div class="bidding-col-head">
+
                         <h2>Purchase Requests</h2>
+
                         <span id="pr-count" class="muted"></span>
+
                         <div class="toolbar" style="margin-top:10px;">
+
                             <label class="muted">Status</label>
+
                             <select id="pr-status-filter" onchange="renderRequests()">
+
                                 <option value="ALL">ALL</option>
+
                                 <option value="APPROVED">APPROVED</option>
+
                                 <option value="PENDING">PENDING</option>
+
                                 <option value="CANCELLED">CANCELLED</option>
+
                             </select>
+
                         </div>
+
                     </div>
+
                     <div class="bidding-col-body pr-list" id="pr-list"></div>
+
                 </section>
+
+
 
                 <section class="bidding-col" aria-label="Submitted bids">
+
                     <div class="bidding-col-head">
+
                         <h2>Submitted bids</h2>
+
                         <div class="toolbar">
+
                             <button class="btn secondary" type="button" id="load-bids-btn" onclick="loadBidsForActivePr()" disabled>Refresh bids</button>
+
                             <button class="btn" type="button" id="save-line-awards-btn" onclick="saveLineAwards()" disabled>Save Item Awards</button>
+
                         </div>
+
                     </div>
+
                     <div class="bidding-col-sub" id="current-pr-subtitle">Select a purchase request to load bids.</div>
+
                     <div class="bidding-col-body" id="bids-cards-wrap"></div>
+
                 </section>
 
+
+
                 <div class="bidding-col-stack" aria-label="Comparison and invitations">
+
                     <section class="bidding-col" aria-label="Supplier cost comparison">
+
                         <div class="bidding-col-head">
+
                             <h2>Supplier cost comparison</h2>
+
                         </div>
+
                         <div class="bidding-col-body" id="compare-wrap">
+
                             <div class="bidding-placeholder">Select a purchase request to compare supplier totals.</div>
+
                         </div>
+
                     </section>
+
+
 
                     <section class="bidding-col" aria-label="Invited suppliers">
+
                         <div class="bidding-col-head">
+
                             <h2>Invited suppliers</h2>
+
                             <div class="toolbar">
+
                                 <button class="btn secondary" type="button" onclick="loadSuppliers()">Load suppliers</button>
+
                                 <button class="btn" type="button" id="invite-btn" onclick="saveInvitations()" disabled>Save invitations</button>
+
                             </div>
+
                         </div>
+
                         <div class="bidding-col-body supplier-list-wrap">
+
                             <div class="muted" style="margin-bottom:4px;">Already invited for selected PR</div>
+
                             <div id="invited-suppliers-table-wrap" class="invited-table-wrap">
+
                                 <div class="bidding-placeholder">Select a purchase request to view invited suppliers.</div>
+
                             </div>
-                            <label class="muted" for="additional-invite-emails" style="display:block;font-size:11px;margin-bottom:4px;">Additional notify emails (optional)</label>
-                            <textarea id="additional-invite-emails" class="invite-extra-emails" rows="2" placeholder="You can separate by comma, semicolon, space, or new line." autocomplete="off"></textarea>
+
                             <div class="supplier-invite-tools">
+
                                 <label>
+
                                     <input type="checkbox" id="supplier-select-all" />
+
                                     Select all suppliers
+
                                 </label>
+
                             </div>
+
                             <div id="supplier-list" class="supplier-list"></div>
+
                         </div>
+
                     </section>
+
                 </div>
+
             </div>
+
         </div>
+
     </div>
 
+
+
     <script src="/static/js/hamburger_menu.js"></script>
+
     <script>
+
         let requestsCache = [];
+
         let supplierCache = [];
+
         let activePr = null;
+
         let activeInvitations = [];
+
         let seenPrIds = new Set();
+
         let currentBidLineAwards = new Map();
 
+
+
         function msg(text, isError) {
+
             const el = document.getElementById('admin-bidding-message');
+
             el.textContent = text || '';
+
             el.style.color = isError ? '#8e2b2b' : '#4f5b49';
+
         }
+
+
 
         function esc(v) {
+
             return String(v || '')
+
                 .replace(/&/g, '&amp;')
+
                 .replace(/</g, '&lt;')
+
                 .replace(/>/g, '&gt;')
+
                 .replace(/"/g, '&quot;')
+
                 .replace(/'/g, '&#039;');
+
         }
+
+
 
         function money(v) {
+
             const n = Number(v || 0);
+
             return Number.isFinite(n) ? n.toFixed(2) : '0.00';
+
         }
+
+
 
         async function loadRequests() {
+
             msg('Loading purchase requests...');
+
             const res = await fetch('/api/admin/procurement/purchase-requests?offset=0&limit=100');
+
             const body = await res.json();
+
             if (!res.ok || !body.success) {
+
                 msg(body.error || 'Failed to load purchase requests', true);
+
                 return;
+
             }
+
             requestsCache = body.data || [];
+
             renderRequests();
+
             msg('Purchase requests loaded.');
+
         }
+
+
 
         function renderRequests() {
+
             const filter = document.getElementById('pr-status-filter').value;
+
             const list = document.getElementById('pr-list');
+
             const rows = requestsCache.filter((row) => {
+
                 if (filter === 'ALL') return true;
+
                 return String(row.status || '').toUpperCase() === filter;
+
             }).sort((a, b) => {
+
                 const da = Date.parse(a?.requestDate || '') || 0;
+
                 const db = Date.parse(b?.requestDate || '') || 0;
+
                 if (db !== da) return db - da;
+
                 return Number(b?.id || 0) - Number(a?.id || 0);
+
             });
+
             document.getElementById('pr-count').textContent = rows.length + ' rows';
 
+
+
             if (!rows.length) {
+
                 list.innerHTML = '<div class="muted">No records</div>';
+
                 return;
+
             }
+
+
 
             list.innerHTML = rows.map((row, idx) => {
+
                 const active = activePr && Number(activePr.id) === Number(row.id) ? 'active' : '';
+
                 const isSeen = seenPrIds.has(Number(row.id));
+
                 const newBadge = (idx === 0 && !isSeen) ? '<span class="new-badge">New</span>' : '';
+
                 return `
+
                     <div class="pr-item ${active}" onclick="selectPr(${Number(row.id)}, '${esc(row.requestNumber || '')}', '${esc(row.status || '')}', '${esc(row.supplierName || '')}')">
+
                         <div class="title">${esc(row.requestNumber || ('PR-' + row.id))}${newBadge}</div>
+
                         <div class="muted">Status: ${esc(row.status || '-')}</div>
+
                         <div class="muted">Supplier: ${esc(row.supplierName || '-')}</div>
+
                     </div>
+
                 `;
+
             }).join('');
+
         }
+
+
 
         function clearBiddingPanels() {
+
             const bidsEl = document.getElementById('bids-cards-wrap');
+
             const cmpEl = document.getElementById('compare-wrap');
+
             currentBidLineAwards = new Map();
+
             if (bidsEl) {
+
                 bidsEl.innerHTML = '<div class="bidding-placeholder">Select a purchase request to view submitted bids.</div>';
+
             }
+
             if (cmpEl) {
+
                 cmpEl.innerHTML = '<div class="bidding-placeholder">Select a purchase request to compare supplier totals.</div>';
+
             }
+
             activeInvitations = [];
+
             renderInvitedSuppliersTable();
+
         }
+
+
 
         function setSelectionUi() {
+
             document.getElementById('invite-btn').disabled = !activePr;
+
             document.getElementById('load-bids-btn').disabled = !activePr;
+
             document.getElementById('save-line-awards-btn').disabled = !activePr;
+
             const sub = document.getElementById('current-pr-subtitle');
+
             if (sub) {
+
                 sub.textContent = activePr
-                    ? (`PR ${activePr.requestNumber || activePr.id} — Status: ${activePr.status || '-'}`)
+
+                    ? (`PR ${activePr.requestNumber || activePr.id} - Status: ${activePr.status || '-'}`)
+
                     : 'Select a purchase request to load bids.';
+
             }
+
             if (!activePr) {
+
                 clearBiddingPanels();
+
             }
+
         }
+
+
 
         function renderInvitedSuppliersTable() {
+
             const wrap = document.getElementById('invited-suppliers-table-wrap');
+
             if (!wrap) return;
+
             if (!activePr) {
+
                 wrap.innerHTML = '<div class="bidding-placeholder">Select a purchase request to view invited suppliers.</div>';
+
                 return;
+
             }
+
             if (!activeInvitations.length) {
+
                 wrap.innerHTML = '<div class="bidding-placeholder">No invited suppliers yet for this purchase request.</div>';
+
                 return;
+
             }
+
             wrap.innerHTML = `
+
                 <table class="invited-table">
+
                     <thead>
+
                         <tr><th>Code</th><th>Supplier</th><th>Status</th><th>Bid</th></tr>
+
                     </thead>
+
                     <tbody>
+
                         ${activeInvitations.map((row) => `
+
                             <tr>
+
                                 <td>${esc(row.supplierCode || '-')}</td>
+
                                 <td>${esc(row.supplierName || '-')}</td>
+
                                 <td>${esc(row.inviteStatus || '-')}</td>
+
                                 <td>${esc(row.bidStatus || '-')}</td>
+
                             </tr>
+
                         `).join('')}
+
                     </tbody>
+
                 </table>
+
             `;
+
         }
+
+
 
         function syncSupplierChecksFromInvitations() {
+
             const invitedCodes = new Set(
+
                 (activeInvitations || [])
+
                     .map((row) => String(row && row.supplierCode || '').trim().toUpperCase())
+
                     .filter(Boolean)
+
             );
+
             document.querySelectorAll('.supplier-checkbox').forEach((cb) => {
+
                 const code = String(cb.value || '').trim().toUpperCase();
+
                 cb.checked = code && invitedCodes.has(code);
+
             });
+
         }
+
+
 
         async function loadInvitationsForActivePr() {
+
             if (!activePr) {
+
                 activeInvitations = [];
+
                 renderInvitedSuppliersTable();
+
                 return;
+
             }
+
             const wrap = document.getElementById('invited-suppliers-table-wrap');
-            if (wrap) wrap.innerHTML = '<div class="muted" style="padding:8px;">Loading invited suppliers…</div>';
+
+            if (wrap) wrap.innerHTML = '<div class="muted" style="padding:8px;">Loading invited suppliers-</div>';
+
             const res = await fetch(`/api/admin/procurement/purchase-requests/${activePr.id}/invitations`);
+
             const body = await res.json();
+
             if (!res.ok || !body.success) {
+
                 activeInvitations = [];
+
                 if (wrap) {
+
                     wrap.innerHTML = `<div class="bidding-placeholder" style="color:#8e2b2b;">${esc(body.error || 'Failed to load invited suppliers')}</div>`;
+
                 }
+
                 return;
+
             }
+
             activeInvitations = Array.isArray(body.data) ? body.data : [];
+
             renderInvitedSuppliersTable();
+
             syncSupplierChecksFromInvitations();
+
         }
+
+
 
         function selectPr(id, requestNumber, status, supplierName) {
+
             activePr = { id, requestNumber, status, supplierName };
+
             seenPrIds.add(Number(id));
+
             renderRequests();
+
             setSelectionUi();
+
             msg('Selected PR ' + (requestNumber || id));
+
             loadInvitationsForActivePr();
+
             loadBidsForActivePr();
+
         }
+
+
 
         async function loadSuppliers() {
+
             msg('Loading suppliers...');
+
             const res = await fetch('/api/admin/procurement/suppliers');
+
             const body = await res.json();
+
             if (!res.ok || !body.success) {
+
                 msg(body.error || 'Failed to load suppliers', true);
+
                 return;
+
             }
+
             supplierCache = Array.isArray(body.data) ? body.data : [];
+
             renderSuppliers();
+
             msg('Suppliers loaded.');
+
         }
+
+
 
         function renderSuppliers() {
+
             const list = document.getElementById('supplier-list');
+
             const master = document.getElementById('supplier-select-all');
+
             if (master) master.checked = false;
+
             if (!supplierCache.length) {
+
                 list.innerHTML = '<div class="muted" style="padding:8px;">No suppliers loaded.</div>';
+
                 return;
+
             }
+
             list.innerHTML = supplierCache.map((row) => {
+
                 const code = esc(row.code || '');
+
                 const name = esc(row.companyname || row.companyName || '');
+
                 const email = esc(row.udf_email || row.udfEmail || row.email || '-');
+
                 return `
+
                     <label class="supplier-row">
+
                         <input type="checkbox" class="supplier-checkbox" value="${code}" data-name="${name}">
+
                         <span class="supplier-meta">
+
                             <strong>${code} - ${name || '-'}</strong>
+
                             <span class="muted">${email}</span>
+
                         </span>
+
                     </label>
+
                 `;
+
             }).join('');
+
             syncSupplierChecksFromInvitations();
+
         }
+
+
 
         document.getElementById('supplier-select-all')?.addEventListener('change', function () {
+
             const on = this.checked;
+
             document.querySelectorAll('.supplier-checkbox').forEach((cb) => { cb.checked = on; });
+
         });
 
+
+
         function selectedSuppliers() {
+
             const checks = Array.from(document.querySelectorAll('.supplier-checkbox:checked'));
+
             return checks.map((box) => ({
+
                 code: String(box.value || '').trim(),
+
                 companyname: String(box.dataset.name || '').trim(),
+
             })).filter((row) => row.code);
+
         }
+
+
 
         async function saveInvitations() {
+
             if (!activePr) {
+
                 msg('Select a PR first.', true);
+
                 return;
+
             }
+
             const suppliers = selectedSuppliers();
-            const extraEl = document.getElementById('additional-invite-emails');
-            const extraEmails = extraEl ? String(extraEl.value || '').trim() : '';
-            if (!suppliers.length && !extraEmails) {
-                msg('Select supplier(s) or enter additional notify email(s).', true);
+
+            if (!suppliers.length) {
+
+                msg('Select at least one supplier.', true);
+
                 return;
+
             }
+
+
 
             msg('Saving invitations...');
+
             const res = await fetch('/api/admin/procurement/bidding/invitations', {
+
                 method: 'POST',
+
                 headers: { 'Content-Type': 'application/json' },
+
                 body: JSON.stringify({
+
                     requestId: activePr.id,
+
                     requestNumber: activePr.requestNumber,
+
                     suppliers,
-                    additionalEmails: extraEmails,
+
                 }),
+
             });
+
             const body = await res.json();
+
             if (!res.ok || !body.success) {
+
                 msg(body.error || 'Failed to save invitations', true);
+
                 return;
+
             }
+
             const d = body.data || {};
+
             let note = 'Invitations saved. Suppliers with portal access may submit bids.';
+
             if (Number(d.rfqEmailsQueued) > 0) {
+
                 note = `Invitations saved. RFQ email queued for ${d.rfqEmailsQueued} address(es).`;
+
             } else if (d.rfqEmailNote) {
+
                 note = 'Invitations saved. ' + d.rfqEmailNote;
+
             }
+
             if (d.rfqEmailWarning) {
+
                 note += ' (' + d.rfqEmailWarning + ')';
+
             }
+
             msg(note);
+
             await loadInvitationsForActivePr();
+
             await loadBidsForActivePr();
+
         }
 
+
+
         async function loadBidsForActivePr() {
+
             const bidsWrap = document.getElementById('bids-cards-wrap');
+
             const compareWrap = document.getElementById('compare-wrap');
+
             if (!activePr) {
+
                 clearBiddingPanels();
+
                 return;
+
             }
-            const loading = '<div class="muted" style="padding:12px;">Loading…</div>';
+
+            const loading = '<div class="muted" style="padding:12px;">Loading-</div>';
+
             if (bidsWrap) bidsWrap.innerHTML = loading;
+
             if (compareWrap) compareWrap.innerHTML = loading;
+
             const res = await fetch(`/api/admin/procurement/purchase-requests/${activePr.id}/bids`);
+
             const body = await res.json();
+
             if (!res.ok || !body.success) {
+
                 const err = `<div class="bidding-placeholder" style="color:#8e2b2b;">${esc(body.error || 'Failed to load bids')}</div>`;
+
                 if (bidsWrap) bidsWrap.innerHTML = err;
+
                 if (compareWrap) compareWrap.innerHTML = err;
+
                 return;
+
             }
+
+
 
             const bids = (body.data || []).slice().sort((a, b) => {
+
                 const da = Date.parse(a?.createdAt || '') || 0;
+
                 const db = Date.parse(b?.createdAt || '') || 0;
+
                 if (db !== da) return db - da;
+
                 return Number(b?.bidId || 0) - Number(a?.bidId || 0);
+
             });
+
             if (!bids.length) {
+
                 const empty = '<div class="bidding-placeholder">No bids yet for this purchase request.</div>';
+
                 if (bidsWrap) bidsWrap.innerHTML = empty;
+
                 if (compareWrap) {
+
                     compareWrap.innerHTML = '<div class="bidding-placeholder">No bids to compare yet.</div>';
+
                 }
+
                 return;
+
             }
 
+
+
             const gate = body.gate || {};
+
             const lineAwards = Array.isArray(gate.lineAwards) ? gate.lineAwards : [];
+
             currentBidLineAwards = new Map();
+
             lineAwards.forEach((row) => {
+
                 const detailId = Number(row && row.detailId || 0);
+
                 const bidId = Number(row && row.bidId || 0);
+
                 if (detailId > 0 && bidId > 0) {
+
                     currentBidLineAwards.set(detailId, bidId);
+
                 }
+
             });
+
+
 
             const supplierTotals = bids.map((bid) => {
+
                 const totalAmount = (bid.lines || []).reduce((sum, line) => sum + Number(line.amount || 0), 0);
+
                 const lineCount = Array.isArray(bid.lines) ? bid.lines.length : 0;
+
                 return {
+
                     bidId: Number(bid.bidId || 0),
+
                     supplierCode: String(bid.supplierCode || '').trim(),
+
                     supplierName: String(bid.supplierName || '').trim(),
+
                     status: String(bid.status || '').trim(),
+
                     totalAmount,
+
                     lineCount,
+
                 };
+
             });
+
+
 
             const rankedTotals = supplierTotals.slice().sort((a, b) => a.totalAmount - b.totalAmount);
+
             const cheapestBidId = rankedTotals.length ? rankedTotals[0].bidId : 0;
 
+
+
             const itemRows = [];
+
             const itemMap = new Map();
+
             bids.forEach((bid) => {
+
                 (bid.lines || []).forEach((line) => {
+
                     const key = String(line.itemCode || line.description || '').trim();
+
                     if (!key) {
+
                         return;
+
                     }
+
                     if (!itemMap.has(key)) {
+
                         itemMap.set(key, []);
+
                     }
+
                     itemMap.get(key).push({
+
                         supplierCode: String(bid.supplierCode || '').trim(),
+
                         supplierName: String(bid.supplierName || '').trim(),
+
                         unitPrice: Number(line.unitPrice || 0),
+
                         amount: Number(line.amount || 0),
+
                     });
+
                 });
+
             });
+
+
 
             itemMap.forEach((offers, itemCode) => {
+
                 const ranked = offers.slice().sort((a, b) => a.unitPrice - b.unitPrice);
+
                 const best = ranked[0] || null;
+
                 const offerText = offers.map((o) => `${esc(o.supplierCode)}: ${money(o.unitPrice)}`).join(' | ');
+
                 itemRows.push(`
+
                     <tr>
+
                         <td>${esc(itemCode)}</td>
+
                         <td>${offerText || '-'}</td>
+
                         <td class="best-cost">${best ? `${esc(best.supplierCode)} (${money(best.unitPrice)})` : '-'}</td>
+
                     </tr>
+
                 `);
+
             });
 
+
+
             const compareHtml = `
+
                 <div class="compare-card">
+
                     <div class="compare-title">Totals by supplier</div>
+
                     <div class="compare-note">Tick line checkboxes in Submitted bids, then click Save Item Awards. You can choose Item A from Supplier 1 and Item B from Supplier 2.</div>
+
                     <table>
+
                         <thead><tr><th>Supplier</th><th>Status</th><th>Lines</th><th>Total</th><th>Rank</th></tr></thead>
+
                         <tbody>
+
                             ${rankedTotals.map((s, idx) => `
+
                                 <tr>
+
                                     <td>${esc(s.supplierCode)} - ${esc(s.supplierName)}</td>
+
                                     <td>${esc(s.status || '-')}</td>
+
                                     <td>${Number(s.lineCount || 0)}</td>
+
                                     <td class="${s.bidId === cheapestBidId ? 'best-cost' : ''}">${money(s.totalAmount)}</td>
+
                                     <td>${idx === 0 ? '<span class="best-cost">Lowest</span>' : '#' + (idx + 1)}</td>
+
                                 </tr>
+
                             `).join('')}
+
                         </tbody>
+
                     </table>
+
                     <div class="compare-title" style="margin-top:14px;">By item (unit price)</div>
+
                     <table>
+
                         <thead><tr><th>Item</th><th>Offers</th><th>Best</th></tr></thead>
+
                         <tbody>${itemRows.join('') || '<tr><td colspan="3" class="muted">No item comparison available.</td></tr>'}</tbody>
+
                     </table>
+
                 </div>
+
             `;
+
+
 
             if (compareWrap) compareWrap.innerHTML = compareHtml;
 
+
+
             const bidsHtml = bids.map((bid, idx) => {
+
                 const status = esc(bid.status || '');
+
                 const newBadge = idx === 0 ? '<span class="new-badge">New</span>' : '';
+
                 const rows = (bid.lines || []).map((line) => `
+
                     <tr>
+
                         <td style="text-align:center;">
+
                             <input type="checkbox"
+
                                    class="line-award-checkbox"
+
                                    data-detail-id="${Number(line.detailId || 0)}"
+
                                    data-bid-id="${Number(bid.bidId || 0)}"
+
                                    ${Number(currentBidLineAwards.get(Number(line.detailId || 0)) || 0) === Number(bid.bidId || 0) ? 'checked' : ''}
+
                                    onchange="onLineAwardToggle(this)" />
+
                         </td>
+
                         <td>${esc(line.itemCode || '')}</td>
+
                         <td>${Number(line.quantity || 0).toFixed(2)}</td>
+
                         <td>${Number(line.unitPrice || 0).toFixed(2)}</td>
+
                         <td>${Number(line.tax || 0).toFixed(2)}</td>
+
                         <td>${Number(line.amount || 0).toFixed(2)}</td>
+
                         <td>${Number(line.leadDays || 0)}</td>
+
                     </tr>
+
                 `).join('');
 
+
+
                 return `
+
                     <div class="bid-card">
+
                         <div class="toolbar">
+
                             <strong>${esc(bid.supplierCode)} - ${esc(bid.supplierName)}${newBadge}</strong>
+
                             <span class="status ${status}">${status || '-'}</span>
+
                         </div>
+
                         <div class="muted">Submitted by ${esc(bid.createdBy || '-')} | ${esc(bid.createdAt || '')}</div>
+
                         <table>
+
                             <thead><tr><th style="width:30px;">Pick</th><th>Item</th><th>Qty</th><th>Unit Price</th><th>Tax</th><th>Amount</th><th>Lead Days</th></tr></thead>
+
                             <tbody>${rows || '<tr><td colspan="7" class="muted">No lines</td></tr>'}</tbody>
+
                         </table>
+
                     </div>
+
                 `;
+
             }).join('');
 
+
+
             if (bidsWrap) bidsWrap.innerHTML = bidsHtml;
+
         }
+
+
 
         function onLineAwardToggle(el) {
+
             const detailId = Number(el?.dataset?.detailId || 0);
+
             const bidId = Number(el?.dataset?.bidId || 0);
+
             if (!(detailId > 0 && bidId > 0)) return;
+
             if (el.checked) {
+
                 document.querySelectorAll(`.line-award-checkbox[data-detail-id="${detailId}"]`).forEach((cb) => {
+
                     if (cb !== el) cb.checked = false;
+
                 });
+
                 currentBidLineAwards.set(detailId, bidId);
+
             } else {
+
                 currentBidLineAwards.delete(detailId);
+
             }
+
         }
+
+
 
         async function saveLineAwards() {
+
             if (!activePr) {
+
                 msg('Select a purchase request first.', true);
+
                 return;
+
             }
+
             // Build from currently checked boxes to avoid stale in-memory map edge cases.
+
             const checked = Array.from(document.querySelectorAll('.line-award-checkbox:checked'));
+
             const byDetail = new Map();
+
             checked.forEach((cb) => {
+
                 const detailId = Number(cb?.dataset?.detailId || 0);
+
                 const bidId = Number(cb?.dataset?.bidId || 0);
+
                 if (detailId > 0 && bidId > 0) {
+
                     byDetail.set(detailId, bidId);
+
                 }
+
             });
+
             const awards = Array.from(byDetail.entries()).map(([detailId, bidId]) => ({ detailId, bidId }));
+
             if (!awards.length) {
+
                 msg('Tick at least one line to save item awards.', true);
+
                 return;
+
             }
+
             currentBidLineAwards = byDetail;
+
             msg('Saving item awards...');
+
             const res = await fetch(`/api/admin/procurement/purchase-requests/${activePr.id}/bids/line-awards`, {
+
                 method: 'POST',
+
                 headers: { 'Content-Type': 'application/json' },
+
                 body: JSON.stringify({ awards }),
+
             });
+
             const body = await res.json();
+
             if (!res.ok || !body.success) {
+
                 msg(body.error || 'Failed to save item awards', true);
+
                 return;
+
             }
+
             const savedCount = Number(body?.data?.savedCount || awards.length);
+
             const supplierCount = Number(body?.data?.supplierCount || 0);
+
             msg(`Item awards saved (${savedCount} item(s), ${supplierCount || 1} supplier group(s)). You can now transfer PR->PO by selected awarded lines.`);
+
             await loadBidsForActivePr();
+
         }
 
+
+
         setSelectionUi();
+
         loadRequests();
+
         loadSuppliers();
+
     </script>
+
 </body>
+
 </html>
+

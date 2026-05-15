@@ -143,42 +143,202 @@ function formatDateInput(value) {
     return Number.isNaN(d.getTime()) ? '' : d.toISOString().split('T')[0];
 }
 
-// Add Quotation Item (same column layout as create quotation)
-function addQuotationItem() {
-    const container = document.getElementById('quotation-items-list');
-    const today = new Date().toISOString().split('T')[0];
-    const newItem = document.createElement('div');
-    newItem.className = 'order-item';
-    newItem.innerHTML = `
-        <div class="item-row">
+function setDetailText(id, value, fallback) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const text = value != null && String(value).trim() !== '' ? String(value).trim() : (fallback ?? '');
+    el.textContent = text || '-';
+}
+
+function readQuotationCustomerField(id) {
+    const el = document.getElementById(id);
+    if (!el) return '';
+    const tag = (el.tagName || '').toUpperCase();
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+        return String(el.value || '').trim();
+    }
+    return String(el.textContent || '').trim();
+}
+
+function resolveCatalogItemCodeFromDescription(description) {
+    const d = String(description || '').trim().replace(/\s+/g, ' ');
+    if (!d || !availableProducts.length) {
+        return '';
+    }
+    const norm = (s) => String(s || '').trim().replace(/\s+/g, ' ');
+    const codeOf = (p) => {
+        const c = p.CODE ?? p.code ?? p.StockCode ?? p.stockCode;
+        return c != null ? String(c).trim() : '';
+    };
+    const descOf = (p) => {
+        const x = p.DESCRIPTION ?? p.description ?? p.Description;
+        return x != null ? String(x).trim() : '';
+    };
+    const hit = availableProducts.find(
+        (p) =>
+            (descOf(p) && norm(descOf(p)) === d) ||
+            (codeOf(p) && norm(codeOf(p)) === d)
+    );
+    return hit ? codeOf(hit) : '';
+}
+
+function resolveLineItemCode(row, source, product) {
+    if (source === 'custom') {
+        const stored = row.dataset.itemCode ? String(row.dataset.itemCode).trim() : '';
+        return stored || 'CUSTOM';
+    }
+    const sel = row.querySelector('.item-product');
+    if (sel && sel.tagName === 'SELECT') {
+        const opt = sel.selectedOptions[0];
+        const fromAttr = opt && opt.getAttribute('data-stock-code');
+        if (fromAttr && String(fromAttr).trim()) {
+            return String(fromAttr).trim();
+        }
+    }
+    const stored = row.dataset.itemCode ? String(row.dataset.itemCode).trim() : '';
+    if (stored && stored.toUpperCase() !== 'CUSTOM') {
+        return stored;
+    }
+    return resolveCatalogItemCodeFromDescription(product) || stored;
+}
+
+function buildUpdateQuotationPayload(dockey, updateForm) {
+    const items = [];
+    getQuotationLineRows().forEach((row) => {
+        const source = row.querySelector('.item-source')?.value || 'catalog';
+        let product = '';
+        if (source === 'custom') {
+            product = row.querySelector('.item-product-custom')?.value.trim() || '';
+        } else {
+            const productElement = row.querySelector('.item-product');
+            if (productElement) {
+                product = productElement.options[productElement.selectedIndex]?.value.trim() || '';
+            }
+        }
+        const qty = parseFloat(row.querySelector('.item-qty').value) || 0;
+        const price = parseFloat(row.querySelector('.item-price').value) || 0;
+        const discount = parseFloat(row.querySelector('.item-discount')?.value) || 0;
+        const deliveryDate = row.querySelector('.item-delivery-date')?.value || null;
+        const itemCode = resolveLineItemCode(row, source, product);
+        const dtlkeyRaw = row.dataset.dtlkey;
+        const dtlkey = dtlkeyRaw && String(dtlkeyRaw).trim() !== '' ? parseInt(dtlkeyRaw, 10) : 0;
+
+        if (product && qty > 0 && price >= 0) {
+            const line = { product, source, itemCode, qty, price, discount, deliveryDate };
+            if (dtlkey > 0) {
+                line.dtlkey = dtlkey;
+            }
+            items.push(line);
+        }
+    });
+
+    const payload = {
+        dockey: dockey,
+        description: 'Quotation',
+        validUntil: document.getElementById('quotation-validity').value,
+        companyName: readQuotationCustomerField('quotation-company'),
+        address1: readQuotationCustomerField('quotation-address1'),
+        address2: readQuotationCustomerField('quotation-address2'),
+        address3: readQuotationCustomerField('quotation-address3'),
+        address4: readQuotationCustomerField('quotation-address4'),
+        phone1: readQuotationCustomerField('quotation-phone'),
+        terms: readQuotationCustomerField('quotation-terms'),
+        items: items
+    };
+
+    if (updateForm) {
+        const uc = updateForm.dataset.updatecount;
+        if (uc != null && String(uc).trim() !== '') {
+            payload.updatecount = parseInt(uc, 10);
+        }
+    }
+
+    return payload;
+}
+
+function getQuotationLineRows() {
+    return document.querySelectorAll('#update-quotation-line-items tr.quotation-line-row');
+}
+
+function buildQuotationLineRowHtml(opts = {}) {
+    const today = opts.delivery || new Date().toISOString().split('T')[0];
+    const qty = opts.qty ?? 1;
+    const discount = opts.discount ?? 0;
+    const suggested = opts.suggestedPrice != null ? Number(opts.suggestedPrice).toFixed(2) : '';
+    const price = opts.price != null && opts.price !== '' ? Number(opts.price).toFixed(2) : '';
+    const customValue = opts.customProduct ? String(opts.customProduct).replace(/"/g, '&quot;') : '';
+
+    return `
+        <td class="col-source">
             <select class="item-source" onchange="onProductSourceChange(this)">
                 <option value="catalog">From catalog</option>
                 <option value="custom">Custom order</option>
             </select>
+        </td>
+        <td class="col-product">
             <select class="item-product" onchange="fetchProductPrice(this)">
                 <option value="">Select product...</option>
             </select>
-            <input type="text" class="item-product-custom" placeholder="Custom product" style="display:none;" onchange="fetchProductPrice(this)">
-            <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
-            <input type="number" class="item-discount" placeholder="Discount (RM)" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
-            <input type="number" class="item-suggested-price" placeholder="Reference price" step="0.01" min="0" readonly>
-            <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" onchange="calculateQuotationTotal()">
+            <input type="text" class="item-product-custom" placeholder="Custom product" style="display:none;" value="${customValue}" onchange="fetchProductPrice(this)">
+        </td>
+        <td class="col-numeric">
+            <input type="number" class="item-qty" placeholder="Qty" min="1" value="${qty}" onchange="calculateQuotationTotal()">
+        </td>
+        <td class="col-numeric">
+            <input type="number" class="item-discount" placeholder="Disc." step="0.01" min="0" value="${discount}" onchange="calculateQuotationTotal()">
+        </td>
+        <td class="col-numeric">
+            <input type="number" class="item-suggested-price" placeholder="Ref." step="0.01" min="0" readonly value="${suggested}">
+        </td>
+        <td class="col-numeric">
+            <input type="number" class="item-price" placeholder="Unit" step="0.01" min="0" value="${price}" title="Unit price (editable)" onchange="calculateQuotationTotal()">
+        </td>
+        <td class="col-delivery">
             <input type="date" class="item-delivery-date" value="${today}">
-            <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
-        </div>
+        </td>
+        <td class="col-actions">
+            <button type="button" class="btn-remove" onclick="removeQuotationItem(this)" aria-label="Remove line">✕</button>
+        </td>
     `;
+}
+
+function createQuotationLineRow(opts = {}) {
+    const row = document.createElement('tr');
+    row.className = 'quotation-line-row';
+    row.innerHTML = buildQuotationLineRowHtml(opts);
+    return row;
+}
+
+function refreshQuotationMiniItemCodes() {
+    const el = document.getElementById('quotation-mini-item-codes');
+    if (!el) return;
+    const codes = [];
+    getQuotationLineRows().forEach((row) => {
+        const source = row.querySelector('.item-source')?.value;
+        const catalog = row.querySelector('.item-product')?.value?.trim();
+        const custom = row.querySelector('.item-product-custom')?.value?.trim();
+        const label = source === 'custom' ? custom : catalog;
+        if (label) codes.push(label);
+    });
+    el.textContent = codes.length ? codes.join(' | ') : '';
+}
+
+function addQuotationItem() {
+    const container = document.getElementById('update-quotation-line-items');
+    const newItem = createQuotationLineRow();
     container.appendChild(newItem);
-    const select = newItem.querySelector('.item-product');
-    populateProductSelect(select);
+    populateProductSelect(newItem.querySelector('.item-product'));
     onProductSourceChange(newItem.querySelector('.item-source'));
+    refreshQuotationMiniItemCodes();
 }
 
 // Remove Quotation Item
 function removeQuotationItem(button) {
-    const items = document.querySelectorAll('#quotation-items-list .order-item');
+    const items = getQuotationLineRows();
     if (items.length > 1) {
-        button.closest('.order-item').remove();
+        button.closest('tr.quotation-line-row').remove();
         calculateQuotationTotal();
+        refreshQuotationMiniItemCodes();
     } else {
         alert('At least one item is required');
     }
@@ -186,7 +346,7 @@ function removeQuotationItem(button) {
 
 // Calculate Quotation Total (fixed RM discount per line — same as create quotation)
 function calculateQuotationTotal() {
-    const items = document.querySelectorAll('#quotation-items-list .order-item');
+    const items = getQuotationLineRows();
     let total = 0;
 
     items.forEach(item => {
@@ -202,7 +362,8 @@ function calculateQuotationTotal() {
 }
 
 function onProductSourceChange(selectElement) {
-    const row = selectElement.closest('.item-row');
+    const row = selectElement.closest('tr.quotation-line-row');
+    if (!row) return;
     const catalogSelect = row.querySelector('.item-product');
     const customInput = row.querySelector('.item-product-custom');
     const suggestedPriceInput = row.querySelector('.item-suggested-price');
@@ -210,15 +371,18 @@ function onProductSourceChange(selectElement) {
 
     if (selectElement.value === 'custom') {
         catalogSelect.style.display = 'none';
-        customInput.style.display = 'inline-block';
+        customInput.style.display = 'block';
         catalogSelect.value = '';
         if (suggestedPriceInput) suggestedPriceInput.value = '';
-        priceInput.readOnly = false;
     } else {
-        catalogSelect.style.display = 'inline-block';
+        catalogSelect.style.display = 'block';
         customInput.style.display = 'none';
         customInput.value = '';
-        priceInput.readOnly = true;
+    }
+    if (priceInput) {
+        priceInput.readOnly = false;
+        priceInput.removeAttribute('readonly');
+        priceInput.title = 'Unit price (editable on update)';
     }
 }
 
@@ -231,13 +395,11 @@ async function fetchProductPrice(input) {
     const productName = input.value.trim();
     if (!productName) return;
 
-    const row = input.closest('.item-row');
-    const orderItem = input.closest('.order-item');
-    if (orderItem) {
-        orderItem.dataset.productDescription = productName;
-    }
-    const suggestedPriceInput = row.querySelector('.item-price');
-    const priceInput = row.querySelector('.item-suggested-price');
+    const row = input.closest('tr.quotation-line-row');
+    if (!row) return;
+    row.dataset.productDescription = productName;
+    const suggestedPriceInput = row.querySelector('.item-suggested-price');
+    const priceInput = row.querySelector('.item-price');
 
     try {
         const response = await fetch(`/api/get_product_price?description=${encodeURIComponent(productName)}`);
@@ -286,23 +448,26 @@ async function loadProducts() {
     }
 }
 
-// Populate a product select element
 function populateProductSelect(selectElement) {
-    console.log('📝 Populating select with', availableProducts.length, 'products');
     const currentValue = selectElement.value;
     selectElement.innerHTML = '<option value="">Select product...</option>';
-    
-    availableProducts.forEach(item => {
+
+    availableProducts.forEach((item) => {
         const option = document.createElement('option');
-        option.value = item.DESCRIPTION || item.CODE;
-        option.textContent = item.DESCRIPTION || item.CODE;
+        const rawCode = item.CODE ?? item.code ?? item.StockCode ?? item.stockCode ?? '';
+        const code = rawCode != null ? String(rawCode).trim() : '';
+        const rawDesc = item.DESCRIPTION ?? item.description ?? item.Description ?? '';
+        const desc = rawDesc != null ? String(rawDesc).trim() : '';
+        option.value = desc || code;
+        option.textContent = desc ? (code ? `${desc} (${code})` : desc) : code;
+        if (code) {
+            option.setAttribute('data-stock-code', code);
+        }
         selectElement.appendChild(option);
     });
-    
-    // Restore previous value if it exists
+
     if (currentValue) {
         selectElement.value = currentValue;
-        console.log('✓ Select value set to:', currentValue);
     }
 }
 
@@ -326,24 +491,31 @@ async function loadQuotationData(dockey) {
         
         const quotation = data.quotation;
         const items = data.items || [];
-        
+        quotationData = quotation;
+
+        const updateForm = document.getElementById('update-quotation-form');
+        if (updateForm) {
+            if (quotation.UPDATECOUNT != null && quotation.UPDATECOUNT !== '') {
+                updateForm.dataset.updatecount = String(quotation.UPDATECOUNT);
+            }
+            if (quotation.CODE) {
+                updateForm.dataset.customerCode = String(quotation.CODE).trim();
+            }
+        }
+
         console.log('✅ Quotation loaded:', quotation);
         console.log('✅ Items loaded:', items);
-        
-        // Populate header
+
         document.getElementById('quotation-docno').textContent = quotation.DOCNO || dockey;
         
-        // Populate form fields
-        document.getElementById('quotation-customer').value = quotation.CODE || 'N/A';
-        document.getElementById('quotation-company').value = quotation.COMPANYNAME || 'N/A';
-        document.getElementById('quotation-phone').value = quotation.PHONE1 || 'N/A';
-        document.getElementById('quotation-address1').value = quotation.ADDRESS1 || 'N/A';
-        document.getElementById('quotation-address2').value = quotation.ADDRESS2 || 'N/A';
-        const a3 = document.getElementById('quotation-address3');
-        const a4 = document.getElementById('quotation-address4');
-        if (a3) a3.value = quotation.ADDRESS3 || '';
-        if (a4) a4.value = quotation.ADDRESS4 || '';
-        document.getElementById('quotation-terms').value = quotation.CREDITTERM || 'N/A';
+        setDetailText('quotation-customer', quotation.CODE, 'N/A');
+        setDetailText('quotation-company', quotation.COMPANYNAME, 'N/A');
+        setDetailText('quotation-phone', quotation.PHONE1, 'N/A');
+        setDetailText('quotation-address1', quotation.ADDRESS1, 'N/A');
+        setDetailText('quotation-address2', quotation.ADDRESS2, 'N/A');
+        setDetailText('quotation-address3', quotation.ADDRESS3, '');
+        setDetailText('quotation-address4', quotation.ADDRESS4, '');
+        setDetailText('quotation-terms', quotation.CREDITTERM, 'N/A');
         
         console.log('📝 Form fields populated');
         
@@ -354,12 +526,14 @@ async function loadQuotationData(dockey) {
         }
         
         if (quotation.DOCDATE) {
-            const docDate = new Date(quotation.DOCDATE);
-            document.getElementById('quotation-docdate').value = docDate.toISOString().split('T')[0];
+            const docDate = formatDateInput(quotation.DOCDATE);
+            setDetailText('quotation-docdate', docDate, '-');
+        } else {
+            setDetailText('quotation-docdate', '', '-');
         }
         
         // Populate items
-        const container = document.getElementById('quotation-items-list');
+        const container = document.getElementById('update-quotation-line-items');
         container.innerHTML = '';
         
         console.log('🛒 Loading', items.length, 'items');
@@ -376,27 +550,22 @@ async function loadQuotationData(dockey) {
                 const sourceVal = isCustom ? 'custom' : 'catalog';
                 const delivery = formatDateInput(item.DELIVERYDATE) || today;
 
-                const newItemDiv = document.createElement('div');
-                newItemDiv.className = 'order-item';
-                newItemDiv.innerHTML = `
-                    <div class="item-row">
-                        <select class="item-source" onchange="onProductSourceChange(this)">
-                            <option value="catalog">From catalog</option>
-                            <option value="custom">Custom order</option>
-                        </select>
-                        <select class="item-product" onchange="fetchProductPrice(this)">
-                            <option value="">Select product...</option>
-                        </select>
-                        <input type="text" class="item-product-custom" placeholder="Custom product" style="display:none;" value="" onchange="fetchProductPrice(this)">
-                        <input type="number" class="item-qty" placeholder="Qty" min="1" value="${item.QTY || 1}" onchange="calculateQuotationTotal()">
-                        <input type="number" class="item-discount" placeholder="Discount (RM)" step="0.01" min="0" value="${item.DISC || 0}" onchange="calculateQuotationTotal()">
-                        <input type="number" class="item-suggested-price" placeholder="Reference price" step="0.01" min="0" readonly value="${Number(item.UDF_STDPRICE || 0).toFixed(2)}">
-                        <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" value="${Number(item.UNITPRICE || 0).toFixed(2)}" onchange="calculateQuotationTotal()">
-                        <input type="date" class="item-delivery-date" value="${delivery}">
-                        <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
-                    </div>
-                `;
+                const newItemDiv = createQuotationLineRow({
+                    qty: item.QTY || 1,
+                    discount: item.DISC || 0,
+                    suggestedPrice: item.UDF_STDPRICE || 0,
+                    price: item.UNITPRICE || 0,
+                    delivery,
+                    customProduct: isCustom ? (item.DESCRIPTION || '') : ''
+                });
                 container.appendChild(newItemDiv);
+
+                if (item.DTLKEY != null && item.DTLKEY !== '') {
+                    newItemDiv.dataset.dtlkey = String(item.DTLKEY);
+                }
+                if (item.ITEMCODE != null && String(item.ITEMCODE).trim() !== '') {
+                    newItemDiv.dataset.itemCode = String(item.ITEMCODE).trim();
+                }
 
                 const sourceSel = newItemDiv.querySelector('.item-source');
                 const select = newItemDiv.querySelector('.item-product');
@@ -407,11 +576,15 @@ async function loadQuotationData(dockey) {
 
                 if (!isCustom && item.DESCRIPTION) {
                     const d = String(item.DESCRIPTION);
-                    const found = Array.from(select.options).some(o => o.value === d);
+                    const ic = item.ITEMCODE ? String(item.ITEMCODE).trim() : '';
+                    const found = Array.from(select.options).some((o) => o.value === d);
                     if (!found) {
                         const opt = document.createElement('option');
                         opt.value = d;
                         opt.textContent = d;
+                        if (ic) {
+                            opt.setAttribute('data-stock-code', ic);
+                        }
                         select.appendChild(opt);
                     }
                     select.value = d;
@@ -421,16 +594,14 @@ async function loadQuotationData(dockey) {
                 }
 
                 onProductSourceChange(sourceSel);
-                if (isCustom) {
-                    newItemDiv.querySelector('.item-price').readOnly = false;
-                }
             });
         }
         
         // Calculate total
         setTimeout(() => {
-            console.log('💰 Calculating total');
+            console.log('Calculating total');
             calculateQuotationTotal();
+            refreshQuotationMiniItemCodes();
         }, 200);
         
     } catch (error) {
@@ -472,47 +643,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateForm.addEventListener('submit', async function(e) {
             e.preventDefault();
             console.log('📤 Form submitted');
-            
-            const items = [];
-            document.querySelectorAll('#quotation-items-list .order-item').forEach(item => {
-                const source = item.querySelector('.item-source')?.value || 'catalog';
-                let product = '';
-                if (source === 'custom') {
-                    product = item.querySelector('.item-product-custom')?.value.trim() || '';
-                } else {
-                    const productElement = item.querySelector('.item-product');
-                    if (productElement) {
-                        product = productElement.options[productElement.selectedIndex]?.value.trim() || '';
-                    }
-                }
-                const qty = parseFloat(item.querySelector('.item-qty').value) || 0;
-                const price = parseFloat(item.querySelector('.item-price').value) || 0;
-                const discount = parseFloat(item.querySelector('.item-discount')?.value) || 0;
-                const deliveryDate = item.querySelector('.item-delivery-date')?.value || null;
 
-                if (product && qty > 0 && price >= 0) {
-                    items.push({ product, source, qty, price, discount, deliveryDate });
-                }
-            });
+            const updateData = buildUpdateQuotationPayload(dockey, updateForm);
 
-            if (items.length === 0) {
+            if (!updateData.items || updateData.items.length === 0) {
                 alert('Please add at least one valid item');
                 return;
             }
 
-            const updateData = {
-                dockey: dockey,
-                description: 'Quotation',
-                validUntil: document.getElementById('quotation-validity').value,
-                companyName: document.getElementById('quotation-company').value.trim(),
-                address1: document.getElementById('quotation-address1').value.trim(),
-                address2: document.getElementById('quotation-address2').value.trim(),
-                address3: document.getElementById('quotation-address3')?.value.trim() || '',
-                address4: document.getElementById('quotation-address4')?.value.trim() || '',
-                phone1: document.getElementById('quotation-phone').value.trim(),
-                items: items
-            };
-            
             console.log('📦 Updating quotation with data:', updateData);
             
             try {

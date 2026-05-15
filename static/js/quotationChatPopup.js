@@ -1,5 +1,6 @@
 (function() {
     let previewTimer = null;
+    let previewFadeTimer = null;
     let quotationChatId = null;
 
     function escapeHtml(value) {
@@ -78,17 +79,40 @@
         };
     }
 
-    function hideQuotationChatPreview() {
+    /** Greeting bubble visible duration, then hidden immediately. */
+    const PREVIEW_SHOW_MS = 1500;
+
+    function clearPreviewTimers() {
+        if (previewTimer) {
+            clearTimeout(previewTimer);
+            previewTimer = null;
+        }
+        if (previewFadeTimer) {
+            clearTimeout(previewFadeTimer);
+            previewFadeTimer = null;
+        }
+    }
+
+    function hideQuotationChatPreview(immediate) {
         const { preview } = getQuotationChatElements();
         if (!preview) {
             return;
         }
 
-        preview.classList.add('quotation-chat-preview-hidden');
-        if (previewTimer) {
-            clearTimeout(previewTimer);
-            previewTimer = null;
+        clearPreviewTimers();
+        preview.classList.remove('quotation-chat-preview-fade-out');
+
+        if (immediate) {
+            preview.classList.add('quotation-chat-preview-hidden');
+            return;
         }
+
+        preview.classList.add('quotation-chat-preview-fade-out');
+        previewFadeTimer = window.setTimeout(() => {
+            preview.classList.add('quotation-chat-preview-hidden');
+            preview.classList.remove('quotation-chat-preview-fade-out');
+            previewFadeTimer = null;
+        }, PREVIEW_FADE_MS);
     }
 
     function showQuotationChatPreview() {
@@ -97,14 +121,16 @@
             return;
         }
 
-        preview.classList.remove('quotation-chat-preview-hidden');
-        if (previewTimer) {
-            clearTimeout(previewTimer);
-        }
+        clearPreviewTimers();
+        preview.classList.remove(
+            'quotation-chat-preview-hidden',
+            'quotation-chat-preview-fade-out'
+        );
+
         previewTimer = window.setTimeout(() => {
-            preview.classList.add('quotation-chat-preview-hidden');
+            hideQuotationChatPreview(true);
             previewTimer = null;
-        }, 1500);
+        }, PREVIEW_SHOW_MS);
     }
 
     // Toggle popup
@@ -114,7 +140,7 @@
             return;
         }
 
-        hideQuotationChatPreview();
+        hideQuotationChatPreview(true);
 
         // Always bring popup to front
         popup.style.zIndex = 10050;
@@ -147,7 +173,7 @@
             return;
         }
 
-        hideQuotationChatPreview();
+        hideQuotationChatPreview(true);
         popup.style.zIndex = 10050;
         popup.classList.remove('quotation-chat-popup-hidden');
         ensureQuotationChatSession().catch(function(err) {

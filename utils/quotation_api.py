@@ -643,6 +643,37 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
     description = str(data.get("description") or "Quotation").strip() or "Quotation"
     shipper = str(data.get("shipper") or "----").strip() or "----"
 
+    login_email = str(data.get("loginEmail") or data.get("login_email") or "").strip()
+    matched_udf = str(
+        data.get("loginMatchedUdfEmailColumn") or data.get("login_matched_udf_email_column") or ""
+    ).strip()
+    login_suffix = str(data.get("loginUdfEmailSuffix") or data.get("login_udf_email_suffix") or "").strip()
+    login_dept = str(data.get("loginDepartment") or data.get("login_department") or "").strip()
+
+    note_base = str(data.get("note") or "").strip()
+    meta_bits = []
+    if login_email:
+        meta_bits.append(f"eQuotation login: {login_email}")
+    if matched_udf:
+        meta_bits.append(f"matched column: {matched_udf}")
+    if login_suffix != "":
+        meta_bits.append(f"udf suffix: {login_suffix}")
+    if login_dept:
+        meta_bits.append(f"department: {login_dept}")
+    meta_line = " | ".join(meta_bits)
+    if meta_line:
+        note_full = f"{note_base}\n{meta_line}" if note_base else meta_line
+    else:
+        note_full = note_base
+    if len(note_full) > 1900:
+        note_full = note_full[:1899] + "…"
+
+    cc_value = str(data.get("cc") or "").strip() or login_email
+
+    attention_val = str(data.get("attention") or "").strip()
+    if not attention_val and login_dept:
+        attention_val = login_dept[:200]
+
     detail_rows = []
     total_doc_amt = Decimal("0.00")
     fallback_code = _quotation_fallback_item_code()
@@ -669,11 +700,19 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
         item_code = str(
             item.get("itemCode") or item.get("itemcode") or item.get("code") or ""
         ).strip()
+        source_line = str(item.get("source") or "").strip().lower()
+        if source_line == "custom" and not item_code:
+            item_code = str(item.get("itemCode") or "CUSTOM").strip() or "CUSTOM"
         if not item_code:
             item_code = _resolve_item_code_from_local_db(product_desc)
         if not item_code and fallback_code:
             item_code = fallback_code
         item_code = _normalize_item_code(item_code)
+
+        try:
+            dtlkey_val = int(item.get("dtlkey") or item.get("DTLKEY") or 0)
+        except (TypeError, ValueError):
+            dtlkey_val = 0
 
         db_uom, db_irbm = _lookup_st_item_uom_irbm(item_code, line_uom_irbm_memo)
         line_uom = str(item.get("uom") or item.get("UOM") or "").strip() or db_uom or def_uom
@@ -687,7 +726,7 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
         disc_display = None if discount <= 0 else _fmt_money(discount)
 
         row = {
-                "dtlkey": 0,
+                "dtlkey": dtlkey_val,
                 "dockey": header_dockey,
                 # SQL Accounting expects detail SEQ in 1000-steps (1000, 2000, …). seq=1,2 leaves ITEMCODE unset in SL_QTDTL.
                 "seq": idx * 1000,
@@ -766,7 +805,7 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
         "phone1": phone1,
         "mobile": "",
         "fax1": "",
-        "attention": "",
+        "attention": attention_val or "",
         "area": "",
         "agent": "",
         "project": "",
@@ -781,7 +820,7 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
         "localdocamt": _fmt_money(total_doc_amt * currency_rate),
         "validity": valid_until,
         "deliveryterm": "",
-        "cc": "",
+        "cc": cc_value or "",
         "docref1": "",
         "docref2": "",
         "docref3": "",
@@ -795,7 +834,7 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
         "dcity": "",
         "dstate": "",
         "dcountry": "",
-        "dattention": "",
+        "dattention": attention_val or "",
         "dphone1": phone1,
         "dmobile": "",
         "dfax1": "",
@@ -811,7 +850,7 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
         "businessunit": "",
         "attachments": "",
         "submissiontype": 0,
-        "note": "",
+        "note": note_full,
         "approvestate": "",
         "updatecount": updatecount_val,
         "transferable": False,
@@ -849,7 +888,16 @@ def create_or_update_quotation(base_api_url, customer_code, data):
             }
         db_code = str(hb.get("code") or "").strip()
         sess_code = str(customer_code or "").strip()
-        if db_code and sess_code and db_code != sess_code:
+        skip_code_check = bool(
+            data.get("adminUpdate")
+            or data.get("skipCustomerCodeCheck")
+        )
+        if (
+            not skip_code_check
+            and db_code
+            and sess_code
+            and db_code != sess_code
+        ):
             return {
                 "success": False,
                 "error": "Quotation does not belong to the signed-in customer (CODE mismatch).",
@@ -874,6 +922,7 @@ def create_or_update_quotation(base_api_url, customer_code, data):
         return {"success": False, "error": "SQL API keys are not configured"}
 
     provided_docno = str(data.get("docno") or data.get("docNo") or "").strip()
+    is_update = upd_dockey > 0 and bool(provided_docno)
 
     client = SqlAccountingApiClient(settings)
     # Quotation create is heavier than simple GETs; allow a separate read timeout (defaults to global).
@@ -883,7 +932,8 @@ def create_or_update_quotation(base_api_url, customer_code, data):
     )
     last_error = ""
     local_precheck_done = False
-    for attempt in range(20):
+    max_attempts = 1 if is_update else 20
+    for attempt in range(max_attempts):
         if provided_docno:
             doc_no = provided_docno
         else:
@@ -921,11 +971,19 @@ def create_or_update_quotation(base_api_url, customer_code, data):
                 }
 
         try:
-            status, parsed, raw = client.post_json(
-                settings.resolved_quotation_create_url(),
-                payload,
-                timeout_seconds=quote_read_timeout,
-            )
+            if is_update:
+                update_url = settings.resolved_quotation_update_url(upd_dockey)
+                status, parsed, raw = client.put_json(
+                    update_url,
+                    payload,
+                    timeout_seconds=quote_read_timeout,
+                )
+            else:
+                status, parsed, raw = client.post_json(
+                    settings.resolved_quotation_create_url(),
+                    payload,
+                    timeout_seconds=quote_read_timeout,
+                )
         except SqlAccountingApiError as exc:
             err_text = str(exc)
             low = err_text.lower()
@@ -959,7 +1017,11 @@ def create_or_update_quotation(base_api_url, customer_code, data):
             "on",
         ):
             snippet = (raw or "")[:800].replace("\n", " ")
-            print(f"[quotation_api] salesquotation HTTP {status} docno={doc_no!r} upstream: {snippet}", flush=True)
+            verb = "PUT" if is_update else "POST"
+            print(
+                f"[quotation_api] salesquotation {verb} HTTP {status} dockey={upd_dockey} docno={doc_no!r} upstream: {snippet}",
+                flush=True,
+            )
 
         detail = raw
         if isinstance(parsed, dict):

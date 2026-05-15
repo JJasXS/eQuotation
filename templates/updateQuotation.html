@@ -1,110 +1,114 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Update Quotation</title>
-    <link rel="stylesheet" href="/static/css/chat.css">
-    <link rel="stylesheet" href="/static/css/hamburger_menu.css">
-    <link rel="stylesheet" href="/static/css/app_page_header.css">
-    <link rel="stylesheet" href="/static/css/orderQuotation.css">
+    <link rel="stylesheet" href="/static/css/hamburger_menu.css?v=20260515_sidebar">
+    <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
+    <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515">
+    <link rel="stylesheet" href="/static/css/orderQuotation.css?v=20260505_line_grid_balance">
+    <link rel="stylesheet" href="/static/css/createQuotationLight.css?v=20260515_unit_price_edit">
 </head>
-<body>
+<body class="equotation-icy-theme create-quotation-page update-quotation-page">
     <div class="container">
         <div class="main-content">
             {% set page_header_title = "Quotation > Update Quotation" %}
-            {% set page_header_subtitle = "Admin: " ~ (user_email or "—") %}
+            {% set page_header_subtitle = "Admin: " ~ (user_email or "-") %}
             {% include 'components/app_page_header.html' %}
-            
-            <!-- Quotation Form -->
+
             <div class="tab-content active">
                 <div class="form-container">
-                    <h3>Edit Quotation #<span id="quotation-docno">Loading...</span></h3>
+                    <h3>Edit quotation <span id="quotation-docno">Loading...</span></h3>
                     <form id="update-quotation-form" data-dockey="{{ dockey }}">
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="quotation-customer">Customer Code</label>
-                                <input type="text" id="quotation-customer" value="Loading..." readonly>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="quotation-company">Company Name</label>
-                                <input type="text" id="quotation-company" value="Loading..." readonly>
+                        <div class="create-quotation-layout">
+                            <div class="create-quotation-customer-panel">
+                                <h4 class="create-quotation-panel-title">Quotation details</h4>
+                                <div class="customer-details-readonly">
+                                    <div class="customer-detail-row">
+                                        <span class="customer-detail-label">Customer code</span>
+                                        <span id="quotation-customer" class="customer-detail-value">Loading...</span>
+                                    </div>
+                                    <div class="customer-detail-row">
+                                        <span class="customer-detail-label">Company</span>
+                                        <span id="quotation-company" class="customer-detail-value">Loading...</span>
+                                    </div>
+                                    <div class="customer-detail-row">
+                                        <span class="customer-detail-label">Phone</span>
+                                        <span id="quotation-phone" class="customer-detail-value">Loading...</span>
+                                    </div>
+                                    <div class="customer-detail-row">
+                                        <span class="customer-detail-label">Address 1</span>
+                                        <span id="quotation-address1" class="customer-detail-value">Loading...</span>
+                                    </div>
+                                    <div class="customer-detail-row">
+                                        <span class="customer-detail-label">Address 2</span>
+                                        <span id="quotation-address2" class="customer-detail-value">Loading...</span>
+                                    </div>
+                                    <div class="customer-detail-row">
+                                        <span class="customer-detail-label">Address 3</span>
+                                        <span id="quotation-address3" class="customer-detail-value"></span>
+                                    </div>
+                                    <div class="customer-detail-row">
+                                        <span class="customer-detail-label">Address 4</span>
+                                        <span id="quotation-address4" class="customer-detail-value"></span>
+                                    </div>
+                                    <div class="customer-detail-row">
+                                        <span class="customer-detail-label">Credit terms</span>
+                                        <span id="quotation-terms" class="customer-detail-value">Loading...</span>
+                                    </div>
+                                    <div class="customer-detail-row">
+                                        <span class="customer-detail-label">Document date</span>
+                                        <span id="quotation-docdate" class="customer-detail-value">-</span>
+                                    </div>
+                                </div>
+
+                                <div class="form-group customer-validity-field">
+                                    <label for="quotation-validity">Valid until</label>
+                                    <input type="date" id="quotation-validity">
+                                </div>
+
+                                <div class="form-group" style="display: none;">
+                                    <textarea id="quotation-description" rows="3" readonly>Quotation</textarea>
+                                </div>
                             </div>
 
-                            <div class="form-group">
-                                <label for="quotation-phone">Phone Number</label>
-                                <input type="text" id="quotation-phone" value="Loading..." readonly>
-                            </div>
-                        </div>
-                        
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="quotation-address1">Address 1</label>
-                                <input type="text" id="quotation-address1" value="Loading..." readonly>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="quotation-address2">Address 2</label>
-                                <input type="text" id="quotation-address2" value="Loading..." readonly>
-                            </div>
+                            <div class="create-quotation-lines-panel">
+                                <h4 class="create-quotation-panel-title">Quotation lines</h4>
+                                <div id="quotation-mini-item-codes" class="quotation-mini-item-codes" aria-live="polite"></div>
+                                <div class="update-quotation-table-wrap">
+                                    <table class="update-quotation-table" aria-label="Quotation line items">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col">Source</th>
+                                                <th scope="col">Product</th>
+                                                <th scope="col" class="col-numeric">Qty</th>
+                                                <th scope="col" class="col-numeric">Discount</th>
+                                                <th scope="col" class="col-numeric">Ref. price</th>
+                                                <th scope="col" class="col-numeric">Unit price</th>
+                                                <th scope="col">Delivery</th>
+                                                <th scope="col" class="col-actions"><span class="visually-hidden">Remove</span></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="update-quotation-line-items">
+                                            <tr class="update-quotation-loading-row">
+                                                <td colspan="8" class="update-quotation-loading">Loading items...</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
 
-                            <div class="form-group">
-                                <label for="quotation-address3">Address 3</label>
-                                <input type="text" id="quotation-address3" value="" readonly>
-                            </div>
+                                <button type="button" class="btn-add-item" onclick="addQuotationItem()">+ Add Item</button>
 
-                            <div class="form-group">
-                                <label for="quotation-address4">Address 4</label>
-                                <input type="text" id="quotation-address4" value="" readonly>
-                            </div>
-                        </div>
-
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="quotation-terms">Credit Terms</label>
-                                <input type="text" id="quotation-terms" value="Loading..." readonly>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="quotation-validity">Valid Until</label>
-                                <input type="date" id="quotation-validity">
+                                <div class="total-section">
+                                    <div class="total-row">
+                                        <span>Total:</span>
+                                        <span id="quotation-total">RM 0.00</span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
-                        <div class="form-group">
-                            <label for="quotation-docdate">Document Date</label>
-                            <input type="date" id="quotation-docdate" readonly>
-                        </div>
-                        
-                        <div class="form-group" style="display: none;">
-                            <textarea id="quotation-description" rows="3" readonly>Quotation</textarea>
-                        </div>
-                        
-                     
-                        <div class="item-row-header">
-                            <span>Source</span>
-                            <span>Product</span>
-                            <span>Qty</span>
-                            <span>Discount</span>
-                            <span>Reference Price</span>
-                            <span>Unit Price</span>
-                            <span>Delivery Date</span>
-                            <span></span>
-                        </div>
-                        <div id="quotation-items-list">
-                            <div style="padding: 20px; text-align: center; color: #888;">Loading items...</div>
-                        </div>
-                        
-                        <button type="button" class="btn-add-item" onclick="addQuotationItem()">+ Add Item</button>
-                        
-                        <div class="total-section">
-                            <div class="total-row">
-                                <span>Total:</span>
-                                <span id="quotation-total">RM 0.00</span>
-                            </div>
-                        </div>
-                        
                         <div class="form-actions">
                             <button type="button" class="btn-secondary" onclick="window.location.href='/admin/view-quotations'">Cancel</button>
                             <button type="submit" class="btn-primary">Update Quotation</button>
@@ -114,8 +118,10 @@
             </div>
         </div>
     </div>
-    
+
+    <datalist id="product-list"></datalist>
+
     <script src="/static/js/hamburger_menu.js"></script>
-    <script src="/static/js/updateQuotation.js"></script>
+    <script src="/static/js/updateQuotation.js?v=20260515_unit_price_edit"></script>
 </body>
 </html>

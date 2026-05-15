@@ -1,4 +1,4 @@
-/* Create Quotation page — light warm theme (aligns with procurement / view-quotations) */
+/* Create Quotation page — icy blue light theme */
 /* No chat.css: that sheet is large and targets the main /chat UI; this page uses quotationChatPopup.css only. */
 html {
     box-sizing: border-box;
@@ -10,14 +10,29 @@ html {
 }
 
 body.create-quotation-page {
+    --ice-bg: #e3f2fa;
+    --ice-bg-deep: #d4eaf6;
+    --ice-surface: #f7fbff;
+    --ice-surface-alt: #eef6fc;
+    --ice-surface-input: #f0f9ff;
+    --ice-surface-muted: #e8f4fc;
+    --ice-border: #b8d4e8;
+    --ice-border-soft: #c5dce9;
+    --ice-text: #1e3a52;
+    --ice-text-muted: #5a7a94;
+    --ice-heading: #1a4d6e;
+    --ice-accent: #3b8fc4;
+    --ice-accent-hover: #2d74a3;
+    --ice-accent-soft: #dbeafe;
+    --ice-shadow: rgba(30, 80, 120, 0.1);
     margin: 0;
-    background: #f2e8d8;
-    color: #3d2f1f;
+    background: var(--ice-bg);
+    color: var(--ice-text);
 }
 
 body.create-quotation-page .container,
 body.create-quotation-page .main-content {
-    background: #f2e8d8;
+    background: var(--ice-bg);
 }
 
 body.create-quotation-page .tab-content {
@@ -26,26 +41,26 @@ body.create-quotation-page .tab-content {
 
 /* Subtitle: matches app_page_header; slight tweak for this page if needed */
 body.create-quotation-page .app-page-header__subtitle {
-    color: #6b5a45;
+    color: var(--ice-text-muted);
 }
 
 body.create-quotation-page .admin-header.app-page-header {
-    background: #f8efdd;
-    border-bottom: 1px solid #e2cfab;
+    background: var(--ice-surface);
+    border-bottom: 1px solid var(--ice-border);
 }
 
 body.create-quotation-page h2.app-page-header__title {
-    color: #4f3b2a;
+    color: var(--ice-heading);
 }
 
 body.create-quotation-page .form-container {
-    background: #fffaf0;
-    border: 1px solid #e2cfab;
-    box-shadow: 0 4px 16px rgba(80, 60, 30, 0.08);
+    background: var(--ice-surface);
+    border: 1px solid var(--ice-border);
+    box-shadow: 0 4px 16px var(--ice-shadow);
 }
 
 body.create-quotation-page .form-container h3 {
-    color: #4f3b2a;
+    color: var(--ice-heading);
 }
 
 /* Two-column layout: customer (left) + quotation lines (right) */
@@ -61,27 +76,27 @@ body.create-quotation-page .create-quotation-customer-panel {
     flex: 0 1 300px;
     min-width: 220px;
     padding: 16px 18px;
-    background: #fffef8;
-    border: 1px solid #e2cfab;
+    background: var(--ice-surface-alt);
+    border: 1px solid var(--ice-border);
     border-radius: 10px;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 
 body.create-quotation-page .create-quotation-lines-panel {
     flex: 1 1 420px;
     min-width: 0;
     padding: 16px 18px;
-    background: #fffef8;
-    border: 1px solid #e2cfab;
+    background: var(--ice-surface-alt);
+    border: 1px solid var(--ice-border);
     border-radius: 10px;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
 }
 
 body.create-quotation-page .quotation-mini-item-codes {
     font-size: 11px;
-    color: #7b6550;
+    color: var(--ice-text-muted);
     letter-spacing: 0.02em;
     margin: 0 0 10px 0;
     line-height: 1.35;
@@ -95,7 +110,7 @@ body.create-quotation-page .quotation-mini-item-codes:empty {
 body.create-quotation-page .quotation-mini-item-codes::before {
     content: 'Item codes: ';
     font-weight: 600;
-    color: #5c4836;
+    color: var(--ice-heading);
 }
 
 body.create-quotation-page .quotation-mini-item-codes:empty::before {
@@ -104,8 +119,8 @@ body.create-quotation-page .quotation-mini-item-codes:empty::before {
 
 /* Keep line grid from crushing: horizontal scroll on narrow viewports */
 /* Match sum of grid minmax mins (~978px) + column gaps (~120px) so tracks are not squeezed */
-body.create-quotation-page #quotation-form .quotation-item-row-header,
-body.create-quotation-page #quotation-items-list .item-row {
+body.create-quotation-page:not(.update-quotation-page) #quotation-form .quotation-item-row-header,
+body.create-quotation-page:not(.update-quotation-page) #quotation-items-list .item-row {
     min-width: 1120px;
 }
 
@@ -120,14 +135,134 @@ body.create-quotation-page #quotation-items-list .item-row select {
     background-position: right 10px center;
 }
 
+/* Create quotation — compact line rows (aligned with update quotation table style) */
+body.create-quotation-page:not(.update-quotation-page) #quotation-form {
+    --cq-line-cols:
+        minmax(88px, 0.78fr)
+        minmax(132px, 1.85fr)
+        minmax(40px, 0.38fr)
+        minmax(40px, 0.38fr)
+        minmax(44px, 0.4fr)
+        minmax(48px, 0.42fr)
+        minmax(52px, 0.45fr)
+        minmax(60px, 0.48fr)
+        minmax(60px, 0.48fr)
+        minmax(100px, 0.68fr)
+        36px;
+}
+
+body.create-quotation-page:not(.update-quotation-page) .create-quotation-lines-panel {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+body.create-quotation-page:not(.update-quotation-page) .create-quotation-lines-grid {
+    min-width: 980px;
+    margin-bottom: 10px;
+    background: var(--ice-surface, #fff);
+    border: 1px solid var(--ice-border-soft, #c5dce9);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+body.create-quotation-page:not(.update-quotation-page) #quotation-form .quotation-item-row-header,
+body.create-quotation-page:not(.update-quotation-page) #quotation-items-list .item-row {
+    display: grid !important;
+    grid-template-columns: var(--cq-line-cols) !important;
+    gap: 6px !important;
+    align-items: center !important;
+    box-sizing: border-box;
+    min-width: 0 !important;
+}
+
+body.create-quotation-page:not(.update-quotation-page) #quotation-form .quotation-item-row-header {
+    margin: 0;
+    padding: 6px 8px !important;
+    background: var(--ice-surface-muted, #e8f4fc);
+    border-bottom: 1px solid var(--ice-border-soft, #c5dce9);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+body.create-quotation-page:not(.update-quotation-page) #quotation-form .quotation-item-row-header span {
+    min-height: 1.35em;
+    padding: 0 2px;
+}
+
+body.create-quotation-page:not(.update-quotation-page) #quotation-items-list {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0 !important;
+    margin-bottom: 0 !important;
+}
+
+body.create-quotation-page:not(.update-quotation-page) #quotation-items-list .order-item {
+    margin: 0 !important;
+    padding: 3px 8px !important;
+    border: none !important;
+    border-radius: 0 !important;
+    border-bottom: 1px solid var(--ice-border-soft, #c5dce9) !important;
+    background: transparent !important;
+}
+
+body.create-quotation-page:not(.update-quotation-page) #quotation-items-list .order-item:nth-child(even) {
+    background: var(--ice-surface-muted, #f4fafd) !important;
+}
+
+body.create-quotation-page:not(.update-quotation-page) #quotation-items-list .order-item:last-child {
+    border-bottom: none !important;
+}
+
+body.create-quotation-page:not(.update-quotation-page) #quotation-items-list .item-row {
+    width: 100%;
+    padding: 0;
+}
+
+body.create-quotation-page:not(.update-quotation-page) #quotation-items-list .item-row > * {
+    min-width: 0;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+body.create-quotation-page:not(.update-quotation-page) #quotation-items-list .item-row input,
+body.create-quotation-page:not(.update-quotation-page) #quotation-items-list .item-row select {
+    padding: 4px 6px !important;
+    font-size: 12px !important;
+}
+
+body.create-quotation-page:not(.update-quotation-page) #quotation-items-list .item-row select {
+    padding-right: 24px !important;
+}
+
+body.create-quotation-page:not(.update-quotation-page) #quotation-items-list .item-row .item-qty,
+body.create-quotation-page:not(.update-quotation-page) #quotation-items-list .item-row .item-discount,
+body.create-quotation-page:not(.update-quotation-page) #quotation-items-list .item-row .item-udf-moq,
+body.create-quotation-page:not(.update-quotation-page) #quotation-items-list .item-row .item-udf-dleadtime,
+body.create-quotation-page:not(.update-quotation-page) #quotation-items-list .item-row .item-udf-bundle,
+body.create-quotation-page:not(.update-quotation-page) #quotation-items-list .item-row .item-suggested-price,
+body.create-quotation-page:not(.update-quotation-page) #quotation-items-list .item-row .item-price {
+    text-align: center;
+}
+
+body.create-quotation-page:not(.update-quotation-page) #quotation-items-list .item-row .btn-remove {
+    width: 28px !important;
+    height: 28px !important;
+    min-width: 28px !important;
+    padding: 0 !important;
+    font-size: 14px;
+    justify-self: center;
+}
+
 body.create-quotation-page .create-quotation-panel-title {
     margin: 0 0 14px 0;
     font-size: 15px;
     font-weight: 600;
-    color: #4f3b2a;
+    color: var(--ice-heading);
     letter-spacing: 0.02em;
     padding-bottom: 8px;
-    border-bottom: 1px solid #e2cfab;
+    border-bottom: 1px solid var(--ice-border);
 }
 
 /* Customer details: compact label + plain text (no textboxes) */
@@ -147,7 +282,7 @@ body.create-quotation-page .customer-detail-row {
 }
 
 body.create-quotation-page .customer-detail-label {
-    color: #6b5a45;
+    color: var(--ice-text-muted);
     font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
@@ -155,7 +290,7 @@ body.create-quotation-page .customer-detail-label {
 }
 
 body.create-quotation-page .customer-detail-value {
-    color: #3d2f1f;
+    color: var(--ice-text);
     word-break: break-word;
     line-height: 1.45;
     min-height: 1.2em;
@@ -187,64 +322,65 @@ body.create-quotation-page .create-quotation-lines-panel .total-section {
 }
 
 body.create-quotation-page .form-group label {
-    color: #6b5a45;
+    color: var(--ice-text-muted);
 }
 
 body.create-quotation-page .form-group input,
 body.create-quotation-page .form-group textarea,
 body.create-quotation-page .form-group select {
-    background: #fff8ec !important;
-    border: 1px solid #d4c4a8;
-    color: #3d2f1f !important;
+    background: var(--ice-surface-input) !important;
+    border: 1px solid var(--ice-border-soft);
+    color: var(--ice-text) !important;
 }
 
 body.create-quotation-page .form-group input:focus,
 body.create-quotation-page .form-group textarea:focus,
 body.create-quotation-page .form-group select:focus {
-    background: #fffef8 !important;
-    border-color: #5a7eb8;
+    background: #ffffff !important;
+    border-color: var(--ice-accent);
     outline: none;
+    box-shadow: 0 0 0 2px rgba(59, 143, 196, 0.2);
 }
 
 body.create-quotation-page .form-group input:read-only,
 body.create-quotation-page .form-group input[readonly] {
-    background: #f0e6d2 !important;
-    color: #5c4a35 !important;
+    background: var(--ice-surface-muted) !important;
+    color: var(--ice-text-muted) !important;
     cursor: default;
 }
 
 body.create-quotation-page .form-group select option {
-    background: #fff8ec !important;
-    color: #3d2f1f !important;
+    background: var(--ice-surface) !important;
+    color: var(--ice-text) !important;
 }
 
 body.create-quotation-page .form-group select {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%235c4a35' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%231e3a52' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
 }
 
 body.create-quotation-page .order-item,
 body.create-quotation-page .item-row input,
 body.create-quotation-page .item-row select {
-    background: #fff8ec !important;
-    border-color: #d4c4a8;
-    color: #3d2f1f !important;
+    background: var(--ice-surface-input) !important;
+    border-color: var(--ice-border-soft);
+    color: var(--ice-text) !important;
 }
 
 body.create-quotation-page .order-item {
-    background: #fff4e0;
-    border: 1px solid #e2cfab;
+    background: var(--ice-surface-muted);
+    border: 1px solid var(--ice-border);
 }
 
 body.create-quotation-page .item-row input:focus,
 body.create-quotation-page .item-row select:focus {
-    background: #fffef8 !important;
-    border-color: #5a7eb8;
+    background: #ffffff !important;
+    border-color: var(--ice-accent);
 }
 
 body.create-quotation-page .item-row .item-suggested-price,
 body.create-quotation-page .item-row .item-price {
-    background: #ede4d0 !important;
-    color: #2d4a6e !important;
+    background: var(--ice-accent-soft) !important;
+    color: var(--ice-heading) !important;
 }
 
 body.create-quotation-page .item-row input[readonly] {
@@ -252,72 +388,72 @@ body.create-quotation-page .item-row input[readonly] {
 }
 
 body.create-quotation-page .item-row select {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%235c4a35' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%231e3a52' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
 }
 
 body.create-quotation-page .item-row select option {
-    background: #fff8ec !important;
-    color: #3d2f1f !important;
+    background: var(--ice-surface) !important;
+    color: var(--ice-text) !important;
 }
 
 body.create-quotation-page .item-row-header {
-    color: #6b5a45;
-    border-bottom: 1px solid #e2cfab;
+    color: var(--ice-text-muted);
+    border-bottom: 1px solid var(--ice-border);
     padding-bottom: 8px;
     margin-bottom: 4px;
 }
 
 body.create-quotation-page #quotation-form .quotation-item-row-header {
-    color: #6b5a45;
+    color: var(--ice-text-muted);
 }
 
 body.create-quotation-page #quotation-form .quotation-item-row-header span.item-header-ref-price {
-    color: #6b5a45;
+    color: var(--ice-text-muted);
 }
 
 body.create-quotation-page .total-section {
-    background: #fff4e0;
-    border: 1px solid #e2cfab;
+    background: var(--ice-surface-muted);
+    border: 1px solid var(--ice-border);
 }
 
 body.create-quotation-page .total-row,
 body.create-quotation-page .total-row span:first-child {
-    color: #4f3b2a;
+    color: var(--ice-heading);
 }
 
 body.create-quotation-page .total-row span:last-child {
-    color: #2d4a6e;
+    color: var(--ice-accent-hover);
 }
 
 body.create-quotation-page .btn-primary {
-    background: #4b6e9e;
+    background: var(--ice-accent);
 }
 
 body.create-quotation-page .btn-primary:hover {
-    background: #3d5d86;
-    box-shadow: 0 4px 8px rgba(75, 110, 158, 0.25);
+    background: var(--ice-accent-hover);
+    box-shadow: 0 4px 12px rgba(59, 143, 196, 0.35);
 }
 
 body.create-quotation-page .btn-secondary {
-    background: #e8ddc8;
-    color: #4f3b2a;
-    border: 1px solid #d4c4a8;
+    background: var(--ice-surface-muted);
+    color: var(--ice-heading);
+    border: 1px solid var(--ice-border-soft);
 }
 
 body.create-quotation-page .btn-secondary:hover {
-    background: #e0d3ba;
-    color: #3d2f1f;
+    background: var(--ice-accent-soft);
+    color: var(--ice-heading);
 }
 
 body.create-quotation-page .btn-add-item {
-    background: #fff4e0;
-    border: 2px dashed #c9b89a;
-    color: #4b6e9e;
+    background: var(--ice-surface-input);
+    border: 2px dashed var(--ice-border);
+    color: var(--ice-accent);
 }
 
 body.create-quotation-page .btn-add-item:hover {
-    background: #faefd9;
-    border-color: #4b6e9e;
+    background: var(--ice-accent-soft);
+    border-color: var(--ice-accent);
 }
 
 body.create-quotation-page .btn-remove {
@@ -328,79 +464,79 @@ body.create-quotation-page .btn-remove:hover {
     background: #a84848;
 }
 
-/* Quotation chat bubble / popup (scoped light) */
+/* Quotation chat bubble / popup (icy blue) */
 body.create-quotation-page .quotation-chat-bubble {
-    background: #4b6e9e;
-    box-shadow: 0 4px 12px rgba(75, 110, 158, 0.35);
+    background: linear-gradient(145deg, #5ba8d4 0%, #3b8fc4 100%);
+    box-shadow: 0 4px 14px rgba(59, 143, 196, 0.45);
 }
 
 body.create-quotation-page .quotation-chat-preview {
-    background: linear-gradient(180deg, #f8f0e0 0%, #f0e6d2 100%);
-    border: 1px solid #d4c4a8;
-    color: #3d2f1f;
-    box-shadow: 0 12px 28px rgba(50, 40, 20, 0.12);
+    background: linear-gradient(180deg, #f7fbff 0%, #e8f4fc 100%);
+    border: 1px solid var(--ice-border);
+    color: var(--ice-heading);
+    box-shadow: 0 12px 28px var(--ice-shadow);
 }
 
-body.create-quotation-page .quotation-chat-preview-label {
-    color: #4b6e9e;
+body.create-quotation-page .quotation-chat-preview::after {
+    background: #e8f4fc;
+    border-color: var(--ice-border);
 }
 
 body.create-quotation-page .quotation-chat-popup {
-    background: #fffaf0;
-    border: 1px solid #e2cfab;
-    box-shadow: 0 8px 28px rgba(50, 40, 20, 0.12);
+    background: var(--ice-surface);
+    border: 1px solid var(--ice-border);
+    box-shadow: 0 8px 28px var(--ice-shadow);
 }
 
 body.create-quotation-page .quotation-chat-popup-header {
-    background: #f8efdd;
-    border-bottom: 1px solid #e2cfab;
+    background: linear-gradient(180deg, #eef6fc 0%, #e3f2fa 100%);
+    border-bottom: 1px solid var(--ice-border);
 }
 
 body.create-quotation-page .quotation-chat-popup-header h4 {
-    color: #4f3b2a;
+    color: var(--ice-heading);
 }
 
 body.create-quotation-page .quotation-close-btn {
-    color: #6b5a45;
+    color: var(--ice-text-muted);
 }
 
 body.create-quotation-page .quotation-close-btn:hover {
-    color: #3d2f1f;
+    color: var(--ice-heading);
 }
 
 body.create-quotation-page .quotation-chat-popup-messages {
-    background: #fffef8;
+    background: var(--ice-surface-alt);
 }
 
 body.create-quotation-page .quotation-chat-popup-message-content {
-    background: #e8e0d0;
-    color: #3d2f1f;
-    border: 1px solid #d4c4a8;
+    background: var(--ice-surface-muted);
+    color: var(--ice-text);
+    border: 1px solid var(--ice-border-soft);
 }
 
 body.create-quotation-page .quotation-chat-popup-input {
-    background: #f8efdd;
-    border-top: 1px solid #e2cfab;
+    background: var(--ice-surface);
+    border-top: 1px solid var(--ice-border);
 }
 
-/* Send = same family as Clear (btn-secondary), not solid blue */
 body.create-quotation-page .quotation-send-btn {
-    background: #e8ddc8;
-    color: #4f3b2a;
-    border: 1px solid #d4c4a8;
+    background: var(--ice-accent);
+    color: #fff;
+    border: 1px solid var(--ice-accent-hover);
     font-size: 12px;
     padding: 7px 12px;
     font-weight: 600;
 }
 
 body.create-quotation-page .quotation-send-btn:hover {
-    background: #e0d3ba;
-    color: #3d2f1f;
-    border-color: #c9b89a;
+    background: var(--ice-accent-hover);
+    color: #fff;
+    border-color: var(--ice-accent-hover);
 }
 
 body.create-quotation-page .quotation-send-btn:active {
-    background: #d8ccba;
+    background: #256b94;
 }
 
 /* Chat popup: compact type; controls match .btn-secondary / form cream palette */
@@ -427,9 +563,9 @@ body.create-quotation-page .quotation-chat-popup-message-content .chat-reply-lin
 }
 
 body.create-quotation-page #quotation-chat-popup-textarea {
-    background: #fff8ec;
-    border: 1px solid #d4c4a8;
-    color: #3d2f1f;
+    background: var(--ice-surface-input);
+    border: 1px solid var(--ice-border-soft);
+    color: var(--ice-text);
     font-size: 12px;
     line-height: 1.35;
 }
@@ -438,20 +574,18 @@ body.create-quotation-page .quotation-chat-message.user-message {
     justify-content: flex-end;
 }
 
-/* User bubble: warm panel + brown text (same vocabulary as Clear) */
 body.create-quotation-page .quotation-chat-message.user-message .quotation-chat-popup-message-content {
-    background: #fff4e0;
-    color: #4f3b2a;
-    border: 1px solid #d4c4a8;
+    background: var(--ice-accent-soft);
+    color: var(--ice-heading);
+    border: 1px solid var(--ice-border);
     border-radius: 8px 8px 0 8px;
 }
 
-/* Catalog product rows + pagination: btn-secondary look */
 body.create-quotation-page .quotation-chat-message button,
 body.create-quotation-page .quotation-chat-message button.chat-inline-product-action {
-    background: #e8ddc8;
-    color: #4f3b2a;
-    border: 1px solid #d4c4a8;
+    background: var(--ice-surface-muted);
+    color: var(--ice-heading);
+    border: 1px solid var(--ice-border-soft);
     font-size: 12px;
     font-weight: 600;
     padding: 7px 11px;
@@ -460,23 +594,23 @@ body.create-quotation-page .quotation-chat-message button.chat-inline-product-ac
 
 body.create-quotation-page .quotation-chat-message button:hover,
 body.create-quotation-page .quotation-chat-message button.chat-inline-product-action:hover {
-    background: #e0d3ba;
-    color: #3d2f1f;
-    border-color: #c9b89a;
+    background: var(--ice-accent-soft);
+    color: var(--ice-heading);
+    border-color: var(--ice-accent);
     transform: none;
 }
 
 body.create-quotation-page .quotation-chat-message button:active,
 body.create-quotation-page .quotation-chat-message button.chat-inline-product-action:active {
-    background: #d8ccba;
-    border-color: #c0b090;
+    background: #cfe8f8;
+    border-color: var(--ice-accent-hover);
     transform: none;
 }
 
 body.create-quotation-page .quotation-chat-message button.chat-page-nav-button {
-    background: #fff4e0;
-    color: #4b6e9e;
-    border: 1px solid #d4c4a8;
+    background: var(--ice-surface-input);
+    color: var(--ice-accent);
+    border: 1px solid var(--ice-border);
     font-size: 14px;
     font-weight: 700;
     min-width: 38px;
@@ -484,15 +618,15 @@ body.create-quotation-page .quotation-chat-message button.chat-page-nav-button {
 }
 
 body.create-quotation-page .quotation-chat-message button.chat-page-nav-button:hover {
-    background: #faefd9;
-    color: #3d5d86;
-    border-color: #4b6e9e;
+    background: var(--ice-accent-soft);
+    color: var(--ice-accent-hover);
+    border-color: var(--ice-accent);
     transform: none;
 }
 
 body.create-quotation-page .quotation-chat-message button.chat-page-nav-button:active {
-    background: #f5e8cc;
-    border-color: #3d5d86;
+    background: #cfe8f8;
+    border-color: var(--ice-accent-hover);
     transform: none;
 }
 
@@ -520,13 +654,6 @@ body.create-quotation-page .quotation-chat-message button.is-updated:hover {
     color: #523913;
 }
 
-/* Hamburger: subtle contrast on light header (inherits hamburger_menu.css) */
-body.create-quotation-page .hamburger-menu-container .hamburger-btn {
-    background: #fffef8;
-    border: 1px solid #d4c4a8;
-    border-radius: 8px;
-}
-
 body.create-quotation-page #quotation-items-list .item-row .item-udf-moq,
 body.create-quotation-page #quotation-items-list .item-row .item-udf-dleadtime,
 body.create-quotation-page #quotation-items-list .item-row .item-udf-bundle {
@@ -540,13 +667,13 @@ body.create-quotation-page #quotation-items-list .item-row .item-udf-bundle {
  * and preserves a two-column row on viewports wider than the stack breakpoint.
  */
 body.create-quotation-page {
-    background: #f2e8d8 !important;
-    color: #3d2f1f !important;
+    background: var(--ice-bg) !important;
+    color: var(--ice-text) !important;
 }
 
 body.create-quotation-page .container,
 body.create-quotation-page .main-content {
-    background: #f2e8d8 !important;
+    background: var(--ice-bg) !important;
 }
 
 body.create-quotation-page .tab-content.active {
@@ -554,17 +681,17 @@ body.create-quotation-page .tab-content.active {
 }
 
 body.create-quotation-page .form-container {
-    background: #fffaf0 !important;
-    color: #3d2f1f !important;
-    border: 1px solid #e2cfab !important;
+    background: var(--ice-surface) !important;
+    color: var(--ice-text) !important;
+    border: 1px solid var(--ice-border) !important;
 }
 
 body.create-quotation-page .form-container h3 {
-    color: #4f3b2a !important;
+    color: var(--ice-heading) !important;
 }
 
 body.create-quotation-page .form-container h4 {
-    color: #4f3b2a !important;
+    color: var(--ice-heading) !important;
 }
 
 body.create-quotation-page .create-quotation-layout {
@@ -587,6 +714,213 @@ body.create-quotation-page .create-quotation-layout {
 
 @media (max-width: 960px) {
     body.create-quotation-page .create-quotation-layout {
+        flex-direction: column !important;
+        flex-wrap: wrap !important;
+    }
+}
+
+/* Update quotation — compact table rows for line items */
+body.update-quotation-page {
+    margin: 0;
+    background: var(--ice-bg, #e3f2fa);
+    color: var(--ice-text, #1e3a52);
+}
+
+body.update-quotation-page .container,
+body.update-quotation-page .main-content {
+    background: var(--ice-bg, #e3f2fa);
+}
+
+body.update-quotation-page .create-quotation-lines-panel {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Line grid: shared columns for header + rows (avoids orderQuotation #quotation-items-list flex) */
+body.update-quotation-page #update-quotation-form {
+    --uq-line-cols:
+        minmax(96px, 0.85fr)
+        minmax(160px, 2.4fr)
+        minmax(52px, 0.45fr)
+        minmax(60px, 0.5fr)
+        minmax(68px, 0.5fr)
+        minmax(68px, 0.5fr)
+        minmax(112px, 0.75fr)
+        36px;
+}
+
+body.update-quotation-page #update-quotation-form .update-quotation-table-wrap {
+    margin-bottom: 10px;
+    min-width: 720px;
+}
+
+body.update-quotation-page #update-quotation-form .update-quotation-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 13px;
+    background: var(--ice-surface, #fff);
+    border: 1px solid var(--ice-border-soft, #c5dce9);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+body.update-quotation-page #update-quotation-form .update-quotation-table thead,
+body.update-quotation-page #update-quotation-form .update-quotation-table tbody#update-quotation-line-items {
+    display: block;
+}
+
+body.update-quotation-page #update-quotation-form .update-quotation-table thead tr,
+body.update-quotation-page #update-quotation-form .update-quotation-table tbody#update-quotation-line-items tr.quotation-line-row {
+    display: grid !important;
+    grid-template-columns: var(--uq-line-cols) !important;
+    gap: 6px;
+    align-items: center;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+body.update-quotation-page #update-quotation-form .update-quotation-table thead tr {
+    padding: 6px 8px;
+    background: var(--ice-surface-muted, #e8f4fc);
+    border-bottom: 1px solid var(--ice-border-soft, #c5dce9);
+}
+
+body.update-quotation-page #update-quotation-form .update-quotation-table thead th,
+body.update-quotation-page #update-quotation-form .update-quotation-table tbody tr.quotation-line-row td {
+    display: block !important;
+    min-width: 0;
+    padding: 0 2px;
+    box-sizing: border-box;
+}
+
+body.update-quotation-page #update-quotation-form .update-quotation-table thead th {
+    text-align: left;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ice-text-muted, #5a7a94);
+    white-space: nowrap;
+}
+
+body.update-quotation-page #update-quotation-form .update-quotation-table thead th.col-numeric {
+    text-align: center;
+}
+
+body.update-quotation-page #update-quotation-form .update-quotation-table tbody tr.quotation-line-row {
+    padding: 3px 8px;
+    border-bottom: 1px solid var(--ice-border-soft, #c5dce9);
+}
+
+body.update-quotation-page #update-quotation-form .update-quotation-table tbody tr.quotation-line-row:nth-child(even) {
+    background: var(--ice-surface-muted, #f4fafd);
+}
+
+body.update-quotation-page #update-quotation-form .update-quotation-table tbody tr.quotation-line-row:last-child {
+    border-bottom: none;
+}
+
+body.update-quotation-page #update-quotation-form .update-quotation-table tbody tr.update-quotation-loading-row {
+    display: block !important;
+    padding: 12px;
+    text-align: center;
+}
+
+body.update-quotation-page #update-quotation-form .update-quotation-table tbody tr.update-quotation-loading-row td {
+    display: block !important;
+    width: 100%;
+}
+
+body.update-quotation-page #update-quotation-form .update-quotation-table td input,
+body.update-quotation-page #update-quotation-form .update-quotation-table td select {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 4px 6px;
+    font-size: 12px;
+    border: 1px solid var(--ice-border-soft, #c5dce9);
+    border-radius: 4px;
+    background: #fff;
+}
+
+body.update-quotation-page #update-quotation-form .update-quotation-table td select {
+    padding-right: 24px;
+}
+
+body.update-quotation-page #update-quotation-form .update-quotation-table td select.item-product {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+body.update-quotation-page #update-quotation-form .update-quotation-table td .item-suggested-price,
+body.update-quotation-page #update-quotation-form .update-quotation-table td .item-price {
+    text-align: center;
+}
+
+body.update-quotation-page #update-quotation-form .update-quotation-table td .item-suggested-price {
+    background: var(--ice-surface-muted, #e8f4fc);
+}
+
+body.update-quotation-page #update-quotation-form .update-quotation-table td .item-price {
+    background: #fff !important;
+    cursor: text;
+}
+
+body.update-quotation-page #update-quotation-form .update-quotation-table td.col-actions {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+body.update-quotation-page #update-quotation-form .update-quotation-table td.col-numeric {
+    text-align: center;
+}
+
+body.update-quotation-page #update-quotation-form .update-quotation-table .btn-remove {
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    padding: 0;
+    line-height: 1;
+    font-size: 14px;
+}
+
+body.update-quotation-page .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+body.update-quotation-page .update-quotation-loading {
+    padding: 12px;
+    text-align: center;
+    color: var(--ice-text-muted, #5a7a94);
+    font-size: 13px;
+}
+
+@media (min-width: 961px) {
+    body.update-quotation-page .create-quotation-layout {
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+    }
+
+    body.update-quotation-page .create-quotation-lines-panel {
+        min-width: 0;
+        flex: 1 1 0% !important;
+    }
+}
+
+@media (max-width: 960px) {
+    body.update-quotation-page .create-quotation-layout {
         flex-direction: column !important;
         flex-wrap: wrap !important;
     }

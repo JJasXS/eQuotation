@@ -89,6 +89,16 @@ class SqlAccountingApiSettings:
             path = "/" + path
         return f"{scheme}://{host}{quote(path, safe='/:?&=%')}"
 
+    def resolved_quotation_update_url(self, dockey: int) -> str:
+        """Full URL for sales quotation update PUT (``/salesquotation/{dockey}``)."""
+        scheme = "https" if self.use_tls else "http"
+        host = self.host.strip().rstrip("/")
+        path = self.quotation_create_path.strip() or "/salesquotation"
+        if not path.startswith("/"):
+            path = "/" + path
+        path = path.rstrip("/") + f"/{int(dockey)}"
+        return f"{scheme}://{host}{quote(path, safe='/:?&=%')}"
+
     def resolved_list_get_url(self, path: str, query: dict[str, str | int] | None = None) -> str:
         """Build a signed-GET URL for list endpoints (e.g. ``/area``, ``/currency``) with query string."""
         scheme = "https" if self.use_tls else "http"

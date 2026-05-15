@@ -26,41 +26,66 @@
     position: fixed;
     right: 24px;
     bottom: 88px;
-    width: min(320px, calc(100vw - 32px));
-    padding: 12px 14px;
-    border: 1px solid rgba(91, 130, 182, 0.35);
-    border-radius: 16px 16px 6px 16px;
-    background: linear-gradient(180deg, #314154 0%, #25303c 100%);
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+    box-sizing: border-box;
+    width: min(280px, calc(100vw - 32px));
+    padding: 12px 16px;
+    border: 1px solid rgba(91, 130, 182, 0.4);
+    border-radius: 18px 18px 6px 18px;
+    background: linear-gradient(180deg, #f8fbff 0%, #eef4fc 100%);
+    box-shadow: 0 10px 28px rgba(91, 130, 182, 0.22);
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    color: #f3f6fb;
+    align-items: flex-start;
+    color: #1e293b;
     cursor: pointer;
     z-index: 10040;
     opacity: 1;
     transform: translateY(0) scale(1);
-    transition: opacity 0.22s ease, transform 0.22s ease;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    animation: quotationChatPreviewIn 0.25s ease-out;
 }
-.quotation-chat-preview:hover {
+.quotation-chat-preview::after {
+    content: '';
+    position: absolute;
+    right: 18px;
+    bottom: -8px;
+    width: 14px;
+    height: 14px;
+    background: #eef4fc;
+    border-right: 1px solid rgba(91, 130, 182, 0.4);
+    border-bottom: 1px solid rgba(91, 130, 182, 0.4);
+    transform: rotate(45deg);
+    box-shadow: 4px 4px 8px rgba(91, 130, 182, 0.08);
+}
+.quotation-chat-preview:hover:not(.quotation-chat-preview-fade-out) {
     transform: translateY(-2px);
 }
 .quotation-chat-preview-hidden {
     opacity: 0;
     pointer-events: none;
-    transform: translateY(12px) scale(0.98);
+    transform: translateY(10px) scale(0.96);
 }
-.quotation-chat-preview-label {
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: #9fc2f2;
+.quotation-chat-preview-fade-out {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    pointer-events: none;
+}
+@keyframes quotationChatPreviewIn {
+    from {
+        opacity: 0;
+        transform: translateY(14px) scale(0.94);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
 }
 .quotation-chat-preview-text {
-    font-size: 14px;
-    line-height: 1.4;
+    font-size: 15px;
+    line-height: 1.45;
     text-align: left;
+    font-weight: 500;
 }
 .quotation-chat-popup {
     position: fixed;

@@ -1,7 +1,10 @@
 import fdb
 
 
-PRICING_PRIORITY_RULE_DEFAULTS = [
+PRICING_PRIORITY_RULE_CONTEXT_SALES = 'SALES'
+PRICING_PRIORITY_RULE_CONTEXT_PURCHASING = 'PURCHASING'
+
+PRICING_PRIORITY_RULE_SALES_DEFAULTS = [
     ('CUSTOMER_PRICE_TAG', 'Customer Price Tag', 1, 1),
     ('REF_PRICE_BASED_ON_UOM', 'Ref. Price of Item Based on UOM', 2, 1),
     ('MIN_MAX_SELLING_PRICE', 'Min & Max Selling Price', 3, 1),
@@ -12,6 +15,19 @@ PRICING_PRIORITY_RULE_DEFAULTS = [
     ('LAST_CASH_SALES_SELLING_PRICE', 'Last Cash Sales Selling Price', 8, 1),
     ('LAST_SALES_INVOICE_CASH_SALES_SELLING_PRICE', 'Last Sales Invoice / Cash Sales Selling Price', 9, 1),
 ]
+
+PRICING_PRIORITY_RULE_PURCHASING_DEFAULTS = [
+    ('SUPPLIER_PRICE_TAG', 'Supplier Price Tag', 1, 1),
+    ('REF_COST_BASED_ON_UOM', 'Ref. Cost of Item Based on UOM', 2, 1),
+    ('MIN_MAX_PURCHASE_PRICE', 'Min & Max Purchase Price', 3, 1),
+    ('LAST_QUOTATION_PURCHASE_PRICE', 'Last Quotation Purchase Price', 4, 1),
+    ('LAST_PURCHASE_ORDER_PRICE', 'Last Purchase Order Price', 5, 1),
+    ('LAST_GOODS_RECEIVED_PRICE', 'Last Goods Received Note Price', 6, 1),
+    ('LAST_PURCHASE_INVOICE_PRICE', 'Last Purchase Invoice Price', 7, 1),
+]
+
+# Backward-compatible alias
+PRICING_PRIORITY_RULE_DEFAULTS = PRICING_PRIORITY_RULE_SALES_DEFAULTS
 
 
 def _execute_ddl(conn, sql, success_message=None, ignore_if_contains=None):
@@ -110,6 +126,66 @@ def _ensure_sl_qt_udf_status_column(conn):
             print("[DB INIT] UDF_STATUS column already exists in SL_QT")
             return True
         print(f"[DB INIT WARNING] Could not add UDF_STATUS to SL_QT: {e}")
+        return False
+    finally:
+        cur.close()
+
+
+def _ensure_sl_qt_udf_creator_email_column(conn):
+    """Ensure SL_QT has UDF_CREATOR_EMAIL (eQuotation login email of whoever submitted the QT)."""
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            '''
+            SELECT f.RDB$FIELD_NAME
+            FROM RDB$RELATION_FIELDS f
+            WHERE f.RDB$RELATION_NAME = 'SL_QT' AND f.RDB$FIELD_NAME = 'UDF_CREATOR_EMAIL'
+            '''
+        )
+        if cur.fetchone():
+            print("[DB INIT] UDF_CREATOR_EMAIL column already exists in SL_QT")
+            return True
+        conn.commit()
+        cur.execute('ALTER TABLE SL_QT ADD UDF_CREATOR_EMAIL VARCHAR(254)')
+        conn.commit()
+        print("[DB INIT] UDF_CREATOR_EMAIL column added to SL_QT")
+        return True
+    except Exception as e:
+        error_msg = str(e).lower()
+        if 'already exists' in error_msg or 'duplicate' in error_msg:
+            print("[DB INIT] UDF_CREATOR_EMAIL column already exists in SL_QT")
+            return True
+        print(f"[DB INIT WARNING] Could not add UDF_CREATOR_EMAIL to SL_QT: {e}")
+        return False
+    finally:
+        cur.close()
+
+
+def _ensure_sl_qt_udf_creator_department_column(conn):
+    """Ensure SL_QT has UDF_CREATOR_DEPARTMENT (eQuotation login department of whoever submitted the QT)."""
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            '''
+            SELECT f.RDB$FIELD_NAME
+            FROM RDB$RELATION_FIELDS f
+            WHERE f.RDB$RELATION_NAME = 'SL_QT' AND f.RDB$FIELD_NAME = 'UDF_CREATOR_DEPARTMENT'
+            '''
+        )
+        if cur.fetchone():
+            print("[DB INIT] UDF_CREATOR_DEPARTMENT column already exists in SL_QT")
+            return True
+        conn.commit()
+        cur.execute('ALTER TABLE SL_QT ADD UDF_CREATOR_DEPARTMENT VARCHAR(120)')
+        conn.commit()
+        print("[DB INIT] UDF_CREATOR_DEPARTMENT column added to SL_QT")
+        return True
+    except Exception as e:
+        error_msg = str(e).lower()
+        if 'already exists' in error_msg or 'duplicate' in error_msg:
+            print("[DB INIT] UDF_CREATOR_DEPARTMENT column already exists in SL_QT")
+            return True
+        print(f"[DB INIT WARNING] Could not add UDF_CREATOR_DEPARTMENT to SL_QT: {e}")
         return False
     finally:
         cur.close()
@@ -1424,27 +1500,103 @@ def _ensure_pricing_priority_rule_table(conn):
     )
 
 
+def _pricing_priority_rule_has_context_column(conn) -> bool:
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            '''
+            SELECT 1
+            FROM RDB$RELATION_FIELDS
+            WHERE RDB$RELATION_NAME = 'PRICINGPRIORITYRULE'
+              AND RDB$FIELD_NAME = 'RULECONTEXT'
+            '''
+        )
+        return bool(cur.fetchone())
+    finally:
+        cur.close()
+
+
+def _ensure_pricing_priority_rule_context_column(conn):
+    """Add RuleContext (SALES / PURCHASING) for separate priority lists."""
+    if _pricing_priority_rule_has_context_column(conn):
+        print('[DB INIT] PricingPriorityRule.RuleContext column already exists')
+        return
+
+    _execute_ddl(
+        conn,
+        "ALTER TABLE PricingPriorityRule ADD RuleContext VARCHAR(20) DEFAULT 'SALES' NOT NULL",
+        success_message='[DB INIT] PricingPriorityRule.RuleContext column added.',
+        ignore_if_contains=['already exists', 'duplicate'],
+    )
+
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            '''
+            UPDATE PricingPriorityRule
+            SET RuleContext = ?
+            WHERE RuleContext IS NULL OR TRIM(RuleContext) = ''
+            ''',
+            (PRICING_PRIORITY_RULE_CONTEXT_SALES,),
+        )
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f'[DB INIT WARNING] Could not backfill PricingPriorityRule.RuleContext: {e}')
+    finally:
+        cur.close()
+
+
 def _seed_pricing_priority_rules(conn):
     """Insert missing default pricing priority rules without overwriting saved admin order."""
+    has_context = _pricing_priority_rule_has_context_column(conn)
+    # Purchasing rules are not seeded until procurement pricing is implemented.
+    seed_sets = (
+        (PRICING_PRIORITY_RULE_CONTEXT_SALES, PRICING_PRIORITY_RULE_SALES_DEFAULTS),
+    )
     cur = conn.cursor()
     inserted = 0
     try:
-        for rule_code, rule_name, priority_no, is_enabled in PRICING_PRIORITY_RULE_DEFAULTS:
-            cur.execute(
-                'SELECT PricingPriorityRuleId FROM PricingPriorityRule WHERE RuleCode = ?',
-                (rule_code,)
-            )
-            if cur.fetchone():
+        for rule_context, defaults in seed_sets:
+            if rule_context == PRICING_PRIORITY_RULE_CONTEXT_PURCHASING and not has_context:
                 continue
+            for rule_code, rule_name, priority_no, is_enabled in defaults:
+                if has_context:
+                    cur.execute(
+                        '''
+                        SELECT PricingPriorityRuleId
+                        FROM PricingPriorityRule
+                        WHERE RuleCode = ? AND RuleContext = ?
+                        ''',
+                        (rule_code, rule_context),
+                    )
+                else:
+                    if rule_context != PRICING_PRIORITY_RULE_CONTEXT_SALES:
+                        continue
+                    cur.execute(
+                        'SELECT PricingPriorityRuleId FROM PricingPriorityRule WHERE RuleCode = ?',
+                        (rule_code,),
+                    )
+                if cur.fetchone():
+                    continue
 
-            cur.execute(
-                '''
-                INSERT INTO PricingPriorityRule (RuleCode, RuleName, PriorityNo, IsEnabled, AddDate)
-                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-                ''',
-                (rule_code, rule_name, priority_no, is_enabled)
-            )
-            inserted += 1
+                if has_context:
+                    cur.execute(
+                        '''
+                        INSERT INTO PricingPriorityRule (RuleCode, RuleName, PriorityNo, IsEnabled, RuleContext, AddDate)
+                        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        ''',
+                        (rule_code, rule_name, priority_no, is_enabled, rule_context),
+                    )
+                else:
+                    cur.execute(
+                        '''
+                        INSERT INTO PricingPriorityRule (RuleCode, RuleName, PriorityNo, IsEnabled, AddDate)
+                        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        ''',
+                        (rule_code, rule_name, priority_no, is_enabled),
+                    )
+                inserted += 1
 
         conn.commit()
         if inserted:
@@ -2027,6 +2179,10 @@ def initialize_database(db_path, db_user, db_password):
         # Workflow status on posted quotations (mirrors salesquotation udf_status when synced)
         _ensure_sl_qt_udf_status_column(conn)
 
+        # Submitter identity for multi-email customers (eQuotation session email)
+        _ensure_sl_qt_udf_creator_email_column(conn)
+        _ensure_sl_qt_udf_creator_department_column(conn)
+
         # Ensure SL_QT has REMARKS column for manual notes
         _ensure_sl_qt_remarks_column(conn)
 
@@ -2087,6 +2243,7 @@ def initialize_database(db_path, db_user, db_password):
 
         # Ensure pricing priority rule settings table exists and is seeded
         _ensure_pricing_priority_rule_table(conn)
+        _ensure_pricing_priority_rule_context_column(conn)
         _seed_pricing_priority_rules(conn)
 
         # Ensure PH_PQ status/approval triggers exist

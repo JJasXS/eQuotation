@@ -16,32 +16,35 @@
     </button>
     <div class="hamburger-overlay" id="hamburger-overlay"></div>
     <div class="hamburger-dropdown" id="hamburger-dropdown">
-        {% if perm_admin_dashboard %}
-        <a href="/admin">Admin Dashboard</a>
-        {% endif %}
+        <div class="hamburger-dropdown__body">
+            {% if perm_admin_dashboard %}
+            <a href="/admin">Admin Dashboard</a>
+            {% endif %}
 
-        {% if perm_purchase_menu %}
-        <a href="/admin/procurement?tab=report">Purchase Dashboard</a>
-        <a href="/admin/procurement?tab=create">Create e-Purchase Request</a>
-        <a href="/admin/procurement?tab=view">View e-Purchase Request</a>
-        <a href="/admin/procurement/bidding">Supplier Bidding</a>
-        {% endif %}
+            {% if perm_purchase_menu %}
+            <a href="/admin/procurement?tab=report">Purchase Dashboard</a>
+            <a href="/admin/procurement?tab=create">Create e-Purchase Request</a>
+            <a href="/admin/procurement?tab=view">View e-Purchase Request</a>
+            <a href="/admin/procurement/bidding">Supplier Bidding</a>
+            {% endif %}
 
-        {% if not is_supplier and perm_create_quotation %}
-        <a href="/create-quotation" id="menu-create-quotation">Create Quotation</a>
-        {% endif %}
-        {% if not is_supplier and perm_view_quotation_ui %}
-        <a href="{{ view_quotation_href }}">View Quotation</a>
-        {% endif %}
+            {% if not is_supplier and perm_create_quotation %}
+            <a href="/create-quotation" id="menu-create-quotation">Create Quotation</a>
+            {% endif %}
+            {% if not is_supplier and perm_view_quotation_ui %}
+            <a href="{{ view_quotation_href }}">View Quotation</a>
+            {% endif %}
 
-        {% if is_supplier %}
-        <a href="/supplier/bidding">Supplier Bidding</a>
-        {% endif %}
+            {% if is_supplier %}
+            <a href="/supplier/bidding">Supplier Bidding</a>
+            {% endif %}
 
-        {% if perm_pricing_priority %}
-        <a href="/admin/pricing-priority-rules">Set Priority Rules</a>
-        {% endif %}
-
-        <a href="/logout" class="logout-link">Log Out</a>
+            {% if perm_pricing_priority %}
+            <a href="/admin/pricing-priority-rules">Set Priority Rules</a>
+            {% endif %}
+        </div>
+        <div class="hamburger-dropdown__footer">
+            <a href="/logout" class="logout-link">Log Out</a>
+        </div>
     </div>
 </div>

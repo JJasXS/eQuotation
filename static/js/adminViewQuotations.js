@@ -4,7 +4,7 @@ let cancelledQuotationsCache = [];
 let pendingQuotationsCache = [];
 let companyFilter = '';
 /** One or more of: drafts, pending, reviewed, cancelled. At least one must stay selected. */
-let selectedQuotationTabFilters = new Set(['reviewed']);
+let selectedQuotationTabFilters = new Set(['pending']);
 let selectedActiveQuotations = new Set();
 let selectedPendingQuotations = new Set();
 let selectedQuotationDockey = null;
@@ -34,6 +34,26 @@ function escapeHtml(s) {
         .replace(/'/g, '&#39;');
 }
 
+/** Escaped `email from (department)`; empty if both missing. */
+function formatSubmittedByCreatorInner(emailRaw, deptRaw) {
+    const e = emailRaw != null ? String(emailRaw).trim() : '';
+    const d = deptRaw != null ? String(deptRaw).trim() : '';
+    if (!e && !d) return '';
+    if (e && d) return `${escapeHtml(e)} from (${escapeHtml(d)})`;
+    if (e) return escapeHtml(e);
+    return `(${escapeHtml(d)})`;
+}
+
+function formatCreatorEmailDisplay(emailRaw) {
+    const e = emailRaw != null ? String(emailRaw).trim() : '';
+    return e ? escapeHtml(e) : '—';
+}
+
+function formatCreatorDepartmentDisplay(deptRaw) {
+    const d = deptRaw != null ? String(deptRaw).trim() : '';
+    return d ? escapeHtml(d) : '—';
+}
+
 /** Avoid cache collisions between SL_QT and SL_QTDRAFT rows that share a dockey (edge case). */
 function quotationDetailCacheKey(row) {
     if (!row || row.DOCKEY == null) return '';
@@ -45,18 +65,18 @@ function quotationDetailCacheKey(row) {
 function buildViewQuotationsShellHtml(showAdminFilters) {
     const filterInner = showAdminFilters
         ? `
-                        <label style="display: flex; align-items: center; gap: 6px; color: #87684d; font-size: 13px;">From
-                            <input type="date" id="quotation-date-from" style="padding: 6px 10px; border-radius: 6px; border: 1px solid #e2cfab; background: #fffaf0; color: #4f3b2a; font-size: 13px;">
+                        <label class="quotation-filter-label">From
+                            <input type="date" id="quotation-date-from" class="quotation-filter-input">
                         </label>
-                        <label style="display: flex; align-items: center; gap: 6px; color: #87684d; font-size: 13px;">To
-                            <input type="date" id="quotation-date-to" style="padding: 6px 10px; border-radius: 6px; border: 1px solid #e2cfab; background: #fffaf0; color: #4f3b2a; font-size: 13px;">
+                        <label class="quotation-filter-label">To
+                            <input type="date" id="quotation-date-to" class="quotation-filter-input">
                         </label>
-                        <button type="button" id="quotation-date-apply" style="padding: 8px 12px; border-radius: 6px; background: #b9894a; color: #fff; border: none; cursor: pointer; font-size: 13px;">Apply</button>
-                        <button type="button" id="quotation-date-clear" style="padding: 8px 12px; border-radius: 6px; background: #f8efdd; color: #7b5a36; border: 1px solid #e2cfab; cursor: pointer; font-size: 13px;">Clear dates</button>
-                        <select id="company-filter-dropdown" style="padding: 8px 12px; border-radius: 6px; border: 1px solid #e2cfab; background: #fffaf0; color: #4f3b2a; font-size: 13px; width: 240px;">
+                        <button type="button" id="quotation-date-apply" class="quotation-filter-btn quotation-filter-btn--primary">Apply</button>
+                        <button type="button" id="quotation-date-clear" class="quotation-filter-btn quotation-filter-btn--secondary">Clear dates</button>
+                        <select id="company-filter-dropdown" class="quotation-company-select">
                             <option value="">All Companies</option>
                         </select>
-                        <button id="company-filter-clear" style="padding: 8px 12px; border-radius: 6px; background: #f8efdd; color: #7b5a36; border: 1px solid #e2cfab; cursor: pointer; font-size: 13px;">Clear</button>
+                        <button type="button" id="company-filter-clear" class="quotation-filter-btn quotation-filter-btn--secondary">Clear</button>
                     `
         : `
                         
@@ -532,7 +552,7 @@ function setQuotationTab(tabName) {
 
 function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = false) {
     if (!list || list.length === 0) {
-        return '<div style="padding: 12px; text-align: center; color: #7b5a36;">No quotations</div>';
+        return '<div class="quotation-list-empty">No quotations</div>';
     }
 
     const hideStatus = hideQuotationStatusActionsFromPage();
@@ -542,35 +562,34 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
     if (hasPendingInList && !hideStatus) {
         controlsHtml += `
             <div class="active-tab-controls show">
-                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; user-select: none; color: #5c4028;">
-                    <input type="checkbox" id="select-all-pending" onchange="toggleSelectAllPending(event)" style="width: 18px; height: 18px; cursor: pointer; accent-color: #4b9e6e;">
+                <label class="quotation-bulk-select-label">
+                    <input type="checkbox" id="select-all-pending" onchange="toggleSelectAllPending(event)" style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--ice-accent, #3b8fc4);">
                     Select All
                 </label>
                 <button type="button" id="bulk-review-pending-btn" onclick="performBulkReviewPending()" class="btn-bulk-review-pending" disabled>
                     Reviewed
                 </button>
-                <span id="selected-count-pending" style="margin-left: auto; font-size: 14px; color: #87684d; font-weight: 500;">0 selected</span>
+                <span id="selected-count-pending" class="quotation-bulk-selected-count">0 selected</span>
             </div>
         `;
     }
     if (hasReviewedInList && !hideStatus) {
         controlsHtml += `
             <div class="active-tab-controls show">
-                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; user-select: none; color: #5c4028;">
+                <label class="quotation-bulk-select-label">
                     <input type="checkbox" id="select-all-active" onchange="toggleSelectAllActive(event)" style="width: 18px; height: 18px; cursor: pointer; accent-color: #dc3545;">
                     Select All
                 </label>
                 <button id="bulk-delete-active-btn" onclick="showDeleteConfirmActive()" class="btn-delete-active" disabled>
                     Batch cancel selected
                 </button>
-                <span id="selected-count-active" style="margin-left: auto; font-size: 14px; color: #87684d; font-weight: 500;">0 selected</span>
+                <span id="selected-count-active" class="quotation-bulk-selected-count">0 selected</span>
             </div>
         `;
     }
 
     const docLabel = (qtRow) => escapeHtml(qtRow.DOCNO || (`DOCKEY #${qtRow.DOCKEY}`));
     const docDateEsc = (qtRow) => escapeHtml(formatDateForDisplay(qtRow.DOCDATE));
-
     let html = controlsHtml;
     html += `
         <table class="quotation-list-table" role="grid" aria-label="Quotations">
@@ -578,6 +597,8 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
                 <col class="quotation-list-col quotation-list-col--chk" />
                 <col class="quotation-list-col quotation-list-col--doc" />
                 <col class="quotation-list-col quotation-list-col--date" />
+                <col class="quotation-list-col quotation-list-col--creator" />
+                <col class="quotation-list-col quotation-list-col--department" />
                 <col class="quotation-list-col quotation-list-col--amount" />
                 <col class="quotation-list-col quotation-list-col--actions" />
             </colgroup>
@@ -586,6 +607,8 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
                     <th class="quotation-list-th quotation-list-th--chk" scope="col"><span class="visually-hidden">Select</span></th>
                     <th class="quotation-list-th quotation-list-th--doc" scope="col">QT code</th>
                     <th class="quotation-list-th quotation-list-th--date" scope="col">Date</th>
+                    <th class="quotation-list-th quotation-list-th--creator" scope="col">Submitted by</th>
+                    <th class="quotation-list-th quotation-list-th--department" scope="col">Department</th>
                     <th class="quotation-list-th quotation-list-th--amount" scope="col">Amount</th>
                     <th class="quotation-list-th quotation-list-th--actions" scope="col">Actions</th>
                 </tr>
@@ -614,7 +637,7 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
         if (!hideStatus && isReviewed) {
             checkboxHtml = `<input type="checkbox" class="quotation-checkbox-active" data-dockey="${qt.DOCKEY}" ${selectedActiveQuotations.has(Number(qt.DOCKEY)) ? 'checked' : ''} onchange="handleActiveCheckboxChange(); event.stopPropagation();" style="width: 18px; height: 18px; cursor: pointer; accent-color: #dc3545; flex-shrink: 0;">`;
         } else if (!hideStatus && isPending) {
-            checkboxHtml = `<input type="checkbox" class="quotation-checkbox-pending" data-dockey="${qt.DOCKEY}" ${selectedPendingQuotations.has(Number(qt.DOCKEY)) ? 'checked' : ''} onchange="handlePendingCheckboxChange(); event.stopPropagation();" style="width: 18px; height: 18px; cursor: pointer; accent-color: #4b9e6e; flex-shrink: 0;">`;
+            checkboxHtml = `<input type="checkbox" class="quotation-checkbox-pending" data-dockey="${qt.DOCKEY}" ${selectedPendingQuotations.has(Number(qt.DOCKEY)) ? 'checked' : ''} onchange="handlePendingCheckboxChange(); event.stopPropagation();" style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--ice-accent, #3b8fc4); flex-shrink: 0;">`;
         }
 
         const chkCell = checkboxHtml
@@ -633,6 +656,12 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
                     <div class="quotation-list-cell-center">
                         <span class="quotation-card__date-value">${docDateEsc(qt)}</span>
                     </div>
+                </td>
+                <td class="quotation-card__cell quotation-card__cell--creator">
+                    <div class="quotation-list-cell-center quotation-list-cell--creator" title="eQuotation submitter email">${formatCreatorEmailDisplay(qt.creatorEmail)}</div>
+                </td>
+                <td class="quotation-card__cell quotation-card__cell--department">
+                    <div class="quotation-list-cell-center quotation-list-cell--department" title="Department at submission">${formatCreatorDepartmentDisplay(qt.creatorDepartment)}</div>
                 </td>
                 <td class="quotation-card__cell quotation-card__cell--amount">
                     <div class="quotation-list-cell-center quotation-list-cell-center--amount">
@@ -698,6 +727,8 @@ async function renderQuotationDetail(currentList, options = {}) {
         <div class="quotation-detail-meta">
             <span><strong>Date:</strong> ${docDate}</span>
             <span><strong>Valid Until:</strong> ${validity}</span>
+            <span><strong>Submitted by:</strong> ${formatCreatorEmailDisplay(selected.creatorEmail)}</span>
+            <span><strong>Department:</strong> ${formatCreatorDepartmentDisplay(selected.creatorDepartment)}</span>
         </div>
         <div class="quotation-detail-actions">
             ${isDrafts && !hideStatus ? `<button class="edit-button" onclick="editQuotation(${selected.DOCKEY})">Edit</button>` : ''}
@@ -752,14 +783,14 @@ async function renderQuotationDetail(currentList, options = {}) {
             const itemCode = item.ITEMCODE != null ? String(item.ITEMCODE).trim() : '';
             const description = item.DESCRIPTION != null ? String(item.DESCRIPTION).trim() : '';
             const codeLine = itemCode
-                ? `<div style="font-weight: 600; color:#4f3b2a;">${itemCode.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`
+                ? `<div style="font-weight: 600; color: var(--ice-heading, #1a4d6e);">${itemCode.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`
                 : '';
             const descLine = description
-                ? `<div style="color: #6d5238; font-size: 11px;">${description.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`
+                ? `<div style="color: var(--ice-text-muted, #5a7a94); font-size: 11px;">${description.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`
                 : '';
             const itemCell = codeLine || descLine
                 ? `<td>${codeLine}${descLine}</td>`
-                : '<td><span style="color:#6d5238;">—</span></td>';
+                : '<td><span style="color: var(--ice-text-muted, #5a7a94);">—</span></td>';
             itemsHtml += '<tr>';
             itemsHtml += itemCell;
             itemsHtml += `<td>RM ${price}</td><td>${qty}</td><td>RM ${discount}</td><td style="font-weight: 600;">RM ${amountRow}</td>`;

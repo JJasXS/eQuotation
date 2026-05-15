@@ -84,14 +84,25 @@ class PricingService:
             connection.close()
 
     def _load_enabled_rules(self, cursor) -> List[Dict[str, Any]]:
-        cursor.execute(
-            '''
-            SELECT RuleCode, RuleName, PriorityNo, IsEnabled
-            FROM PricingPriorityRule
-            WHERE IsEnabled = 1
-            ORDER BY PriorityNo ASC, PricingPriorityRuleId ASC
-            '''
-        )
+        if self._column_exists(cursor, 'PricingPriorityRule', 'RuleContext'):
+            cursor.execute(
+                '''
+                SELECT RuleCode, RuleName, PriorityNo, IsEnabled
+                FROM PricingPriorityRule
+                WHERE IsEnabled = 1
+                  AND RuleContext = 'SALES'
+                ORDER BY PriorityNo ASC, PricingPriorityRuleId ASC
+                '''
+            )
+        else:
+            cursor.execute(
+                '''
+                SELECT RuleCode, RuleName, PriorityNo, IsEnabled
+                FROM PricingPriorityRule
+                WHERE IsEnabled = 1
+                ORDER BY PriorityNo ASC, PricingPriorityRuleId ASC
+                '''
+            )
         rules: List[Dict[str, Any]] = []
         for row in cursor.fetchall():
             rules.append({
