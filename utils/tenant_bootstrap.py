@@ -20,8 +20,10 @@ Dynamo / JSON sections (case-insensitive names, Dynamo ``M`` / ``S`` / ``N`` unw
     it must include both an API key (``openaiApiKey`` / ``apiKey`` / …) and a model (``openaiModel`` / ``model`` / …).
     Dynamo ``openaiModel`` is ignored in that case so a single secret is the source of truth. Plaintext secrets
     may still pair with Dynamo ``openaiModel`` for the model only.
-  ``email``: ``smtpHost``, ``smtpPort``, ``smtpSenderEmail`` → ``SMTP_SERVER``, ``SMTP_PORT``, ``SMTP_EMAIL``;
-    ``smtpAppPasswordSecretRef`` → ``SMTP_PASSWORD`` (plaintext or JSON with ``password`` / ``smtpPassword`` / …).
+  ``email`` then ``proaccEmail`` (overlay): ``smtpHost``, ``smtpPort``, ``smtpSenderEmail`` → ``SMTP_SERVER``,
+    ``SMTP_PORT``, ``SMTP_EMAIL``; ``smtpCredentialsSecretRef`` → full JSON bundle in Secrets Manager (host/port/user/password,
+    same aliases as ProAccScanner); else ``smtpAppPasswordSecretRef`` → ``SMTP_PASSWORD`` (plaintext or JSON with
+    ``password`` / ``smtpPassword`` / …).
 
 Secrets Manager region: ``AWS_REGION``, ``TENANT_BOOTSTRAP_SECRETS_REGION``, or tenant ``sqlApiRegion`` /
 ``openaiRegion``. Skip all SM calls: ``TENANT_BOOTSTRAP_SKIP_SECRETS=1`` (then supply keys via
@@ -200,12 +202,168 @@ def _apply_smtp_password_secret(secret_text: str) -> str | None:
         if isinstance(parsed, dict):
             pw = _first_scalar_in_dict(
                 parsed,
-                ["smtpAppPassword", "smtpPassword", "appPassword", "password", "SMTP_PASSWORD"],
+                ["smtpAppPassword", "smtpPassword", "smtpPass", "appPassword", "password", "SMTP_PASSWORD"],
             )
             return pw.strip() if pw else None
     except json.JSONDecodeError:
         pass
     return text
+
+
+def _parse_smtp_credentials_json(secret_text: str) -> dict[str, Any]:
+    """
+    Parse a JSON SMTP bundle from Secrets Manager (non-JSON or invalid → empty dict).
+    Same field names as ProAccScanner ``TenantSmtpSecretResolver.ParseCredentialsJson``.
+    """
+    text = (secret_text or "").strip()
+    if not text or not text.startswith("{"):
+        return {}
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+
+    host = _first_scalar_in_dict(parsed, ["smtpHost", "host"])
+    port: int | None = None
+    for key in ("smtpPort", "port"):
+        raw = _first_scalar_in_dict(parsed, [key])
+        if raw:
+            try:
+                p = int(str(raw).strip(), 10)
+                if p > 0:
+                    port = p
+                    break
+            except ValueError:
+                continue
+
+    user = _first_scalar_in_dict(
+        parsed,
+        ["smtpUser", "user", "smtpSenderEmail", "senderEmail", "fromEmail"],
+    )
+    password = _first_scalar_in_dict(
+        parsed,
+        ["smtpPassword", "smtpAppPassword", "password", "SmtpPass", "smtpPass"],
+    )
+    out: dict[str, Any] = {}
+    if host and str(host).strip():
+        out["host"] = str(host).strip()
+    if port is not None:
+        out["port"] = port
+    if user and str(user).strip():
+        out["user"] = str(user).strip()
+    if password and str(password).strip():
+        out["password"] = str(password).replace(" ", "").strip()
+    return out
+
+
+def _smtp_overlay_from_section(section: Mapping[str, Any]) -> dict[str, str]:
+    """Scalar SMTP fields from one tenant ``email`` / ``proaccEmail`` map."""
+    keys = (
+        "smtpHost",
+        "smtpPort",
+        "smtpSenderEmail",
+        "smtpAppPasswordSecretRef",
+        "smtpCredentialsSecretRef",
+    )
+    out: dict[str, str] = {}
+    for k in keys:
+        v = _get_scalar_map(section, k)
+        if v and str(v).strip():
+            out[k] = str(v).strip()
+    return out
+
+
+def _merge_smtp_overlays(base: dict[str, str], overlay: dict[str, str]) -> dict[str, str]:
+    out = dict(base)
+    for k, v in overlay.items():
+        if v and str(v).strip():
+            out[k] = str(v).strip()
+    return out
+
+
+def _apply_merged_tenant_smtp_to_environ(
+    root: Mapping[str, Any],
+    *,
+    tenant_code: str,
+    sql_region: str | None,
+    oi_region: str | None,
+) -> None:
+    """Merge ``email`` + ``proaccEmail``, apply scalars, then credentials bundle, then app-password secret."""
+    merged: dict[str, str] = {}
+    email_sec = _find_section_recursive(root, "email")
+    if isinstance(email_sec, dict) and email_sec:
+        merged = _merge_smtp_overlays(merged, _smtp_overlay_from_section(email_sec))
+    pro_sec = _find_section_recursive(root, "proaccEmail")
+    if isinstance(pro_sec, dict) and pro_sec:
+        merged = _merge_smtp_overlays(merged, _smtp_overlay_from_section(pro_sec))
+    if not merged:
+        return
+
+    sm_region = _secrets_manager_region(sql_region, oi_region)
+    skip_sm = _truthy_env("TENANT_BOOTSTRAP_SKIP_SECRETS")
+
+    if merged.get("smtpHost"):
+        os.environ["SMTP_SERVER"] = merged["smtpHost"]
+    if merged.get("smtpPort"):
+        os.environ["SMTP_PORT"] = merged["smtpPort"]
+    if merged.get("smtpSenderEmail"):
+        os.environ["SMTP_EMAIL"] = merged["smtpSenderEmail"]
+
+    bundle_password_set = False
+    cred_ref = merged.get("smtpCredentialsSecretRef")
+    if cred_ref and not skip_sm:
+        try:
+            raw_cred = _fetch_secret_string(cred_ref, sm_region)
+            bundle = _parse_smtp_credentials_json(raw_cred)
+            if bundle.get("host"):
+                os.environ["SMTP_SERVER"] = str(bundle["host"]).strip()
+            if bundle.get("port") is not None:
+                os.environ["SMTP_PORT"] = str(int(bundle["port"]))
+            if bundle.get("user"):
+                os.environ["SMTP_EMAIL"] = str(bundle["user"]).strip()
+            if bundle.get("password"):
+                os.environ["SMTP_PASSWORD"] = str(bundle["password"])
+                bundle_password_set = True
+        except NoCredentialsError as exc:
+            if (os.getenv("SMTP_PASSWORD") or "").strip():
+                print(
+                    f"[tenant_bootstrap] No AWS credentials; skipping SMTP credentials bundle {cred_ref!r} — "
+                    "using SMTP_PASSWORD already in environment.",
+                    flush=True,
+                )
+            else:
+                raise RuntimeError(_sm_error_message(secret_ref=cred_ref, tenant_code=tenant_code, exc=exc)) from exc
+        except Exception as exc:
+            raise RuntimeError(_sm_error_message(secret_ref=cred_ref, tenant_code=tenant_code, exc=exc)) from exc
+    elif cred_ref and skip_sm:
+        print(
+            f"[tenant_bootstrap] Skipping smtpCredentialsSecretRef {cred_ref!r} (TENANT_BOOTSTRAP_SKIP_SECRETS).",
+            flush=True,
+        )
+
+    if bundle_password_set:
+        return
+
+    pwd_ref = merged.get("smtpAppPasswordSecretRef")
+    if pwd_ref and not skip_sm:
+        try:
+            raw_pw = _fetch_secret_string(pwd_ref, sm_region)
+            pw = _apply_smtp_password_secret(raw_pw)
+            if pw:
+                os.environ["SMTP_PASSWORD"] = pw
+        except NoCredentialsError as exc:
+            if (os.getenv("SMTP_PASSWORD") or "").strip():
+                print(
+                    f"[tenant_bootstrap] No AWS credentials; skipping SMTP app-password secret {pwd_ref!r} — "
+                    "using SMTP_PASSWORD already in environment.",
+                    flush=True,
+                )
+            else:
+                raise RuntimeError(_sm_error_message(secret_ref=pwd_ref, tenant_code=tenant_code, exc=exc)) from exc
+        except Exception as exc:
+            raise RuntimeError(_sm_error_message(secret_ref=pwd_ref, tenant_code=tenant_code, exc=exc)) from exc
 
 
 def _unwrap_dynamo_map(obj: Any) -> dict[str, Any]:
@@ -535,35 +693,7 @@ def apply_tenant_env_overrides() -> bool:
             if model_inline:
                 os.environ["OPENAI_MODEL"] = model_inline.strip()
 
-    em = _find_section_recursive(root, "email")
-    if isinstance(em, dict) and em:
-        smtp_host = _get_scalar_map(em, "smtpHost")
-        smtp_port = _get_scalar_map(em, "smtpPort")
-        smtp_sender = _get_scalar_map(em, "smtpSenderEmail")
-        if smtp_host:
-            os.environ["SMTP_SERVER"] = smtp_host.strip()
-        if smtp_port:
-            os.environ["SMTP_PORT"] = smtp_port.strip()
-        if smtp_sender:
-            os.environ["SMTP_EMAIL"] = smtp_sender.strip()
-        pwd_ref = _get_scalar_map(em, "smtpAppPasswordSecretRef")
-        if pwd_ref and not _truthy_env("TENANT_BOOTSTRAP_SKIP_SECRETS"):
-            try:
-                raw_pw = _fetch_secret_string(pwd_ref, _secrets_manager_region(sql_region, oi_region))
-                pw = _apply_smtp_password_secret(raw_pw)
-                if pw:
-                    os.environ["SMTP_PASSWORD"] = pw
-            except NoCredentialsError as exc:
-                if (os.getenv("SMTP_PASSWORD") or "").strip():
-                    print(
-                        f"[tenant_bootstrap] No AWS credentials; skipping SMTP secret {pwd_ref!r} — "
-                        "using SMTP_PASSWORD already in environment.",
-                        flush=True,
-                    )
-                else:
-                    raise RuntimeError(_sm_error_message(secret_ref=pwd_ref, tenant_code=code, exc=exc)) from exc
-            except Exception as exc:
-                raise RuntimeError(_sm_error_message(secret_ref=pwd_ref, tenant_code=code, exc=exc)) from exc
+    _apply_merged_tenant_smtp_to_environ(root, tenant_code=code, sql_region=sql_region, oi_region=oi_region)
 
     has_openai = bool((os.getenv("OPENAI_API_KEY") or "").strip())
     print(

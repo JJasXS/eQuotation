@@ -2333,7 +2333,11 @@ def api_send_otp():
             return jsonify({'success': False, 'error': 'Authentication lookup service unavailable'}), 500
 
         if not (is_admin or is_user or is_customer or is_supplier):
-            print(f"[DEBUG OTP] rejected (email not found): {email}", flush=True)
+            print(
+                f"[DEBUG OTP] rejected (email not in directory for login_mode={login_mode!r}): {email!r}. "
+                "Customer tab: AR_CUSTOMER email/UDF; Admin: SY_USER; Supplier: supplier email.",
+                flush=True,
+            )
             return jsonify({
                 'success': False,
                 'error': 'Email not found, please contact administrator'
@@ -2367,23 +2371,46 @@ def api_send_otp():
             </body>
         </html>
         """
-        
-        # Send email in background so OTP screen can render immediately.
-        def send_otp_email_async(target_email, target_subject, target_body):
-            try:
-                send_email(target_email, target_subject, target_body)
-            except Exception as mail_err:
-                print(f"[DEBUG OTP] async send_email failed for {target_email}: {mail_err}", flush=True)
+        # Send synchronously so API success matches real SMTP outcome (async used to hide failures).
+        import utils.email_utils as _eu_otp
+        has_smtp = bool((_eu_otp.SMTP_EMAIL or "").strip() and (_eu_otp.SMTP_PASSWORD or "").strip())
+        if not has_smtp:
+            print(
+                "[DEBUG OTP] SMTP_EMAIL or SMTP_PASSWORD is empty after appsettings/tenant bootstrap — "
+                "email will not leave the server (console DRY_RUN only). "
+                "Set tenant proaccEmail / smtpCredentialsSecretRef or .env SMTP_*.",
+                flush=True,
+            )
 
-        threading.Thread(
-            target=send_otp_email_async,
-            args=(email, subject, body),
-            daemon=True
-        ).start()
+        try:
+            mail_ok = send_email(email, subject, body)
+        except Exception as mail_err:
+            print(f"[DEBUG OTP] send_email raised for {email!r}: {mail_err}", flush=True)
+            del OTP_STORAGE[otp_key]
+            return jsonify({'success': False, 'error': f'Email send error: {mail_err}'}), 502
+
+        if has_smtp and not mail_ok:
+            print(f"[DEBUG OTP] send_email returned False for {email!r} (SMTP auth or transport failure).", flush=True)
+            del OTP_STORAGE[otp_key]
+            return jsonify({
+                'success': False,
+                'error': (
+                    'Could not send OTP email (SMTP failed). Check server logs, Gmail app password, '
+                    'and that SMTP_PORT matches your provider (587 STARTTLS vs 465).'
+                ),
+            }), 502
 
         response_payload = {
             'success': True,
-            'message': f'OTP sent to {email}',
+            'email_sent': bool(has_smtp and mail_ok),
+            'message': (
+                f'OTP sent to {email}'
+                if has_smtp and mail_ok
+                else (
+                    'OTP generated but email is not configured (missing SMTP_EMAIL/SMTP_PASSWORD). '
+                    'Check server console or enable debug for the code.'
+                )
+            ),
             'expiry': OTP_EXPIRY_SECONDS
         }
 

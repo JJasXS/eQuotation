@@ -1,6 +1,7 @@
 """Email utility functions."""
 import os
 import smtplib
+import ssl
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
@@ -37,6 +38,24 @@ def set_email_config(smtp_server, smtp_port, smtp_email, smtp_password):
     SMTP_PASSWORD = smtp_password
 
 
+def _smtp_socket_timeout_seconds() -> float:
+    """Upper bound for connect/read so OTP HTTP requests do not hang indefinitely (env ``SMTP_TIMEOUT``, default 25)."""
+    raw = (os.getenv("SMTP_TIMEOUT") or "25").strip()
+    try:
+        v = float(raw)
+    except ValueError:
+        v = 25.0
+    return max(5.0, min(v, 120.0))
+
+
+def _coerce_smtp_port(port) -> int:
+    try:
+        p = int(port)
+        return p if p > 0 else 587
+    except (TypeError, ValueError):
+        return 587
+
+
 def send_email(to_email, subject, body):
     """Send email using SMTP."""
     if not SMTP_EMAIL or not SMTP_PASSWORD:
@@ -66,11 +85,23 @@ def send_email(to_email, subject, body):
         msg['Subject'] = subject
         msg.attach(MIMEText(body, 'html'))
 
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
-            server.login(smtp_email, smtp_password)
-            server.send_message(msg)
-        print(f"Email sent successfully to {to_email}")
+        port = _coerce_smtp_port(SMTP_PORT)
+        tmo = _smtp_socket_timeout_seconds()
+        host = (SMTP_SERVER or "").strip()
+        print(f"[EMAIL] SMTP {host!r} port={port} timeout={tmo}s (implicit TLS on 465, STARTTLS on 587)", flush=True)
+
+        # Port 465 expects implicit TLS (same as MailKit SslOnConnect / ApprovalPO); STARTTLS on 465 can hang or fail.
+        if port == 465:
+            ctx = ssl.create_default_context()
+            with smtplib.SMTP_SSL(host, port, timeout=tmo, context=ctx) as server:
+                server.login(smtp_email, smtp_password)
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP(host, port, timeout=tmo) as server:
+                server.starttls(context=ssl.create_default_context())
+                server.login(smtp_email, smtp_password)
+                server.send_message(msg)
+        print(f"Email sent successfully to {to_email}", flush=True)
         return True
     except smtplib.SMTPAuthenticationError as e:
         err = str(e).lower()
@@ -98,6 +129,18 @@ def send_email(to_email, subject, body):
             return True
         print(f"Failed to send email: {e}{hint}", flush=True)
         return False
+    except (TimeoutError, OSError) as e:
+        low = str(e).lower()
+        if "timed out" in low or isinstance(e, TimeoutError):
+            print(
+                f"[EMAIL] SMTP timed out (limit {_smtp_socket_timeout_seconds()}s) connecting to "
+                f"{SMTP_SERVER!r}:{_coerce_smtp_port(SMTP_PORT)} — check firewall, host, port (587 vs 465), "
+                f"or set SMTP_TIMEOUT in the environment.",
+                flush=True,
+            )
+        else:
+            print(f"[EMAIL] SMTP network error: {e}", flush=True)
+        return False
     except Exception as e:
-        print(f"Failed to send email: {e}")
+        print(f"Failed to send email: {e}", flush=True)
         return False

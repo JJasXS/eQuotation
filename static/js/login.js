@@ -278,14 +278,22 @@ function handleEmailSubmit(event) {
     submitBtn.disabled = true;
     submitBtn.textContent = 'Sending OTP...';
 
+    const controller = new AbortController();
+    const clientOtpMs = 45000;
+    const abortTimer = setTimeout(() => controller.abort(), clientOtpMs);
+
     fetch('/api/send_otp', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ email: email, login_mode: currentLoginMode })
+        body: JSON.stringify({ email: email, login_mode: currentLoginMode }),
+        signal: controller.signal
     })
-        .then((res) => res.json())
+        .then((res) => {
+            clearTimeout(abortTimer);
+            return res.json();
+        })
         .then((data) => {
             submitBtn.disabled = false;
             submitBtn.textContent = 'Continue';
@@ -296,6 +304,13 @@ function handleEmailSubmit(event) {
                 showStep('otp-step');
                 if (data.debug_otp) {
                     showError(document.getElementById('otp-error'), `DEBUG OTP: ${data.debug_otp}`, 'success');
+                } else if (data.email_sent === false) {
+                    showError(
+                        document.getElementById('otp-error'),
+                        data.message ||
+                            'Email is not configured on the server (no SMTP). Check inbox only after fixing SMTP.',
+                        'warning'
+                    );
                 }
                 startResendTimer();
             } else {
@@ -303,9 +318,17 @@ function handleEmailSubmit(event) {
             }
         })
         .catch((err) => {
+            clearTimeout(abortTimer);
             submitBtn.disabled = false;
             submitBtn.textContent = 'Continue';
-            showError(emailError, 'Network error. Please try again.');
+            if (err && err.name === 'AbortError') {
+                showError(
+                    emailError,
+                    'Request timed out (SMTP or network). Check server logs, SMTP_TIMEOUT, firewall, and port 587 vs 465.'
+                );
+            } else {
+                showError(emailError, 'Network error. Please try again.');
+            }
             console.error(err);
         });
 }
@@ -363,18 +386,31 @@ function resendOtp() {
     const resendBtn = document.querySelector('.btn-resend');
     resendBtn.disabled = true;
 
+    const controller = new AbortController();
+    const abortTimer = setTimeout(() => controller.abort(), 45000);
+
     fetch('/api/send_otp', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ email: currentEmail, login_mode: currentLoginMode })
+        body: JSON.stringify({ email: currentEmail, login_mode: currentLoginMode }),
+        signal: controller.signal
     })
-        .then((res) => res.json())
+        .then((res) => {
+            clearTimeout(abortTimer);
+            return res.json();
+        })
         .then((data) => {
             if (data.success) {
                 if (data.debug_otp) {
                     showError(document.getElementById('otp-error'), `DEBUG OTP: ${data.debug_otp}`, 'success');
+                } else if (data.email_sent === false) {
+                    showError(
+                        document.getElementById('otp-error'),
+                        data.message || 'OTP regenerated but email was not sent (SMTP not configured).',
+                        'warning'
+                    );
                 } else {
                     showError(document.getElementById('otp-error'), 'OTP resent successfully', 'success');
                 }
@@ -385,8 +421,16 @@ function resendOtp() {
             resendBtn.disabled = false;
         })
         .catch((err) => {
+            clearTimeout(abortTimer);
             console.error(err);
             resendBtn.disabled = false;
+            if (err && err.name === 'AbortError') {
+                showError(
+                    document.getElementById('otp-error'),
+                    'Resend timed out. Check SMTP / server logs and try again.',
+                    'warning'
+                );
+            }
         });
 }
 
@@ -443,6 +487,14 @@ function showError(errorElement, message, type = 'error') {
             errorElement.style.background = '';
             errorElement.style.color = '';
         }, 3000);
+    } else if (type === 'warning') {
+        errorElement.style.background = 'rgba(180, 120, 40, 0.12)';
+        errorElement.style.color = '#a86a1a';
+        setTimeout(() => {
+            errorElement.classList.remove('show');
+            errorElement.style.background = '';
+            errorElement.style.color = '';
+        }, 12000);
     }
 }
 
