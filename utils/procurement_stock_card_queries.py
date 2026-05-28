@@ -1,8 +1,11 @@
 """Reusable data loaders for procurement stock card metrics."""
 from __future__ import annotations
 
+import os
 from datetime import date
 from typing import Any
+
+from utils.role_permissions import _truthy
 
 
 def _clean_str(value: Any) -> str:
@@ -89,6 +92,66 @@ def _pick_existing(columns: set[str], *candidates: str) -> str:
         if name.upper() in columns:
             return name.upper()
     return ""
+
+
+def _env_column_override(columns: set[str], *env_keys: str) -> str:
+    """Return first env-named column that exists on the table (case-insensitive)."""
+    upper_cols = {c.upper() for c in columns}
+    for key in env_keys:
+        raw = (os.getenv(key) or "").strip().upper()
+        if raw and raw in upper_cols:
+            return raw
+    return ""
+
+
+def _discover_st_batch_sort_first_candidates(columns: set[str]) -> list[str]:
+    """
+    UDF flag columns on ST_BATCH that mark a batch to list first in on-hand breakdown.
+    Convention: UDF_* column names ending in FULL (e.g. tenant-specific UDF_FULL).
+    """
+    return sorted(
+        c.upper()
+        for c in columns
+        if c.upper().startswith("UDF_") and c.upper().endswith("FULL")
+    )
+
+
+def _sql_max_varchar(table_alias: str, column: str, width: int = 40) -> str:
+    """Aggregate a possibly-BOOLEAN UDF as VARCHAR so Firebird/fdb fetch stays consistent."""
+    return f"MAX(CAST({table_alias}.{column} AS VARCHAR({width})))"
+
+
+def _pick_st_batch_sort_first_column(columns: set[str]) -> str:
+    """
+    Column on ST_BATCH used to float certain batches to the top of the breakdown.
+    Override via PROCUREMENT_ST_BATCH_SORT_FIRST_COLUMN or Procurement__StBatchSortFirstColumn.
+    Otherwise auto-pick when exactly one UDF_*…FULL column exists on ST_BATCH.
+    """
+    override = _env_column_override(
+        columns,
+        "PROCUREMENT_ST_BATCH_SORT_FIRST_COLUMN",
+        "Procurement__StBatchSortFirstColumn",
+    )
+    if override:
+        return override
+    candidates = _discover_st_batch_sort_first_candidates(columns)
+    if len(candidates) == 1:
+        return candidates[0]
+    return ""
+
+
+def _sort_batch_breakdown_rows_flag_first(rows: list[dict[str, Any]]) -> None:
+    """Stable sort: truthy sort_first_flag first, then batch code."""
+    if len(rows) < 2:
+        return
+    if all(str(r.get("batch") or "-") == "-" for r in rows):
+        return
+    rows.sort(
+        key=lambda r: (
+            0 if _truthy(r.get("sort_first_flag")) else 1,
+            str(r.get("batch") or ""),
+        )
+    )
 
 
 # SQL Accounting often stores table-prefixed FROMDOCTYPE (e.g. SL_SO) while eProcurement uses SO.
@@ -986,6 +1049,7 @@ def fetch_procurement_metric_breakdown(
         sb_desc_col = _pick_existing(
             batch_cols, "DESCRIPTION", "DESCRFIPTION", "DESCRIPT", "DESC1", "DESC2", "REMARK1", "REMARKS", "MEMO", "NARRATION"
         )
+        sb_sort_first_col = _pick_st_batch_sort_first_column(batch_cols)
 
         batch_join_sql = ""
         sb_exp_sel = "CAST(NULL AS VARCHAR(40))"
@@ -1012,7 +1076,11 @@ def fetch_procurement_metric_breakdown(
         order_parts: list[str] = [batch_sel]
         if dtl_col:
             order_parts.append(f"MIN(S.{dtl_col})")
-        order_clause = ", ".join(order_parts) if order_parts else "1"
+        order_clause = ", ".join(order_parts)
+
+        sort_first_sel = ""
+        if batch_join_sql and sb_sort_first_col:
+            sort_first_sel = f", {_sql_max_varchar('B', sb_sort_first_col)} AS C_SORT_FIRST"
 
         cur.execute(
             f"""
@@ -1024,6 +1092,7 @@ def fetch_procurement_metric_breakdown(
                 {sb_desc_sel} AS C_BATCH_DESC,
                 CAST(SUM(CAST(({sq_line}) AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS C_SQ,
                 CAST(SUM(CAST(({su_line}) AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS C_SU
+                {sort_first_sel}
             FROM ST_TR S
             {batch_join_sql}
             WHERE S.ITEMCODE = ?
@@ -1046,6 +1115,7 @@ def fetch_procurement_metric_breakdown(
             batch_desc = _stringify(_row_value(row, 4)) if len(row) > 4 else ""
             qty_sq = _to_float(_row_value(row, 5) if len(row) > 5 else 0)
             qty_su = _to_float(_row_value(row, 6) if len(row) > 6 else 0)
+            sort_first_raw = _row_value(row, 7) if sort_first_sel and len(row) > 7 else None
             total_sq += qty_sq
             total_su += qty_su
             details.append(
@@ -1057,8 +1127,11 @@ def fetch_procurement_metric_breakdown(
                     "mfgdate": mfgdate or "-",
                     "sqty": qty_sq,
                     "suomqty": qty_su,
+                    "sort_first_flag": sort_first_raw,
                 }
             )
+        if batch_join_sql and sb_sort_first_col:
+            _sort_batch_breakdown_rows_flag_first(details)
         if not details:
             details = [
                 {
@@ -1072,11 +1145,17 @@ def fetch_procurement_metric_breakdown(
                 }
             ]
         bf_note = f" Filter: batch = {bf}." if bf else ""
+        sort_note = (
+            f" Batches with ST_BATCH.{sb_sort_first_col} set sort first."
+            if batch_join_sql and sb_sort_first_col
+            else ""
+        )
         summary_payload: dict[str, Any] = {
             "value": total_sq,
             "value_su": total_su,
             "note": (
                 "One row per batch (grouped from ST_TR); Σ SQTY and Σ SUOMQTY."
+                + sort_note
                 + bf_note
             ),
         }
