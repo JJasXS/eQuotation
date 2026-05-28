@@ -3,13 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Chatbot</title>
+    <title>Sign In</title>
     <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515">
     <link rel="stylesheet" href="/static/css/login.css?v=20260515_otp">
     <link rel="stylesheet" href="/static/css/tenant_env_chip.css">
 </head>
 <body class="equotation-icy-theme login-page-body">
     <div class="login-page">
+
+        <!-- LEFT: role selector carousel (always visible) -->
         <aside class="login-aside" aria-label="Account type">
             <div class="login-aside-header">
                 <p class="login-aside-kicker">Sign in as</p>
@@ -41,9 +43,12 @@
             </div>
         </aside>
 
+        <!-- RIGHT: email step → OTP step -->
         <div class="login-main">
             <div class="login-container">
                 <div class="login-card">
+
+                    <!-- Step 1: Email -->
                     <div id="email-step" class="login-step active">
                         <h1>Welcome</h1>
                         <p class="subtitle">Enter your email to continue</p>
@@ -64,10 +69,10 @@
                         </form>
 
                         <a href="/signInGuest" class="btn-guest">Sign in as Guest</a>
-
                         <div id="email-error" class="error-message"></div>
                     </div>
 
+                    <!-- Step 2: OTP (replaces right side) -->
                     <div id="otp-step" class="login-step">
                         <h1>Verify Your Email</h1>
                         <p class="subtitle">Enter the 6-digit code sent to<br><span id="email-display">your@email.com</span></p>
@@ -95,9 +100,11 @@
                             <button type="button" onclick="backToEmail()" class="btn-back">← Back</button>
                         </div>
                     </div>
+
                 </div>
             </div>
         </div>
+
     </div>
 
     {% include 'components/tenant_env_chip.html' %}

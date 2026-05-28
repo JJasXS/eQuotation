@@ -1,0 +1,405 @@
+/* Shared styles for admin detail/report pages
+ * Used by: adminInvoiceAging.html, adminSalesCycle.html, adminConversionRate.html
+ *
+ * Conventions:
+ *   .ia-*    page-level layout (page, section, section label, stats strip)
+ *   .ar-*    "admin-report" shared widgets (split list/detail, pill buttons, tables, badges, list items, detail panels)
+ *
+ * Each page may add its own per-feature accents (e.g. status badge colours)
+ * but should reuse the shared structural rules below.
+ */
+
+/* ─────────── Page shell ─────────── */
+.ia-page {
+    flex: 1;
+    overflow-y: auto;
+    box-sizing: border-box;
+    background-color: var(--ice-bg, #e3f2fa);
+    background-image: radial-gradient(circle, rgba(59, 143, 196, 0.18) 1px, transparent 1px);
+    background-size: 22px 22px;
+}
+
+.ia-section {
+    padding: 28px 32px;
+    border-bottom: 1px solid var(--ice-border, #b8d4e8);
+    background: rgba(247, 251, 255, 0.82);
+    backdrop-filter: blur(2px);
+}
+
+.ia-section:last-child {
+    border-bottom: none;
+}
+
+.ia-section-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ice-text-muted, #5a7a94);
+    margin: 0 0 18px;
+}
+
+.ia-section-label::before {
+    content: '';
+    display: inline-block;
+    width: 3px;
+    height: 14px;
+    border-radius: 2px;
+    background: var(--ice-accent, #3b8fc4);
+    flex-shrink: 0;
+}
+
+.ia-empty {
+    padding: 24px 0;
+    font-size: 13px;
+    color: var(--ice-text-muted, #5a7a94);
+}
+
+/* ─────────── Summary stats strip ─────────── */
+.ia-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+}
+
+.ia-stat {
+    flex: 1 1 180px;
+    padding: 12px 28px 12px 0;
+    border-right: 1px solid var(--ice-border, #b8d4e8);
+    position: relative;
+}
+
+.ia-stat:last-child {
+    border-right: none;
+    padding-right: 0;
+}
+
+.ia-stat:not(:first-child) {
+    padding-left: 28px;
+}
+
+.ia-stat::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 28px;
+    height: 2px;
+    border-radius: 1px;
+    background: linear-gradient(90deg, var(--ice-accent, #3b8fc4), transparent);
+}
+
+.ia-stat:not(:first-child)::before {
+    left: 28px;
+}
+
+.ia-stat-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--ice-text-muted, #5a7a94);
+    margin-bottom: 6px;
+}
+
+.ia-stat-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--ice-heading, #1a4d6e);
+    line-height: 1.1;
+}
+
+.ia-stat-note {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--ice-text-muted, #5a7a94);
+}
+
+/* ─────────── Toolbar row (toolbar info + filter/sort pills) ─────────── */
+.ar-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 18px;
+}
+
+.ar-toolbar-info {
+    font-size: 12px;
+    color: var(--ice-text-muted, #5a7a94);
+}
+
+.ar-pill-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--ice-text-muted, #5a7a94);
+}
+
+.ar-pill-btn {
+    padding: 5px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--ice-border, #b8d4e8);
+    background: var(--ice-surface, #f7fbff);
+    color: var(--ice-text, #1e3a52);
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.ar-pill-btn.active {
+    background: var(--ice-accent, #3b8fc4);
+    border-color: var(--ice-accent, #3b8fc4);
+    color: #fff;
+    font-weight: 600;
+}
+
+.ar-pill-btn:hover:not(.active) {
+    background: var(--ice-accent-soft, #dbeafe);
+    border-color: var(--ice-accent, #3b8fc4);
+}
+
+/* ─────────── Master-detail split ─────────── */
+.ar-split {
+    display: grid;
+    grid-template-columns: minmax(300px, 36%) minmax(0, 1fr);
+    min-height: 480px;
+    border: 1px solid var(--ice-border, #b8d4e8);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--ice-surface, #f7fbff);
+}
+
+.ar-list-col {
+    border-right: 1px solid var(--ice-border, #b8d4e8);
+    overflow-y: auto;
+    max-height: min(72vh, 720px);
+    background: var(--ice-surface, #f7fbff);
+}
+
+.ar-detail-col {
+    overflow-y: auto;
+    max-height: min(72vh, 720px);
+    padding: 20px 22px;
+    background: var(--ice-surface-alt, #eef6fc);
+    color: var(--ice-text, #1e3a52);
+}
+
+.ar-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.ar-list-item {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 12px 14px;
+    border: none;
+    border-bottom: 1px solid var(--ice-border-soft, #c5dce9);
+    background: transparent;
+    color: var(--ice-text, #1e3a52);
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 0.12s;
+}
+
+.ar-list-item:hover {
+    background: rgba(59, 143, 196, 0.06);
+}
+
+.ar-list-item.is-selected {
+    background: rgba(59, 143, 196, 0.12);
+    box-shadow: inset 3px 0 0 var(--ice-accent, #3b8fc4);
+}
+
+.ar-list-item-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    width: 100%;
+}
+
+.ar-list-item-sub {
+    font-size: 11px;
+    color: var(--ice-text-muted, #5a7a94);
+    line-height: 1.35;
+}
+
+.ar-list-item-company {
+    font-size: 11px;
+    color: var(--ice-text-muted, #5a7a94);
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ar-detail-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 280px;
+    text-align: center;
+    font-size: 14px;
+    color: var(--ice-text-muted, #5a7a94);
+    padding: 24px;
+}
+
+.ar-detail-heading {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--ice-heading, #1a4d6e);
+    margin: 0 0 14px;
+}
+
+.ar-meta-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 6px 16px;
+    margin-bottom: 14px;
+    font-size: 12px;
+    color: var(--ice-text, #1e3a52);
+}
+
+.ar-meta-grid span {
+    color: var(--ice-text-muted, #5a7a94);
+}
+
+/* ─────────── Tables (used in detail panels) ─────────── */
+.ar-table-wrap {
+    overflow-x: auto;
+}
+
+.ar-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    color: var(--ice-text, #1e3a52);
+}
+
+.ar-table th {
+    background: var(--ice-surface-alt, #eef6fc);
+    color: var(--ice-heading, #1a4d6e);
+    font-weight: 600;
+    padding: 7px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--ice-border, #b8d4e8);
+    white-space: nowrap;
+}
+
+.ar-table th.num,
+.ar-table td.num {
+    text-align: right;
+}
+
+.ar-table td {
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--ice-border-soft, #c5dce9);
+    vertical-align: middle;
+}
+
+.ar-table tr:last-child td {
+    border-bottom: none;
+}
+
+.ar-table tr:nth-child(even) td {
+    background: rgba(59, 143, 196, 0.04);
+}
+
+/* ─────────── Common pill / badge primitives ─────────── */
+.ar-doc-no {
+    font-weight: 600;
+    color: var(--ice-heading, #1a4d6e);
+    white-space: nowrap;
+}
+
+.ar-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    background: rgba(59, 143, 196, 0.12);
+    color: var(--ice-accent-hover, #2d74a3);
+}
+
+.ar-badge--success { background: rgba(39, 174, 96, 0.12);  color: #1e7e44; }
+.ar-badge--info    { background: rgba(59, 143, 196, 0.12); color: var(--ice-accent-hover, #2d74a3); }
+.ar-badge--warn    { background: rgba(180, 140, 50, 0.1);  color: #9a6b1a; }
+.ar-badge--danger  { background: rgba(192, 57, 43, 0.1);   color: #c0392b; }
+.ar-badge--muted   { background: rgba(150, 150, 150, 0.1); color: #888; }
+
+/* ─────────── Filter <select> styled like the icy theme ─────────── */
+.ar-select {
+    font-size: 13px;
+    font-family: inherit;
+    padding: 7px 36px 7px 14px;
+    border: 1px solid var(--ice-border, #b8d4e8);
+    border-radius: 999px;
+    background-color: var(--ice-surface, #f7fbff);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%232d74a3' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    color: var(--ice-text, #1e3a52);
+    color-scheme: light;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    cursor: pointer;
+    min-width: 220px;
+    box-shadow: 0 1px 3px rgba(30, 80, 120, 0.08);
+    transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s;
+}
+
+.ar-select:hover {
+    border-color: var(--ice-accent, #3b8fc4);
+    background-color: var(--ice-accent-soft, #dbeafe);
+}
+
+.ar-select:focus {
+    outline: none;
+    border-color: var(--ice-accent, #3b8fc4);
+    box-shadow: 0 0 0 3px rgba(59, 143, 196, 0.2);
+    background-color: #fff;
+}
+
+.ar-select option {
+    background: #fff;
+    color: #1e3a52;
+}
+
+/* ─────────── Responsive ─────────── */
+@media (max-width: 900px) {
+    .ar-split {
+        grid-template-columns: 1fr;
+        min-height: 0;
+    }
+    .ar-list-col {
+        border-right: none;
+        border-bottom: 1px solid var(--ice-border, #b8d4e8);
+        max-height: 280px;
+    }
+    .ar-detail-col {
+        max-height: none;
+        min-height: 320px;
+    }
+}
+
+@media (max-width: 700px) {
+    .ia-section { padding: 20px 16px; }
+}

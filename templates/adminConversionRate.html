@@ -7,73 +7,76 @@
     <link rel="stylesheet" href="/static/css/admin.css">
     <link rel="stylesheet" href="/static/css/hamburger_menu.css?v=20260515_sidebar">
     <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
-    <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515">
+    <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260528_icy">
+    <link rel="stylesheet" href="/static/css/admin_report.css?v=20260528_ar">
 </head>
-<body class="equotation-icy-theme admin-report-ui">
-    <div class="admin-container">
-        {% set page_header_title = "Admin > Conversion Rate" %}
+<body class="equotation-icy-theme">
+    <div class="admin-container" style="height:100vh;display:flex;flex-direction:column;">
+        {% set page_header_breadcrumbs = [
+            {'label': 'Admin'},
+            {'label': 'Dashboard', 'href': '/admin'},
+            {'label': 'Conversion Rate'}
+        ] %}
         {% include 'components/app_page_header.html' %}
 
-        <div class="analytics-page">
-            <div class="analytics-shell">
-                <div class="analytics-toolbar analytics-toolbar--hero">
-                    <div class="analytics-title">
-                        <span class="analytics-eyebrow">Report Detail</span>
-                        <h1>Conversion Rate</h1>
-                        <p>Quotation-to-invoice conversion percentage by quotation document.</p>
+        <div class="ia-page">
+            <div class="ia-section">
+                <p class="ia-section-label">Summary</p>
+                <div class="ia-stats">
+                    <div class="ia-stat">
+                        <div class="ia-stat-label">Quotations</div>
+                        <div class="ia-stat-value" id="conversion-total-qt">-</div>
+                        <div class="ia-stat-note">Distinct quotations in report</div>
                     </div>
-                    <a class="analytics-back-link" href="/admin">? Back to Dashboard</a>
-                </div>
-
-                <div class="analytics-stats">
-                    <div class="analytics-stat">
-                        <div class="analytics-stat-label">Quotations</div>
-                        <div class="analytics-stat-value" id="conversion-total-qt">-</div>
-                        <div class="analytics-stat-note">Distinct quotations in report</div>
+                    <div class="ia-stat">
+                        <div class="ia-stat-label">Average Conversion</div>
+                        <div class="ia-stat-value" id="conversion-avg">-</div>
+                        <div class="ia-stat-note">Qty-weighted average</div>
                     </div>
-                    <div class="analytics-stat">
-                        <div class="analytics-stat-label">Average Conversion</div>
-                        <div class="analytics-stat-value" id="conversion-avg">-</div>
-                        <div class="analytics-stat-note">Qty-weighted average</div>
+                    <div class="ia-stat">
+                        <div class="ia-stat-label">Top Conversion</div>
+                        <div class="ia-stat-value" id="conversion-top">-</div>
+                        <div class="ia-stat-note">Highest quotation conversion</div>
                     </div>
-                    <div class="analytics-stat">
-                        <div class="analytics-stat-label">Top Conversion</div>
-                        <div class="analytics-stat-value" id="conversion-top">-</div>
-                        <div class="analytics-stat-note">Highest quotation conversion</div>
-                    </div>
-                    <div class="analytics-stat">
-                        <div class="analytics-stat-label">Lowest Conversion</div>
-                        <div class="analytics-stat-value" id="conversion-low">-</div>
-                        <div class="analytics-stat-note">Lowest quotation conversion</div>
+                    <div class="ia-stat">
+                        <div class="ia-stat-label">Lowest Conversion</div>
+                        <div class="ia-stat-value" id="conversion-low">-</div>
+                        <div class="ia-stat-note">Lowest non-zero conversion</div>
                     </div>
                 </div>
+            </div>
 
+            <div class="ia-section">
+                <p class="ia-section-label">Detail</p>
 
+                <div class="ar-toolbar">
+                    <p class="ar-toolbar-info">Per-quotation totals with line-level breakdown. Select a row on the left to view details.</p>
+                    <div class="ar-pill-group">
+                        Filter:
+                        <button type="button" class="ar-pill-btn active" data-range="all">All</button>
+                        <button type="button" class="ar-pill-btn" data-range="0-50">0–49%</button>
+                        <button type="button" class="ar-pill-btn" data-range="50-100">50–99%</button>
+                        <button type="button" class="ar-pill-btn" data-range="100+">100%+</button>
+                    </div>
+                </div>
 
-                <div class="analytics-card">
-                    <div class="dashboard-widget-header">
-                        <div>
-                            <h3>Conversion Detail</h3>
-                            <p>Per quotation totals with company name and IV-first quantity view.</p>
+                <div class="ar-split">
+                    <div class="ar-list-col">
+                        <div class="ar-list" id="conversion-rate-list">
+                            <div class="ia-empty">Loading conversion details...</div>
                         </div>
                     </div>
-                    <div class="conversion-filter-tabs" role="group" aria-label="Filter conversion percentage">
-                        <button type="button" class="conversion-filter-tab active" data-range="all">All</button>
-                        <button type="button" class="conversion-filter-tab" data-range="0-50">0-49%</button>
-                        <button type="button" class="conversion-filter-tab" data-range="50-100">50-99%</button>
-                        <button type="button" class="conversion-filter-tab" data-range="100+">100%+</button>
-                    </div>
-                    <div class="analytics-list" id="conversion-rate-list">
-                        <div class="analytics-empty">Loading conversion details...</div>
+                    <div class="ar-detail-col" id="conversion-rate-detail">
+                        <div class="ar-detail-placeholder">Select a quotation on the left to view details.</div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/static/js/hamburger_menu.js"></script>
     <script src="/static/js/admin_menu.js"></script>
-    <script src="/static/js/admin_conversion_rate.js"></script>
+    <script src="/static/js/admin_helpers.js?v=20260528"></script>
+    <script src="/static/js/admin_conversion_rate.js?v=20260528"></script>
 </body>
 </html>

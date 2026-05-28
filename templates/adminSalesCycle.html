@@ -7,72 +7,74 @@
     <link rel="stylesheet" href="/static/css/admin.css">
     <link rel="stylesheet" href="/static/css/hamburger_menu.css?v=20260515_sidebar">
     <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
-    <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515">
+    <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260528_icy">
+    <link rel="stylesheet" href="/static/css/admin_report.css?v=20260528_ar">
 </head>
-<body class="equotation-icy-theme admin-report-ui">
-    <div class="admin-container">
-        {% set page_header_title = "Admin > Sales Cycle" %}
+<body class="equotation-icy-theme">
+    <div class="admin-container" style="height:100vh;display:flex;flex-direction:column;">
+        {% set page_header_breadcrumbs = [
+            {'label': 'Admin'},
+            {'label': 'Dashboard', 'href': '/admin'},
+            {'label': 'Sales Cycle'}
+        ] %}
         {% include 'components/app_page_header.html' %}
 
-        <div class="analytics-page">
-            <div class="analytics-shell">
-                <div class="analytics-toolbar analytics-toolbar--hero">
-                    <div class="analytics-title">
-                        <span class="analytics-eyebrow">Report Detail</span>
-                        <h1>Sales Cycle</h1>
-                        <p>Time from earliest related quotation (SL_QT) to sales invoice (SL_IV).</p>
+        <div class="ia-page">
+            <div class="ia-section">
+                <p class="ia-section-label">Summary</p>
+                <div class="ia-stats">
+                    <div class="ia-stat">
+                        <div class="ia-stat-label">Converted Invoices</div>
+                        <div class="ia-stat-value" id="sales-cycle-total">-</div>
+                        <div class="ia-stat-note">Invoices with valid QT → IV flow</div>
                     </div>
-                    <a class="analytics-back-link" href="/admin">? Back to Dashboard</a>
-                </div>
-
-                <div class="analytics-stats">
-                    <div class="analytics-stat">
-                        <div class="analytics-stat-label">Converted Invoices</div>
-                        <div class="analytics-stat-value" id="sales-cycle-total">-</div>
-                        <div class="analytics-stat-note">Invoices with valid QT to IV flow</div>
+                    <div class="ia-stat">
+                        <div class="ia-stat-label">Average Cycle</div>
+                        <div class="ia-stat-value" id="sales-cycle-avg">-</div>
+                        <div class="ia-stat-note">Average days from quotation to invoice</div>
                     </div>
-                    <div class="analytics-stat">
-                        <div class="analytics-stat-label">Average Cycle</div>
-                        <div class="analytics-stat-value" id="sales-cycle-avg">-</div>
-                        <div class="analytics-stat-note">Average days from quotation to invoice</div>
+                    <div class="ia-stat">
+                        <div class="ia-stat-label">Shortest Cycle</div>
+                        <div class="ia-stat-value" id="sales-cycle-shortest">-</div>
+                        <div class="ia-stat-note">Fastest conversion observed</div>
                     </div>
-                    <div class="analytics-stat">
-                        <div class="analytics-stat-label">Shortest Cycle</div>
-                        <div class="analytics-stat-value" id="sales-cycle-shortest">-</div>
-                        <div class="analytics-stat-note">Fastest conversion observed</div>
-                    </div>
-                    <div class="analytics-stat">
-                        <div class="analytics-stat-label">Longest Cycle</div>
-                        <div class="analytics-stat-value" id="sales-cycle-longest">-</div>
-                        <div class="analytics-stat-note">Slowest conversion observed</div>
+                    <div class="ia-stat">
+                        <div class="ia-stat-label">Longest Cycle</div>
+                        <div class="ia-stat-value" id="sales-cycle-longest">-</div>
+                        <div class="ia-stat-note">Slowest conversion observed</div>
                     </div>
                 </div>
+            </div>
 
+            <div class="ia-section">
+                <p class="ia-section-label">Detail</p>
 
+                <div class="ar-toolbar">
+                    <p class="ar-toolbar-info">Per-invoice breakdown — QT to IV. Select a row on the left to view details.</p>
+                    <div class="ar-pill-group">
+                        Sort:
+                        <button type="button" class="ar-pill-btn active" id="sc-sort-long" data-sort="long">Longest first</button>
+                        <button type="button" class="ar-pill-btn" id="sc-sort-short" data-sort="short">Shortest first</button>
+                    </div>
+                </div>
 
-                <div class="analytics-card">
-                    <div class="dashboard-widget-header">
-                        <div>
-                            <h3>Sales Cycle Details</h3>
-                            <p>Per-invoice breakdown showing quotation and invoice dates. Click a row to expand details.</p>
+                <div class="ar-split">
+                    <div class="ar-list-col">
+                        <div class="ar-list" id="sales-cycle-list">
+                            <div class="ia-empty">Loading sales cycle details...</div>
                         </div>
-                        <button type="button" class="toggle-switch analytics-sort-toggle" id="sales-cycle-sort-toggle" aria-pressed="false" aria-label="Toggle sales cycle sort">
-                            <span class="toggle-label toggle-label-left">Long</span>
-                            <span class="toggle-slider"></span>
-                            <span class="toggle-label toggle-label-right">Short</span>
-                        </button>
                     </div>
-                    <div class="analytics-list" id="sales-cycle-list">
-                        <div class="analytics-empty">Loading sales cycle details...</div>
+                    <div class="ar-detail-col" id="sales-cycle-detail">
+                        <div class="ar-detail-placeholder">Select an invoice on the left to view details.</div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/static/js/hamburger_menu.js"></script>
     <script src="/static/js/admin_menu.js"></script>
-    <script src="/static/js/admin_sales_cycle.js"></script>
+    <script src="/static/js/admin_helpers.js?v=20260528"></script>
+    <script src="/static/js/admin_sales_cycle.js?v=20260528"></script>
 </body>
 </html>

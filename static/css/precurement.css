@@ -1383,7 +1383,8 @@ body.procurement-warm-ui .stock-card-item-search-input:focus {
     color: #e4e9f1;
     font-size: 12px;
     text-align: left;
-    white-space: nowrap;
+    vertical-align: top;
+    line-height: 1.45;
 }
 
 .stock-card-breakdown-table th {
@@ -1392,12 +1393,26 @@ body.procurement-warm-ui .stock-card-item-search-input:focus {
     background: #253047;
     color: #b7c4d6;
     z-index: 1;
+    white-space: nowrap;
 }
 
-.stock-card-breakdown-desc {
+/* Compact breakdown: wrap text in detail columns; keep numbers on one line */
+.stock-card-breakdown-table.stock-card-breakdown-table--compact td {
     white-space: normal;
+    word-break: break-word;
+}
+
+.stock-card-breakdown-table.stock-card-breakdown-table--compact td.stock-card-breakdown-num {
+    white-space: nowrap;
+    word-break: normal;
+}
+
+.stock-card-breakdown-desc,
+.stock-card-breakdown-detail {
+    white-space: normal;
+    word-break: break-word;
     min-width: 140px;
-    max-width: 360px;
+    max-width: 420px;
 }
 
 .stock-card-breakdown-desc-meta {
@@ -1416,17 +1431,12 @@ body.procurement-warm-ui .stock-card-item-search-input:focus {
     border-right: 2px solid rgba(110, 163, 226, 0.35);
 }
 
-.stock-card-breakdown-table.stock-card-breakdown-table--compact tbody tr.stock-card-breakdown-group-a td {
-    background: rgba(72, 110, 160, 0.14);
+.stock-card-breakdown-table.stock-card-breakdown-table--compact tbody tr td {
+    background: transparent;
 }
 
-.stock-card-breakdown-table.stock-card-breakdown-table--compact tbody tr.stock-card-breakdown-group-b td {
-    background: rgba(255, 255, 255, 0.06);
-}
-
-.stock-card-breakdown-table.stock-card-breakdown-table--compact tbody tr.stock-card-breakdown-group-a + tr.stock-card-breakdown-group-b td,
-.stock-card-breakdown-table.stock-card-breakdown-table--compact tbody tr.stock-card-breakdown-group-b + tr.stock-card-breakdown-group-a td {
-    border-top: 1px solid rgba(110, 163, 226, 0.28);
+.stock-card-breakdown-table.stock-card-breakdown-table--compact tbody tr:nth-child(even) td {
+    background: rgba(255, 255, 255, 0.03);
 }
 
 .stock-card-breakdown-num {
@@ -3468,9 +3478,9 @@ body.procurement-warm-ui .location-bg-9 { background: #e9eef8 !important; }
 body.procurement-warm-ui .location-bg-10 { background: #f4f8e9 !important; }
 
 body.procurement-warm-ui .stock-card-breakdown-panel {
-    background: #fffef9;
-    border: 1px solid #dccfb8;
-    box-shadow: 0 8px 22px rgba(42, 36, 27, 0.1);
+    background: #f7fbff;
+    border: 1px solid #b8d4e8;
+    box-shadow: 0 8px 22px rgba(30, 80, 120, 0.1);
     height: auto;
     max-height: none;
 }
@@ -3481,71 +3491,66 @@ body.procurement-warm-ui .stock-card-breakdown-table-wrap {
 }
 
 body.procurement-warm-ui .stock-card-breakdown-header {
-    border-bottom: 1px solid #ebe3d4;
-    background: linear-gradient(180deg, #fffbf5 0%, #faf6ee 100%);
+    border-bottom: 1px solid #b8d4e8;
+    background: linear-gradient(180deg, #f7fbff 0%, #eef6fc 100%);
 }
 
 body.procurement-warm-ui .stock-card-breakdown-heading {
-    color: #3d3224;
+    color: #1a4d6e;
 }
 
 body.procurement-warm-ui .stock-card-breakdown-subtitle {
-    color: #6b5d48;
+    color: #5a7a94;
 }
 
 body.procurement-warm-ui .stock-card-breakdown-batch-td {
-    color: #1d4a2f;
+    color: #2d74a3;
 }
 
 body.procurement-warm-ui .stock-card-breakdown-batch-span {
-    border-right-color: rgba(139, 90, 31, 0.35);
+    border-right-color: rgba(59, 143, 196, 0.35);
 }
 
-body.procurement-warm-ui .stock-card-breakdown-table.stock-card-breakdown-table--compact tbody tr.stock-card-breakdown-group-a td {
-    background: rgba(201, 168, 106, 0.2);
+body.procurement-warm-ui .stock-card-breakdown-table.stock-card-breakdown-table--compact tbody tr td {
+    background: #f7fbff;
 }
 
-body.procurement-warm-ui .stock-card-breakdown-table.stock-card-breakdown-table--compact tbody tr.stock-card-breakdown-group-b td {
-    background: rgba(255, 251, 242, 0.75);
-}
-
-body.procurement-warm-ui .stock-card-breakdown-table.stock-card-breakdown-table--compact tbody tr.stock-card-breakdown-group-a + tr.stock-card-breakdown-group-b td,
-body.procurement-warm-ui .stock-card-breakdown-table.stock-card-breakdown-table--compact tbody tr.stock-card-breakdown-group-b + tr.stock-card-breakdown-group-a td {
-    border-top: 1px solid rgba(139, 90, 31, 0.28);
+body.procurement-warm-ui .stock-card-breakdown-table.stock-card-breakdown-table--compact tbody tr:nth-child(even) td {
+    background: #eef6fc;
 }
 
 body.procurement-warm-ui .stock-card-breakdown-close {
-    border: 1px solid #c9a86a;
-    background: #fff;
-    color: #8b5a1f;
+    border: 1px solid #b8d4e8;
+    background: #f7fbff;
+    color: #2d74a3;
 }
 
 body.procurement-warm-ui .stock-card-breakdown-close:hover {
-    background: #fff8ed;
+    background: #dbeafe;
 }
 
 body.procurement-warm-ui .stock-card-breakdown-summary {
-    border-top: 1px solid #efe6d8;
-    color: #2a241b;
+    border-top: 1px solid #b8d4e8;
+    color: #1e3a52;
 }
 
 body.procurement-warm-ui .stock-card-breakdown-note {
-    color: #7a6a52;
+    color: #5a7a94;
 }
 
 body.procurement-warm-ui .stock-card-breakdown-desc-meta {
-    color: #7a6a52;
+    color: #5a7a94;
 }
 
 body.procurement-warm-ui .stock-card-breakdown-table th,
 body.procurement-warm-ui .stock-card-breakdown-table td {
-    border-bottom: 1px solid #efe6d8;
-    color: #2a241b;
+    border-bottom: 1px solid #c5dce9;
+    color: #1e3a52;
 }
 
 body.procurement-warm-ui .stock-card-breakdown-table th {
-    background: #faf6ee;
-    color: #5c4a32;
+    background: #eef6fc;
+    color: #1a4d6e;
 }
 
 /* Create PR tab */

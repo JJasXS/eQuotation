@@ -207,6 +207,19 @@ body.equotation-icy-theme.admin-report-ui .analytics-stat {
     color: var(--ice-text) !important;
 }
 
+/* ---- Admin dashboard detail pages (sales-cycle, conversion-rate, invoice-aging) ----
+ * Shared visual rules live in /static/css/admin_report.css (the .ia-* / .ar-* namespaces).
+ * Only theme-level corrections that need !important to override page-loaded admin.css
+ * should be kept here.
+ */
+body.equotation-icy-theme .admin-container {
+    background: var(--ice-bg) !important;
+}
+
+body.equotation-icy-theme .ia-empty {
+    color: var(--ice-text-muted) !important;
+}
+
 /* ---- View quotations page ---- */
 body.equotation-icy-theme.view-quotation-page {
     background: var(--ice-bg) !important;
@@ -520,9 +533,49 @@ body.equotation-icy-theme.procurement-warm-ui .stock-card-breakdown-close:hover 
     background: var(--ice-accent-soft) !important;
 }
 
+body.equotation-icy-theme.procurement-warm-ui .stock-card-breakdown-heading {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-breakdown-subtitle {
+    color: var(--ice-text-muted) !important;
+}
+
 body.equotation-icy-theme.procurement-warm-ui .stock-card-breakdown-table th {
     background: var(--ice-surface-alt) !important;
     color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-breakdown-table th,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-breakdown-table td {
+    border-bottom-color: var(--ice-border-soft) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-breakdown-table.stock-card-breakdown-table--compact tbody tr td {
+    background: var(--ice-surface) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-breakdown-table.stock-card-breakdown-table--compact tbody tr:nth-child(even) td {
+    background: var(--ice-surface-alt) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-breakdown-summary {
+    border-top-color: var(--ice-border) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-breakdown-note,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-breakdown-desc-meta {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-breakdown-batch-td {
+    color: var(--ice-accent-hover) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-breakdown-batch-span {
+    border-right-color: rgba(59, 143, 196, 0.35) !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui .location-filter-shell .report-summary-cards {

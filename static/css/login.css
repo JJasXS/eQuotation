@@ -17,7 +17,7 @@ body.login-page-body {
     padding: clamp(16px, 3vw, 32px);
 }
 
-/* Single card: role picker + welcome form */
+/* Single card: role picker + form */
 .login-page {
     width: 100%;
     max-width: 920px;
@@ -219,14 +219,8 @@ body.login-page-body {
 }
 
 @keyframes fadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(8px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
 }
 
 h1 {
@@ -452,20 +446,7 @@ input[type='text']::placeholder {
     cursor: not-allowed;
 }
 
-/* ---- OTP step: focused single panel (role picker hidden) ---- */
-.login-page.login-page--otp {
-    grid-template-columns: 1fr;
-    max-width: 420px;
-}
-
-.login-page.login-page--otp .login-aside {
-    display: none;
-}
-
-.login-page.login-page--otp .login-main {
-    padding: clamp(28px, 5vw, 40px) clamp(22px, 4vw, 32px);
-}
-
+/* ---- OTP step ---- */
 #otp-step .subtitle {
     margin-bottom: 22px;
 }
@@ -504,6 +485,29 @@ input[type='text']::placeholder {
 
 #otp-step .btn-submit {
     margin-top: 4px;
+}
+
+/* OTP step: keep layout identical — left carousel stays, right just swaps content */
+.login-page.login-page--otp {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    max-width: 920px;
+}
+
+/* Locked carousel — dimmed, no interaction */
+.login-aside--locked .login-carousel-viewport,
+.login-aside--locked .login-carousel-nav {
+    opacity: 0.38;
+    pointer-events: none;
+    user-select: none;
+}
+
+.login-aside--locked .login-aside-hint {
+    opacity: 0.5;
+}
+
+.login-aside--locked .login-carousel-arrow,
+.login-aside--locked .login-carousel-dot {
+    cursor: not-allowed;
 }
 
 .otp-footer .btn-resend:disabled {

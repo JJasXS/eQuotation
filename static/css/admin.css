@@ -91,36 +91,7 @@
     font-size: 15px;
 }
 
-#sales-cycle-sort {
-    padding: 4px 14px 4px 8px;
-    border-radius: 7px;
-    border: 1px solid #374155;
-    background: #1a2233;
-    color: #e4e9f1;
-    font-size: 15px;
-    outline: none;
-    transition: border 0.2s, box-shadow 0.2s;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-}
-#sales-cycle-sort:focus {
-    border-color: #6a8fc7;
-    box-shadow: 0 0 0 2px #6a8fc755;
-}
-#invoice-aging-filter {
-    padding: 4px 14px 4px 8px;
-    border-radius: 7px;
-    border: 1px solid #374155;
-    background: #1a2233;
-    color: #e4e9f1;
-    font-size: 15px;
-    outline: none;
-    transition: border 0.2s, box-shadow 0.2s;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-}
-#invoice-aging-filter:focus {
-    border-color: #6a8fc7;
-    box-shadow: 0 0 0 2px #6a8fc755;
-}
+/* #invoice-aging-filter / #sales-cycle-sort: styled per-page (adminInvoiceAging.html, etc.) */
 /* Admin Page Styles */
 * {
     margin: 0;
@@ -495,14 +466,15 @@ body {
     border-color: #56c9ff;
 }
 
-.conversion-detail-card {
+/* Legacy dark accordion — only when admin-report-ui + old class names (not icy detail pages) */
+body.admin-report-ui .conversion-detail-card {
     border: 1px solid rgba(120, 146, 190, 0.18);
     border-radius: 14px;
     background: rgba(255, 255, 255, 0.04);
     overflow: hidden;
 }
 
-.conversion-detail-toggle {
+body.admin-report-ui .conversion-detail-toggle {
     width: 100%;
     display: flex;
     justify-content: space-between;
@@ -517,23 +489,23 @@ body {
     cursor: pointer;
 }
 
-.conversion-detail-toggle:hover {
+body.admin-report-ui .conversion-detail-toggle:hover {
     background: rgba(255, 255, 255, 0.06);
 }
 
-.conversion-caret {
+body.admin-report-ui .conversion-caret {
     margin-left: 8px;
     font-size: 12px;
     color: #9fc4f5;
 }
 
-.conversion-detail-panel {
+body.admin-report-ui .conversion-detail-panel {
     border-top: 1px solid rgba(120, 146, 190, 0.16);
     background: rgba(8, 14, 25, 0.45);
     padding: 12px 14px 14px;
 }
 
-.conversion-detail-grid {
+body.admin-report-ui .conversion-detail-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 8px 12px;
@@ -542,11 +514,11 @@ body {
     font-size: 13px;
 }
 
-.conversion-detail-table-wrap {
+body.admin-report-ui .conversion-detail-table-wrap {
     overflow-x: auto;
 }
 
-.conversion-detail-table {
+body.admin-report-ui .conversion-detail-table {
     width: 100%;
     border-collapse: collapse;
     min-width: 620px;
@@ -554,14 +526,14 @@ body {
     color: #d5dce6;
 }
 
-.conversion-detail-table th,
-.conversion-detail-table td {
+body.admin-report-ui .conversion-detail-table th,
+body.admin-report-ui .conversion-detail-table td {
     border-bottom: 1px solid rgba(120, 146, 190, 0.14);
     padding: 7px 8px;
     text-align: left;
 }
 
-.conversion-detail-table th {
+body.admin-report-ui .conversion-detail-table th {
     color: #9fc4f5;
     font-weight: 600;
     background: rgba(86, 201, 255, 0.08);
@@ -1022,10 +994,12 @@ body.admin-report-ui .analytics-page {
         radial-gradient(circle at 12% 4%, rgba(255, 255, 255, 0.75) 0%, rgba(255, 255, 255, 0) 28%),
         linear-gradient(135deg, #fbf4e6 0%, #f1e1c5 100%);
     padding: 24px;
+    box-sizing: border-box;
 }
 
 body.admin-report-ui .analytics-shell {
-    width: min(1280px, 100%);
+    width: 100%;
+    max-width: 100%;
     gap: 18px;
 }
 

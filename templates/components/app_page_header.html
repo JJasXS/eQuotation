@@ -1,9 +1,26 @@
 {# Reusable top bar: left = hamburger + title; right = optional welcome + optional actions (one row).
-   page_header_title (required). Optional: page_header_subtitle, page_header_subtitle_is_html, page_header_right. #}
+   page_header_title (required unless page_header_breadcrumbs is set).
+   Optional: page_header_breadcrumbs — list of {label, href?}; last crumb is current page; earlier hrefs are links.
+   Optional: page_header_subtitle, page_header_subtitle_is_html, page_header_right. #}
 <header class="admin-header app-page-header" role="banner">
   <div class="app-page-header__left">
     {% include 'components/hamburger_menu.html' %}
+    {% if page_header_breadcrumbs is defined and page_header_breadcrumbs %}
+    <nav class="app-page-header__breadcrumb" aria-label="Breadcrumb">
+      <div class="app-page-header__breadcrumb-trail">
+        {% for crumb in page_header_breadcrumbs %}
+        {% if not loop.first %}<span class="app-page-header__breadcrumb-sep" aria-hidden="true">&gt;</span>{% endif %}
+        {% if crumb.href and not loop.last %}
+        <a class="app-page-header__breadcrumb-link" href="{{ crumb.href }}">{{ crumb.label }}</a>
+        {% else %}
+        <span class="app-page-header__breadcrumb-current"{% if loop.last %} aria-current="page"{% endif %}>{{ crumb.label }}</span>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </nav>
+    {% else %}
     <h2 class="app-page-header__title">{{ page_header_title | default('') }}</h2>
+    {% endif %}
   </div>
   {% if (page_header_subtitle is defined and page_header_subtitle) or (page_header_right is defined and page_header_right) %}
   <div class="app-page-header__end">

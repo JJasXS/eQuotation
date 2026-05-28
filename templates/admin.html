@@ -11,7 +11,10 @@
 </head>
 <body class="equotation-icy-theme">
     <div class="admin-container">
-        {% set page_header_title = "Admin > Dashboard" %}
+        {% set page_header_breadcrumbs = [
+            {'label': 'Admin'},
+            {'label': 'Dashboard'}
+        ] %}
         {% include 'components/app_page_header.html' %}
 
         <div class="admin-welcome" id="admin-welcome">

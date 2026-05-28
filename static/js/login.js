@@ -463,6 +463,20 @@ function backToEmail() {
     document.getElementById('email').focus();
 }
 
+function setCarouselLocked(locked) {
+    const prev = document.getElementById('login-mode-prev');
+    const next = document.getElementById('login-mode-next');
+    const dots = document.querySelectorAll('.login-carousel-dot');
+    const slides = document.querySelectorAll('.login-carousel-slide');
+    const aside = document.querySelector('.login-aside');
+
+    if (prev) { prev.disabled = locked; prev.setAttribute('aria-disabled', locked); }
+    if (next) { next.disabled = locked; next.setAttribute('aria-disabled', locked); }
+    dots.forEach(d => { d.disabled = locked; d.setAttribute('aria-disabled', locked); });
+    slides.forEach(s => { s.style.pointerEvents = locked ? 'none' : ''; });
+    if (aside) aside.classList.toggle('login-aside--locked', locked);
+}
+
 function showStep(stepId) {
     document.querySelectorAll('.login-step').forEach((step) => {
         step.classList.remove('active');
@@ -475,7 +489,10 @@ function showStep(stepId) {
         loginPage.classList.toggle('login-page--otp', stepId === 'otp-step');
     }
 
-    if (stepId === 'otp-step') {
+    const isOtp = stepId === 'otp-step';
+    setCarouselLocked(isOtp);
+
+    if (isOtp) {
         const otpInputs = Array.from(document.querySelectorAll('.otp-digit'));
         otpInputs.forEach((input) => {
             input.value = '';
