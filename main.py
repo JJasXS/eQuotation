@@ -4037,6 +4037,8 @@ def api_admin_procurement_stock_item_uoms():
         select_cols = []
         if 'UOM' in st_item_cols:
             select_cols.append('UOM')
+        if 'SUOM' in st_item_cols:
+            select_cols.append('SUOM')
         if select_cols:
             cur.execute(
                 f"SELECT {', '.join(f'TRIM({c})' for c in select_cols)} FROM ST_ITEM WHERE TRIM(CODE) = ?",
@@ -4047,6 +4049,21 @@ def api_admin_procurement_stock_item_uoms():
                 for val in row:
                     _push_uom(val)
 
+        if not out:
+            try:
+                cur.execute(
+                    """
+                    SELECT TRIM(UOM), COUNT(*) FROM ST_ITEM_UOM
+                    WHERE TRIM(COALESCE(UOM, '')) <> ''
+                    GROUP BY UOM
+                    ORDER BY 2 DESC
+                    """
+                )
+                row = cur.fetchone()
+                if row and row[0]:
+                    _push_uom(row[0])
+            except Exception:
+                pass
         if not out:
             _push_uom('UNIT')
 

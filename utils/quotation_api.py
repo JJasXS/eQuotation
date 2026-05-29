@@ -41,6 +41,17 @@ def _quotation_fallback_item_code() -> str:
     return (os.getenv("SQL_API_QUOTATION_FALLBACK_ITEM_CODE") or "").strip()
 
 
+def _quotation_custom_item_code() -> str:
+    """Placeholder ST_ITEM.CODE for custom-order quotation lines (description carries the real product text)."""
+    raw = (os.getenv("SQL_API_QUOTATION_CUSTOM_ITEM_CODE") or "CUSTOM").strip()
+    return raw or "CUSTOM"
+
+
+def _auto_create_placeholder_items_enabled() -> bool:
+    raw = (os.getenv("SQL_API_QUOTATION_AUTO_CREATE_PLACEHOLDER_ITEM") or "true").strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
 def _normalize_item_code(value: str) -> str:
     """Collapse whitespace; ST_ITEM.CODE may contain spaces (e.g. ``SEMI BOM``)."""
     s = (value or "").strip()
@@ -52,7 +63,116 @@ def _default_quotation_line_location() -> str:
 
 
 def _default_quotation_line_uom() -> str:
-    return (os.getenv("SQL_API_QUOTATION_DEFAULT_UOM") or "UNIT").strip() or "UNIT"
+    """Explicit env override only; otherwise resolve from ST_ITEM per line or tenant default."""
+    return (os.getenv("SQL_API_QUOTATION_DEFAULT_UOM") or "").strip()
+
+
+def _resolve_tenant_default_uom(cur=None) -> str:
+    """Best UOM for placeholder/custom lines: env override, else most common ST_ITEM_UOM in this book."""
+    configured = _default_quotation_line_uom()
+    if configured:
+        return configured
+    con = None
+    try:
+        if cur is None:
+            db_path = (os.getenv("DB_PATH") or "").strip()
+            if not db_path:
+                return ""
+            import fdb
+
+            db_host = (os.getenv("DB_HOST") or "").strip()
+            db_user = (os.getenv("DB_USER") or "sysdba").strip()
+            db_password = (os.getenv("DB_PASSWORD") or "masterkey").strip()
+            dsn = db_path if not db_host else f"{db_host}:{db_path}"
+            con = fdb.connect(dsn=dsn, user=db_user, password=db_password, charset="UTF8")
+            cur = con.cursor()
+        cur.execute(
+            """
+            SELECT TRIM(UOM), COUNT(*) FROM ST_ITEM_UOM
+            WHERE TRIM(COALESCE(UOM, '')) <> ''
+              AND TRIM(UPPER(CODE)) NOT IN ('CUSTOM', 'MISC')
+            GROUP BY UOM
+            ORDER BY 2 DESC
+            """
+        )
+        row = cur.fetchone()
+        if row and row[0]:
+            return str(row[0]).strip()
+    except Exception:
+        pass
+    finally:
+        if con is not None:
+            try:
+                con.close()
+            except Exception:
+                pass
+    return ""
+
+
+def _read_st_item_suom(cur, code: str) -> str:
+    try:
+        cur.execute(
+            "SELECT TRIM(COALESCE(SUOM, '')) FROM ST_ITEM WHERE TRIM(UPPER(CODE)) = TRIM(UPPER(?))",
+            (code,),
+        )
+        row = cur.fetchone()
+        return str(row[0] or "").strip() if row else ""
+    except Exception:
+        return ""
+
+
+def _read_item_sales_uom(cur, code: str) -> str:
+    """
+    UOM accepted by SQL Accounting for sales lines: ST_ITEM_UOM (base row first), then ST_ITEM.SUOM.
+    The API validates against ST_ITEM_UOM, not SUOM alone.
+    """
+    code = _normalize_item_code(code)
+    if not code:
+        return ""
+    try:
+        cur.execute(
+            """
+            SELECT FIRST 1 TRIM(UOM) FROM ST_ITEM_UOM
+            WHERE TRIM(UPPER(CODE)) = TRIM(UPPER(?))
+              AND TRIM(COALESCE(UOM, '')) <> ''
+            ORDER BY
+                CASE WHEN COALESCE(ISBASE, FALSE) = TRUE THEN 0 ELSE 1 END,
+                UOM
+            """,
+            (code,),
+        )
+        row = cur.fetchone()
+        if row and row[0]:
+            return str(row[0]).strip()
+    except Exception:
+        pass
+    return _read_st_item_suom(cur, code)
+
+
+def _sync_placeholder_item_uom(cur, code: str) -> None:
+    """Align placeholder stock with a valid book UOM in ST_ITEM + ST_ITEM_UOM."""
+    want = _resolve_tenant_default_uom(cur)
+    if not want:
+        return
+    try:
+        cur.execute(
+            "UPDATE ST_ITEM SET SUOM = ? WHERE TRIM(UPPER(CODE)) = TRIM(UPPER(?))",
+            (want, code),
+        )
+    except Exception:
+        pass
+    _ensure_st_item_uom_row(cur, code, want)
+    try:
+        cur.execute(
+            """
+            DELETE FROM ST_ITEM_UOM
+            WHERE TRIM(UPPER(CODE)) = TRIM(UPPER(?))
+              AND TRIM(UPPER(UOM)) <> TRIM(UPPER(?))
+            """,
+            (code, want),
+        )
+    except Exception:
+        pass
 
 
 def _default_quotation_line_project() -> str:
@@ -64,8 +184,111 @@ def _default_quotation_line_irbm() -> str:
     return (os.getenv("SQL_API_QUOTATION_DEFAULT_IRBM") or "").strip()
 
 
+def _placeholder_item_codes() -> set[str]:
+    codes = {_normalize_item_code(_quotation_custom_item_code()).upper()}
+    fallback = _normalize_item_code(_quotation_fallback_item_code()).upper()
+    if fallback:
+        codes.add(fallback)
+    return codes
+
+
+def _st_item_exists(cur, code: str) -> bool:
+    cur.execute(
+        "SELECT COUNT(*) FROM ST_ITEM WHERE TRIM(UPPER(CODE)) = TRIM(UPPER(?))",
+        (code,),
+    )
+    row = cur.fetchone()
+    return bool(row and int(row[0] or 0) >= 1)
+
+
+def _ensure_st_item_uom_row(cur, code: str, uom: str) -> None:
+    uom = (uom or "").strip()
+    if not uom:
+        return
+    cur.execute(
+        """
+        SELECT COUNT(*) FROM ST_ITEM_UOM
+        WHERE TRIM(UPPER(CODE)) = TRIM(UPPER(?))
+          AND TRIM(UPPER(UOM)) = TRIM(UPPER(?))
+        """,
+        (code, uom),
+    )
+    row = cur.fetchone()
+    if row and int(row[0] or 0) >= 1:
+        return
+    try:
+        cur.execute(
+            """
+            INSERT INTO ST_ITEM_UOM (CODE, UOM, RATE, REFCOST, REFPRICE, ISBASE)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (code, uom, Decimal("1"), Decimal("0"), Decimal("0"), True),
+        )
+    except Exception:
+        pass
+
+
+def _ensure_st_item_placeholder(cur, code: str) -> bool:
+    """
+    Ensure a placeholder stock master exists for custom quotation lines.
+    Returns True when ST_ITEM.CODE exists (already or after insert).
+    """
+    code = _normalize_item_code(code)
+    if not code:
+        return False
+    if _st_item_exists(cur, code):
+        _sync_placeholder_item_uom(cur, code)
+        return True
+    try:
+        cur.execute("SELECT GEN_ID(ST_ITEM, 1) FROM RDB$DATABASE")
+        dockey = int(cur.fetchone()[0])
+        uom = _resolve_tenant_default_uom(cur)
+        if not uom:
+            return False
+        irbm = _default_quotation_line_irbm() or "022"
+        cur.execute(
+            """
+            INSERT INTO ST_ITEM (
+                DOCKEY, CODE, DESCRIPTION, STOCKGROUP, STOCKCONTROL, COSTINGMETHOD,
+                SERIALNUMBER, MINQTY, MAXQTY, REORDERLEVEL, REORDERQTY, SUOM, ITEMTYPE,
+                LEADTIME, BOM_LEADTIME, BOM_ASMCOST, IRBM_CLASSIFICATION, ISACTIVE,
+                BALSQTY, BALSUOMQTY, CREATIONDATE, LASTMODIFIED
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                dockey,
+                code,
+                "Custom quotation line (auto)",
+                "----",
+                True,
+                1,
+                False,
+                Decimal("0"),
+                Decimal("0"),
+                Decimal("0"),
+                Decimal("1"),
+                uom,
+                "-",
+                0,
+                0,
+                Decimal("0"),
+                irbm,
+                True,
+                Decimal("0"),
+                Decimal("0"),
+                date.today(),
+                0,
+            ),
+        )
+        _ensure_st_item_uom_row(cur, code, uom)
+        return True
+    except Exception:
+        return False
+
+
 def _lookup_st_item_uom_irbm(item_code: str, memo: dict[str, tuple[str, str]]) -> tuple[str, str]:
-    """Read ST_ITEM.UOM and IRBM_CLASSIFICATION from local DB when DB_PATH is set."""
+    """Read line UOM (ST_ITEM_UOM) and IRBM from local DB when DB_PATH is set."""
     key = _normalize_item_code(item_code).upper()
     if not key:
         return "", ""
@@ -86,6 +309,7 @@ def _lookup_st_item_uom_irbm(item_code: str, memo: dict[str, tuple[str, str]]) -
         con = fdb.connect(dsn=dsn, user=db_user, password=db_password, charset="UTF8")
         cur = con.cursor()
         try:
+            uom = _read_item_sales_uom(cur, item_code.strip())
             try:
                 cur.execute(
                     "SELECT TRIM(COALESCE(IRBM_CLASSIFICATION, '')) FROM ST_ITEM WHERE TRIM(UPPER(CODE)) = TRIM(UPPER(?))",
@@ -96,27 +320,6 @@ def _lookup_st_item_uom_irbm(item_code: str, memo: dict[str, tuple[str, str]]) -
                     irbm = str(row[0]).strip()
             except Exception:
                 pass
-            try:
-                cur.execute(
-                    "SELECT TRIM(COALESCE(UOM, '')) FROM ST_ITEM WHERE TRIM(UPPER(CODE)) = TRIM(UPPER(?))",
-                    (item_code.strip(),),
-                )
-                row = cur.fetchone()
-                if row and row[0] is not None:
-                    uom = str(row[0]).strip()
-            except Exception:
-                pass
-            if not uom:
-                try:
-                    cur.execute(
-                        "SELECT FIRST 1 TRIM(UOM) FROM ST_ITEM_UOM WHERE TRIM(UPPER(CODE)) = TRIM(UPPER(?))",
-                        (item_code.strip(),),
-                    )
-                    row = cur.fetchone()
-                    if row and row[0] is not None:
-                        uom = str(row[0]).strip()
-                except Exception:
-                    pass
         finally:
             cur.close()
             con.close()
@@ -224,6 +427,20 @@ def _local_precheck_quotation(customer_code: str, payload: dict) -> str | None:
                     "Fix the customer in SQL Accounting or align session customer_code with this database."
                 )
 
+            if _auto_create_placeholder_items_enabled():
+                placeholders = _placeholder_item_codes()
+                to_ensure: set[str] = set()
+                for d in payload.get("sdsdocdetail") or []:
+                    if not isinstance(d, dict):
+                        continue
+                    ic = _normalize_item_code(str(d.get("itemcode") or ""))
+                    if ic and ic.upper() in placeholders:
+                        to_ensure.add(ic)
+                for ic in sorted(to_ensure):
+                    _ensure_st_item_placeholder(cur, ic)
+                if to_ensure:
+                    con.commit()
+
             missing_items: list[str] = []
             for d in payload.get("sdsdocdetail") or []:
                 if not isinstance(d, dict):
@@ -244,7 +461,36 @@ def _local_precheck_quotation(customer_code: str, payload: dict) -> str | None:
                 uniq = sorted(set(missing_items))
                 return (
                     f"Local DB ({db_path}): no ST_ITEM.CODE for: {', '.join(uniq)}. "
-                    "Create these stock items in SQL Accounting or set SQL_API_QUOTATION_FALLBACK_ITEM_CODE to an existing code."
+                    "Create these stock items in SQL Accounting, set SQL_API_QUOTATION_FALLBACK_ITEM_CODE, "
+                    "or enable SQL_API_QUOTATION_AUTO_CREATE_PLACEHOLDER_ITEM (default on) for placeholder codes like CUSTOM."
+                )
+
+            invalid_uom: list[str] = []
+            for d in payload.get("sdsdocdetail") or []:
+                if not isinstance(d, dict):
+                    continue
+                ic = str(d.get("itemcode") or "").strip()
+                iu = str(d.get("uom") or "").strip()
+                if not ic or not iu:
+                    continue
+                cur.execute(
+                    """
+                    SELECT COUNT(*) FROM ST_ITEM_UOM
+                    WHERE TRIM(UPPER(CODE)) = TRIM(UPPER(?))
+                      AND TRIM(UPPER(UOM)) = TRIM(UPPER(?))
+                    """,
+                    (ic, iu),
+                )
+                r3 = cur.fetchone()
+                if not r3 or int(r3[0] or 0) < 1:
+                    invalid_uom.append(f"{ic}→{iu}")
+
+            if invalid_uom:
+                uniq_uom = sorted(set(invalid_uom))
+                return (
+                    f"Local DB ({db_path}): invalid line UOM (not in ST_ITEM_UOM for item): {', '.join(uniq_uom)}. "
+                    "UOM is read from ST_ITEM_UOM (base row), not hard-coded. "
+                    "Set SQL_API_QUOTATION_DEFAULT_UOM only if that code exists in ST_ITEM_UOM for the line item."
                 )
         finally:
             cur.close()
@@ -682,6 +928,7 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
     def_uom = _default_quotation_line_uom()
     def_proj = _default_quotation_line_project()
     def_irbm = _default_quotation_line_irbm()
+    tenant_default_uom = ""
     for idx, item in enumerate(data.get("items") or [], start=1):
         qty = _as_decimal(item.get("qty") or 0)
         unit_price = _as_decimal(item.get("price") or 0)
@@ -702,7 +949,7 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
         ).strip()
         source_line = str(item.get("source") or "").strip().lower()
         if source_line == "custom" and not item_code:
-            item_code = str(item.get("itemCode") or "CUSTOM").strip() or "CUSTOM"
+            item_code = _quotation_custom_item_code()
         if not item_code:
             item_code = _resolve_item_code_from_local_db(product_desc)
         if not item_code and fallback_code:
@@ -714,8 +961,18 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
         except (TypeError, ValueError):
             dtlkey_val = 0
 
+        is_custom_line = source_line == "custom" or item_code.upper() in _placeholder_item_codes()
         db_uom, db_irbm = _lookup_st_item_uom_irbm(item_code, line_uom_irbm_memo)
-        line_uom = str(item.get("uom") or item.get("UOM") or "").strip() or db_uom or def_uom
+        # UOM precedence: explicit request UOM, then configured default (deliberate alignment to the
+        # SQL API book), then local-DB UOM (only when DB_PATH matches the API book), then tenant default.
+        # Custom/placeholder lines never use the local-DB UOM (the placeholder lives only in the local book).
+        line_uom = str(item.get("uom") or item.get("UOM") or "").strip() or def_uom
+        if not line_uom and not is_custom_line:
+            line_uom = db_uom
+        if not line_uom:
+            if not tenant_default_uom:
+                tenant_default_uom = _resolve_tenant_default_uom()
+            line_uom = tenant_default_uom
         line_irbm = (
             str(item.get("irbmClassification") or item.get("irbm_classification") or "").strip()
             or db_irbm
@@ -1030,6 +1287,13 @@ def create_or_update_quotation(base_api_url, customer_code, data):
             if isinstance(err_obj, dict) and err_obj.get("message"):
                 detail = str(err_obj.get("message"))
         last_error = f"SQL Accounting API returned HTTP {status}: {detail}"
+        line_uoms = [
+            (str(d.get("itemcode") or ""), str(d.get("uom") or ""))
+            for d in (payload.get("sdsdocdetail") or [])
+            if isinstance(d, dict)
+        ]
+        if line_uoms:
+            print(f"[quotation_api] salesquotation line itemcode->uom: {line_uoms}", flush=True)
         if "operation aborted" in last_error.lower():
             last_error += (
                 " — Common causes: invalid or blank ST_ITEM.CODE on a line, missing line UOM/location/IRBM, "
