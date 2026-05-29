@@ -199,45 +199,76 @@ def _sorted_ar_customer_udf_email_columns(cur) -> list[str]:
     return sorted(email_cols, key=sort_key)
 
 
+def _sorted_supplier_udf_email_columns(cur, table_name: str) -> list[str]:
+    """
+    All ``UDF_EMAIL`` / ``UDF_EMAIL01`` / ``UDF_EMAIL02`` … columns on the given supplier table,
+    ordered by numeric suffix (``UDF_EMAIL`` first as 0, then ``UDF_EMAIL01``, ``UDF_EMAIL02``, …).
+    Discovered dynamically so adding more contact columns needs no code change.
+    """
+    cur.execute(
+        """
+        SELECT TRIM(RDB$FIELD_NAME)
+        FROM RDB$RELATION_FIELDS
+        WHERE RDB$RELATION_NAME = ?
+        """,
+        [table_name.upper()],
+    )
+    cols = [str(r[0]).strip() for r in (cur.fetchall() or []) if r and r[0]]
+    email_cols = [c for c in cols if re.fullmatch(r"UDF_EMAIL\d*", c, re.IGNORECASE)]
+
+    def sort_key(c: str) -> tuple[int, str]:
+        m = re.fullmatch(r"UDF_EMAIL(\d*)", c, re.IGNORECASE)
+        if not m:
+            return (10**9, c.upper())
+        digits = m.group(1)
+        return (int(digits, 10) if digits else 0, c.upper())
+
+    return sorted(email_cols, key=sort_key)
+
+
 def _lookup_supplier_by_email(cur, normalized_email: str):
-    """AR_SUPPLIER / AP_SUPPLIER (+ external API fallback). Returns (supplier_dict|None, supplier_code|None)."""
+    """AR_SUPPLIER / AP_SUPPLIER (+ external API fallback). Returns (supplier_dict|None, supplier_code|None).
+
+    Searches every ``UDF_EMAIL*`` column (``UDF_EMAIL``, ``UDF_EMAIL01``, ``UDF_EMAIL02``, …) discovered on
+    each supplier table, then the plain ``EMAIL`` column, so any of a supplier's contacts can log in.
+    """
     supplier = None
     supplier_code = None
-    supplier_lookup_sources = [
-        ("AR_SUPPLIER", "UDF_EMAIL", "COMPANYNAME"),
-        ("AP_SUPPLIER", "UDF_EMAIL", "COMPANYNAME"),
-        ("AR_SUPPLIER", "EMAIL", "COMPANYNAME"),
-        ("AP_SUPPLIER", "EMAIL", "COMPANYNAME"),
-    ]
-    for table_name, email_col, name_col in supplier_lookup_sources:
+    for table_name in ("AR_SUPPLIER", "AP_SUPPLIER"):
         try:
             if not _table_has_column(cur, table_name, "CODE"):
                 continue
-            if not _table_has_column(cur, table_name, email_col):
-                continue
-            if not _table_has_column(cur, table_name, name_col):
-                name_col = "CODE"
+            name_col = "COMPANYNAME" if _table_has_column(cur, table_name, "COMPANYNAME") else "CODE"
 
-            cur.execute(
-                f"""
-                SELECT CODE, {name_col}, {email_col}
-                FROM {table_name}
-                WHERE UPPER(TRIM({email_col})) = UPPER(TRIM(?))
-                """,
-                [normalized_email],
-            )
-            supplier_row = cur.fetchone()
-            if supplier_row:
-                supplier = {
-                    "code": supplier_row[0],
-                    "name": supplier_row[1],
-                    "email": supplier_row[2],
-                    "source": f"{table_name}.{email_col}",
-                }
-                supplier_code = supplier_row[0]
+            email_cols = _sorted_supplier_udf_email_columns(cur, table_name)
+            if _table_has_column(cur, table_name, "EMAIL"):
+                email_cols.append("EMAIL")
+            if not email_cols:
+                continue
+
+            for email_col in email_cols:
+                cur.execute(
+                    f"""
+                    SELECT CODE, {name_col}, {email_col}
+                    FROM {table_name}
+                    WHERE UPPER(TRIM({email_col})) = UPPER(TRIM(?))
+                    """,
+                    [normalized_email],
+                )
+                supplier_row = cur.fetchone()
+                if supplier_row:
+                    supplier = {
+                        "code": supplier_row[0],
+                        "name": supplier_row[1],
+                        "email": supplier_row[2],
+                        "source": f"{table_name}.{email_col}",
+                    }
+                    supplier_code = supplier_row[0]
+                    break
+            if supplier:
                 break
         except Exception as exc:
-            print(f"[AUTH] supplier lookup failed on {table_name}.{email_col}: {exc}", flush=True)
+            print(f"[AUTH] supplier lookup failed on {table_name}: {exc}", flush=True)
 
     if not supplier:
         supplier, supplier_code = _lookup_supplier_via_external_api(normalized_email)
