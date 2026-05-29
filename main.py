@@ -1036,10 +1036,7 @@ def build_catalog_response(user_input, stockitems, stock_groups, price_lookup, c
 
         lines = [heading, '']
         for index, (description, _stock_group, price) in enumerate(display_matches, start=start_index):
-            if price is not None:
-                lines.append(f'{index}. {description} [PRODUCT: {description} | qty: 1]')
-            else:
-                lines.append(f'{index}. {description}')
+            lines.append(_catalog_list_line(index, description, price))
 
         lines.extend(['', f'Showing {start_index}-{end_index} of {total_matches} matches.'])
         navigation_tags = []
@@ -1071,11 +1068,24 @@ def build_catalog_response(user_input, stockitems, stock_groups, price_lookup, c
     if suggestions:
         lines = ['No item found for that search.', '', 'Here are some close matches from our catalog:', '']
         for index, (description, price) in enumerate(suggestions, start=1):
-            lines.append(f'{index}. {description} [PRODUCT: {description} | qty: 1]')
+            lines.append(_catalog_list_line(index, description, price))
         lines.extend(['', 'Try one of these or give me another keyword.'])
         return '\n'.join(lines)
 
     return 'No item found for that search in our catalog. Please try another product name or stock group.'
+
+
+def _catalog_list_line(index: int, description: str, price) -> str:
+    """Numbered catalog row with hidden [PRODUCT:…] tag so the UI can render add-to-quotation buttons."""
+    desc = str(description or '').strip()
+    line = f'{index}. {desc}'
+    if price is not None:
+        try:
+            line += f' - {format_rm(price)}'
+        except Exception:
+            line += f' - RM {price}'
+    line += f' [PRODUCT: {desc} | qty: 1]'
+    return line
 
 
 def add_order_item(orderid, product_info, unitprice):
@@ -3678,17 +3688,9 @@ def chat_api():
     # Save messages if chatid provided
     if chatid:
         try:
-            # Truncate messages to 4000 characters for database field limit (after db_initializer.py runs)
-            user_msg = user_input[:4000] if len(user_input) > 4000 else user_input
-            system_msg = formatted_reply[:4000] if len(formatted_reply) > 4000 else formatted_reply
-            
-            # Save user message
-            insert_chat_message(chatid, "User", user_msg)
-            # Save system response
-            insert_chat_message(chatid, "System", system_msg)
-
-            # Ensure chat preview shows latest system reply
-            update_chat_last_message(chatid, system_msg, user_email)
+            insert_chat_message(chatid, "User", user_input)
+            insert_chat_message(chatid, "System", formatted_reply)
+            update_chat_last_message(chatid, formatted_reply, user_email)
         except Exception as e:
             print(f"Failed to save messages: {e}")
     

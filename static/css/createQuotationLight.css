@@ -562,6 +562,18 @@ body.create-quotation-page .quotation-chat-popup-message-content .chat-reply-lin
     font-size: 12px;
 }
 
+body.create-quotation-page .chat-inline-product-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+body.create-quotation-page .item-row input.item-product {
+    min-width: 10rem;
+    flex: 1 1 12rem;
+}
+
 body.create-quotation-page #quotation-chat-popup-textarea {
     background: var(--ice-surface-input);
     border: 1px solid var(--ice-border-soft);

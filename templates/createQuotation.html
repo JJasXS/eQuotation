@@ -99,9 +99,7 @@
                                                 <option value="catalog">From catalog</option>
                                                 <option value="custom">Custom order</option>
                                             </select>
-                                            <select class="item-product" onchange="fetchProductPrice(this)">
-                                                <option value="">Select product...</option>
-                                            </select>
+                                            <input type="text" class="item-product" list="product-list" placeholder="Type code or name to search…" autocomplete="off" onchange="fetchProductPrice(this)">
                                             <input type="text" class="item-product-custom" placeholder="Custom product" style="display:none;" onchange="fetchProductPrice(this)">
                                             <input type="text" class="item-udf-moq" placeholder="—" readonly title="MOQ from ST_ITEM (catalog)">
                                             <input type="text" class="item-udf-dleadtime" placeholder="—" readonly title="UDF_DLEADTIME from ST_ITEM (catalog)">
@@ -171,7 +169,7 @@
     </datalist>
     
     <script src="/static/js/hamburger_menu.js"></script>
-    <script src="/static/js/orderQuotation.js?v=20260511_stockitem_code"></script>
+    <script src="/static/js/orderQuotation.js?v=20260529_catalog_buttons"></script>
     <script src="/static/js/quotationChatPopup.js?v=20260515_bubble_1_5s"></script>
     <script>
         // Set today's date as default for all delivery date inputs on load

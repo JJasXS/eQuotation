@@ -261,9 +261,7 @@ function addQuotationItem() {
                 <option value="catalog">From catalog</option>
                 <option value="custom">Custom order</option>
             </select>
-            <select class="item-product" onchange="fetchProductPrice(this)">
-                <option value="">Select product...</option>
-            </select>
+            ${QUOTATION_CATALOG_PRODUCT_FIELD_HTML}
             <input type="text" class="item-product-custom" placeholder="Custom product" style="display:none;" onchange="fetchProductPrice(this)">
             <input type="text" class="item-udf-moq" placeholder="—" readonly title="MOQ from ST_ITEM (catalog)">
             <input type="text" class="item-udf-dleadtime" placeholder="—" readonly title="UDF_DLEADTIME from ST_ITEM (catalog)">
@@ -277,10 +275,7 @@ function addQuotationItem() {
         </div>
     `;
     container.appendChild(newItem);
-    
-    // Populate the new select with products
-    const select = newItem.querySelector('.item-product');
-    populateProductSelect(select);
+    syncProductDatalist();
     refreshQuotationMiniItemCodes();
 }
 
@@ -414,9 +409,7 @@ function clearQuotationForm() {
                         <option value="catalog">From catalog</option>
                         <option value="custom">Custom order</option>
                     </select>
-                    <select class="item-product" onchange="fetchProductPrice(this)">
-                        <option value="">Select product...</option>
-                    </select>
+                    <input type="text" class="item-product" list="product-list" placeholder="Type code or name to search…" autocomplete="off" onchange="fetchProductPrice(this)">
                     <input type="text" class="item-product-custom" placeholder="Custom product" style="display:none;" onchange="fetchProductPrice(this)">
                     <input type="text" class="item-udf-moq" placeholder="—" readonly title="MOQ from ST_ITEM (catalog)">
                     <input type="text" class="item-udf-dleadtime" placeholder="—" readonly title="UDF_DLEADTIME from ST_ITEM (catalog)">
@@ -430,9 +423,7 @@ function clearQuotationForm() {
                 </div>
             </div>
         `;
-        // Populate the select with products
-        const select = container.querySelector('.item-product');
-        populateProductSelect(select);
+        syncProductDatalist();
         calculateQuotationTotal();
         loadUserInfo();
         refreshQuotationMiniItemCodes();
@@ -524,11 +515,12 @@ async function loadProducts() {
         
         if (data.success && data.items) {
             availableProducts = data.items;
-            
-            // Populate all existing select elements
-            document.querySelectorAll('.item-product').forEach(select => {
-                if (select.tagName === 'SELECT') {
-                    populateProductSelect(select);
+            syncProductDatalist();
+
+            // Legacy rows may still use <select>; create-quotation uses searchable <input list="product-list">.
+            document.querySelectorAll('.item-product').forEach((el) => {
+                if (el.tagName === 'SELECT') {
+                    populateProductSelect(el);
                 }
             });
             refreshQuotationMiniItemCodes();
@@ -536,6 +528,34 @@ async function loadProducts() {
     } catch (error) {
         console.error('Failed to load products:', error);
     }
+}
+
+/** Searchable catalog field on create quotation (type to filter via browser datalist). */
+const QUOTATION_CATALOG_PRODUCT_FIELD_HTML =
+    '<input type="text" class="item-product" list="product-list" placeholder="Type code or name to search…" autocomplete="off" onchange="fetchProductPrice(this)">';
+
+function syncProductDatalist() {
+    const datalist = document.getElementById('product-list');
+    if (!datalist) {
+        return;
+    }
+    datalist.innerHTML = '';
+    availableProducts.forEach((item) => {
+        const rawCode = item.CODE ?? item.code ?? item.StockCode ?? item.stockCode ?? '';
+        const code = rawCode != null ? String(rawCode).trim() : '';
+        const rawDesc = item.DESCRIPTION ?? item.description ?? item.Description ?? '';
+        const desc = rawDesc != null ? String(rawDesc).trim() : '';
+        const value = desc || code;
+        if (!value) {
+            return;
+        }
+        const option = document.createElement('option');
+        option.value = value;
+        if (code && desc) {
+            option.label = `${desc} (${code})`;
+        }
+        datalist.appendChild(option);
+    });
 }
 
 // Populate a product select element
@@ -606,15 +626,17 @@ function refreshQuotationMiniItemCodes() {
             return;
         }
         const sel = row.querySelector('.item-product');
-        if (!sel || sel.tagName !== 'SELECT') {
+        if (!sel || sel.classList.contains('item-product-custom')) {
             return;
         }
         const desc = (sel.value || '').trim();
         if (!desc) {
             return;
         }
-        const opt = sel.selectedOptions[0];
-        const fromAttr = opt && opt.getAttribute('data-stock-code');
+        const fromAttr =
+            sel.tagName === 'SELECT' && sel.selectedOptions[0]
+                ? sel.selectedOptions[0].getAttribute('data-stock-code')
+                : null;
         const code =
             (fromAttr && String(fromAttr).trim()) || resolveCatalogItemCodeFromDescription(desc);
         if (code) {
@@ -1059,9 +1081,7 @@ async function loadDraftQuotation(dockey) {
                                 <option value="catalog" ${isCustom ? '' : 'selected'}>From catalog</option>
                                 <option value="custom" ${isCustom ? 'selected' : ''}>Custom order</option>
                             </select>
-                            <select class="item-product" onchange="fetchProductPrice(this)" style="display:${isCustom ? 'none' : 'inline-block'};">
-                                <option value="">Select product...</option>
-                            </select>
+                            <input type="text" class="item-product" list="product-list" placeholder="Type code or name to search…" autocomplete="off" onchange="fetchProductPrice(this)" style="display:${isCustom ? 'none' : 'inline-block'};">
                             <input type="text" class="item-product-custom" placeholder="Custom product" style="display:${isCustom ? 'inline-block' : 'none'};" value="${isCustom ? (item.DESCRIPTION || '') : ''}" onchange="fetchProductPrice(this)">
                             <input type="text" class="item-udf-moq" placeholder="—" readonly title="MOQ from ST_ITEM (catalog)">
                             <input type="text" class="item-udf-dleadtime" placeholder="—" readonly title="UDF_DLEADTIME from ST_ITEM (catalog)">
@@ -1075,22 +1095,12 @@ async function loadDraftQuotation(dockey) {
                         </div>
                     `;
                     container.appendChild(newItem);
+                    syncProductDatalist();
 
-                    const productSelect = newItem.querySelector('.item-product');
-                    populateProductSelect(productSelect);
-                    if (!isCustom && item.DESCRIPTION) {
-                        const option = document.createElement('option');
-                        const ic = (item.ITEMCODE != null && String(item.ITEMCODE).trim()) ? String(item.ITEMCODE).trim() : '';
-                        option.value = item.DESCRIPTION;
-                        option.textContent = ic ? `${item.DESCRIPTION} (${ic})` : item.DESCRIPTION;
-                        if (ic) {
-                            option.setAttribute('data-stock-code', ic);
-                        }
-                        option.selected = true;
-                        productSelect.appendChild(option);
-                    }
-                    if (!isCustom && item.DESCRIPTION && productSelect) {
-                        fetchProductPrice(productSelect);
+                    const productField = newItem.querySelector('.item-product');
+                    if (!isCustom && item.DESCRIPTION && productField) {
+                        productField.value = item.DESCRIPTION;
+                        fetchProductPrice(productField);
                     }
                 });
                 
@@ -1169,9 +1179,7 @@ async function loadSlQtDraftForEdit(draftDockey) {
                             <option value="catalog" ${isCustom ? '' : 'selected'}>From catalog</option>
                             <option value="custom" ${isCustom ? 'selected' : ''}>Custom order</option>
                         </select>
-                        <select class="item-product" onchange="fetchProductPrice(this)" style="display:${isCustom ? 'none' : 'inline-block'};">
-                            <option value="">Select product...</option>
-                        </select>
+                        <input type="text" class="item-product" list="product-list" placeholder="Type code or name to search…" autocomplete="off" onchange="fetchProductPrice(this)" style="display:${isCustom ? 'none' : 'inline-block'};">
                         <input type="text" class="item-product-custom" placeholder="Custom product" style="display:${isCustom ? 'inline-block' : 'none'};" value="${isCustom ? (item.DESCRIPTION || '') : ''}" onchange="fetchProductPrice(this)">
                         <input type="text" class="item-udf-moq" placeholder="—" readonly title="MOQ from ST_ITEM (catalog)">
                         <input type="text" class="item-udf-dleadtime" placeholder="—" readonly title="UDF_DLEADTIME from ST_ITEM (catalog)">
@@ -1185,13 +1193,13 @@ async function loadSlQtDraftForEdit(draftDockey) {
                     </div>
                 `;
                 container.appendChild(newItem);
+                syncProductDatalist();
 
-                const productSelect = newItem.querySelector('.item-product');
-                populateProductSelect(productSelect);
+                const productField = newItem.querySelector('.item-product');
                 const savedCode = (item.ITEMCODE != null && String(item.ITEMCODE).trim())
                     ? String(item.ITEMCODE).trim()
                     : '';
-                if (!isCustom && item.DESCRIPTION) {
+                if (!isCustom && item.DESCRIPTION && productField) {
                     let rowLabel = String(item.DESCRIPTION).trim();
                     if (savedCode && availableProducts && availableProducts.length) {
                         const byCode = availableProducts.find(
@@ -1201,18 +1209,8 @@ async function loadSlQtDraftForEdit(draftDockey) {
                             rowLabel = String(byCode.DESCRIPTION || byCode.CODE || rowLabel).trim();
                         }
                     }
-                    const option = document.createElement('option');
-                    option.value = rowLabel;
-                    option.textContent = savedCode ? `${rowLabel} (${savedCode})` : rowLabel;
-                    if (savedCode) {
-                        option.setAttribute('data-stock-code', savedCode);
-                    }
-                    option.selected = true;
-                    productSelect.appendChild(option);
-                    productSelect.value = rowLabel;
-                }
-                if (!isCustom && item.DESCRIPTION && productSelect) {
-                    fetchProductPrice(productSelect);
+                    productField.value = rowLabel;
+                    fetchProductPrice(productField);
                 }
             });
             calculateQuotationTotal();
@@ -1392,19 +1390,53 @@ function sendQuickChatMessage(message, sourceButton = null) {
     });
 }
 
-function buildChatReplyHtml(reply) {
-    const matches = Array.from(reply.matchAll(/\[PRODUCT:\s*([^\|]+)\s*\|\s*qty:\s*(\d+)\s*\]/gi));
-    const pageMatches = Array.from(reply.matchAll(/\[PAGE:\s*(\d+)\s*\|\s*label:\s*([^\]]+)\]/gi));
-    const cleanedReply = reply
-        .replace(/\[PRODUCT:[^\]]+\]/gi, '')
-        .replace(/\[PAGE:[^\]]+\]/gi, '')
-        .replace(/\r\n/g, '\n')
-        .trim();
-    const lines = cleanedReply.length ? cleanedReply.split('\n') : [];
-    const renderedLines = [];
-    let matchIndex = 0;
+const CHAT_PRODUCT_TAG_RE = /\[PRODUCT:\s*([^|\]]+?)\s*\|\s*qty:\s*(\d+)\s*\]/gi;
+const CHAT_PAGE_TAG_RE = /\[PAGE:\s*(\d+)\s*\|\s*label:\s*([^\]]+)\]/gi;
+const CHAT_LIST_LINE_RE = /^(?:\d+[\.\)]\s+|[-*•]\s+)(.+)$/;
+const CHAT_CATALOG_META_LINE_RE =
+    /^(Showing\s+\d|That is the end|Use the arrows|Let me know|Here are the matching|Here are more matching|No item found|Try one of these)/i;
 
-    lines.forEach(line => {
+function isCatalogProductListLine(trimmedLine) {
+    const line = String(trimmedLine || '').trim();
+    if (!line || CHAT_CATALOG_META_LINE_RE.test(line)) {
+        return false;
+    }
+    return CHAT_LIST_LINE_RE.test(line);
+}
+
+function catalogLineProductName(label) {
+    let name = stripChatProductTags(String(label || '').trim());
+    name = name.replace(/\s*-\s*RM\s+[\d.,]+$/i, '').trim();
+    return name || String(label || '').trim();
+}
+
+function stripChatProductTags(line) {
+    return String(line || '')
+        .replace(new RegExp(CHAT_PRODUCT_TAG_RE.source, 'gi'), '')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+}
+
+function renderChatProductButton(productName, quantity, label) {
+    const escapedProductName = escapeInlineJsString(productName);
+    const escapedLabel = escapeChatHtml(label || productName);
+    const qty = Number(quantity) || 1;
+    return `<button type="button" class="chat-inline-product-action" onclick="addProductToQuotation('${escapedProductName}', ${qty}, this); return false;">${escapedLabel}</button>`;
+}
+
+function buildChatReplyHtml(reply) {
+    const pageMatches = Array.from(reply.matchAll(new RegExp(CHAT_PAGE_TAG_RE.source, 'gi')));
+    const bodyText = reply.replace(new RegExp(CHAT_PAGE_TAG_RE.source, 'gi'), '');
+    const allProductTags = Array.from(bodyText.matchAll(new RegExp(CHAT_PRODUCT_TAG_RE.source, 'gi'))).map((match) => ({
+        name: match[1].trim(),
+        qty: Number(match[2]) || 1,
+    }));
+
+    const lines = bodyText.replace(/\r\n/g, '\n').split('\n');
+    const renderedLines = [];
+    let tagCursor = 0;
+
+    lines.forEach((line) => {
         const trimmedLine = line.trim();
 
         if (!trimmedLine) {
@@ -1412,37 +1444,49 @@ function buildChatReplyHtml(reply) {
             return;
         }
 
-        const numberedLineMatch = trimmedLine.match(/^\d+\.\s+(.+)$/);
-        if (numberedLineMatch && matchIndex < matches.length) {
-            const productName = matches[matchIndex][1].trim();
-            const quantity = Number(matches[matchIndex][2]) || 1;
-            const escapedProductName = escapeInlineJsString(productName);
-            const escapedLabel = escapeChatHtml(trimmedLine);
-            matchIndex += 1;
+        const inlineTags = Array.from(line.matchAll(new RegExp(CHAT_PRODUCT_TAG_RE.source, 'gi')));
+        if (inlineTags.length) {
+            const visible = stripChatProductTags(line);
+            inlineTags.forEach((match, index) => {
+                tagCursor += 1;
+                const productName = match[1].trim();
+                const quantity = Number(match[2]) || 1;
+                const label =
+                    inlineTags.length === 1 && visible
+                        ? visible
+                        : productName;
+                renderedLines.push(renderChatProductButton(productName, quantity, label));
+            });
+            return;
+        }
 
-            renderedLines.push(
-                `<button type="button" class="chat-inline-product-action" onclick="addProductToQuotation('${escapedProductName}', ${quantity}, this); return false;">${escapedLabel}</button>`
-            );
+        const listMatch = trimmedLine.match(CHAT_LIST_LINE_RE);
+        if (listMatch && tagCursor < allProductTags.length) {
+            const tag = allProductTags[tagCursor];
+            tagCursor += 1;
+            renderedLines.push(renderChatProductButton(tag.name, tag.qty, listMatch[1].trim()));
+            return;
+        }
+
+        if (isCatalogProductListLine(trimmedLine)) {
+            const label = listMatch ? listMatch[1].trim() : trimmedLine.replace(/^\d+[\.\)]\s+/, '').trim();
+            const productName = catalogLineProductName(label);
+            renderedLines.push(renderChatProductButton(productName, 1, label));
             return;
         }
 
         renderedLines.push(`<div class="chat-reply-line">${escapeChatHtml(line)}</div>`);
     });
 
-    if (matchIndex < matches.length) {
-        const fallbackButtons = matches.slice(matchIndex).map(match => {
-            const productName = match[1].trim();
-            const quantity = Number(match[2]) || 1;
-            const escapedProductName = escapeInlineJsString(productName);
-            const escapedLabel = escapeChatHtml(productName);
-            return `<button type="button" class="chat-inline-product-action" onclick="addProductToQuotation('${escapedProductName}', ${quantity}, this); return false;">${escapedLabel}</button>`;
-        });
-
+    if (tagCursor < allProductTags.length) {
+        const fallbackButtons = allProductTags.slice(tagCursor).map((tag) =>
+            renderChatProductButton(tag.name, tag.qty, tag.name)
+        );
         renderedLines.push(`<div class="chat-inline-product-list">${fallbackButtons.join('')}</div>`);
     }
 
     if (pageMatches.length) {
-        const pageButtons = pageMatches.map(match => {
+        const pageButtons = pageMatches.map((match) => {
             const pageNumber = Number(match[1]) || 1;
             const label = escapeChatHtml(match[2].trim());
             return `<button type="button" class="chat-page-nav-button" onclick="sendQuickChatMessage('page ${pageNumber}', this); return false;">${label}</button>`;

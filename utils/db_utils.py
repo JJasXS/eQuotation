@@ -107,18 +107,42 @@ def get_chat_history(chatid, user_email=None):
     return []
 
 
+CHAT_DETAIL_MESSAGE_MAX_LEN = 4000
+# CHAT_TPL.LASTMESSAGE is a short sidebar preview; full text is stored in CHAT_TPLDTL.MESSAGETEXT.
+CHAT_LAST_MESSAGE_PREVIEW_MAX_LEN = 252
+
+
+def _normalize_chat_detail_text(text) -> str:
+    raw = str(text or '')
+    if len(raw) <= CHAT_DETAIL_MESSAGE_MAX_LEN:
+        return raw
+    return raw[:CHAT_DETAIL_MESSAGE_MAX_LEN]
+
+
+def chat_last_message_preview(text, max_len: int = CHAT_LAST_MESSAGE_PREVIEW_MAX_LEN) -> str:
+    """Fit CHAT_TPL.LASTMESSAGE (VARCHAR(255) on older DBs)."""
+    raw = str(text or '').replace('\r\n', '\n').replace('\n', ' ').strip()
+    limit = int(max_len) if max_len and int(max_len) > 0 else CHAT_LAST_MESSAGE_PREVIEW_MAX_LEN
+    if len(raw) <= limit:
+        return raw
+    if limit <= 1:
+        return raw[:limit]
+    return raw[: limit - 1] + '…'
+
+
 def update_chat_last_message(chatid, messagetext, user_email=None):
     """Update the last message in a chat."""
+    preview = chat_last_message_preview(messagetext)
     con = get_db_connection()
     cur = con.cursor()
     try:
         if user_email:
             cur.execute(
                 'UPDATE CHAT_TPL SET LASTMESSAGE = ? WHERE CHATID = ? AND OWNEREMAIL = ?',
-                (messagetext, chatid, user_email)
+                (preview, chatid, user_email)
             )
         else:
-            cur.execute('UPDATE CHAT_TPL SET LASTMESSAGE = ? WHERE CHATID = ?', (messagetext, chatid))
+            cur.execute('UPDATE CHAT_TPL SET LASTMESSAGE = ? WHERE CHATID = ?', (preview, chatid))
         con.commit()
     finally:
         cur.close()
@@ -142,11 +166,13 @@ def insert_chat_message_local(chatid, sender, messagetext):
         mid_row = cur.fetchone()
         messageid = int(mid_row[0]) if mid_row and mid_row[0] is not None else 1
         sent_at = datetime.now()
+        detail_text = _normalize_chat_detail_text(messagetext)
+        preview = chat_last_message_preview(detail_text)
         cur.execute(
             'INSERT INTO CHAT_TPLDTL (MESSAGEID, CHATID, SENDER, MESSAGETEXT, SENTAT) VALUES (?, ?, ?, ?, ?)',
-            (messageid, cid, sender, messagetext, sent_at),
+            (messageid, cid, sender, detail_text, sent_at),
         )
-        cur.execute('UPDATE CHAT_TPL SET LASTMESSAGE = ? WHERE CHATID = ?', (messagetext, cid))
+        cur.execute('UPDATE CHAT_TPL SET LASTMESSAGE = ? WHERE CHATID = ?', (preview, cid))
         con.commit()
     finally:
         cur.close()
