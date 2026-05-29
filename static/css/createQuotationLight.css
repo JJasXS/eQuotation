@@ -121,7 +121,7 @@ body.create-quotation-page .quotation-mini-item-codes:empty::before {
 /* Match sum of grid minmax mins (~978px) + column gaps (~120px) so tracks are not squeezed */
 body.create-quotation-page:not(.update-quotation-page) #quotation-form .quotation-item-row-header,
 body.create-quotation-page:not(.update-quotation-page) #quotation-items-list .item-row {
-    min-width: 1120px;
+    min-width: 1240px;
 }
 
 body.create-quotation-page #quotation-items-list .item-row input,
@@ -143,6 +143,9 @@ body.create-quotation-page:not(.update-quotation-page) #quotation-form {
         minmax(40px, 0.38fr)
         minmax(40px, 0.38fr)
         minmax(44px, 0.4fr)
+        minmax(44px, 0.4fr)
+        minmax(44px, 0.4fr)
+        minmax(44px, 0.4fr)
         minmax(48px, 0.42fr)
         minmax(52px, 0.45fr)
         minmax(60px, 0.48fr)
@@ -157,7 +160,7 @@ body.create-quotation-page:not(.update-quotation-page) .create-quotation-lines-p
 }
 
 body.create-quotation-page:not(.update-quotation-page) .create-quotation-lines-grid {
-    min-width: 980px;
+    min-width: 1100px;
     margin-bottom: 10px;
     background: var(--ice-surface, #fff);
     border: 1px solid var(--ice-border-soft, #c5dce9);

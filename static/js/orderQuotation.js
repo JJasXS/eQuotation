@@ -221,8 +221,6 @@ function buildQuotationPayload() {
         phone1: readQuotationCustomerField('quotation-phone'),
         remarks: document.getElementById('quotation-remarks')?.value.trim() || '',
 
-
-
         items: items
     };
 }
@@ -249,6 +247,19 @@ function writeQuotationCustomerField(id, displayText) {
     el.textContent = text.trim();
 }
 
+/** Searchable catalog field on create quotation (type to filter via browser datalist). */
+const QUOTATION_CATALOG_PRODUCT_FIELD_HTML =
+    '<input type="text" class="item-product" list="product-list" placeholder="Type code or name to search…" autocomplete="off" onchange="fetchProductPrice(this)">';
+
+/** Read-only ST_ITEM / stockitem API fields on each quotation line row. */
+const QUOTATION_LINE_ST_ITEM_EXTRA_INPUTS = `
+            <input type="text" class="item-udf-moq" placeholder="—" readonly title="MOQ (stockitem API)">
+            <input type="text" class="item-udf-dleadtime" placeholder="—" readonly title="Lead time (stockitem API)">
+            <input type="text" class="item-udf-bundle" placeholder="—" readonly title="Bundle (stockitem API)">
+            <input type="text" class="item-udf-thickness" placeholder="—" readonly title="UDF_THICKNESS (stockitem API)">
+            <input type="text" class="item-udf-width" placeholder="—" readonly title="UDF_WIDTH (stockitem API)">
+            <input type="text" class="item-udf-length" placeholder="—" readonly title="UDF_LENGTH (stockitem API)">`;
+
 // Add Quotation Item
 function addQuotationItem() {
     const container = document.getElementById('quotation-items-list');
@@ -263,9 +274,7 @@ function addQuotationItem() {
             </select>
             ${QUOTATION_CATALOG_PRODUCT_FIELD_HTML}
             <input type="text" class="item-product-custom" placeholder="Custom product" style="display:none;" onchange="fetchProductPrice(this)">
-            <input type="text" class="item-udf-moq" placeholder="—" readonly title="MOQ from ST_ITEM (catalog)">
-            <input type="text" class="item-udf-dleadtime" placeholder="—" readonly title="UDF_DLEADTIME from ST_ITEM (catalog)">
-            <input type="text" class="item-udf-bundle" placeholder="—" readonly title="UDF_BUNDLE from ST_ITEM (catalog)">
+            ${QUOTATION_LINE_ST_ITEM_EXTRA_INPUTS}
             <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
             <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
             <input type="number" class="item-suggested-price" placeholder="Reference price" step="0.01" min="0" readonly>
@@ -352,7 +361,9 @@ function clearQuotationLineStItemExtras(row) {
     if (!row) {
         return;
     }
-    row.querySelectorAll('.item-udf-moq, .item-udf-dleadtime, .item-udf-bundle').forEach((el) => {
+    row.querySelectorAll(
+        '.item-udf-moq, .item-udf-dleadtime, .item-udf-bundle, .item-udf-thickness, .item-udf-width, .item-udf-length',
+    ).forEach((el) => {
         el.value = '';
     });
 }
@@ -364,14 +375,90 @@ function applyQuotationLineStItemExtras(row, data) {
     const src = data || {};
     const pick = (key) => {
         const v = src[key];
-        return v != null && String(v).trim() !== '' ? String(v).trim() : '';
+        if (v == null) {
+            return '';
+        }
+        return String(v).trim();
     };
-    const moq = row.querySelector('.item-udf-moq');
-    const lead = row.querySelector('.item-udf-dleadtime');
-    const bundle = row.querySelector('.item-udf-bundle');
-    if (moq) moq.value = pick('udfMoq');
-    if (lead) lead.value = pick('udfDleadtime');
-    if (bundle) bundle.value = pick('udfBundle');
+    const fields = [
+        ['.item-udf-moq', 'udfMoq'],
+        ['.item-udf-dleadtime', 'udfDleadtime'],
+        ['.item-udf-bundle', 'udfBundle'],
+        ['.item-udf-thickness', 'udfThickness'],
+        ['.item-udf-width', 'udfWidth'],
+        ['.item-udf-length', 'udfLength'],
+    ];
+    fields.forEach(([sel, key]) => {
+        const el = row.querySelector(sel);
+        if (el) {
+            el.value = pick(key);
+        }
+    });
+}
+
+function applyQuotationLineStItemExtrasFromProduct(row, product) {
+    if (!row) {
+        return;
+    }
+    if (!product) {
+        clearQuotationLineStItemExtras(row);
+        return;
+    }
+    applyQuotationLineStItemExtras(row, {
+        udfMoq: stockItemUdfDisplayValue(product, 'UDF_MOQ', 'udf_moq'),
+        udfDleadtime: stockItemUdfDisplayValue(product, 'UDF_DLEADTIME', 'udf_dleadtime'),
+        udfBundle: stockItemUdfDisplayValue(product, 'UDF_BUNDLE', 'udf_bundle'),
+        udfThickness: stockItemUdfDisplayValue(product, 'UDF_THICKNESS', 'udf_thickness'),
+        udfWidth: stockItemUdfDisplayValue(product, 'UDF_WIDTH', 'udf_width'),
+        udfLength: stockItemUdfDisplayValue(product, 'UDF_LENGTH', 'udf_length'),
+    });
+}
+
+function stockItemUdfDisplayValue(product, ...keys) {
+    if (!product || typeof product !== 'object') {
+        return '';
+    }
+    const lower = {};
+    Object.keys(product).forEach((k) => {
+        lower[String(k).toLowerCase()] = product[k];
+    });
+    for (const key of keys) {
+        let v = product[key];
+        if (v == null) {
+            v = lower[String(key).toLowerCase()];
+        }
+        if (v != null && String(v).trim() !== '') {
+            return String(v).trim();
+        }
+    }
+    return '';
+}
+
+function findCatalogProductByDescription(description) {
+    const d = String(description || '').trim();
+    if (!d || !availableProducts.length) {
+        return null;
+    }
+    const code = resolveCatalogItemCodeFromDescription(d);
+    const norm = (s) => String(s || '').trim().replace(/\s+/g, ' ');
+    const dNorm = norm(d);
+    const codeNorm = norm(code);
+    return (
+        availableProducts.find((p) => {
+            const c = norm(p.CODE ?? p.code ?? '');
+            const desc = norm(p.DESCRIPTION ?? p.description ?? '');
+            if (codeNorm && c && c.toUpperCase() === codeNorm.toUpperCase()) {
+                return true;
+            }
+            if (dNorm && desc && desc.toUpperCase() === dNorm.toUpperCase()) {
+                return true;
+            }
+            if (dNorm && c && c.toUpperCase() === dNorm.toUpperCase()) {
+                return true;
+            }
+            return false;
+        }) || null
+    );
 }
 
 // Clear Order Form
@@ -409,11 +496,9 @@ function clearQuotationForm() {
                         <option value="catalog">From catalog</option>
                         <option value="custom">Custom order</option>
                     </select>
-                    <input type="text" class="item-product" list="product-list" placeholder="Type code or name to search…" autocomplete="off" onchange="fetchProductPrice(this)">
+                    ${QUOTATION_CATALOG_PRODUCT_FIELD_HTML}
                     <input type="text" class="item-product-custom" placeholder="Custom product" style="display:none;" onchange="fetchProductPrice(this)">
-                    <input type="text" class="item-udf-moq" placeholder="—" readonly title="MOQ from ST_ITEM (catalog)">
-                    <input type="text" class="item-udf-dleadtime" placeholder="—" readonly title="UDF_DLEADTIME from ST_ITEM (catalog)">
-                    <input type="text" class="item-udf-bundle" placeholder="—" readonly title="UDF_BUNDLE from ST_ITEM (catalog)">
+                    ${QUOTATION_LINE_ST_ITEM_EXTRA_INPUTS}
                     <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
                     <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
                     <input type="number" class="item-suggested-price" placeholder="Reference price" step="0.01" min="0" readonly>
@@ -444,6 +529,10 @@ async function fetchProductPrice(input) {
             clearQuotationLineStItemExtras(row);
         }
         return;
+    }
+
+    if (row && input.closest('#quotation-items-list')) {
+        applyQuotationLineStItemExtrasFromProduct(row, findCatalogProductByDescription(productName));
     }
 
     const orderItem = input.closest('.order-item');
@@ -488,6 +577,9 @@ async function fetchProductPrice(input) {
                     udfMoq: data.udfMoq,
                     udfDleadtime: data.udfDleadtime,
                     udfBundle: data.udfBundle,
+                    udfThickness: data.udfThickness,
+                    udfWidth: data.udfWidth,
+                    udfLength: data.udfLength,
                 });
             }
         } else if (row && input.closest('#quotation-items-list')) {
@@ -529,10 +621,6 @@ async function loadProducts() {
         console.error('Failed to load products:', error);
     }
 }
-
-/** Searchable catalog field on create quotation (type to filter via browser datalist). */
-const QUOTATION_CATALOG_PRODUCT_FIELD_HTML =
-    '<input type="text" class="item-product" list="product-list" placeholder="Type code or name to search…" autocomplete="off" onchange="fetchProductPrice(this)">';
 
 function syncProductDatalist() {
     const datalist = document.getElementById('product-list');
@@ -1058,7 +1146,7 @@ async function loadDraftQuotation(dockey) {
             writeQuotationCustomerField('quotation-address3', quotation.ADDRESS3 || '');
             writeQuotationCustomerField('quotation-address4', quotation.ADDRESS4 || '');
             writeQuotationCustomerField('quotation-phone', quotation.PHONE1 || '');
-            
+
             // Populate items
             if (quotation.items && quotation.items.length > 0) {
                 const container = document.getElementById('quotation-items-list');
@@ -1083,9 +1171,7 @@ async function loadDraftQuotation(dockey) {
                             </select>
                             <input type="text" class="item-product" list="product-list" placeholder="Type code or name to search…" autocomplete="off" onchange="fetchProductPrice(this)" style="display:${isCustom ? 'none' : 'inline-block'};">
                             <input type="text" class="item-product-custom" placeholder="Custom product" style="display:${isCustom ? 'inline-block' : 'none'};" value="${isCustom ? (item.DESCRIPTION || '') : ''}" onchange="fetchProductPrice(this)">
-                            <input type="text" class="item-udf-moq" placeholder="—" readonly title="MOQ from ST_ITEM (catalog)">
-                            <input type="text" class="item-udf-dleadtime" placeholder="—" readonly title="UDF_DLEADTIME from ST_ITEM (catalog)">
-                            <input type="text" class="item-udf-bundle" placeholder="—" readonly title="UDF_BUNDLE from ST_ITEM (catalog)">
+                            ${QUOTATION_LINE_ST_ITEM_EXTRA_INPUTS}
                             <input type="number" class="item-qty" placeholder="Qty" min="1" value="${item.QTY || 1}" onchange="calculateQuotationTotal()">
                             <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="${item.DISC || 0}" onchange="calculateQuotationTotal()">
                             <input type="number" class="item-suggested-price" placeholder="Reference price" step="0.01" min="0" value="${item.UDF_STDPRICE || 0}" readonly>
@@ -1181,9 +1267,7 @@ async function loadSlQtDraftForEdit(draftDockey) {
                         </select>
                         <input type="text" class="item-product" list="product-list" placeholder="Type code or name to search…" autocomplete="off" onchange="fetchProductPrice(this)" style="display:${isCustom ? 'none' : 'inline-block'};">
                         <input type="text" class="item-product-custom" placeholder="Custom product" style="display:${isCustom ? 'inline-block' : 'none'};" value="${isCustom ? (item.DESCRIPTION || '') : ''}" onchange="fetchProductPrice(this)">
-                        <input type="text" class="item-udf-moq" placeholder="—" readonly title="MOQ from ST_ITEM (catalog)">
-                        <input type="text" class="item-udf-dleadtime" placeholder="—" readonly title="UDF_DLEADTIME from ST_ITEM (catalog)">
-                        <input type="text" class="item-udf-bundle" placeholder="—" readonly title="UDF_BUNDLE from ST_ITEM (catalog)">
+                        ${QUOTATION_LINE_ST_ITEM_EXTRA_INPUTS}
                         <input type="number" class="item-qty" placeholder="Qty" min="1" value="${item.QTY || 1}" onchange="calculateQuotationTotal()">
                         <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="${item.DISC || 0}" onchange="calculateQuotationTotal()">
                         <input type="number" class="item-suggested-price" placeholder="Reference price" step="0.01" min="0" value="${item.UDF_STDPRICE || 0}" readonly>

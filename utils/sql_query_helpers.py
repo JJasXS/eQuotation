@@ -15,6 +15,9 @@ ST_ITEM_WANTED_COLUMNS = [
     "UDF_DLEADTIME",
     "UDF_BUNDLE",
     "UDF_WEIGHT",
+    "UDF_THICKNESS",
+    "UDF_WIDTH",
+    "UDF_LENGTH",
 ]
 
 
@@ -105,6 +108,9 @@ def fetch_stock_items(cur: Any, wanted_columns: list[str] | None = None) -> list
     )
     existing_columns = {_clean_str(row[0]) for row in (cur.fetchall() or []) if row and row[0]}
     selected_columns = [col for col in selected_wanted_columns if col in existing_columns]
+    for col in sorted(existing_columns):
+        if col.upper().startswith("UDF_") and col not in selected_columns:
+            selected_columns.append(col)
 
     if not selected_columns:
         raise ValueError("No expected columns found in ST_ITEM")
@@ -154,6 +160,9 @@ def get_st_item_quotation_display_fields(cur: Any, item_code: str) -> dict[str, 
         ("UDF_MOQ", "udfMoq"),
         ("UDF_DLEADTIME", "udfDleadtime"),
         ("UDF_BUNDLE", "udfBundle"),
+        ("UDF_THICKNESS", "udfThickness"),
+        ("UDF_WIDTH", "udfWidth"),
+        ("UDF_LENGTH", "udfLength"),
     ]
     selected = [(c, key) for c, key in col_map if c.upper() in existing]
     if not selected:

@@ -3317,7 +3317,7 @@ def chat_api():
     if chatid:
         chat_history = get_chat_history(chatid, user_email)
     
-    # Stock catalog: same source as /api/get_stock_items (SQL API → Firebird); prices from UDF_STDPRICE.
+    # Stock catalog: SQL API first (see stock_items_catalog); Firebird only when SQL API unavailable.
     stockitems = _fetch_stock_items_cached()
     stockitemprices = derive_stock_prices_from_catalog(stockitems)
     if not stockitems or not stockitemprices:
@@ -3929,7 +3929,7 @@ def _fetch_stock_items_cached_uncached():
 def _fetch_stock_items_cached():
     """TTL-cached stock items list. Same TTL as customer/supplier master cache."""
     return sql_api_master_cache.get_or_load(
-        ('sql_api', 'stock_items', 'all_v3'),
+        ('sql_api', 'stock_items', 'all_v4'),
         _fetch_stock_items_cached_uncached,
         ttl_seconds=_sql_api_master_cache_ttl_seconds(),
     )
@@ -6800,9 +6800,15 @@ def api_get_product_price():
         local_st_item_price = price_item.get('UDF_STDPRICE', None)
         no_match_message = None
 
-        st_item_extras = {'udfMoq': '', 'udfDleadtime': '', 'udfBundle': ''}
+        st_item_extras = {
+            'udfMoq': '',
+            'udfDleadtime': '',
+            'udfBundle': '',
+            'udfThickness': '',
+            'udfWidth': '',
+            'udfLength': '',
+        }
 
-        # Fetch ST_ITEM.UDF_STDPRICE for Suggested Price field when not provided; always load MOQ / lead / bundle when CODE known.
         st_item_udf_stdprice = None
         if local_st_item_price is not None:
             try:
@@ -6810,13 +6816,14 @@ def api_get_product_price():
             except Exception:
                 st_item_udf_stdprice = None
 
+        local_fb_extras: dict[str, str] = {}
         if item_code:
             con = None
             cur = None
             try:
                 con = get_db_connection()
                 cur = con.cursor()
-                st_item_extras = get_st_item_quotation_display_fields(cur, item_code)
+                local_fb_extras = get_st_item_quotation_display_fields(cur, item_code)
                 if st_item_udf_stdprice is None:
                     st_item_udf_stdprice = get_st_item_udf_stdprice(cur, item_code)
             except Exception as st_item_error:
@@ -6826,6 +6833,38 @@ def api_get_product_price():
                     cur.close()
                 if con:
                     con.close()
+
+        # SQL API stockitem list first; Firebird ST_ITEM only fills gaps.
+        if item_code or description:
+            try:
+                from utils.stock_items_catalog import (
+                    _merge_catalog_over_local,
+                    find_catalog_stock_item_prefer_sql_api,
+                    stock_item_catalog_display_fields,
+                )
+
+                catalog_row = find_catalog_stock_item_prefer_sql_api(
+                    code=item_code,
+                    description=description,
+                    cached_items=_fetch_stock_items_cached(),
+                )
+                catalog_fields = stock_item_catalog_display_fields(catalog_row)
+                st_item_extras = _merge_catalog_over_local(catalog_fields, local_fb_extras)
+                if catalog_row and st_item_udf_stdprice is None:
+                    raw_std = catalog_row.get('UDF_STDPRICE')
+                    if raw_std is not None and str(raw_std).strip() != '':
+                        try:
+                            st_item_udf_stdprice = float(str(raw_std).replace(',', '').strip())
+                        except (TypeError, ValueError):
+                            pass
+            except Exception as catalog_err:
+                print(
+                    f"[PRICING WARNING] SQL API catalog lookup failed for {item_code!r}: {catalog_err}",
+                    flush=True,
+                )
+                st_item_extras = dict(local_fb_extras) if local_fb_extras else st_item_extras
+        elif local_fb_extras:
+            st_item_extras = dict(local_fb_extras)
 
         if customer_code and item_code:
             try:
@@ -6847,6 +6886,9 @@ def api_get_product_price():
                     'udfMoq': st_item_extras.get('udfMoq', ''),
                     'udfDleadtime': st_item_extras.get('udfDleadtime', ''),
                     'udfBundle': st_item_extras.get('udfBundle', ''),
+                    'udfThickness': st_item_extras.get('udfThickness', ''),
+                    'udfWidth': st_item_extras.get('udfWidth', ''),
+                    'udfLength': st_item_extras.get('udfLength', ''),
                 })
             except Exception as pricing_error:
                 print(f"[PRICING WARNING] Falling back to stock price for {item_code}: {pricing_error}", flush=True)
@@ -6871,6 +6913,9 @@ def api_get_product_price():
             'udfMoq': st_item_extras.get('udfMoq', ''),
             'udfDleadtime': st_item_extras.get('udfDleadtime', ''),
             'udfBundle': st_item_extras.get('udfBundle', ''),
+            'udfThickness': st_item_extras.get('udfThickness', ''),
+            'udfWidth': st_item_extras.get('udfWidth', ''),
+            'udfLength': st_item_extras.get('udfLength', ''),
         })
 
     try:
@@ -7530,7 +7575,10 @@ def api_get_quotation_details():
                 'CURRENCYCODE', 'VALIDITY', 'STATUS', 'TERMS',
                 'COMPANYNAME', 'ADDRESS1', 'ADDRESS2', 'ADDRESS3', 'ADDRESS4', 'PHONE1',
             ]
-            for opt in ('CANCELLED', 'UPDATECOUNT', 'UDF_STATUS'):
+            for opt in (
+                'CANCELLED', 'UPDATECOUNT', 'UDF_STATUS',
+                'UDF_THICKNESS', 'UDF_WIDTH', 'UDF_LENGTH',
+            ):
                 if opt in sl_qt_cols:
                     header_fields.append(opt)
             for opt in _SL_QT_OPTIONAL_CREATOR_METADATA_COLS:
@@ -7819,7 +7867,10 @@ def api_admin_get_quotation_detail():
                 'CURRENCYCODE', 'VALIDITY', 'STATUS', 'TERMS',
                 'COMPANYNAME', 'ADDRESS1', 'ADDRESS2', 'ADDRESS3', 'ADDRESS4', 'PHONE1',
             ]
-            for opt in ('CANCELLED', 'UPDATECOUNT', 'UDF_STATUS'):
+            for opt in (
+                'CANCELLED', 'UPDATECOUNT', 'UDF_STATUS',
+                'UDF_THICKNESS', 'UDF_WIDTH', 'UDF_LENGTH',
+            ):
                 if opt in sl_qt_cols:
                     header_fields.append(opt)
             for opt in _SL_QT_OPTIONAL_CREATOR_METADATA_COLS:

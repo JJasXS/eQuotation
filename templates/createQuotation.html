@@ -85,6 +85,9 @@
                                     <span>MOQ</span>
                                     <span>Lead</span>
                                     <span>Bundle</span>
+                                    <span>Thick</span>
+                                    <span>Width</span>
+                                    <span>Length</span>
                                     <span>Qty</span>
                                     <span>Discount</span>
                                     <span class="item-header-ref-price">Ref. price</span>
@@ -104,6 +107,9 @@
                                             <input type="text" class="item-udf-moq" placeholder="—" readonly title="MOQ from ST_ITEM (catalog)">
                                             <input type="text" class="item-udf-dleadtime" placeholder="—" readonly title="UDF_DLEADTIME from ST_ITEM (catalog)">
                                             <input type="text" class="item-udf-bundle" placeholder="—" readonly title="UDF_BUNDLE from ST_ITEM (catalog)">
+                                            <input type="text" class="item-udf-thickness" placeholder="—" readonly title="UDF_THICKNESS (stockitem API)">
+                                            <input type="text" class="item-udf-width" placeholder="—" readonly title="UDF_WIDTH (stockitem API)">
+                                            <input type="text" class="item-udf-length" placeholder="—" readonly title="UDF_LENGTH (stockitem API)">
                                             <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
                                             <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
                                             <input type="number" class="item-suggested-price" placeholder="Reference price" step="0.01" min="0" readonly>
@@ -169,7 +175,7 @@
     </datalist>
     
     <script src="/static/js/hamburger_menu.js"></script>
-    <script src="/static/js/orderQuotation.js?v=20260529_catalog_buttons"></script>
+    <script src="/static/js/orderQuotation.js?v=20260529_line_dims"></script>
     <script src="/static/js/quotationChatPopup.js?v=20260515_bubble_1_5s"></script>
     <script>
         // Set today's date as default for all delivery date inputs on load
