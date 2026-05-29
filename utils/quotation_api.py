@@ -1367,7 +1367,12 @@ def save_draft_quotation(base_api_url, customer_code, data):
             item_code = str(
                 item.get('itemCode') or item.get('itemcode') or item.get('code') or ''
             ).strip()
-            if not item_code:
+            source_line = str(item.get('source') or '').strip().lower()
+            if source_line == 'custom' and not item_code:
+                # Match the submit flow: custom lines carry the CUSTOM placeholder so the draft
+                # reloads deterministically as a custom line (rather than relying on description).
+                item_code = _quotation_custom_item_code()
+            if not item_code and source_line != 'custom':
                 item_code = _resolve_item_code_from_local_db(product_desc)
             if not item_code:
                 item_code = _quotation_fallback_item_code()
