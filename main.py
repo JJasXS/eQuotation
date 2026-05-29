@@ -4812,8 +4812,44 @@ def _fetch_supplier_master_from_sql_api(codes: list[str]) -> dict[str, dict[str,
     return out
 
 
-def _fetch_supplier_emails_by_codes(codes: list[str]) -> dict[str, str]:
-    """Return supplier CODE.upper() -> email using AR_SUPPLIER / AP_SUPPLIER (UDF_EMAIL, then EMAIL)."""
+def _supplier_udf_email_columns(cur, table: str) -> list[str]:
+    """All ``UDF_EMAIL`` / ``UDF_EMAIL01`` / ``UDF_EMAIL02`` … columns on ``table``, ordered by numeric suffix.
+
+    ``UDF_EMAIL`` (no suffix) sorts first, then the numbered fields in ascending order so the
+    supplier's primary contact stays first. The count is discovered dynamically, so adding more
+    ``UDF_EMAIL##`` columns to the supplier master needs no code change.
+    """
+    try:
+        cur.execute(
+            """
+            SELECT TRIM(RDB$FIELD_NAME)
+            FROM RDB$RELATION_FIELDS
+            WHERE RDB$RELATION_NAME = ?
+            """,
+            (table.upper(),),
+        )
+        cols = [str((r or [None])[0] or '').strip().upper() for r in (cur.fetchall() or [])]
+    except Exception:
+        return []
+
+    matched: list[tuple[int, str]] = []
+    for c in cols:
+        m = re.fullmatch(r'UDF_EMAIL(\d*)', c)
+        if not m:
+            continue
+        suffix = m.group(1)
+        order = int(suffix) if suffix else 0
+        matched.append((order, c))
+    matched.sort(key=lambda t: t[0])
+    return [c for _, c in matched]
+
+
+def _fetch_supplier_emails_by_codes(codes: list[str]) -> dict[str, list[str]]:
+    """Return supplier CODE.upper() -> ordered list of unique emails.
+
+    Reads every ``UDF_EMAIL`` / ``UDF_EMAIL01`` / ``UDF_EMAIL02`` … column on AR_SUPPLIER / AP_SUPPLIER.
+    Falls back to ``EMAIL`` only when a supplier has no UDF_EMAIL value at all.
+    """
     uniq: list[str] = []
     seen: set[str] = set()
     for c in codes:
@@ -4828,7 +4864,20 @@ def _fetch_supplier_emails_by_codes(codes: list[str]) -> dict[str, str]:
     if not uniq:
         return {}
 
-    out: dict[str, str] = {}
+    out: dict[str, list[str]] = {}
+    seen_per_code: dict[str, set[str]] = {}
+
+    def _add(code_u: str, email: str) -> None:
+        em = (email or '').strip()
+        if not code_u or not em:
+            return
+        dedupe = seen_per_code.setdefault(code_u, set())
+        low = em.lower()
+        if low in dedupe:
+            return
+        dedupe.add(low)
+        out.setdefault(code_u, []).append(em)
+
     con = None
     cur = None
     try:
@@ -4847,26 +4896,54 @@ def _fetch_supplier_emails_by_codes(codes: list[str]) -> dict[str, str]:
                     continue
             except Exception:
                 continue
-            for email_col in ('UDF_EMAIL', 'EMAIL'):
+
+            email_cols = _supplier_udf_email_columns(cur, table)
+            if not email_cols:
+                continue
+
+            select_cols = ', '.join(f'TRIM({c})' for c in email_cols)
+            try:
+                cur.execute(
+                    f"""
+                    SELECT TRIM(CODE), {select_cols}
+                    FROM {table}
+                    WHERE TRIM(CODE) IN ({placeholders})
+                    """,
+                    params,
+                )
+                for row in cur.fetchall() or []:
+                    if not row:
+                        continue
+                    key_u = str(row[0] or '').strip().upper()
+                    if not key_u:
+                        continue
+                    for val in row[1:]:
+                        _add(key_u, str(val or '').strip())
+            except Exception:
+                continue
+
+        # Fallback to EMAIL only for suppliers that have no UDF_EMAIL* value.
+        missing = [c for c in uniq if c.upper() not in out]
+        if missing:
+            miss_ph = ', '.join(['?'] * len(missing))
+            for table in ('AR_SUPPLIER', 'AP_SUPPLIER'):
                 try:
                     cur.execute(
                         f"""
-                        SELECT TRIM(CODE), TRIM({email_col})
+                        SELECT TRIM(CODE), TRIM(EMAIL)
                         FROM {table}
-                        WHERE TRIM(CODE) IN ({placeholders})
+                        WHERE TRIM(CODE) IN ({miss_ph})
                         """,
-                        params,
+                        tuple(missing),
                     )
                     for row in cur.fetchall() or []:
                         if not row:
                             continue
-                        code_raw = str(row[0] or '').strip()
-                        em = str(row[1] or '').strip()
-                        key_u = code_raw.upper()
-                        if em and key_u and key_u not in out:
-                            out[key_u] = em
+                        key_u = str(row[0] or '').strip().upper()
+                        _add(key_u, str(row[1] or '').strip())
                 except Exception:
                     continue
+
         return out
     except Exception as exc:
         print(f"[PROCUREMENT LIST PR] supplier email lookup error: {exc}", flush=True)
@@ -4976,15 +5053,32 @@ def _resolve_invitation_email_targets(normalized_suppliers: list[dict]) -> list[
         if not code:
             continue
         key_u = code.upper()
-        email = ''
+
+        # Collect every address for this supplier: SQL API master + all UDF_EMAIL* columns.
+        emails: list[str] = []
+        seen: set[str] = set()
+
+        def _add(value: str) -> None:
+            v = (value or '').strip()
+            if not v:
+                return
+            low = v.lower()
+            if low in seen:
+                return
+            seen.add(low)
+            emails.append(v)
+
         m = master.get(key_u)
         if m:
-            email = str(m.get('udf_email') or '').strip()
-        if not email:
-            email = str(fb_map.get(key_u) or '').strip()
-        if email:
+            _add(str(m.get('udf_email') or ''))
+        for em in fb_map.get(key_u) or []:
+            _add(em)
+
+        if emails:
             targets.append({
-                'email': email,
+                # Comma-separated To => one invite delivered to all of the supplier's contacts.
+                'email': ', '.join(emails),
+                'emails': emails,
                 'code': code,
                 'name': str(s.get('name') or '').strip(),
             })
@@ -5373,7 +5467,7 @@ def api_admin_list_purchase_requests():
                     cid = str(rec.get('supplierId') or '').strip()
                     existing = str(rec.get('supplierEmail') or '').strip()
                     if cid and not existing:
-                        rec['supplierEmail'] = email_by_code.get(cid.upper()) or ''
+                        rec['supplierEmail'] = ', '.join(email_by_code.get(cid.upper()) or [])
                     elif not existing:
                         rec['supplierEmail'] = ''
             except Exception as em_exc:
