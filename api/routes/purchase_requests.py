@@ -213,6 +213,7 @@ def _fetch_detail_rows(cur: Any, dockey: int, detail_cols: set[str]) -> list[dic
     amount_col = _pick_existing(detail_cols, "AMOUNT", "TOTAL")
     approved_col = _pick_existing(detail_cols, "UDF_PQAPPROVED")
     reason_col = _pick_existing(detail_cols, "UDF_REASON")
+    transferable_col = _pick_existing(detail_cols, "TRANSFERABLE")
     delivery_date_col = _pick_existing(detail_cols, "DELIVERYDATE", "DELIVERY_DATE")
     sqty_extra_col = _pick_existing(detail_cols, "SQTY")
     suom_extra_col = _pick_existing(detail_cols, "SUOMQTY")
@@ -238,6 +239,7 @@ def _fetch_detail_rows(cur: Any, dockey: int, detail_cols: set[str]) -> list[dic
         f"D.{reason_col} AS UDF_REASON" if reason_col else "NULL AS UDF_REASON",
         f"D.{sqty_extra_col} AS SQTY_EXTRA" if sqty_extra_col else "NULL AS SQTY_EXTRA",
         f"D.{suom_extra_col} AS SUOMQTY_EXTRA" if suom_extra_col else "NULL AS SUOMQTY_EXTRA",
+        f"D.{transferable_col} AS TRANSFERABLE" if transferable_col else "NULL AS TRANSFERABLE",
     ]
 
     order_col = seq_col or detail_key_col or detail_fk_col
@@ -310,6 +312,7 @@ def _fetch_detail_rows(cur: Any, dockey: int, detail_cols: set[str]) -> list[dic
                 "sqty": str(sqty_val),
                 "suomqty": str(suom_val),
                 "stockQtyUom": stock_basis,
+                "transferable": r[17],
             }
         )
     return details
@@ -652,8 +655,8 @@ def update_purchase_request_detail_approval(
 
         if not detail_key_col:
             raise HTTPException(status_code=500, detail="PH_PQDTL key column not found")
-        if not approved_col:
-            raise HTTPException(status_code=500, detail="PH_PQDTL.UDF_PQAPPROVED column not found")
+        if not approved_col and not transferable_col:
+            raise HTTPException(status_code=500, detail="PH_PQDTL approval columns not found (UDF_PQAPPROVED/TRANSFERABLE)")
 
         updated = 0
         for raw in changes:
@@ -667,19 +670,20 @@ def update_purchase_request_detail_approval(
                 continue
 
             approved = bool(raw.get("approved"))
-            encoded_value = _encode_bool_for_column(cur, "PH_PQDTL", approved_col, approved)
-
+            set_clauses = []
+            set_params: list[Any] = []
+            if approved_col:
+                set_clauses.append(f"{approved_col} = ?")
+                set_params.append(_encode_bool_for_column(cur, "PH_PQDTL", approved_col, approved))
             if transferable_col:
-                transferable_value = _encode_bool_for_column(cur, "PH_PQDTL", transferable_col, approved)
-                cur.execute(
-                    f"UPDATE PH_PQDTL SET {approved_col} = ?, {transferable_col} = ? WHERE {detail_key_col} = ?",
-                    (encoded_value, transferable_value, detail_id),
-                )
-            else:
-                cur.execute(
-                    f"UPDATE PH_PQDTL SET {approved_col} = ? WHERE {detail_key_col} = ?",
-                    (encoded_value, detail_id),
-                )
+                set_clauses.append(f"{transferable_col} = ?")
+                set_params.append(_encode_bool_for_column(cur, "PH_PQDTL", transferable_col, approved))
+            if not set_clauses:
+                continue
+            cur.execute(
+                f"UPDATE PH_PQDTL SET {', '.join(set_clauses)} WHERE {detail_key_col} = ?",
+                tuple([*set_params, detail_id]),
+            )
             updated += int(cur.rowcount or 0)
 
         con.commit()

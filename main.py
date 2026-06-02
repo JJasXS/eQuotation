@@ -5748,11 +5748,30 @@ def api_admin_purchase_request_details(request_id):
         detail_rows = header.get('sdsdocdetail', []) if isinstance(header, dict) else []
         if not isinstance(detail_rows, list):
             detail_rows = []
+        try:
+            if int(request_id) == 7:
+                raw_debug = []
+                for row in detail_rows:
+                    if not isinstance(row, dict):
+                        continue
+                    raw_debug.append({
+                        'dtlkey': row.get('dtlkey'),
+                        'transferable': row.get('transferable'),
+                        'TRANSFERABLE': row.get('TRANSFERABLE'),
+                    })
+                print(f"[PROCUREMENT RAW DETAIL] request_id=7 rows={raw_debug}", flush=True)
+        except Exception:
+            pass
 
         details = []
         for idx, row in enumerate(detail_rows, start=1):
             if not isinstance(row, dict):
                 continue
+            transferable_value = (
+                row.get('transferable')
+                if row.get('transferable') is not None
+                else row.get('TRANSFERABLE')
+            )
             sqty_v = _num(row.get('sqty'))
             suom_v = _num(row.get('suomqty'))
             basis = str(row.get('stockQtyUom') or '').strip().upper()
@@ -5775,7 +5794,7 @@ def api_admin_purchase_request_details(request_id):
                 'tax': _num(row.get('taxamt')),
                 'amount': _num(row.get('amount')),
                 'deliveryDate': row.get('deliverydate'),
-                'transferable': row.get('transferable'),
+                'transferable': transferable_value,
                 'udfPqApproved': row.get('udf_pqapproved'),
                 'udfReason': str(row.get('udf_reason') or '').strip(),
                 'sqty': sqty_v,
@@ -5877,6 +5896,21 @@ def api_admin_purchase_request_details_fallback():
         detail_rows = header.get('sdsdocdetail', []) if isinstance(header, dict) else []
         if not isinstance(detail_rows, list):
             detail_rows = []
+        try:
+            rid = int(request_id) if request_id is not None else None
+            if rid == 7:
+                raw_debug = []
+                for row in detail_rows:
+                    if not isinstance(row, dict):
+                        continue
+                    raw_debug.append({
+                        'dtlkey': row.get('dtlkey'),
+                        'transferable': row.get('transferable'),
+                        'TRANSFERABLE': row.get('TRANSFERABLE'),
+                    })
+                print(f"[PROCUREMENT RAW DETAIL] request_id=7 rows={raw_debug}", flush=True)
+        except Exception:
+            pass
 
         detail_ids = []
         for row in detail_rows:
@@ -5894,6 +5928,11 @@ def api_admin_purchase_request_details_fallback():
             if not isinstance(row, dict):
                 continue
             detail_id = row.get('dtlkey')
+            transferable_value = (
+                row.get('transferable')
+                if row.get('transferable') is not None
+                else row.get('TRANSFERABLE')
+            )
             quantity = _num(row.get('qty'))
             try:
                 transferred_qty = _num(transferred_qty_map.get(int(detail_id), 0))
@@ -5923,7 +5962,7 @@ def api_admin_purchase_request_details_fallback():
                 'tax': _num(row.get('taxamt')),
                 'amount': _num(row.get('amount')),
                 'deliveryDate': row.get('deliverydate'),
-                'transferable': row.get('transferable'),
+                'transferable': transferable_value,
                 'udfPqApproved': row.get('udf_pqapproved'),
                 'udfReason': str(row.get('udf_reason') or '').strip(),
                 'transferredQty': transferred_qty,
@@ -7237,8 +7276,10 @@ def api_admin_purchase_request_detail_approval_update():
             key_col = 'DTLKEY' if 'DTLKEY' in cols else ('PQDTLKEY' if 'PQDTLKEY' in cols else ('ID' if 'ID' in cols else ''))
             approved_col = 'UDF_PQAPPROVED' if 'UDF_PQAPPROVED' in cols else ''
             transferable_col = 'TRANSFERABLE' if 'TRANSFERABLE' in cols else ''
-            if not key_col or not approved_col:
-                raise RuntimeError('PH_PQDTL key/UDF_PQAPPROVED columns not found')
+            if not key_col:
+                raise RuntimeError('PH_PQDTL key column not found')
+            if not approved_col and not transferable_col:
+                raise RuntimeError('PH_PQDTL approval columns not found (UDF_PQAPPROVED/TRANSFERABLE)')
 
             def _field_type(table_name: str, column_name: str):
                 cur.execute(
@@ -7270,18 +7311,20 @@ def api_admin_purchase_request_detail_approval_update():
                 except Exception:
                     continue
                 approved = bool(raw.get('approved'))
-                approved_val = _encode_bool('PH_PQDTL', approved_col, approved)
+                set_clauses = []
+                set_params = []
+                if approved_col:
+                    set_clauses.append(f"{approved_col} = ?")
+                    set_params.append(_encode_bool('PH_PQDTL', approved_col, approved))
                 if transferable_col:
-                    transferable_val = _encode_bool('PH_PQDTL', transferable_col, approved)
-                    cur.execute(
-                        f"UPDATE PH_PQDTL SET {approved_col} = ?, {transferable_col} = ? WHERE {key_col} = ?",
-                        (approved_val, transferable_val, detail_id),
-                    )
-                else:
-                    cur.execute(
-                        f"UPDATE PH_PQDTL SET {approved_col} = ? WHERE {key_col} = ?",
-                        (approved_val, detail_id),
-                    )
+                    set_clauses.append(f"{transferable_col} = ?")
+                    set_params.append(_encode_bool('PH_PQDTL', transferable_col, approved))
+                if not set_clauses:
+                    continue
+                cur.execute(
+                    f"UPDATE PH_PQDTL SET {', '.join(set_clauses)} WHERE {key_col} = ?",
+                    tuple([*set_params, detail_id]),
+                )
                 updated += int(cur.rowcount or 0)
             con.commit()
             return {'success': True, 'updated': updated, 'requested': len(changes), 'source': 'local_fallback'}
