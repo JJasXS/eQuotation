@@ -121,3 +121,38 @@ def send_quotation_email():
         print(f"[EMAIL ERROR] Failed to send quotation email: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
+@quotation_bp.route('/api/customer/sql_api_currency', methods=['GET'])
+def api_customer_sql_api_currency():
+    """Currency + code from SQL API GET /customer (Flask session; display only)."""
+    if 'user_email' not in session:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+
+    customer_code = (session.get('customer_code') or '').strip()
+    if not customer_code:
+        user_email = (session.get('user_email') or '').strip()
+        if user_email:
+            try:
+                from utils import get_db_connection
+                from utils.sql_query_helpers import find_customer_code_by_email
+
+                con = get_db_connection()
+                cur = con.cursor()
+                customer_code = find_customer_code_by_email(cur, user_email) or ''
+                cur.close()
+                con.close()
+            except Exception:
+                customer_code = ''
+
+    if not customer_code:
+        return jsonify({'success': False, 'error': 'Customer code not found'}), 400
+
+    from utils.sql_api_customer import sql_api_currency_and_code
+
+    fields = sql_api_currency_and_code(customer_code)
+    return jsonify({
+        'success': True,
+        'sqlApiCustomerCode': fields.get('code') or customer_code,
+        'sqlApiCurrencyCode': fields.get('currencycode', ''),
+        'source': 'sql_api_customer_get',
+    })

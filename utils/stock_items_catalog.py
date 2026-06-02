@@ -54,9 +54,13 @@ def _normalize_sql_api_stock_row(raw: dict[str, Any]) -> dict[str, Any]:
     if not desc and code:
         desc = code
 
+    uom = sval("UOM", "uom")
+    suom = sval("SUOM", "suom")
     out: dict[str, Any] = {
         "CODE": code,
         "DESCRIPTION": desc,
+        "UOM": uom,
+        "SUOM": suom,
         "STOCKGROUP": sval("STOCKGROUP", "stockgroup"),
         "REMARK1": sval("REMARK1", "remark1"),
         "REMARK2": sval("REMARK2", "remark2"),
@@ -65,6 +69,7 @@ def _normalize_sql_api_stock_row(raw: dict[str, Any]) -> dict[str, Any]:
         "UDF_DLEADTIME": pick("UDF_DLEADTIME", "udf_dleadtime"),
         "UDF_BUNDLE": pick("UDF_BUNDLE", "udf_bundle"),
         "UDF_WEIGHT": pick("UDF_WEIGHT", "udf_weight"),
+        "UDF_WTP": pick("UDF_WTP", "udf_wtp"),
         "UDF_THICKNESS": pick("UDF_THICKNESS", "udf_thickness"),
         "UDF_WIDTH": pick("UDF_WIDTH", "udf_width"),
         "UDF_LENGTH": pick("UDF_LENGTH", "udf_length"),

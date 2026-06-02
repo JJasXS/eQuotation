@@ -7,92 +7,102 @@
     <link rel="stylesheet" href="/static/css/hamburger_menu.css?v=20260515_sidebar">
     <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
     <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515">
-    <link rel="stylesheet" href="/static/css/orderQuotation.css?v=20260505_line_grid_balance">
-    <link rel="stylesheet" href="/static/css/createQuotationLight.css?v=20260515_unit_price_edit">
+    <link rel="stylesheet" href="/static/css/createQuotationLight.css?v=20260529_customer_4rows">
+    <link rel="stylesheet" href="/static/css/createQuotationLinesTable.css?v=20260529_dim_compact">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 </head>
 <body class="equotation-icy-theme create-quotation-page update-quotation-page">
     <div class="container">
         <div class="main-content">
             {% set page_header_title = "Quotation > Update Quotation" %}
-            {% set page_header_subtitle = "Admin: " ~ (user_email or "-") %}
+            {% set page_header_subtitle = "Admin: " ~ (user_email or "—") %}
             {% include 'components/app_page_header.html' %}
 
             <div class="tab-content active">
                 <div class="form-container">
-                    <h3>Edit quotation <span id="quotation-docno">Loading...</span></h3>
+                    <h3>Edit Quotation — <span id="quotation-docno-label">Loading...</span></h3>
+                    <div id="quotation-next-docno-panel" class="quotation-next-docno-panel" aria-live="polite">
+                        <div class="quotation-next-docno-main">
+                            <span class="quotation-next-docno-label">Quotation no.</span>
+                            <strong id="quotation-next-docno-value" class="quotation-next-docno-value">…</strong>
+                            <button type="button" id="quotation-next-docno-refresh" class="quotation-next-docno-refresh" title="Refresh">↻</button>
+                        </div>
+                        <p id="quotation-next-docno-hint" class="quotation-next-docno-hint">Document number is fixed when editing.</p>
+                    </div>
                     <form id="update-quotation-form" data-dockey="{{ dockey }}">
-                        <div class="create-quotation-layout">
-                            <div class="create-quotation-customer-panel">
-                                <h4 class="create-quotation-panel-title">Quotation details</h4>
-                                <div class="customer-details-readonly">
-                                    <div class="customer-detail-row">
-                                        <span class="customer-detail-label">Customer code</span>
-                                        <span id="quotation-customer" class="customer-detail-value">Loading...</span>
-                                    </div>
-                                    <div class="customer-detail-row">
-                                        <span class="customer-detail-label">Company</span>
-                                        <span id="quotation-company" class="customer-detail-value">Loading...</span>
-                                    </div>
-                                    <div class="customer-detail-row">
-                                        <span class="customer-detail-label">Phone</span>
-                                        <span id="quotation-phone" class="customer-detail-value">Loading...</span>
-                                    </div>
-                                    <div class="customer-detail-row">
-                                        <span class="customer-detail-label">Address 1</span>
-                                        <span id="quotation-address1" class="customer-detail-value">Loading...</span>
-                                    </div>
-                                    <div class="customer-detail-row">
-                                        <span class="customer-detail-label">Address 2</span>
-                                        <span id="quotation-address2" class="customer-detail-value">Loading...</span>
-                                    </div>
-                                    <div class="customer-detail-row">
-                                        <span class="customer-detail-label">Address 3</span>
-                                        <span id="quotation-address3" class="customer-detail-value"></span>
-                                    </div>
-                                    <div class="customer-detail-row">
-                                        <span class="customer-detail-label">Address 4</span>
-                                        <span id="quotation-address4" class="customer-detail-value"></span>
-                                    </div>
-                                    <div class="customer-detail-row">
-                                        <span class="customer-detail-label">Credit terms</span>
-                                        <span id="quotation-terms" class="customer-detail-value">Loading...</span>
-                                    </div>
-                                    <div class="customer-detail-row">
-                                        <span class="customer-detail-label">Document date</span>
-                                        <span id="quotation-docdate" class="customer-detail-value">-</span>
+                        <div class="create-quotation-form-body">
+                            <section class="create-quotation-section create-quotation-section--customer">
+                                <h4 class="create-quotation-section-title">Customer details</h4>
+                                <div class="customer-details-panel">
+                                    <table class="customer-details-table" cellspacing="0" cellpadding="0">
+                                        <tbody>
+                                            <tr>
+                                                <th scope="row">Agent</th>
+                                                <td id="quotation-agent" class="customer-detail-value customer-detail-value--highlight">—</td>
+                                                <th scope="row">Area</th>
+                                                <td id="quotation-area" class="customer-detail-value customer-detail-value--highlight">—</td>
+                                                <th scope="row">Company</th>
+                                                <td id="quotation-company" class="customer-detail-value">—</td>
+                                            </tr>
+                                            <tr>
+                                                <th scope="row">Customer code</th>
+                                                <td id="quotation-customer-code" class="customer-detail-value customer-detail-value--highlight">—</td>
+                                                <th scope="row">Phone</th>
+                                                <td id="quotation-phone" class="customer-detail-value">—</td>
+                                                <th scope="row">Currency</th>
+                                                <td id="quotation-currency" class="customer-detail-value customer-detail-value--highlight">—</td>
+                                            </tr>
+                                            <tr>
+                                                <th scope="row">Credit terms</th>
+                                                <td id="quotation-terms" class="customer-detail-value">—</td>
+                                                <th scope="row">Address 1</th>
+                                                <td id="quotation-address1" class="customer-detail-value"></td>
+                                                <th scope="row">Address 2</th>
+                                                <td id="quotation-address2" class="customer-detail-value"></td>
+                                            </tr>
+                                            <tr>
+                                                <th scope="row">Address 3</th>
+                                                <td id="quotation-address3" class="customer-detail-value"></td>
+                                                <th scope="row">Address 4</th>
+                                                <td id="quotation-address4" class="customer-detail-value"></td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </section>
+
+                            <section class="create-quotation-section create-quotation-section--lines">
+                                <div class="create-quotation-lines-header">
+                                    <h4 class="create-quotation-section-title create-quotation-section-title-lines">Quotation lines</h4>
+                                    <div class="form-group customer-validity-field">
+                                        <label for="quotation-validity">Valid until</label>
+                                        <input type="date" id="quotation-validity">
                                     </div>
                                 </div>
-
-                                <div class="form-group customer-validity-field">
-                                    <label for="quotation-validity">Valid until</label>
-                                    <input type="date" id="quotation-validity">
-                                </div>
-
-                                <div class="form-group" style="display: none;">
-                                    <textarea id="quotation-description" rows="3" readonly>Quotation</textarea>
-                                </div>
-                            </div>
-
-                            <div class="create-quotation-lines-panel">
-                                <h4 class="create-quotation-panel-title">Quotation lines</h4>
                                 <div id="quotation-mini-item-codes" class="quotation-mini-item-codes" aria-live="polite"></div>
-                                <div class="update-quotation-table-wrap">
-                                    <table class="update-quotation-table" aria-label="Quotation line items">
+                                <div id="create-quotation-lines-wrap" class="create-quotation-lines-wrap">
+                                    <table class="quotation-lines-table" border="1" cellpadding="4" cellspacing="0">
                                         <thead>
                                             <tr>
-                                                <th scope="col">Source</th>
-                                                <th scope="col">Product</th>
-                                                <th scope="col" class="col-numeric">Qty</th>
-                                                <th scope="col" class="col-numeric">Discount</th>
-                                                <th scope="col" class="col-numeric">Ref. price</th>
-                                                <th scope="col" class="col-numeric">Unit price</th>
-                                                <th scope="col">Delivery</th>
-                                                <th scope="col" class="col-actions"><span class="visually-hidden">Remove</span></th>
+                                                <th>Source</th>
+                                                <th>Product</th>
+                                                <th>MOQ</th>
+                                                <th>Lead</th>
+                                                <th>Bundle</th>
+                                                <th>Thick</th>
+                                                <th>Width</th>
+                                                <th>Length</th>
+                                                <th>Qty</th>
+                                                <th>Discount</th>
+                                                <th>Ref. price</th>
+                                                <th>Unit price</th>
+                                                <th>Delivery</th>
+                                                <th></th>
                                             </tr>
                                         </thead>
-                                        <tbody id="update-quotation-line-items">
-                                            <tr class="update-quotation-loading-row">
-                                                <td colspan="8" class="update-quotation-loading">Loading items...</td>
+                                        <tbody id="quotation-line-items">
+                                            <tr class="quotation-line-row">
+                                                <td colspan="14" style="text-align:center;">Loading items…</td>
                                             </tr>
                                         </tbody>
                                     </table>
@@ -102,11 +112,11 @@
 
                                 <div class="total-section">
                                     <div class="total-row">
-                                        <span>Total:</span>
+                                        <span>Total</span>
                                         <span id="quotation-total">RM 0.00</span>
                                     </div>
                                 </div>
-                            </div>
+                            </section>
                         </div>
 
                         <div class="form-actions">
@@ -122,6 +132,6 @@
     <datalist id="product-list"></datalist>
 
     <script src="/static/js/hamburger_menu.js"></script>
-    <script src="/static/js/updateQuotation.js?v=20260515_unit_price_edit"></script>
+    <script src="/static/js/orderQuotation.js?v=20260602_sqlapi_currency_only"></script>
 </body>
 </html>

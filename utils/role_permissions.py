@@ -15,6 +15,8 @@ Legacy sessions without access_tier infer from user_type for backward compatibil
 """
 from __future__ import annotations
 
+import os
+
 # SY_USER column -> canonical flag name (lowercase)
 SY_USER_UDF_COLUMN_TO_FLAG = {
     'UDF_MANAGEMENT': 'management',
@@ -242,6 +244,29 @@ def hide_pr_transfer_for_pstaff(_session) -> bool:
     return False
 
 
+def approval_po_base_url() -> str:
+    """Base URL for ApprovalPO (purchase/sales order approval app)."""
+    return (os.getenv("APPROVAL_PO_BASE_URL") or "http://localhost:2095").strip().rstrip("/")
+
+
+def can_access_approval_po_menu(session) -> bool:
+    """ApprovalPO links (View PO / Create PO): admin dashboard + purchasing roles."""
+    t = infer_access_tier_from_session(session)
+    if t == ACCESS_TIER_NO_ROLE:
+        return False
+    return t in (
+        ACCESS_TIER_FULL_ADMIN,
+        ACCESS_TIER_SALES_MGMT,
+        ACCESS_TIER_PURCH_MGMT,
+        ACCESS_TIER_PURCH_STAFF,
+    )
+
+
+def can_access_sales_menu(session) -> bool:
+    """Sales submenu (quotations): any role that can create or view quotations."""
+    return can_access_create_quotation(session) or can_access_view_quotation_customer_ui(session)
+
+
 def template_permission_context(session) -> dict:
     """Keys for Jinja2 includes (hamburger, headers)."""
     tier = infer_access_tier_from_session(session)
@@ -265,6 +290,9 @@ def template_permission_context(session) -> dict:
         'perm_hide_quotation_status_actions': hide_quotation_status_actions(session),
         'perm_hide_pr_transfer': hide_pr_transfer_for_pstaff(session),
         'perm_hide_pr_approval_edits': hide_pr_approval_edits_for_pstaff(session),
+        'perm_sales_menu': can_access_sales_menu(session),
+        'perm_approval_po_menu': can_access_approval_po_menu(session),
+        'approval_po_base_url': approval_po_base_url(),
     }
 
 

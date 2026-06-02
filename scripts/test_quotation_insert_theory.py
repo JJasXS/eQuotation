@@ -79,7 +79,7 @@ def main() -> int:
     customer = args.customer
     data = _sample_quotation_data(item_code=args.item_code)
     doc_no = "QT-00001"
-    max_seq, existing = qa._read_qt_sequences_from_db(limit=50)
+    max_seq, existing, _db_err = qa._read_qt_sequences_from_db(limit=50)
     if max_seq or existing:
         cand = qa._next_qt_docno_candidate(max_seq, existing, 0)
         if cand:
@@ -108,7 +108,9 @@ def main() -> int:
 
     if args.firebird_docno:
         print("\n=== 2) Firebird SL_QT DOCNO scan ===")
-        mx, ex = qa._read_qt_sequences_from_db(limit=200)
+        mx, ex, db_err = qa._read_qt_sequences_from_db(limit=200)
+        if db_err:
+            print(f"   db_err={db_err!r}")
         print(f"   max_seq={mx}, sample_existing_count={len(ex)}")
 
     if args.sigv4_smoke:

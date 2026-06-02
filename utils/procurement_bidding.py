@@ -902,7 +902,10 @@ def approve_bid(request_dockey: int, bid_id: int, actor: str, udf_reason: str = 
         _ensure_pr_bid_hdr_udf_reason(con)
         cur = con.cursor()
         cur.execute(
-            "SELECT FIRST 1 BID_ID, SUPPLIER_CODE, REQUEST_NO FROM PR_BID_HDR WHERE BID_ID = ? AND REQUEST_DOCKEY = ?",
+            """
+            SELECT FIRST 1 BID_ID, SUPPLIER_CODE, SUPPLIER_NAME, REQUEST_NO
+            FROM PR_BID_HDR WHERE BID_ID = ? AND REQUEST_DOCKEY = ?
+            """,
             (bid_id, request_dockey),
         )
         row = cur.fetchone()
@@ -910,7 +913,8 @@ def approve_bid(request_dockey: int, bid_id: int, actor: str, udf_reason: str = 
             raise BiddingValidationError("bid not found for this request")
 
         supplier_code = _clean_text(row[1])
-        request_no = _clean_text(row[2])
+        supplier_name = _clean_text(row[2])
+        request_no = _clean_text(row[3])
 
         cur.execute(
             "UPDATE PR_BID_HDR SET STATUS = ?, APPROVED_BY = ?, APPROVED_AT = ? WHERE REQUEST_DOCKEY = ? AND BID_ID <> ?",
@@ -934,6 +938,17 @@ def approve_bid(request_dockey: int, bid_id: int, actor: str, udf_reason: str = 
         )
 
         con.commit()
+        try:
+            from utils.procurement_purchase_request import set_purchase_request_header_supplier
+
+            set_purchase_request_header_supplier(
+                request_dockey,
+                supplier_code,
+                supplier_name,
+                actor=_clean_text(actor) or "admin",
+            )
+        except Exception as sync_exc:
+            print(f"[PROCUREMENT BIDDING] PR header supplier sync warning: {sync_exc}", flush=True)
         return {
             "requestDockey": request_dockey,
             "requestNumber": request_no,
@@ -1125,6 +1140,24 @@ def save_line_awards(
             )
 
         con.commit()
+        if len(supplier_codes) == 1:
+            only_code = next(iter(supplier_codes))
+            award_name = ""
+            for _bid in bid_map.values():
+                if _clean_text(_bid.get("supplierCode")) == only_code:
+                    award_name = _clean_text(_bid.get("supplierName"))
+                    break
+            try:
+                from utils.procurement_purchase_request import set_purchase_request_header_supplier
+
+                set_purchase_request_header_supplier(
+                    request_dockey,
+                    only_code,
+                    award_name,
+                    actor=who,
+                )
+            except Exception as sync_exc:
+                print(f"[PROCUREMENT BIDDING] PR header supplier sync warning: {sync_exc}", flush=True)
         return {
             "requestDockey": int(request_dockey),
             "savedCount": saved,

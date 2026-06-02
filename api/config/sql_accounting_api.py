@@ -128,7 +128,9 @@ def load_sql_accounting_api_settings() -> SqlAccountingApiSettings:
     secret_key = (os.getenv("SQL_API_SECRET_KEY") or "").strip()
     host = (os.getenv("SQL_API_HOST") or "api.sql.my").strip()
     region = (os.getenv("SQL_API_REGION") or "ap-southeast-1").strip()
-    service = (os.getenv("SQL_API_SERVICE") or "execute-api").strip()
+    from utils.sql_api_sigv4 import resolve_sql_api_sigv4_service
+
+    service = resolve_sql_api_sigv4_service(host, os.getenv("SQL_API_SERVICE"))
     path = (os.getenv("SQL_API_CUSTOMER_CREATE_PATH") or "").strip()
     quotation_path = (os.getenv("SQL_API_SALES_QUOTATION_PATH") or "/salesquotation").strip()
     stock_item_list_path = (os.getenv("SQL_API_STOCK_ITEM_LIST_PATH") or "").strip()

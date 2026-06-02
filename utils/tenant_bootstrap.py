@@ -49,6 +49,8 @@ import requests
 from botocore.exceptions import NoCredentialsError
 from botocore.session import Session as BotocoreSession
 
+from utils.sql_api_sigv4 import resolve_sql_api_sigv4_service
+
 # Same default invoke URL as ProAccScanner ``TenantBootstrap:AwsApiBaseUrl``.
 DEFAULT_TENANT_API_BASE_URL = (
     "https://v2wwsho311.execute-api.ap-southeast-1.amazonaws.com/default/proacc-tenant-config-api"
@@ -616,6 +618,17 @@ def apply_tenant_env_overrides() -> bool:
                     raise RuntimeError(_sm_error_message(secret_ref=secret_ref, tenant_code=code, exc=exc)) from exc
             except Exception as exc:
                 raise RuntimeError(_sm_error_message(secret_ref=secret_ref, tenant_code=code, exc=exc)) from exc
+
+        host_after = (os.getenv("SQL_API_HOST") or "").strip()
+        svc_before = (os.getenv("SQL_API_SERVICE") or "").strip()
+        svc_resolved = resolve_sql_api_sigv4_service(host_after, svc_before)
+        if svc_resolved != svc_before:
+            print(
+                f"[tenant_bootstrap] SQL_API_SERVICE adjusted {svc_before!r} -> {svc_resolved!r} "
+                f"for host {host_after!r} (api.sql.my requires sqlaccount SigV4 service).",
+                flush=True,
+            )
+        os.environ["SQL_API_SERVICE"] = svc_resolved
 
         ak = (os.getenv("SQL_API_ACCESS_KEY") or "").strip()
         sk = (os.getenv("SQL_API_SECRET_KEY") or "").strip()

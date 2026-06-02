@@ -41,6 +41,18 @@ def _format_scalar_value(value: Any) -> str:
     return s
 
 
+def _format_currency_display_value(value: Any) -> str:
+    """Keep SQL API placeholders (e.g. ``----``) for UI; do not map to MYR."""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    s = str(value).strip()
+    if s in ("null", "None"):
+        return ""
+    return s
+
+
 def _is_scalar(value: Any) -> bool:
     return value is None or isinstance(value, (str, int, float, bool))
 
@@ -67,10 +79,12 @@ def flatten_customer_record(
     def add_row(key: str, label: str, raw: Any, *, store_scalar: bool = True) -> None:
         if key.lower() in _DISPLAY_SKIP_KEYS:
             return
-        display = _format_scalar_value(raw)
+        is_currency = str(key).lower() == "currencycode"
+        display = _format_currency_display_value(raw) if is_currency else _format_scalar_value(raw)
         if store_scalar and _is_scalar(raw):
             scalars[str(key).lower()] = display
-        rows.append({"key": key, "label": label, "value": display})
+        row_value = display if (display != "" or is_currency) else "—"
+        rows.append({"key": key, "label": label, "value": row_value})
 
     priority = (
         "code",
@@ -78,6 +92,7 @@ def flatten_customer_record(
         "companyname2",
         "agent",
         "area",
+        "currencycode",
         "creditterm",
         "attention",
         "phone1",
@@ -134,6 +149,15 @@ def merge_legacy_customer_payload(
 ) -> dict[str, Any]:
     """Attach full display list + scalar map to get_user_info JSON (keeps legacy uppercase keys)."""
     out = dict(legacy)
+    scalars = dict(customer_scalars)
+    # Currency is set only by apply_sql_api_currency_to_customer_payload (SQL API GET /customer).
+    scalars.pop("currencycode", None)
+    out.pop("CURRENCYCODE", None)
+    out.pop("currencycode", None)
+    api_code = str(legacy.get("CODE") or scalars.get("code") or "").strip()
+    if api_code:
+        scalars["code"] = api_code
+        out["CODE"] = api_code
     out["displayFields"] = display_fields
-    out["customerScalars"] = customer_scalars
+    out["customerScalars"] = scalars
     return out

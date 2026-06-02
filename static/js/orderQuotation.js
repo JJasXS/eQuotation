@@ -1,5 +1,5 @@
 // Centered popup with slide in/out, replacing browser alert() dialogs.
-function showAppPopup(message, type = 'info') {
+function showAppPopup(message, type = 'info', options = {}) {
     const styleId = 'app-popup-notice-style';
     if (!document.getElementById(styleId)) {
         const style = document.createElement('style');
@@ -7,29 +7,109 @@ function showAppPopup(message, type = 'info') {
         style.textContent = `
             .app-popup-notice {
                 position: fixed;
-                top: 20px;
+                top: 24px;
                 left: 50%;
                 transform: translateX(-50%);
                 z-index: 99999;
-                width: min(92vw, 440px);
-                border-radius: 12px;
-                padding: 14px 16px;
-                box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+                width: min(92vw, 420px);
+                border-radius: 14px;
+                padding: 16px 18px;
+                box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
                 font-size: 14px;
-                line-height: 1.45;
+                line-height: 1.5;
                 display: flex;
                 align-items: flex-start;
-                gap: 10px;
+                gap: 14px;
                 opacity: 0;
-                animation: appPopupSlideIn 0.24s ease forwards;
+                animation: appPopupSlideIn 0.28s ease forwards;
+                border: 1px solid transparent;
+            }
+
+            .app-popup-notice--success {
+                background: linear-gradient(135deg, #ecfdf3 0%, #d1fae5 100%);
+                border-color: #6ee7a8;
+                color: #065f46;
+            }
+
+            .app-popup-notice--error {
+                background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+                border-color: #fca5a5;
+                color: #991b1b;
+            }
+
+            .app-popup-notice--info {
+                background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+                border-color: #93c5fd;
+                color: #1e40af;
             }
 
             .app-popup-notice.is-hiding {
-                animation: appPopupSlideOut 0.2s ease forwards;
+                animation: appPopupSlideOut 0.22s ease forwards;
+            }
+
+            .app-popup-notice__icon {
+                flex-shrink: 0;
+                width: 40px;
+                height: 40px;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 20px;
+                font-weight: 700;
+                line-height: 1;
+            }
+
+            .app-popup-notice--success .app-popup-notice__icon {
+                background: #10b981;
+                color: #fff;
+                box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);
+            }
+
+            .app-popup-notice--error .app-popup-notice__icon {
+                background: #ef4444;
+                color: #fff;
+                box-shadow: 0 4px 12px rgba(239, 68, 68, 0.35);
+            }
+
+            .app-popup-notice--info .app-popup-notice__icon {
+                background: #3b82f6;
+                color: #fff;
+                box-shadow: 0 4px 12px rgba(59, 130, 246, 0.35);
+            }
+
+            .app-popup-notice__body {
+                flex: 1;
+                min-width: 0;
+            }
+
+            .app-popup-notice__title {
+                font-size: 15px;
+                font-weight: 700;
+                margin: 0 0 4px;
+                letter-spacing: 0.01em;
             }
 
             .app-popup-notice__text {
-                flex: 1;
+                margin: 0;
+                font-size: 14px;
+                opacity: 0.92;
+                white-space: pre-line;
+            }
+
+            .app-popup-notice__docno {
+                display: inline-block;
+                margin-top: 8px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                font-size: 13px;
+                font-weight: 600;
+                font-family: ui-monospace, Consolas, monospace;
+            }
+
+            .app-popup-notice--success .app-popup-notice__docno {
+                background: rgba(16, 185, 129, 0.15);
+                color: #047857;
             }
 
             .app-popup-notice__close {
@@ -37,15 +117,21 @@ function showAppPopup(message, type = 'info') {
                 background: transparent;
                 color: inherit;
                 cursor: pointer;
-                font-size: 18px;
+                font-size: 22px;
                 line-height: 1;
                 padding: 0 2px;
+                opacity: 0.65;
+                margin: -4px -4px 0 0;
+            }
+
+            .app-popup-notice__close:hover {
+                opacity: 1;
             }
 
             @keyframes appPopupSlideIn {
                 from {
                     opacity: 0;
-                    transform: translate(-50%, -14px);
+                    transform: translate(-50%, -16px);
                 }
                 to {
                     opacity: 1;
@@ -60,7 +146,7 @@ function showAppPopup(message, type = 'info') {
                 }
                 to {
                     opacity: 0;
-                    transform: translate(-50%, -14px);
+                    transform: translate(-50%, -12px);
                 }
             }
         `;
@@ -72,20 +158,51 @@ function showAppPopup(message, type = 'info') {
         existing.remove();
     }
 
+    const safeType = type === 'success' || type === 'error' ? type : 'info';
+    const title = options.title || '';
+    const docno = options.docno || '';
+    const bodyText = String(message || '').trim();
+    const autoCloseMs =
+        typeof options.autoCloseMs === 'number'
+            ? options.autoCloseMs
+            : safeType === 'success'
+              ? 4500
+              : safeType === 'error'
+                ? 6000
+                : 3800;
+
     const popup = document.createElement('div');
-    popup.className = 'app-popup-notice';
+    popup.className = `app-popup-notice app-popup-notice--${safeType}`;
+    popup.setAttribute('role', safeType === 'error' ? 'alert' : 'status');
 
-    const bg = type === 'error' ? '#fde8e8' : type === 'success' ? '#e7f7ee' : '#eef5ff';
-    const border = type === 'error' ? '#f2b8b5' : type === 'success' ? '#b7e3c7' : '#b9d3ff';
-    const color = type === 'error' ? '#8a1f17' : type === 'success' ? '#14532d' : '#1e3a8a';
+    const icon = document.createElement('div');
+    icon.className = 'app-popup-notice__icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = safeType === 'success' ? '✓' : safeType === 'error' ? '!' : 'i';
 
-    popup.style.background = bg;
-    popup.style.border = `1px solid ${border}`;
-    popup.style.color = color;
+    const body = document.createElement('div');
+    body.className = 'app-popup-notice__body';
 
-    const text = document.createElement('div');
-    text.className = 'app-popup-notice__text';
-    text.textContent = String(message || '');
+    if (title) {
+        const titleEl = document.createElement('p');
+        titleEl.className = 'app-popup-notice__title';
+        titleEl.textContent = title;
+        body.appendChild(titleEl);
+    }
+
+    if (bodyText) {
+        const text = document.createElement('p');
+        text.className = 'app-popup-notice__text';
+        text.textContent = bodyText;
+        body.appendChild(text);
+    }
+
+    if (docno) {
+        const badge = document.createElement('span');
+        badge.className = 'app-popup-notice__docno';
+        badge.textContent = docno;
+        body.appendChild(badge);
+    }
 
     const closeBtn = document.createElement('button');
     closeBtn.type = 'button';
@@ -103,15 +220,19 @@ function showAppPopup(message, type = 'info') {
             if (popup.isConnected) {
                 popup.remove();
             }
-        }, 210);
+            if (typeof options.onClose === 'function') {
+                options.onClose();
+            }
+        }, 220);
     };
 
     closeBtn.addEventListener('click', hidePopup);
-    popup.appendChild(text);
+    popup.appendChild(icon);
+    popup.appendChild(body);
     popup.appendChild(closeBtn);
     document.body.appendChild(popup);
 
-    hideTimer = window.setTimeout(hidePopup, 3200);
+    hideTimer = window.setTimeout(hidePopup, autoCloseMs);
     popup.addEventListener('mouseenter', () => {
         if (hideTimer) {
             clearTimeout(hideTimer);
@@ -120,14 +241,52 @@ function showAppPopup(message, type = 'info') {
     });
     popup.addEventListener('mouseleave', () => {
         if (!hideTimer) {
-            hideTimer = window.setTimeout(hidePopup, 1400);
+            hideTimer = window.setTimeout(hidePopup, 1600);
         }
     });
+
+    return { close: hidePopup };
 }
 
-// Keep existing code unchanged: any alert(...) now uses custom popup.
+function inferAppPopupType(message) {
+    const msg = String(message || '').toLowerCase();
+    if (
+        /success|successfully|created and is awaiting|updated successfully|order #\d+ created/.test(
+            msg
+        )
+    ) {
+        return 'success';
+    }
+    if (
+        /failed|error|expired|unauthorized|timeout|invalid|required|not found|forbidden/.test(msg)
+    ) {
+        return 'error';
+    }
+    return 'info';
+}
+
+function showQuotationSubmissionSuccess(displayDocNo, isUpdate, redirectUrl) {
+    const title = isUpdate ? 'Quotation updated' : 'Quotation submitted';
+    const message = isUpdate
+        ? 'Your changes were saved to SQL Accounting.'
+        : 'Your quotation was created and is awaiting approval.';
+    const redirect = redirectUrl || '/view-quotation?tab=pending';
+    showAppPopup(message, 'success', {
+        title,
+        docno: displayDocNo ? String(displayDocNo) : '',
+        autoCloseMs: 3200,
+        onClose: () => {
+            window.location.href = redirect;
+        },
+    });
+    window.setTimeout(() => {
+        window.location.href = redirect;
+    }, 2800);
+}
+
+// Custom alert: green for success messages, red for errors (confirm() stays native).
 window.alert = function(message) {
-    showAppPopup(message, 'error');
+    showAppPopup(String(message || ''), inferAppPopupType(message));
 };
 
 // Tab Switching
@@ -195,11 +354,30 @@ function buildQuotationPayload() {
         }
 
         if (product && qty > 0 && price >= 0) {
-            items.push({ product, source, itemCode, qty, price, discount, deliveryDate });
+            const line = {
+                product,
+                source,
+                itemCode,
+                qty,
+                price,
+                discount,
+                deliveryDate,
+                udfThickness: readQuotationLineField(item, '.item-udf-thickness'),
+                udfWidth: readQuotationLineField(item, '.item-udf-width'),
+                udfLength: readQuotationLineField(item, '.item-udf-length'),
+            };
+            const dtlkeyRaw = item.dataset.dtlkey;
+            if (dtlkeyRaw && String(dtlkeyRaw).trim() !== '') {
+                const dtlkey = parseInt(dtlkeyRaw, 10);
+                if (dtlkey > 0) {
+                    line.dtlkey = dtlkey;
+                }
+            }
+            items.push(line);
         }
     });
 
-    return {
+    const payload = {
         description: 'Quotation',
         validUntil: document.getElementById('quotation-validity').value,
         companyName: readCustomerScalar('companyname', 'companyName') || '',
@@ -214,13 +392,87 @@ function buildQuotationPayload() {
         attention: readCustomerScalar('attention') || '',
         mobile: readCustomerScalar('mobile') || '',
         terms: readCustomerScalar('creditterm', 'terms') || '',
-        currencyCode: readCustomerScalar('currencycode', 'currencyCode') || '',
         country: readCustomerScalar('country') || '',
         tin: readCustomerScalar('tin') || '',
         customerScalars: { ...quotationCustomerScalars },
 
         items: items
     };
+
+    const activeForm = getActiveQuotationForm();
+    if (activeForm && activeForm.dataset.updatecount != null && String(activeForm.dataset.updatecount).trim() !== '') {
+        const uc = parseInt(activeForm.dataset.updatecount, 10);
+        if (Number.isFinite(uc)) {
+            payload.updatecount = uc;
+        }
+    }
+    return payload;
+}
+
+function getActiveQuotationForm() {
+    return document.getElementById('quotation-form') || document.getElementById('update-quotation-form');
+}
+
+function applyQuotationLineDimensionOverrides(row, dims) {
+    if (!row || !dims) {
+        return;
+    }
+    const pick = (key) => {
+        const v = dims[key];
+        return v != null && String(v).trim() !== '' ? String(v).trim() : '';
+    };
+    const t = pick('udfThickness') || pick('thickness');
+    const w = pick('udfWidth') || pick('width');
+    const l = pick('udfLength') || pick('length');
+    if (t) {
+        writeQuotationLineField(row, '.item-udf-thickness', t);
+    }
+    if (w) {
+        writeQuotationLineField(row, '.item-udf-width', w);
+    }
+    if (l) {
+        writeQuotationLineField(row, '.item-udf-length', l);
+    }
+}
+
+async function appendQuotationLineFromApiItem(container, item) {
+    const description = (item.DESCRIPTION || '').toString();
+    const itemCode = item.ITEMCODE != null ? String(item.ITEMCODE).trim() : '';
+    const isCustom = itemCode.toUpperCase() === 'CUSTOM' || !itemCode;
+    const today = new Date().toISOString().split('T')[0];
+    const savedDims = {
+        udfThickness: item.udfThickness,
+        udfWidth: item.udfWidth,
+        udfLength: item.udfLength,
+    };
+
+    const row = appendQuotationLineRow(container, {
+        isCustom,
+        description: isCustom ? description : '',
+        qty: item.QTY || 1,
+        disc: item.DISC || 0,
+        refPrice: item.UDF_STDPRICE || 0,
+        unitPrice: item.UNITPRICE || 0,
+        deliveryDate: item.DELIVERYDATE || today,
+        thickness: savedDims.udfThickness,
+        width: savedDims.udfWidth,
+        length: savedDims.udfLength,
+    });
+
+    if (item.DTLKEY != null && item.DTLKEY !== '') {
+        row.dataset.dtlkey = String(item.DTLKEY);
+    }
+    if (itemCode) {
+        row.dataset.itemCode = itemCode;
+    }
+
+    const productField = row.querySelector('input.item-product:not(.item-product-custom)');
+    if (!isCustom && description && productField) {
+        writeQuotationLineField(row, '.item-product', description);
+        await fetchProductPrice(productField);
+    }
+    applyQuotationLineDimensionOverrides(row, savedDims);
+    return row;
 }
 
 function readQuotationCustomerField(id) {
@@ -255,11 +507,113 @@ function formatCustomerDisplayValue(value) {
     return s;
 }
 
+function pickSqlApiCurrencyFromSource(source) {
+    if (!source || typeof source !== 'object') {
+        return null;
+    }
+    if (source.sqlApiCurrencyCode != null) {
+        return String(source.sqlApiCurrencyCode).trim();
+    }
+    return null;
+}
+
+/** Strip currency from POST body; server uses SQL API GET /customer only. */
+function stripClientCurrencyFromQuotationPayload(quotationData) {
+    if (!quotationData || typeof quotationData !== 'object') {
+        return;
+    }
+    delete quotationData.currencyCode;
+    delete quotationData.currencycode;
+    delete quotationData.CURRENCYCODE;
+    delete quotationData.customerDetailCurrency;
+    delete quotationData.sqlApiCurrencyCode;
+    if (quotationData.customerScalars && typeof quotationData.customerScalars === 'object') {
+        delete quotationData.customerScalars.currencycode;
+        delete quotationData.customerScalars.currencyCode;
+        delete quotationData.customerScalars.CURRENCYCODE;
+        delete quotationData.customerScalars.customerDetailCurrency;
+    }
+}
+
+function applySqlApiCurrencyForSubmit(quotationData) {
+    stripClientCurrencyFromQuotationPayload(quotationData);
+    return currencyCodeForQuotationSave();
+}
+
+function setSqlApiCustomerCurrencyDisplay(code) {
+    sqlApiCustomerCurrencyCode = code == null ? null : String(code).trim();
+    const display =
+        sqlApiCustomerCurrencyCode === null || sqlApiCustomerCurrencyCode === ''
+            ? '—'
+            : sqlApiCustomerCurrencyCode;
+    writeQuotationCustomerField('quotation-currency', display);
+}
+
+/** Currency from GET /api/get_user_info → sqlApiCurrencyCode only (SQL API GET /customer). */
+function currencyCodeForQuotationSave() {
+    if (sqlApiCustomerCurrencyCode === null) {
+        return null;
+    }
+    const raw = String(sqlApiCustomerCurrencyCode).trim();
+    if (!raw || raw === '—' || raw === '-') {
+        return null;
+    }
+    return raw;
+}
+
+function formatCurrencyDisplayValue() {
+    if (sqlApiCustomerCurrencyCode === null) {
+        return '—';
+    }
+    return sqlApiCustomerCurrencyCode === '' ? '—' : sqlApiCustomerCurrencyCode;
+}
+
+/** Re-read currency/code from GET /api/get_user_info (same SQL API merge as initial load). */
+async function refreshSqlApiCustomerCurrencyFromGetUserInfo() {
+    const onQuotationForm =
+        document.body.classList.contains('create-quotation-page')
+        || document.getElementById('quotation-form')
+        || document.getElementById('update-quotation-form');
+    if (!onQuotationForm) {
+        return;
+    }
+    try {
+        const response = await fetch('/api/get_user_info');
+        if (!response.ok) {
+            return;
+        }
+        const envelope = await response.json();
+        const source = envelope && envelope.data ? envelope.data : null;
+        if (!envelope.success || !source) {
+            return;
+        }
+        const picked = pickSqlApiCurrencyFromSource(source);
+        if (picked !== null) {
+            setSqlApiCustomerCurrencyDisplay(picked);
+        }
+        const apiCode = String(
+            source.sqlApiCustomerCode || source.CODE || source.code || ''
+        ).trim();
+        if (apiCode) {
+            quotationCustomerScalars.code = apiCode;
+            writeQuotationCustomerField('quotation-customer-code', apiCode);
+            const quotationForm = getActiveQuotationForm();
+            if (quotationForm) {
+                quotationForm.dataset.customerCode = apiCode;
+            }
+        }
+    } catch (err) {
+        console.warn('refreshSqlApiCustomerCurrencyFromGetUserInfo:', err);
+    }
+}
+
 function syncProminentCustomerFields() {
     writeQuotationCustomerField('quotation-agent', formatCustomerDisplayValue(readCustomerScalar('agent')));
     writeQuotationCustomerField('quotation-area', formatCustomerDisplayValue(readCustomerScalar('area')));
     writeQuotationCustomerField('quotation-company', formatCustomerDisplayValue(readCustomerScalar('companyname', 'companyName')));
+    writeQuotationCustomerField('quotation-customer-code', formatCustomerDisplayValue(readCustomerScalar('code')));
     writeQuotationCustomerField('quotation-phone', formatCustomerDisplayValue(readCustomerScalar('phone1', 'phone')));
+    writeQuotationCustomerField('quotation-currency', formatCurrencyDisplayValue());
     writeQuotationCustomerField('quotation-terms', formatCustomerDisplayValue(readCustomerScalar('creditterm', 'terms')));
     writeQuotationCustomerField('quotation-address1', formatCustomerDisplayValue(readCustomerScalar('address1')));
     writeQuotationCustomerField('quotation-address2', formatCustomerDisplayValue(readCustomerScalar('address2')));
@@ -303,14 +657,21 @@ function ingestCustomerApiPayload(source) {
     }
     if (source.customerScalars && typeof source.customerScalars === 'object') {
         quotationCustomerScalars = { ...source.customerScalars };
+        delete quotationCustomerScalars.currencycode;
+        delete quotationCustomerScalars.currencyCode;
+        delete quotationCustomerScalars.CURRENCYCODE;
     }
     Object.keys(source).forEach((k) => {
         if (k === 'displayFields' || k.startsWith('_')) {
             return;
         }
+        const kl = String(k).toLowerCase();
+        if (kl === 'currencycode' || kl === 'currency_code') {
+            return;
+        }
         const v = source[k];
         if (v != null && typeof v !== 'object') {
-            const key = String(k).toLowerCase();
+            const key = kl;
             const s = String(v).trim();
             if (s.toUpperCase() === 'N/A') {
                 quotationCustomerScalars[key] = '';
@@ -326,6 +687,17 @@ function ingestCustomerApiPayload(source) {
             quotationCustomerScalars[k] = '';
         }
     });
+    const sqlCc = pickSqlApiCurrencyFromSource(source);
+    if (sqlCc !== null) {
+        setSqlApiCustomerCurrencyDisplay(sqlCc);
+    } else {
+        sqlApiCustomerCurrencyCode = null;
+        writeQuotationCustomerField('quotation-currency', '—');
+    }
+    const rawCode = quotationCustomerScalars.code || source.CODE || source.code;
+    if (rawCode != null && String(rawCode).trim() !== '') {
+        quotationCustomerScalars.code = String(rawCode).trim();
+    }
 }
 
 function writeQuotationCustomerField(id, displayText) {
@@ -388,8 +760,7 @@ const CREATE_QUOTATION_LINES_TABLE_HTML = `
 
 /** Fix cached/old markup: hidden flex grid or missing table left only the dashed Add Item box. */
 function repairCreateQuotationLinesUi() {
-    if (!document.body.classList.contains('create-quotation-page')
-        || document.body.classList.contains('update-quotation-page')) {
+    if (!document.body.classList.contains('create-quotation-page')) {
         return;
     }
 
@@ -556,14 +927,17 @@ function escapeQuotationHtml(value) {
         .replace(/</g, '&lt;');
 }
 
-function quotationLineStItemExtraCellsHtml() {
+function quotationLineStItemExtraCellsHtml(options = {}) {
+    const thick = options.thickness != null ? String(options.thickness) : '';
+    const width = options.width != null ? String(options.width) : '';
+    const length = options.length != null ? String(options.length) : '';
     return `
         <td class="item-udf-moq">—</td>
         <td class="item-udf-dleadtime">—</td>
         <td class="item-udf-bundle">—</td>
-        <td class="item-udf-thickness">—</td>
-        <td class="item-udf-width">—</td>
-        <td class="item-udf-length">—</td>`;
+        <td><input type="text" class="item-udf-thickness" placeholder="Thick" value="${escapeQuotationHtml(thick)}" autocomplete="off" inputmode="decimal"></td>
+        <td><input type="text" class="item-udf-width" placeholder="Width" value="${escapeQuotationHtml(width)}" autocomplete="off" inputmode="decimal"></td>
+        <td><input type="text" class="item-udf-length" placeholder="Length" value="${escapeQuotationHtml(length)}" autocomplete="off" inputmode="decimal"></td>`;
 }
 
 function buildQuotationLineRowInnerHtml(options = {}) {
@@ -584,7 +958,11 @@ function buildQuotationLineRowInnerHtml(options = {}) {
     return `
         <td class="item-source" data-source="${sourceKey}">${QUOTATION_SOURCE_LABELS[sourceKey]}</td>
         <td class="cq-product-cell"><input type="text" class="${productClass}" placeholder="Search or pick product…" value="${productValue}" autocomplete="off" spellcheck="false"></td>
-        ${quotationLineStItemExtraCellsHtml()}
+        ${quotationLineStItemExtraCellsHtml({
+            thickness: options.thickness,
+            width: options.width,
+            length: options.length,
+        })}
         <td><input type="number" class="item-qty" min="0" step="any" value="${qty}"></td>
         <td><input type="number" class="item-discount" min="0" step="any" value="${disc}"></td>
         <td class="item-suggested-price">${refDisplay}</td>
@@ -658,7 +1036,10 @@ function toggleQuotationLineSource(sourceCell) {
 }
 
 function initQuotationLineTableEvents() {
-    const table = document.querySelector('#quotation-form table.quotation-lines-table');
+    const table =
+        document.querySelector('#quotation-form table.quotation-lines-table')
+        || document.querySelector('#update-quotation-form table.quotation-lines-table')
+        || document.querySelector('table.quotation-lines-table');
     if (!table || table.dataset.lineEventsBound === '1') {
         return;
     }
@@ -679,7 +1060,10 @@ function initQuotationLineTableEvents() {
         if (!el || !table.contains(el)) {
             return;
         }
-        if (el.matches('.item-product, .item-product-custom, .item-qty, .item-discount, .item-delivery-date')) {
+        if (el.matches(
+            '.item-product, .item-product-custom, .item-qty, .item-discount, .item-delivery-date, '
+            + '.item-udf-thickness, .item-udf-width, .item-udf-length'
+        )) {
             onQuotationLineCellBlur(el);
         }
     });
@@ -887,7 +1271,10 @@ async function fetchProductPrice(input) {
     }
 
     const row = getQuotationLineRowFrom(input) || input.closest('.item-row');
-    const inQuotationTable = Boolean(input.closest && input.closest('#quotation-line-items'));
+    const inQuotationTable = Boolean(
+        input.closest
+        && (input.closest('#quotation-line-items') || input.closest('table.quotation-lines-table tbody'))
+    );
     const productName = inQuotationTable && row
         ? (
             readQuotationLineField(row, '.item-product')
@@ -918,7 +1305,7 @@ async function fetchProductPrice(input) {
     try {
         const response = await fetch(`/api/get_product_price?description=${encodeURIComponent(productName)}`);
         const data = await response.json();
-        
+
         if (data.success && data.price !== undefined && data.price !== null) {
             if (row && inQuotationTable) {
                 if (data.suggestedPrice !== undefined && data.suggestedPrice !== null) {
@@ -988,6 +1375,8 @@ let availableProducts = [];
 
 /** Scalar map from GET /api/get_user_info (SQL API → salesquotation). */
 let quotationCustomerScalars = {};
+/** Display-only currency from SQL API GET /customer (may be ``----``; never default MYR). */
+let sqlApiCustomerCurrencyCode = null;
 
 // Load Products for Autocomplete
 async function loadProducts() {
@@ -1384,13 +1773,73 @@ if (orderForm) {
     });
 }
 
+const updateQuotationForm = document.getElementById('update-quotation-form');
+if (updateQuotationForm) {
+    updateQuotationForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const dockey = updateQuotationForm.dataset.dockey;
+        await refreshSqlApiCustomerCurrencyFromGetUserInfo();
+        const quotationData = buildQuotationPayload();
+        if (!applySqlApiCurrencyForSubmit(quotationData)) {
+            alert(
+                'Customer currency was not loaded from SQL API. Wait for Customer details to finish loading, ' +
+                    'or fix SQL API keys and restart the server.'
+            );
+            return;
+        }
+        if (!quotationData.items || quotationData.items.length === 0) {
+            alert('Please add at least one valid item');
+            return;
+        }
+        quotationData.dockey = dockey;
+        try {
+            const response = await fetch('/api/admin/update_quotation', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(quotationData),
+            });
+            if (response.status === 401) {
+                alert('Your session has expired. Please log in again.');
+                window.location.href = '/login';
+                return;
+            }
+            const result = await response.json();
+            if (result.success) {
+                const displayDocNo = result.docno || quotationForm.dataset.dockey || '';
+                showQuotationSubmissionSuccess(displayDocNo, true, '/admin/view-quotations');
+            } else {
+                const err = result.error || 'Unknown error';
+                if (result.errorCode === 'SQL_API_UNAUTHORIZED') {
+                    alert(
+                        err + '\n\nThis is not a login/session problem. Ask your admin to verify SQL API keys '
+                        + 'for this tenant (AWS Secrets Manager / appsettings sqlApi block).'
+                    );
+                } else {
+                    alert('Failed to update quotation: ' + err);
+                }
+            }
+        } catch (error) {
+            console.error('Error updating quotation:', error);
+            alert('Failed to update quotation. Please try again.');
+        }
+    });
+}
+
 const quotationForm = document.getElementById('quotation-form');
 if (quotationForm) {
     const saveDraftButton = document.getElementById('save-draft-btn');
 
     if (saveDraftButton) {
         saveDraftButton.addEventListener('click', async function() {
+            await refreshSqlApiCustomerCurrencyFromGetUserInfo();
             const quotationData = buildQuotationPayload();
+            if (!applySqlApiCurrencyForSubmit(quotationData)) {
+                alert(
+                    'Customer currency was not loaded from SQL API. Wait for Customer details to finish loading, ' +
+                        'or fix SQL API keys and restart the server.'
+                );
+                return;
+            }
             const draftDockey = quotationForm.dataset.draftDockey;
 
             if (draftDockey) {
@@ -1433,7 +1882,15 @@ if (quotationForm) {
     quotationForm.addEventListener('submit', async function(e) {
         e.preventDefault();
 
+        await refreshSqlApiCustomerCurrencyFromGetUserInfo();
         const quotationData = buildQuotationPayload();
+        if (!applySqlApiCurrencyForSubmit(quotationData)) {
+            alert(
+                'Customer currency was not loaded from SQL API. Wait for Customer details to finish loading, ' +
+                    'or fix SQL API keys and restart the server.'
+            );
+            return;
+        }
         if (quotationData.items.length === 0) {
             alert('Please add at least one valid item');
             return;
@@ -1488,9 +1945,6 @@ if (quotationForm) {
             
             if (result.success) {
                 const displayDocNo = result.docno || result.quotationid || result.dockey;
-                const message = dockey ?
-                    `Quotation ${displayDocNo} updated successfully!` :
-                    `Quotation ${displayDocNo} created and is awaiting approval.`;
 
                 // Send quotation pending approval email
                 try {
@@ -1528,17 +1982,19 @@ if (quotationForm) {
                 } catch (emailError) {
                     console.error('Failed to send quotation email:', emailError);
                 }
-                
-                alert(message);
 
-                // Redirect to view quotations — Pending tab (newly submitted / UDF_STATUS PENDING)
-                window.location.href = '/view-quotation?tab=pending';
+                showQuotationSubmissionSuccess(displayDocNo, Boolean(dockey));
             } else {
                 const err = result.error || 'Unknown error';
                 if (result.errorCode === 'SQL_API_TIMEOUT') {
                     alert(
                         err + '\n\n(HTTP 504: accounting service did not answer in time. ' +
                         'Check SQL Accounting for a duplicate before trying again.)'
+                    );
+                } else if (result.errorCode === 'SQL_API_UNAUTHORIZED') {
+                    alert(
+                        err + '\n\nThis is not a login/session problem. Ask your admin to verify SQL API keys ' +
+                        'for this tenant (AWS Secrets Manager / appsettings sqlApi block).'
                     );
                 } else {
                     alert('Failed to save quotation: ' + err);
@@ -1568,6 +2024,23 @@ async function loadUserInfo() {
             ingestCustomerApiPayload(source);
             renderCustomerAllFields(source.displayFields);
             syncProminentCustomerFields();
+
+            const apiCode = String(source.CODE || source.code || quotationCustomerScalars.code || '').trim();
+            if (apiCode) {
+                quotationCustomerScalars.code = apiCode;
+                writeQuotationCustomerField('quotation-customer-code', apiCode);
+                const quotationForm = getActiveQuotationForm();
+                if (quotationForm) {
+                    quotationForm.dataset.customerCode = apiCode;
+                }
+            }
+
+            const pickedCurrency = pickSqlApiCurrencyFromSource(source);
+            if (pickedCurrency !== null) {
+                setSqlApiCustomerCurrencyDisplay(pickedCurrency);
+            } else {
+                await refreshSqlApiCustomerCurrencyFromGetUserInfo();
+            }
 
             const pickFrom = (obj, keys) => {
                 if (!obj || typeof obj !== 'object') return '';
@@ -1609,6 +2082,7 @@ async function loadUserInfo() {
 // Helper function to set all customer fields to N/A
 function setDefaultCustomerInfo() {
     quotationCustomerScalars = {};
+    sqlApiCustomerCurrencyCode = null;
     renderCustomerAllFields([]);
     syncProminentCustomerFields();
     const deptRow = document.getElementById('quotation-department-row');
@@ -1629,7 +2103,16 @@ async function loadDraftQuotation(dockey) {
         
         if (data.success && data.data) {
             const quotation = data.data;
-            
+            const quotationForm = getActiveQuotationForm();
+            if (quotationForm) {
+                if (quotation.UPDATECOUNT != null && quotation.UPDATECOUNT !== '') {
+                    quotationForm.dataset.updatecount = String(quotation.UPDATECOUNT);
+                }
+                if (!quotationForm.dataset.dockey && quotation.DOCKEY != null) {
+                    quotationForm.dataset.dockey = String(quotation.DOCKEY);
+                }
+            }
+
             // Populate form fields
             const descriptionField = document.getElementById('quotation-description');
             if (descriptionField && quotation.DESCRIPTION) {
@@ -1654,32 +2137,10 @@ async function loadDraftQuotation(dockey) {
                 }
                 container.innerHTML = ''; // Clear default item
 
-                quotation.items.forEach(item => {
-                    const explicitSource = (item.SOURCE || '').toString().toLowerCase();
-                    const description = (item.DESCRIPTION || '').toString();
-                    const hasCatalogMatch = !description || !availableProducts.length || availableProducts.some(product => {
-                        const candidate = (product.DESCRIPTION || product.CODE || '').toString();
-                        return candidate === description;
-                    });
-                    const source = explicitSource || (hasCatalogMatch ? 'catalog' : 'custom');
-                    const isCustom = source !== 'catalog';
-                    const newItem = appendQuotationLineRow(container, {
-                        isCustom,
-                        description,
-                        qty: item.QTY || 1,
-                        disc: item.DISC || 0,
-                        refPrice: item.UDF_STDPRICE || 0,
-                        unitPrice: item.UNITPRICE || 0,
-                        deliveryDate: item.DELIVERYDATE || new Date().toISOString().split('T')[0],
-                    });
-                    syncProductDatalist();
-
-                    const productField = newItem.querySelector('.item-product');
-                    if (!isCustom && item.DESCRIPTION && productField) {
-                        writeQuotationLineField(newItem, '.item-product', item.DESCRIPTION);
-                        fetchProductPrice(productField);
-                    }
-                });
+                for (const item of quotation.items) {
+                    await appendQuotationLineFromApiItem(container, item);
+                }
+                syncProductDatalist();
                 
                 calculateQuotationTotal();
                 refreshQuotationMiniItemCodes();
@@ -1691,9 +2152,13 @@ async function loadDraftQuotation(dockey) {
                 pageTitle.textContent = 'Edit Quotation';
             }
             
-            const formTitle = document.querySelector('#quotation-form').previousElementSibling;
-            if (formTitle && formTitle.tagName === 'H3') {
-                formTitle.textContent = `Edit Quotation - ${quotation.DOCNO || ''}`;
+            const formTitle = document.querySelector('.form-container h3');
+            if (formTitle) {
+                formTitle.textContent = `Edit Quotation — ${quotation.DOCNO || ''}`;
+            }
+            const nextDocnoValue = document.getElementById('quotation-next-docno-value');
+            if (nextDocnoValue && quotation.DOCNO) {
+                nextDocnoValue.textContent = quotation.DOCNO;
             }
         } else {
             console.error('Failed to load draft quotation:', data.error);
@@ -1702,6 +2167,100 @@ async function loadDraftQuotation(dockey) {
     } catch (error) {
         console.error('Error loading draft quotation:', error);
         ensureDefaultQuotationLineRow();
+    }
+}
+
+async function loadAdminQuotationForEdit(dockey) {
+    if (!dockey) {
+        return;
+    }
+    try {
+        const response = await fetch(`/api/admin/get_quotation_detail?dockey=${encodeURIComponent(dockey)}`);
+        const data = await response.json();
+        if (!data.success) {
+            alert('Failed to load quotation: ' + (data.error || 'Unknown error'));
+            window.location.href = '/admin/view-quotations';
+            return;
+        }
+
+        const quotation = data.quotation || {};
+        const items = data.items || quotation.items || [];
+        const updateForm = getActiveQuotationForm();
+
+        if (updateForm) {
+            if (quotation.UPDATECOUNT != null && quotation.UPDATECOUNT !== '') {
+                updateForm.dataset.updatecount = String(quotation.UPDATECOUNT);
+            }
+            if (quotation.CODE) {
+                updateForm.dataset.customerCode = String(quotation.CODE).trim();
+            }
+        }
+
+        const docnoEl = document.getElementById('quotation-docno-label');
+        if (docnoEl) {
+            docnoEl.textContent = quotation.DOCNO || dockey;
+        }
+
+        writeQuotationCustomerField('quotation-customer-code', quotation.CODE || '—');
+        writeQuotationCustomerField('quotation-company', quotation.COMPANYNAME || '—');
+        writeQuotationCustomerField('quotation-phone', quotation.PHONE1 || '—');
+        writeQuotationCustomerField('quotation-address1', quotation.ADDRESS1 || '');
+        writeQuotationCustomerField('quotation-address2', quotation.ADDRESS2 || '');
+        writeQuotationCustomerField('quotation-address3', quotation.ADDRESS3 || '');
+        writeQuotationCustomerField('quotation-address4', quotation.ADDRESS4 || '');
+        writeQuotationCustomerField('quotation-terms', quotation.CREDITTERM || quotation.TERMS || '—');
+        writeQuotationCustomerField('quotation-agent', quotation.AGENT || '');
+        writeQuotationCustomerField('quotation-area', quotation.AREA || '');
+        const docCurrency = String(quotation.CURRENCYCODE || '').trim();
+        writeQuotationCustomerField('quotation-currency', docCurrency || '—');
+
+        quotationCustomerScalars = {
+            companyname: String(quotation.COMPANYNAME || '').trim(),
+            address1: String(quotation.ADDRESS1 || '').trim(),
+            address2: String(quotation.ADDRESS2 || '').trim(),
+            address3: String(quotation.ADDRESS3 || '').trim(),
+            address4: String(quotation.ADDRESS4 || '').trim(),
+            phone1: String(quotation.PHONE1 || '').trim(),
+            creditterm: String(quotation.CREDITTERM || quotation.TERMS || '').trim(),
+            terms: String(quotation.TERMS || quotation.CREDITTERM || '').trim(),
+            currencycode: docCurrency,
+        };
+
+        if (quotation.VALIDITY) {
+            const validityField = document.getElementById('quotation-validity');
+            if (validityField) {
+                validityField.value = String(quotation.VALIDITY).split(' ')[0];
+            }
+        }
+
+        const container = getQuotationLineItemsBody();
+        if (container) {
+            container.innerHTML = '';
+            if (items.length === 0) {
+                appendQuotationLineRow(container);
+            } else {
+                for (const item of items) {
+                    await appendQuotationLineFromApiItem(container, item);
+                }
+            }
+            syncProductDatalist();
+            calculateQuotationTotal();
+            refreshQuotationMiniItemCodes();
+        }
+
+        const formTitle = document.querySelector('.form-container h3');
+        if (formTitle) {
+            formTitle.textContent = `Edit Quotation — ${quotation.DOCNO || dockey}`;
+        }
+
+        const nextDocnoValue = document.getElementById('quotation-next-docno-value');
+        if (nextDocnoValue && quotation.DOCNO) {
+            nextDocnoValue.textContent = quotation.DOCNO;
+        }
+    } catch (error) {
+        console.error('Error loading admin quotation:', error);
+        alert('Failed to load quotation. Please try again.');
+        window.location.href = '/admin/view-quotations';
     }
 }
 
@@ -1795,16 +2354,91 @@ async function loadSlQtDraftForEdit(draftDockey) {
     }
 }
 
+async function refreshQuotationNextDocnoPreview() {
+    if (!document.body.classList.contains('create-quotation-page')) {
+        return;
+    }
+    const panel = document.getElementById('quotation-next-docno-panel');
+    const valueEl = document.getElementById('quotation-next-docno-value');
+    const hintEl = document.getElementById('quotation-next-docno-hint');
+    if (!panel || !valueEl || !hintEl) {
+        return;
+    }
+
+    const quotationForm = getActiveQuotationForm();
+    const dockey = quotationForm && quotationForm.dataset.dockey
+        ? String(quotationForm.dataset.dockey).trim()
+        : '';
+
+    valueEl.textContent = '…';
+    hintEl.textContent = 'Loading next number from your company database…';
+    hintEl.style.display = '';
+    panel.classList.remove('is-error');
+
+    try {
+        const qs = dockey ? `?dockey=${encodeURIComponent(dockey)}` : '';
+        const response = await fetch(`/api/quotation/next_docno${qs}`);
+        if (response.status === 401) {
+            valueEl.textContent = '—';
+            hintEl.textContent = 'Session expired — log in again to preview the next number.';
+            panel.classList.add('is-error');
+            return;
+        }
+        const raw = await response.text();
+        let data = null;
+        try {
+            data = raw ? JSON.parse(raw) : null;
+        } catch (parseErr) {
+            console.error('next_docno preview: non-JSON response', response.status, raw.slice(0, 200));
+            valueEl.textContent = 'Unavailable';
+            hintEl.textContent =
+                response.status === 404
+                    ? 'Preview API not found — restart the eQuotation server to load the latest code.'
+                    : `Server returned HTTP ${response.status} (not JSON). Restart the app or check the browser console.`;
+            panel.classList.add('is-error');
+            return;
+        }
+        if (!response.ok || !data || !data.success) {
+            valueEl.textContent = 'Unavailable';
+            hintEl.textContent =
+                (data && data.error) ||
+                `Could not read next quotation number (HTTP ${response.status}).`;
+            panel.classList.add('is-error');
+            return;
+        }
+        valueEl.textContent = data.nextDocno || '—';
+        if (data.isUpdate) {
+            hintEl.textContent = data.note || 'This quotation already has a number; it will not change on save.';
+        } else {
+            hintEl.textContent = data.note || '';
+        }
+        hintEl.style.display = hintEl.textContent.trim() ? '' : 'none';
+        if (data.dbConnected === false) {
+            panel.classList.add('is-error');
+        }
+    } catch (err) {
+        console.error('next_docno preview:', err);
+        valueEl.textContent = 'Unavailable';
+        hintEl.textContent =
+            'Network error loading preview. Confirm you are logged in and the server is running.';
+        panel.classList.add('is-error');
+    }
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', async function() {
     repairCreateQuotationLinesUi();
 
-    const quotationForm = document.getElementById('quotation-form');
+    const quotationForm = getActiveQuotationForm();
+    const isAdminUpdatePage = document.body.classList.contains('update-quotation-page');
     const urlParams = new URLSearchParams(window.location.search);
     const draftDockey = urlParams.get('draftDockey');
     const dockey = quotationForm ? quotationForm.dataset.dockey : null;
 
-    if (draftDockey) {
+    if (isAdminUpdatePage && dockey) {
+        await loadProducts();
+        await loadAdminQuotationForEdit(dockey);
+    } else if (draftDockey) {
         await loadProducts();
         await loadSlQtDraftForEdit(draftDockey);
     } else if (dockey) {
@@ -1827,6 +2461,14 @@ document.addEventListener('DOMContentLoaded', async function() {
     repairCreateQuotationLinesUi();
     ensureDefaultQuotationLineRow();
     initQuotationCatalogProductPickers();
+
+    const nextDocnoRefresh = document.getElementById('quotation-next-docno-refresh');
+    if (nextDocnoRefresh) {
+        nextDocnoRefresh.addEventListener('click', () => refreshQuotationNextDocnoPreview());
+    }
+    if (!isAdminUpdatePage) {
+        await refreshQuotationNextDocnoPreview();
+    }
 });
 
 // AUTO-FILL FROM CHATBOT

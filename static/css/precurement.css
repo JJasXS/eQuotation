@@ -1734,11 +1734,292 @@ body.procurement-warm-ui .stock-card-item-search-input:focus {
     background: #ffffff;
 }
 
+/* Native select menus are clipped when ancestors use overflow:auto — keep UOM picker usable */
+#panel-create .pr-line-items-wrap {
+    overflow-x: auto;
+    overflow-y: visible;
+}
+
+#panel-create .pr-line-items-table .pr-stock-uom-cell {
+    min-width: 4.5rem;
+    width: 1%;
+    text-align: center;
+}
+
 .pr-line-items-table {
     width: 100%;
     border-collapse: collapse;
-    min-width: 900px;
+    min-width: 1400px;
     background: #ffffff;
+}
+
+#panel-create .pr-line-items-table {
+    min-width: 1240px;
+}
+
+#panel-create .pr-line-items-table .pr-code-cell {
+    width: 1%;
+    max-width: 18rem;
+    min-width: 11rem;
+    overflow: visible;
+    position: relative;
+    z-index: 1;
+}
+
+#panel-create .pr-line-items-table tbody tr:has(.pr-product-search:focus) {
+    position: relative;
+    z-index: 50;
+}
+
+#panel-create .pr-line-items-table .pr-product-picker {
+    position: relative;
+    width: 100%;
+    overflow: visible;
+}
+
+/* Description picker — same tokens as .pr-line-items-table input/select */
+#panel-create .pr-line-items-table .pr-product-search-row {
+    display: flex;
+    align-items: stretch;
+    max-width: 17rem;
+    border: 1px solid #c4c4c4;
+    border-radius: 2px;
+    background: #ffffff;
+    box-shadow: none;
+    transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+#panel-create .pr-line-items-table .pr-product-search-row:focus-within {
+    border-color: #6eb5f0;
+    box-shadow: 0 0 0 2px rgba(110, 181, 240, 0.35);
+}
+
+#panel-create .pr-line-items-table .pr-product-search-icon {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    color: #666666;
+    font-size: 12px;
+    pointer-events: none;
+    user-select: none;
+}
+
+#panel-create .pr-line-items-table .pr-product-search {
+    flex: 1 1 auto;
+    min-width: 0;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 4px 6px 4px 0;
+    border: none !important;
+    border-radius: 0;
+    background: transparent !important;
+    box-shadow: none !important;
+    outline: none;
+    font-size: 12px;
+    line-height: 1.35;
+    color: #222222;
+    box-sizing: border-box;
+    appearance: none;
+}
+
+#panel-create .pr-line-items-table .pr-product-search::placeholder {
+    color: #888888;
+    opacity: 1;
+}
+
+/* Dropdown is portaled to body — must match line-items table controls */
+.pr-product-dropdown {
+    margin: 0;
+    padding: 2px 0;
+    list-style: none;
+    max-height: 260px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    background: #ffffff;
+    border: 1px solid #c4c4c4;
+    border-radius: 2px;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.12);
+    scrollbar-width: thin;
+    scrollbar-color: #c4c4c4 #f3f3f3;
+}
+
+.pr-product-dropdown::-webkit-scrollbar {
+    width: 8px;
+}
+
+.pr-product-dropdown::-webkit-scrollbar-track {
+    background: #f3f3f3;
+}
+
+.pr-product-dropdown::-webkit-scrollbar-thumb {
+    background: #c4c4c4;
+    border-radius: 4px;
+}
+
+.pr-product-dropdown::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}
+
+.pr-product-dropdown.pr-product-dropdown--fixed {
+    right: auto;
+    padding: 2px 0;
+}
+
+.pr-product-dropdown-item {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    width: 100%;
+    margin: 0;
+    padding: 6px 8px;
+    border: none;
+    border-bottom: 1px solid #e8e8e8;
+    border-radius: 0;
+    background: transparent;
+    text-align: left;
+    font: inherit;
+    font-size: 12px;
+    line-height: 1.35;
+    color: #222222;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    box-sizing: border-box;
+}
+
+.pr-product-dropdown-item:last-child {
+    border-bottom: none;
+}
+
+.pr-product-dropdown-item:hover,
+.pr-product-dropdown-item:focus-visible {
+    background: #f3f3f3;
+    outline: none;
+}
+
+.pr-product-dropdown-desc {
+    display: block;
+    width: 100%;
+    font-weight: 500;
+    color: #222222;
+    word-break: break-word;
+}
+
+.pr-product-row-main {
+    width: 100%;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.pr-product-row-desc {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-weight: 600;
+    color: #1f2937;
+}
+
+.pr-product-row-code {
+    flex: 0 0 auto;
+    font-size: 10px;
+    color: #64748b;
+    max-width: 40%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pr-product-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    width: 100%;
+}
+
+.pr-product-meta-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border-radius: 999px;
+    border: 1px solid #d7dee8;
+    background: #f8fafc;
+    color: #475569;
+    font-size: 10px;
+    line-height: 1.25;
+}
+
+.pr-product-dropdown-code {
+    display: inline-block;
+    max-width: 100%;
+    padding: 1px 6px;
+    border-radius: 2px;
+    background: #f3f3f3;
+    color: #444444;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pr-product-dropdown-empty {
+    padding: 8px 10px;
+    font-size: 12px;
+    color: #666666;
+    text-align: center;
+}
+
+#panel-create .pr-line-items-table .pr-desc-readonly {
+    display: block;
+    max-width: 17rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    color: #222222;
+}
+
+#panel-create .pr-line-items-table .pr-unit-price-cell {
+    width: 1%;
+    max-width: 4.5rem;
+    min-width: 3.75rem;
+}
+
+#panel-create .pr-line-items-table .pr-unit-price-cell input {
+    width: 100%;
+    max-width: 4.25rem;
+    min-width: 0;
+    padding: 2px 4px;
+    font-size: 11px;
+}
+
+#panel-create .pr-line-items-table th.pr-col-description,
+#panel-create .pr-line-items-table th.pr-col-unit-price {
+    white-space: nowrap;
+}
+
+.pr-line-items-table .pr-desc-cell {
+    min-width: 12rem;
+}
+
+.pr-line-items-table .pr-loc-cell {
+    min-width: 6rem;
+}
+
+.pr-line-items-table .pr-udf-readonly {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    color: #444;
+    min-width: 3.5rem;
+    max-width: 6rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .pr-line-items-table th,
@@ -1776,15 +2057,39 @@ body.procurement-warm-ui .stock-card-item-search-input:focus {
 .pr-stock-uom-cell {
     text-align: center;
     white-space: nowrap;
+    vertical-align: middle;
+}
+
+.pr-stock-uom-readonly {
+    display: inline-block;
+    max-width: 7rem;
+    padding: 2px 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #222222;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+body.procurement-warm-ui .pr-line-items-table .pr-stock-uom-readonly {
+    color: #222222;
 }
 
 .pr-line-items-table select.pr-stock-uom-select {
-    min-width: 6.4rem;
-    width: auto;
+    min-width: 5.25rem;
+    max-width: 7.5rem;
+    width: 100%;
     font-size: 11px;
-    font-weight: 800;
-    letter-spacing: 0.04em;
-    text-align: center;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-align: left;
+    text-align-last: center;
+    cursor: pointer;
+    padding: 3px 22px 3px 6px;
+    appearance: auto;
+    -webkit-appearance: menulist;
 }
 
 .pr-stock-uom-select--sq {
@@ -3585,7 +3890,7 @@ body.procurement-warm-ui .pr-form {
 
 .pr-create-layout {
     display: grid;
-    grid-template-columns: minmax(520px, 1.45fr) minmax(240px, 0.55fr);
+    grid-template-columns: minmax(480px, 1.55fr) minmax(248px, 0.45fr);
     gap: 10px;
     flex: 1;
     min-height: min(72vh, 820px);
@@ -3611,6 +3916,10 @@ body.procurement-warm-ui .pr-create-panel {
     background: #fffef9;
     border: 1px solid #dccfb8;
     box-shadow: 0 2px 14px rgba(42, 36, 27, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.pr-create-panel--suppliers .pr-create-panel-head {
+    padding: 6px 8px;
 }
 
 .pr-create-panel-head {
@@ -3653,6 +3962,7 @@ body.procurement-warm-ui .pr-create-panel-title {
     display: flex;
     flex-direction: column;
     gap: 0;
+    padding: 6px 8px 8px;
 }
 
 .pr-create-footer {
@@ -3860,20 +4170,66 @@ body.procurement-warm-ui .procurement-panel > .panel-content {
     padding: 0 10px 10px;
 }
 
+.pr-supplier-picker {
+    margin-bottom: 8px;
+}
+
+.pr-supplier-picker-label {
+    display: block;
+    margin: 0 0 6px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #9ba7b6;
+}
+
 .pr-supplier-invite-card .pr-supplier-add-row {
     position: relative;
-    margin-bottom: 6px;
+    display: flex;
+    align-items: stretch;
+    margin-bottom: 0;
+    border: 1px solid #3a4250;
+    border-radius: 10px;
+    background: #151b27;
+    overflow: visible;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pr-supplier-invite-card .pr-supplier-add-row:focus-within {
+    border-color: #5b8fd4;
+    box-shadow: 0 0 0 3px rgba(91, 143, 212, 0.18);
+}
+
+.pr-supplier-picker-icon {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    color: #8fa3bc;
+    font-size: 14px;
+    pointer-events: none;
+    user-select: none;
 }
 
 .pr-supplier-invite-card .pr-supplier-add-row input {
-    width: 100%;
+    flex: 1 1 auto;
+    width: 0;
+    min-width: 0;
     box-sizing: border-box;
-    padding: 7px 10px;
-    border-radius: 8px;
-    border: 1px solid #3a4250;
-    background: #151b27;
+    padding: 9px 10px 9px 0;
+    border: none;
+    border-radius: 0 10px 10px 0;
+    background: transparent;
     color: #e4e9f1;
-    font-size: 11px;
+    font-size: 12px;
+    outline: none;
+    box-shadow: none;
+}
+
+.pr-supplier-invite-card .pr-supplier-add-row input::placeholder {
+    color: #7a8799;
 }
 
 .pr-supplier-table-wrap {
@@ -3894,33 +4250,33 @@ body.procurement-warm-ui .procurement-panel > .panel-content {
     border-spacing: 0;
 }
 
-/* Full-width column balance: # narrow, code, company & email use space, action fixed */
+/* Invite suppliers: #, code, company, remove — no email column */
 .pr-supplier-table--invite col.pr-sup-col-idx {
-    width: 4%;
+    width: 8%;
 }
 
 .pr-supplier-table--invite col.pr-sup-col-code {
-    width: 14%;
+    width: 25%;
 }
 
 .pr-supplier-table--invite col.pr-sup-col-name {
-    width: 34%;
-}
-
-.pr-supplier-table--invite col.pr-sup-col-email {
-    width: 40%;
+    width: 59%;
 }
 
 .pr-supplier-table--invite col.pr-sup-col-action {
     width: 8%;
 }
 
+.pr-create-panel--suppliers .pr-create-panel-title {
+    font-size: 11px;
+}
+
 .pr-supplier-table--invite th {
     background: #222c3d;
     color: #c8d4e6;
     border-bottom: 1px solid #3a4250;
-    font-size: 11px;
-    padding: 11px 12px;
+    font-size: 10px;
+    padding: 7px 6px;
     font-weight: 600;
     vertical-align: bottom;
     line-height: 1.35;
@@ -3933,19 +4289,14 @@ body.procurement-warm-ui .procurement-panel > .panel-content {
 
 .pr-supplier-table--invite th:nth-child(4),
 .pr-supplier-table--invite td:nth-child(4) {
-    text-align: right;
-}
-
-.pr-supplier-table--invite th:nth-child(5),
-.pr-supplier-table--invite td:nth-child(5) {
     text-align: center;
 }
 
 .pr-supplier-table--invite td {
     background: #1b2230;
     border-bottom: 1px solid #2c3545;
-    padding: 12px 12px;
-    font-size: 11px;
+    padding: 7px 6px;
+    font-size: 10px;
     line-height: 1.5;
     vertical-align: middle;
     word-wrap: break-word;
@@ -3959,8 +4310,8 @@ body.procurement-warm-ui .procurement-panel > .panel-content {
 
 .pr-supplier-table--invite td.pr-supplier-empty {
     text-align: center;
-    padding: 22px 18px 26px;
-    font-size: 12px;
+    padding: 14px 10px 18px;
+    font-size: 11px;
     line-height: 1.5;
 }
 
@@ -3971,7 +4322,7 @@ body.procurement-warm-ui .procurement-panel > .panel-content {
     }
 
     .pr-supplier-table--invite {
-        min-width: 28rem;
+        min-width: 16rem;
     }
 }
 
@@ -3986,32 +4337,61 @@ body.procurement-warm-ui .procurement-panel > .panel-content {
     min-width: 1.75rem;
 }
 
-.supplier-dropdown {
+.supplier-dropdown,
+.pr-supplier-picker-dropdown {
     position: absolute;
-    top: 100%;
+    top: calc(100% + 4px);
     left: 0;
     right: 0;
     z-index: 80;
-    min-width: 280px;
+    min-width: 100%;
     background: #1e2636;
     border: 1px solid #3a4250;
-    border-top: none;
-    border-radius: 0 0 8px 8px;
-    max-height: 240px;
+    border-radius: 10px;
+    max-height: 260px;
     overflow-y: auto;
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
 }
 
 .supplier-dropdown-item {
-    padding: 9px 12px;
+    padding: 10px 12px;
     cursor: pointer;
     font-size: 12px;
-    line-height: 1.4;
+    line-height: 1.35;
     display: flex;
     gap: 8px;
-    align-items: baseline;
+    align-items: center;
     color: #e4e9f1;
     border-bottom: 1px solid #2a3344;
+}
+
+.supplier-dropdown-item .pr-supplier-pick-code {
+    flex: 0 0 auto;
+    font-weight: 700;
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: #2a3548;
+    color: #b8d4f0;
+    max-width: 42%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.supplier-dropdown-item .pr-supplier-pick-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #d0dae8;
+}
+
+.supplier-dropdown-item .pr-supplier-pick-check {
+    flex: 0 0 auto;
+    color: #5b9fd8;
+    font-size: 13px;
 }
 
 .supplier-dropdown-item:last-child {
@@ -4054,10 +4434,37 @@ body.procurement-warm-ui .pr-supplier-invite-hint {
     color: #7a6a52;
 }
 
-body.procurement-warm-ui .pr-supplier-invite-card .pr-supplier-add-row input {
+body.procurement-warm-ui .pr-supplier-picker-label {
+    color: #7a6a52;
+}
+
+body.procurement-warm-ui .pr-supplier-invite-card .pr-supplier-add-row {
     border-color: #dccfb8;
     background: #fff;
+}
+
+body.procurement-warm-ui .pr-supplier-invite-card .pr-supplier-add-row:focus-within {
+    border-color: #8b7355;
+    box-shadow: 0 0 0 3px rgba(139, 115, 85, 0.15);
+}
+
+body.procurement-warm-ui .pr-supplier-picker-icon {
+    color: #9a8570;
+}
+
+body.procurement-warm-ui .pr-supplier-invite-card .pr-supplier-add-row input {
+    border: none;
+    background: transparent;
     color: #2a241b;
+}
+
+body.procurement-warm-ui .supplier-dropdown-item .pr-supplier-pick-code {
+    background: #f0e8d8;
+    color: #5c4a32;
+}
+
+body.procurement-warm-ui .supplier-dropdown-item .pr-supplier-pick-name {
+    color: #3d3428;
 }
 
 body.procurement-warm-ui .pr-stock-uom-badge {

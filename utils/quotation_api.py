@@ -777,28 +777,26 @@ def fetch_quotation_details_for_email(dockey: int) -> dict:
             con.close()
 
 
-def _read_qt_sequences_from_db(limit: int = 2000) -> tuple[int, set[int]]:
-    """Return (max_seq, existing_seq_set) for DOCNO values matching QT-%.5d."""
-    db_path = (os.getenv("DB_PATH") or "").strip()
-    db_host = (os.getenv("DB_HOST") or "").strip()
-    db_user = (os.getenv("DB_USER") or "sysdba").strip()
-    db_password = (os.getenv("DB_PASSWORD") or "masterkey").strip()
-    if not db_path:
-        return 0, set()
+def _read_qt_sequences_from_db(limit: int = 2000) -> tuple[int, set[int], str | None]:
+    """Return (max_seq, existing_seq_set, error_message) for DOCNO values matching QT-%.5d.
 
+    Uses ``get_db_connection()`` so tenant bootstrap / ``set_db_config`` (same as the rest of
+    eQuotation) is respected — not a separate ``os.getenv`` + raw DSN build.
+    """
     try:
-        import fdb
+        from utils import get_db_connection
+    except ImportError as exc:
+        return 0, set(), str(exc)
 
-        dsn = db_path if not db_host else f"{db_host}:{db_path}"
-        con = fdb.connect(dsn=dsn, user=db_user, password=db_password, charset="UTF8")
+    con = cur = None
+    try:
+        con = get_db_connection()
         cur = con.cursor()
         cur.execute(f"SELECT FIRST {int(limit)} DOCNO FROM SL_QT ORDER BY DOCKEY DESC")
         rows = cur.fetchall() or []
-        cur.close()
-        con.close()
 
         max_seq = 0
-        existing = set()
+        existing: set[int] = set()
         for row in rows:
             raw = str(row[0] or "").strip()
             m = _QT_DOCNO_RE.match(raw)
@@ -808,14 +806,85 @@ def _read_qt_sequences_from_db(limit: int = 2000) -> tuple[int, set[int]]:
             existing.add(seq)
             if seq > max_seq:
                 max_seq = seq
-        return max_seq, existing
-    except Exception:
-        return 0, set()
+        return max_seq, existing, None
+    except Exception as exc:
+        return 0, set(), str(exc)
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
 
 
 def _fallback_qt_docno() -> str:
     # Last-resort formatter that still follows QT-%.5d.
     return _format_qt_docno(int(datetime.now().strftime("%H%M%S")) % 100000 or 1)
+
+
+def peek_next_qt_docno(*, for_dockey: int = 0) -> dict:
+    """Return the next QT docno eQuotation would use on create (read-only, no API call).
+
+    When ``for_dockey`` is set and the row exists in SL_QT, returns that document's DOCNO
+    (update flow — number is not re-allocated).
+    """
+    if for_dockey > 0:
+        hb = _read_sl_qt_header_for_sales_api(for_dockey)
+        docno = str(hb.get("docno") or "").strip()
+        if docno:
+            min_seq, max_seq_allowed = _app_docno_range()
+            return {
+                "success": True,
+                "nextDocno": docno,
+                "isUpdate": True,
+                "reservedMin": min_seq,
+                "reservedMax": max_seq_allowed,
+                "note": "Existing quotation — number will not change on save.",
+            }
+
+    min_seq, max_seq_allowed = _app_docno_range()
+    max_seq, existing, db_err = _read_qt_sequences_from_db(limit=2000)
+    db_connected = db_err is None
+
+    if db_err:
+        doc_no = _format_qt_docno(min_seq)
+        note = (
+            f"Could not read SL_QT from Firebird ({db_err}). "
+            f"Showing reserved first number {doc_no}; restart the app after tenant DB changes."
+        )
+    elif max_seq == 0 and not existing:
+        doc_no = _format_qt_docno(min_seq)
+        note = (
+            f"No QT-{min_seq:05d}..QT-{max_seq_allowed:05d} rows found in local SL_QT yet; "
+            f"first create will use {doc_no} (or retry with another slot if the API reports duplicate)."
+        )
+    else:
+        doc_no = _next_qt_docno_candidate(max_seq, existing, 0)
+        note = ""
+
+    if not doc_no:
+        return {
+            "success": False,
+            "error": (
+                f"No available quotation number in reserved range "
+                f"QT-{min_seq:05d}..QT-{max_seq_allowed:05d}."
+            ),
+            "reservedMin": min_seq,
+            "reservedMax": max_seq_allowed,
+            "dbConnected": db_connected,
+            "dbError": db_err,
+        }
+
+    return {
+        "success": True,
+        "nextDocno": doc_no,
+        "isUpdate": False,
+        "reservedMin": min_seq,
+        "reservedMax": max_seq_allowed,
+        "maxSeqInDb": max_seq,
+        "dbConnected": db_connected,
+        "dbError": db_err,
+        "note": note,
+    }
 
 
 def _next_qt_docno_candidate(max_seq: int, existing: set[int], attempt: int) -> str:
@@ -861,6 +930,51 @@ def _is_unique_docno_error(status: int, parsed, raw: str) -> bool:
     )
 
 
+def _strip_client_currency_fields(data: dict) -> dict:
+    """Remove browser / Firebird currency fields so save uses SQL API GET /customer only."""
+    out = dict(data)
+    for key in (
+        "currencyCode",
+        "currencycode",
+        "CURRENCYCODE",
+        "customerDetailCurrency",
+        "customer_detail_currency",
+        "sqlApiCurrencyCode",
+    ):
+        out.pop(key, None)
+    scalars = out.get("customerScalars")
+    if isinstance(scalars, dict):
+        cleaned = dict(scalars)
+        for key in ("currencycode", "currencyCode", "CURRENCYCODE", "customerDetailCurrency"):
+            cleaned.pop(key, None)
+        out["customerScalars"] = cleaned
+    return out
+
+
+def _resolve_quotation_currency_code(data: dict, customer_code: str) -> str:
+    """
+    Currency for ``/salesquotation`` — **only** SQL API GET ``/customer?code=…`` (same as create screen).
+
+    Ignores request body, Firebird AR_CUSTOMER, and any MYR/default fallbacks.
+    """
+    _ = data
+    code = str(customer_code or "").strip()
+    if not code:
+        raise ValueError("Customer code is required to load currency from SQL API.")
+    from utils.sql_api_customer import sql_api_currency_and_code
+
+    fields = sql_api_currency_and_code(code)
+    cc = str(fields.get("currencycode") or "").strip()
+    http_status = str(fields.get("httpStatus") or "").strip()
+    if not cc or cc in ("-", "—"):
+        hint = f" (SQL API HTTP {http_status})" if http_status else ""
+        raise ValueError(
+            f"Currency not returned from SQL API GET /customer for customer {code!r}{hint}. "
+            "Fix SQL API keys for this tenant and restart eQuotation, then reload Create Quotation."
+        )
+    return cc
+
+
 def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
     header_dockey = int(data.get("dockey") or data.get("docKey") or 0)
     uc_raw = data.get("updatecount") if data.get("updatecount") is not None else data.get("updateCount")
@@ -876,11 +990,7 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
     doc_date = today
     post_date = today
     tax_date = today
-    raw_currency = str(data.get("currencyCode") or data.get("currencycode") or "").strip()
-    if raw_currency and raw_currency not in ("----", "-", "N/A"):
-        currency_code = raw_currency
-    else:
-        currency_code = "MYR"
+    currency_code = _resolve_quotation_currency_code(data, customer_code)
     currency_rate = _as_decimal(data.get("currencyRate") or "1.00", "1.00")
 
     company_name = str(data.get("companyName") or "").strip()
@@ -1042,6 +1152,18 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
                 "udf_eprice": _fmt_money(_as_decimal(item.get("udfEprice") or item.get("udf_eprice") or "0")),
                 "changed": True,
         }
+        for api_key, item_keys in (
+            ("udf_thickness", ("udfThickness", "udf_thickness")),
+            ("udf_width", ("udfWidth", "udf_width")),
+            ("udf_length", ("udfLength", "udf_length")),
+        ):
+            dim_val = ""
+            for ik in item_keys:
+                dim_val = str(item.get(ik) or "").strip()
+                if dim_val:
+                    break
+            if dim_val:
+                row[api_key] = dim_val
         detail_rows.append(row)
 
     # SQL Accounting /salesquotation usually requires a valid ST_ITEM.CODE per line; empty codes often yield HTTP 500 "Operation aborted".
@@ -1123,7 +1245,7 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
         "note": note_full,
         "approvestate": "",
         "updatecount": updatecount_val,
-        "transferable": False,
+        "transferable": True,
         "printcount": 0,
         "lastmodified": 0,
         "sdsdocdetail": detail_rows,
@@ -1134,6 +1256,7 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
         "udf_status": str(data.get("udfStatus") or data.get("udf_status") or "PENDING").strip() or "PENDING",
     }
     _merge_customer_scalars_into_salesquotation_header(header_payload, data)
+    header_payload["currencycode"] = _resolve_quotation_currency_code(data, customer_code)
     # Explicit create-quotation fields win over merge (agent / area must match Maintain Customer).
     for field, keys in (
         ("agent", ("agent", "AGENT")),
@@ -1193,7 +1316,7 @@ def _merge_customer_scalars_into_salesquotation_header(payload: dict, data: dict
     }
     for raw_key, raw_val in scalars.items():
         key = str(raw_key or "").strip().lower()
-        if not key or key in skip:
+        if not key or key in skip or key == "currencycode":
             continue
         if key.startswith("branch."):
             bk = key.split(".", 1)[-1]
@@ -1217,8 +1340,6 @@ def _merge_customer_scalars_into_salesquotation_header(payload: dict, data: dict
                 payload[target] = int(float(val))
             except (TypeError, ValueError):
                 continue
-        elif target == "currencycode" and val in ("----", "-"):
-            continue
         else:
             payload[target] = val
 
@@ -1234,7 +1355,7 @@ def create_or_update_quotation(base_api_url, customer_code, data):
     if not customer_code:
         return {"success": False, "error": "Customer code not found in session"}
 
-    data = dict(data or {})
+    data = _strip_client_currency_fields(dict(data or {}))
     upd_dockey = int(data.get("dockey") or data.get("docKey") or 0)
     if upd_dockey:
         hb = _read_sl_qt_header_for_sales_api(upd_dockey)
@@ -1295,7 +1416,7 @@ def create_or_update_quotation(base_api_url, customer_code, data):
         if provided_docno:
             doc_no = provided_docno
         else:
-            max_seq, existing = _read_qt_sequences_from_db(limit=2000)
+            max_seq, existing, _db_scan_err = _read_qt_sequences_from_db(limit=2000)
             if max_seq == 0 and not existing and attempt == 0:
                 doc_no = _fallback_qt_docno()
             else:
@@ -1317,6 +1438,18 @@ def create_or_update_quotation(base_api_url, customer_code, data):
 
         if not payload.get("sdsdocdetail"):
             return {"success": False, "error": "No valid quotation item rows to submit"}
+
+        if (os.getenv("SQL_API_QUOTATION_LOG_UPSTREAM") or "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        ):
+            print(
+                f"[quotation_api] salesquotation header currencycode={payload.get('currencycode')!r} "
+                f"customer_code={customer_code!r} docno={doc_no!r}",
+                flush=True,
+            )
 
         if not local_precheck_done:
             pre_err = _local_precheck_quotation(customer_code, payload)
@@ -1387,6 +1520,21 @@ def create_or_update_quotation(base_api_url, customer_code, data):
             err_obj = parsed.get("error")
             if isinstance(err_obj, dict) and err_obj.get("message"):
                 detail = str(err_obj.get("message"))
+        if status == 401:
+            return {
+                "success": False,
+                "errorCode": "SQL_API_UNAUTHORIZED",
+                "error": (
+                    "SQL Accounting API returned HTTP 401 (Unauthorized). "
+                    "The cloud API keys do not match this tenant/book, or SigV4 service name is wrong "
+                    "(api.sql.my requires SQL_API_SERVICE=sqlaccount, not execute-api). "
+                    "Check SQL_API_ACCESS_KEY and SQL_API_SECRET_KEY from tenant sqlApi / Secrets Manager "
+                    "(same keys as SQL Account portal Test Connection). Re-login does not fix this; "
+                    "restart the server after updating credentials."
+                ),
+                "detail": detail,
+            }
+
         last_error = f"SQL Accounting API returned HTTP {status}: {detail}"
         line_uoms = [
             (str(d.get("itemcode") or ""), str(d.get("uom") or ""))
@@ -1415,10 +1563,11 @@ def save_draft_quotation(base_api_url, customer_code, data):
     """Save a quotation draft directly to Firebird DB (no PHP)."""
     from utils import get_db_connection
     import traceback
+    data = _strip_client_currency_fields(dict(data or {}))
     dockey = data.get('dockey')
     description = (data.get('description', '') or '').strip() or 'Draft Quotation'
     valid_until = data.get('validUntil', '')
-    currency_code = data.get('currencyCode', 'MYR')
+    currency_code = _resolve_quotation_currency_code(data, customer_code)
     docno_input = str(data.get('docno') or data.get('docNo') or '').strip()
     shipper = str(data.get('shipper') or '----').strip() or '----'
     company_name = data.get('companyName', '')

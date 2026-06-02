@@ -5026,7 +5026,7 @@
 
 
 
-                                                <th>Batch</th>
+                                                <th>Location</th>
 
 
 
@@ -5038,7 +5038,14 @@
 
 
 
-                                                <th>Description <em>*</em></th>
+                                                <th class="pr-col-description">Description <em>*</em></th>
+
+                                                <th>Thickness</th>
+                                                <th>Width</th>
+                                                <th>Length</th>
+                                                <th>DP</th>
+                                                <th>DFP</th>
+                                                <th>Cost/KG</th>
 
 
 
@@ -47364,27 +47371,218 @@
 
         }
 
+        function prCatalogLowerMap(obj) {
+            const out = {};
+            if (!obj || typeof obj !== 'object') return out;
+            Object.keys(obj).forEach((k) => { out[String(k).toLowerCase()] = obj[k]; });
+            return out;
+        }
 
+        function prCatalogScalar(product, ...keys) {
+            if (!product || typeof product !== 'object') return '';
+            const lower = prCatalogLowerMap(product);
+            for (const key of keys) {
+                const k = String(key || '');
+                const v = product[k] != null
+                    ? product[k]
+                    : product[k.toUpperCase()] != null
+                        ? product[k.toUpperCase()]
+                        : lower[k.toLowerCase()];
+                if (v == null) continue;
+                const s = String(v).trim();
+                if (s) return s;
+            }
+            return '';
+        }
 
+        function resolvePrCatalogTradeUom(product) {
+            const u2 = prCatalogScalar(product, 'udf_2uom', 'UDF_2UOM');
+            if (u2) return u2;
+            const su = prCatalogScalar(product, 'suom', 'SUOM');
+            if (su) return su;
+            let rows = product && (product.sdsuom || product.SDSUOM);
+            if (typeof rows === 'string' && rows.trim()) {
+                try { rows = JSON.parse(rows); } catch (e) { rows = []; }
+            }
+            if (Array.isArray(rows)) {
+                const baseRow = rows.find((r) => r && (r.isbase === true || String(r.isbase || '').toLowerCase() === 'true'));
+                if (baseRow) {
+                    const u = String((baseRow.uom != null ? baseRow.uom : baseRow.UOM) || '').trim();
+                    if (u) return u;
+                }
+                for (const row of rows) {
+                    const u = String((row && (row.uom != null ? row.uom : row.UOM)) || '').trim();
+                    if (u) return u;
+                }
+            }
+            return prCatalogScalar(product, 'uom', 'UOM');
+        }
 
+        function prCatalogProductCode(p) {
+            return prCatalogScalar(p, 'CODE', 'code');
+        }
 
+        function prCatalogProductDesc(p) {
+            return prCatalogScalar(p, 'DESCRIPTION', 'description') || prCatalogProductCode(p);
+        }
 
+        function filterPrCatalogProducts(query) {
+            const q = String(query || '').trim().toLowerCase();
+            if (!q) return prCatalogProducts.filter((p) => prCatalogProductCode(p)).slice(0, 50);
+            return prCatalogProducts.filter((p) => {
+                const code = prCatalogProductCode(p).toLowerCase();
+                const desc = prCatalogProductDesc(p).toLowerCase();
+                return (code && code.includes(q)) || (desc && desc.includes(q));
+            }).slice(0, 50);
+        }
 
+        function prCatalogUdfValue(product, key) {
+            const v = prCatalogScalar(product, key, key.toUpperCase());
+            if (!v) return '';
+            if (String(v).trim() === '0') return '';
+            return v;
+        }
 
+        function prCatalogProductMetaLine(product) {
+            const th = prCatalogUdfValue(product, 'udf_thickness');
+            const w = prCatalogUdfValue(product, 'udf_width');
+            const l = prCatalogUdfValue(product, 'udf_length');
+            const dp = prCatalogUdfValue(product, 'udf_dp');
+            const dfp = prCatalogUdfValue(product, 'udf_dfp');
+            const costkg = prCatalogUdfValue(product, 'udf_costkg');
+            const parts = [];
+            if (th) parts.push(`T:${escapeHtml(th)}`);
+            if (w) parts.push(`W:${escapeHtml(w)}`);
+            if (l) parts.push(`L:${escapeHtml(l)}`);
+            if (dp) parts.push(`DP:${escapeHtml(dp)}`);
+            if (dfp) parts.push(`DFP:${escapeHtml(dfp)}`);
+            if (costkg) parts.push(`C/KG:${escapeHtml(costkg)}`);
+            if (!parts.length) return '';
+            return `<div class="pr-product-meta">${parts.map((p) => `<span class="pr-product-meta-pill">${p}</span>`).join('')}</div>`;
+        }
 
+        function prProductInputTextForLine(lineIndex) {
+            const item = window.purchaseRequestItems && window.purchaseRequestItems[lineIndex];
+            const code = item && String(item.itemCode || '').trim();
+            if (!code) return '';
+            const product = findPrProductByCode(code);
+            return prCatalogProductDesc(product || { CODE: code, DESCRIPTION: code });
+        }
 
+        function _hidePrProductDropdown(dropdown, picker) {
+            if (!dropdown) return;
+            dropdown.style.display = 'none';
+            if (picker && dropdown.parentElement === document.body) picker.appendChild(dropdown);
+            dropdown.classList.remove('pr-product-dropdown--fixed');
+            dropdown.style.position = '';
+            dropdown.style.left = '';
+            dropdown.style.top = '';
+            dropdown.style.width = '';
+            dropdown.style.maxHeight = '';
+            dropdown.style.zIndex = '';
+        }
 
+        function _positionPrProductFloatingDropdown(search, dropdown) {
+            const rect = search.getBoundingClientRect();
+            const gap = 6;
+            const maxH = 260;
+            const spaceBelow = window.innerHeight - rect.bottom - gap;
+            const spaceAbove = rect.top - gap;
+            let maxHeight = Math.min(maxH, Math.max(120, spaceBelow - 8));
+            let top = rect.bottom + gap;
+            if (maxHeight < 160 && spaceAbove > spaceBelow) {
+                maxHeight = Math.min(maxH, Math.max(120, spaceAbove - 8));
+                top = Math.max(8, rect.top - gap - maxHeight);
+            }
+            if (dropdown.parentElement !== document.body) document.body.appendChild(dropdown);
+            dropdown.classList.add('pr-product-dropdown--fixed');
+            dropdown.style.position = 'fixed';
+            dropdown.style.left = `${rect.left}px`;
+            dropdown.style.width = `${Math.max(rect.width, 320)}px`;
+            dropdown.style.top = `${top}px`;
+            dropdown.style.maxHeight = `${maxHeight}px`;
+            dropdown.style.zIndex = '10050';
+            dropdown.style.display = 'block';
+        }
 
+        function _renderPrProductDropdown(picker, query, lineIndex) {
+            const search = picker.querySelector('.pr-product-search');
+            const dropdown = picker.querySelector('.pr-product-dropdown');
+            if (!search || !dropdown) return;
+            dropdown._prPickerHost = picker;
+            const filtered = filterPrCatalogProducts(query);
+            if (!filtered.length) {
+                dropdown.innerHTML = '<div class="pr-product-dropdown-empty">No matches</div>';
+                _positionPrProductFloatingDropdown(search, dropdown);
+                return;
+            }
+            dropdown.innerHTML = filtered.map((p) => {
+                const code = prCatalogProductCode(p);
+                const desc = prCatalogProductDesc(p);
+                if (!code || !desc) return '';
+                return `<button type="button" class="pr-product-dropdown-item" data-code="${escapeHtml(code)}">`
+                    + `<div class="pr-product-row-main"><span class="pr-product-row-desc">${escapeHtml(desc)}</span><span class="pr-product-row-code">${escapeHtml(code)}</span></div>`
+                    + prCatalogProductMetaLine(p)
+                    + '</button>';
+            }).join('');
+            _positionPrProductFloatingDropdown(search, dropdown);
+            dropdown.querySelectorAll('.pr-product-dropdown-item').forEach((btn) => {
+                btn.addEventListener('mousedown', (e) => e.preventDefault());
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const code = btn.getAttribute('data-code') || '';
+                    _hidePrProductDropdown(dropdown, picker);
+                    onPurchaseRequestProductChange(lineIndex, code);
+                    const input = picker.querySelector('.pr-product-search');
+                    if (input) input.value = prProductInputTextForLine(lineIndex);
+                });
+            });
+        }
 
-
-
-
-
-
-
-
-
-
+        function initPrLineProductPickers() {
+            document.querySelectorAll('#pr-line-items-body .pr-product-picker').forEach((picker) => {
+                const search = picker.querySelector('.pr-product-search');
+                const dropdown = picker.querySelector('.pr-product-dropdown');
+                if (!search || !dropdown) return;
+                const lineIndex = parseInt(picker.getAttribute('data-pr-index'), 10);
+                if (!Number.isFinite(lineIndex)) return;
+                if (search.dataset.prPickerBound === '1') return;
+                search.dataset.prPickerBound = '1';
+                search.addEventListener('input', () => {
+                    _renderPrProductDropdown(picker, search.value.trim(), lineIndex);
+                });
+                search.addEventListener('focus', () => {
+                    _renderPrProductDropdown(picker, search.value.trim(), lineIndex);
+                });
+                search.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape') _hidePrProductDropdown(dropdown, picker);
+                });
+                search.addEventListener('blur', () => {
+                    setTimeout(() => {
+                        _hidePrProductDropdown(dropdown, picker);
+                        search.value = prProductInputTextForLine(lineIndex);
+                    }, 180);
+                });
+            });
+            if (!window._prProductPickerDocClick) {
+                window._prProductPickerDocClick = true;
+                document.addEventListener('click', (e) => {
+                    if (e.target.closest('.pr-product-picker') || e.target.closest('.pr-product-dropdown')) return;
+                    document.querySelectorAll('.pr-product-dropdown').forEach((d) => _hidePrProductDropdown(d, d._prPickerHost || null));
+                });
+                const reposition = () => {
+                    document.querySelectorAll('.pr-product-dropdown--fixed').forEach((dropdown) => {
+                        if (dropdown.style.display === 'none') return;
+                        const picker = dropdown._prPickerHost;
+                        const search = picker && picker.querySelector('.pr-product-search');
+                        if (search) _positionPrProductFloatingDropdown(search, dropdown);
+                    });
+                };
+                window.addEventListener('scroll', reposition, true);
+                window.addEventListener('resize', reposition);
+            }
+        }
 
         function updatePurchaseRequestRowAmount(index) {
 
@@ -49102,56 +49300,24 @@
 
 
 
-                        <td>
-
-
-
-
-
-
-
-
-
-
-
-                            <select onchange="onPurchaseRequestProductChange(${idx}, this.value)" ${isEditMode ? 'disabled' : ''} style="min-width:200px;width:100%;max-width:420px;">
-
-
-
-
-
-
-
-
-
-
-
-                                ${buildPrProductOptions(item.itemCode || '')}
-
-
-
-
-
-
-
-
-
-
-
-                            </select>
-
-
-
-
-
-
-
-
-
-
-
+                        <td class="pr-code-cell">
+                            ${isEditMode
+                                ? `<span class="pr-desc-readonly" title="${escapeHtml(item.itemCode || '')}">${escapeHtml(prCatalogProductDesc(product || { CODE: item.itemCode || '', DESCRIPTION: item.itemCode || '' }) || '-')}</span>`
+                                : `<div class="pr-product-picker" data-pr-index="${idx}">
+                                    <div class="pr-product-search-row">
+                                        <span class="pr-product-search-icon" aria-hidden="true">⌕</span>
+                                        <input type="text" class="pr-product-search" value="${escapeHtml(prCatalogProductDesc(product || { CODE: item.itemCode || '', DESCRIPTION: item.itemCode || '' }))}" placeholder="Type to filter..." autocomplete="off" />
+                                    </div>
+                                    <div class="pr-product-dropdown" role="listbox" style="display:none;"></div>
+                                </div>`}
                         </td>
 
+                        <td class="pr-udf-readonly">${escapeHtml(prCatalogUdfValue(product, 'udf_thickness') || '-')}</td>
+                        <td class="pr-udf-readonly">${escapeHtml(prCatalogUdfValue(product, 'udf_width') || '-')}</td>
+                        <td class="pr-udf-readonly">${escapeHtml(prCatalogUdfValue(product, 'udf_length') || '-')}</td>
+                        <td class="pr-udf-readonly">${escapeHtml(prCatalogUdfValue(product, 'udf_dp') || '-')}</td>
+                        <td class="pr-udf-readonly">${escapeHtml(prCatalogUdfValue(product, 'udf_dfp') || '-')}</td>
+                        <td class="pr-udf-readonly">${escapeHtml(prCatalogUdfValue(product, 'udf_costkg') || '-')}</td>
 
 
 
@@ -49162,7 +49328,8 @@
 
 
 
-                        <td class="pr-stock-uom-cell"><select class="pr-stock-uom-select" onchange="onPurchaseRequestUomChange(${idx}, this.value)" ${isEditMode ? 'disabled' : ''} title="Line UOM">${buildPrLineUomOptions(item, product)}</select></td>
+
+                        <td class="pr-stock-uom-cell"><span class="pr-stock-uom-readonly">${escapeHtml(resolvePrCatalogTradeUom(product) || '')}</span></td>
 
 
 
@@ -49331,6 +49498,7 @@
 
 
             recalcPurchaseRequestTotals();
+            initPrLineProductPickers();
 
 
 

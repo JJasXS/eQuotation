@@ -124,3 +124,9 @@
     background: #fee2e2;
     color: #991b1b;
 }
+
+/* Sub-items under Purchase Dashboard */
+.hamburger-dropdown a.hamburger-nav-indent {
+    padding-left: 40px;
+    font-size: 14px;
+}

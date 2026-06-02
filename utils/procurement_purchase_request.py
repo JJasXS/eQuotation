@@ -44,6 +44,34 @@ def _money(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+def _normalize_supplier_id_for_header(value: Any) -> str:
+    """Treat SQL placeholder codes as no supplier on the PR header."""
+    code = _clean_text(value)
+    if code in ("----", "-", "—"):
+        return ""
+    return code
+
+
+def _invited_supplier_codes_from_payload(payload: dict[str, Any]) -> list[str]:
+    """Supplier codes from Create e-PR ``suppliers`` invite list (bidding only)."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for row in payload.get("suppliers") or []:
+        if not isinstance(row, dict):
+            continue
+        code = _normalize_supplier_id_for_header(
+            row.get("code") or row.get("supplierCode") or row.get("supplierId")
+        )
+        if not code:
+            continue
+        key = code.upper()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(code)
+    return out
+
+
 def _connect_db():
     return get_db_connection()
 
@@ -380,6 +408,9 @@ def _next_request_number_from_seed(cur: Any, header_columns: set[str], seed: str
 
 
 def _normalize_sql_api_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    from utils.procurement_pr_sql_api import resolve_pr_currency_code, strip_client_pr_currency_fields
+
+    payload = strip_client_pr_currency_fields(payload)
     errors: list[str] = []
     header_project = _clean_text(payload.get("project")) or "----"
 
@@ -483,6 +514,19 @@ def _normalize_sql_api_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if status and status not in {"DRAFT", "SUBMITTED"}:
         errors.append("status must be DRAFT/SUBMITTED or 0/1 for create")
 
+    supplier_id = (
+        _clean_text(payload.get("code"))
+        or _clean_text(payload.get("supplierId"))
+        or _clean_text(payload.get("agent"))
+    )
+    supplier_name = _clean_text(payload.get("companyname") or payload.get("supplierName"))
+    currency = ""
+    if supplier_id:
+        try:
+            currency = resolve_pr_currency_code(supplier_id, required=True)
+        except ValueError as exc:
+            errors.append(str(exc))
+
     if errors:
         raise PurchaseRequestValidationError("; ".join(errors))
 
@@ -492,8 +536,9 @@ def _normalize_sql_api_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "departmentId": _clean_text(payload.get("businessunit")) or "PROC",
         "costCenter": _clean_text(payload.get("businessunit")),
         "project": header_project,
-        "supplierId": _clean_text(payload.get("agent")),
-        "currency": _clean_text(payload.get("currencycode")) or "MYR",
+        "supplierId": supplier_id,
+        "supplierName": supplier_name,
+        "currency": currency,
         "requestDate": request_date.isoformat(),
         "requiredDate": required_date.isoformat(),
         "description": _clean_text(payload.get("description")),
@@ -510,6 +555,9 @@ def _normalize_sql_api_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
+    from utils.procurement_pr_sql_api import strip_client_pr_currency_fields
+
+    payload = strip_client_pr_currency_fields(payload)
     if isinstance(payload.get("sdsdocdetail"), list):
         return _normalize_sql_api_payload(payload)
 
@@ -520,7 +568,7 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
 
     department_id = _clean_text(payload.get("departmentId"))
 
-    currency = _clean_text(payload.get("currency")) or "MYR"
+    currency = ""
 
     # requestDate is the user-facing field; keep requestedDate as a compatibility alias.
     request_date_raw = _clean_text(payload.get("requestDate") or payload.get("requestedDate"))
@@ -607,25 +655,27 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
         subtotal += _money(quantity * unit_price)
         total_tax += _money(tax)
 
-        normalized_items.append(
-            {
-                "itemCode": item_code,
-                "itemName": item_name,
-                "locationCode": location_code,
-                "description": description,
-                "uom": line_uom,
-                "udfReason": _clean_text(item.get("udfReason") or item.get("udf_reason")),
-                "project": line_project,
-                "quantity": float(quantity),
-                "unitPrice": float(_money(unit_price)),
-                "tax": float(_money(tax)),
-                "amount": float(line_amount),
-                "deliveryDate": effective_delivery_date.isoformat() if effective_delivery_date else "",
-                "qtySqty": float(qty_sq_i),
-                "qtySuomqty": float(qty_su_i),
-                "stockQtyUom": basis_i,
-            }
-        )
+        norm_line: dict[str, Any] = {
+            "itemCode": item_code,
+            "itemName": item_name,
+            "locationCode": location_code,
+            "description": description,
+            "uom": line_uom,
+            "udfReason": _clean_text(item.get("udfReason") or item.get("udf_reason")),
+            "project": line_project,
+            "quantity": float(quantity),
+            "unitPrice": float(_money(unit_price)),
+            "tax": float(_money(tax)),
+            "amount": float(line_amount),
+            "deliveryDate": effective_delivery_date.isoformat() if effective_delivery_date else "",
+            "qtySqty": float(qty_sq_i),
+            "qtySuomqty": float(qty_su_i),
+            "stockQtyUom": basis_i,
+        }
+        stock_detail = item.get("stockDetail") or item.get("stockApi")
+        if isinstance(stock_detail, dict):
+            norm_line["stockDetail"] = dict(stock_detail)
+        normalized_items.append(norm_line)
 
     computed_total = _money(subtotal + total_tax)
     provided_total = _money(_as_decimal(payload.get("totalAmount"), str(computed_total)))
@@ -638,8 +688,32 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
     if status and status not in {"DRAFT", "SUBMITTED"}:
         errors.append("status must be DRAFT or SUBMITTED for create")
 
+    supplier_id = _normalize_supplier_id_for_header(payload.get("supplierId"))
+    invited_codes = _invited_supplier_codes_from_payload(payload)
+    currency = ""
+
+    if supplier_id:
+        from utils.procurement_pr_sql_api import resolve_pr_currency_code
+
+        try:
+            currency = resolve_pr_currency_code(supplier_id, required=True)
+        except ValueError as exc:
+            errors.append(str(exc))
+    elif invited_codes and pr_status == "SUBMITTED":
+        from utils.procurement_pr_sql_api import resolve_pr_currency_code
+
+        try:
+            currency = resolve_pr_currency_code(invited_codes[0], required=True)
+        except ValueError as exc:
+            errors.append(str(exc))
+        supplier_id = ""
+    elif pr_status == "SUBMITTED":
+        errors.append("Select at least one supplier to invite for bidding when submitting")
+
     if errors:
         raise PurchaseRequestValidationError("; ".join(errors))
+
+    supplier_name = _clean_text(payload.get("supplierName")) if supplier_id else ""
 
     return {
         "requestNumber": request_number,
@@ -647,8 +721,8 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
         "departmentId": department_id,
         "costCenter": _clean_text(payload.get("costCenter")),
         "project": header_project,
-        "supplierId": _clean_text(payload.get("supplierId")),
-        "supplierName": _clean_text(payload.get("supplierName")),
+        "supplierId": supplier_id,
+        "supplierName": supplier_name,
         "currency": currency,
         "requestDate": request_date.isoformat() if request_date else request_date_raw,
         "requiredDate": required_date.isoformat() if required_date else required_date_raw,
@@ -669,32 +743,16 @@ def _resolve_initial_status(payload_status: str) -> str:
 
 
 def _build_upstream_payload(validated: dict[str, Any]) -> dict[str, Any]:
-    source_sql_payload = validated.get("sqlPayload")
-    if isinstance(source_sql_payload, dict):
-        payload = dict(source_sql_payload)
-        payload["sdsdocdetail"] = [dict(row) for row in (source_sql_payload.get("sdsdocdetail") or [])]
-        request_date = _clean_text(payload.get("requestDate") or payload.get("requestedDate") or payload.get("docdate"))
-        if request_date:
-            payload["requestDate"] = request_date
-            payload["requestedDate"] = request_date
-            payload["docdate"] = request_date
-            payload["postdate"] = request_date
-            # Upstream still validates requiredDate; mirror it from requested date.
-            payload["requiredDate"] = request_date
-        return payload
+    from utils.procurement_pr_sql_api import build_purchaserequest_upstream_payload
 
-    payload = dict(validated)
-    payload["lineItems"] = [dict(item) for item in validated.get("lineItems", [])]
-    request_date = _clean_text(payload.get("requestDate") or payload.get("requestedDate"))
+    request_number = _clean_text(validated.get("requestNumber"))
+    upstream = build_purchaserequest_upstream_payload(validated, request_number=request_number)
+    request_date = _clean_text(validated.get("requestDate") or validated.get("requestedDate"))
     if request_date:
-        payload["requestDate"] = request_date
-        payload["requestedDate"] = request_date
-        # Keep legacy SQL-style aliases aligned with requested date.
-        payload["docdate"] = request_date
-        payload["postdate"] = request_date
-        # Upstream still validates requiredDate; mirror it from requested date.
-        payload["requiredDate"] = request_date
-    return payload
+        upstream["requestDate"] = request_date
+        upstream["requestedDate"] = request_date
+        upstream["requiredDate"] = request_date
+    return upstream
 
 
 def _forward_to_upstream(payload: dict[str, Any], auth_header: str | None) -> tuple[str, str]:
@@ -936,6 +994,59 @@ def create_purchase_request(
         con.close()
 
 
+def set_purchase_request_header_supplier(
+    request_dockey: int,
+    supplier_code: str,
+    supplier_name: str = "",
+    *,
+    actor: str = "admin",
+) -> dict[str, Any] | None:
+    """Record the awarded supplier on PH_PQ after admin confirms bidding."""
+    code = _normalize_supplier_id_for_header(supplier_code)
+    if not code:
+        return None
+    name = _clean_text(supplier_name) or code
+    from utils.procurement_pr_sql_api import resolve_pr_currency_code
+
+    try:
+        currency = resolve_pr_currency_code(code, required=True)
+    except ValueError:
+        currency = ""
+
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        header_cols = _get_table_columns(cur, "PH_PQ")
+        header_key_col = _pick_existing(header_cols, "DOCKEY", "PQKEY", "ID")
+        if not header_key_col:
+            return None
+        updates: dict[str, Any] = {
+            "CODE": code,
+            "SUPPLIERID": code,
+            "COMPANYNAME": name,
+            "CURRENCYCODE": currency or "----",
+            "CURRENCY": currency or "----",
+            "UPDATEDBY": _clean_text(actor) or "admin",
+            "UPDATED_AT": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+        }
+        set_parts = [f"{col} = ?" for col in updates if col in header_cols]
+        if not set_parts:
+            return None
+        values = [updates[col] for col in updates if col in header_cols]
+        values.append(int(request_dockey))
+        cur.execute(
+            f"UPDATE PH_PQ SET {', '.join(set_parts)} WHERE {header_key_col} = ?",
+            tuple(values),
+        )
+        con.commit()
+        return {"supplierId": code, "supplierName": name, "currency": currency}
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
 def preview_purchase_request_number() -> str:
     """Return the next auto-generated purchase request number."""
     ensure_purchase_request_schema()
@@ -1051,7 +1162,7 @@ def list_purchase_requests(limit: int = 200) -> list[dict[str, Any]]:
                     "requiredDate": row[3].isoformat() if hasattr(row[3], "isoformat") and row[3] is not None else _clean_text(row[3]),
                     "requesterId": _clean_text(row[4]),
                     "departmentId": _clean_text(row[5]),
-                    "supplierId": _clean_text(row[6]),
+                    "supplierId": _normalize_supplier_id_for_header(row[6]),
                     "currency": _clean_text(row[7]),
                     "totalAmount": _num(row[8]),
                     "status": _decode_status(row[9]),
@@ -1350,7 +1461,7 @@ def update_purchase_request(
             values.append(cost_center)
         for col in currency_cols:
             updates.append(f"{col} = ?")
-            values.append(currency or "MYR")
+            values.append(currency)
         if description_col:
             updates.append(f"{description_col} = ?")
             values.append(description)

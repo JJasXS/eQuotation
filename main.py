@@ -37,6 +37,7 @@ from utils import (
     extract_product_and_quantity, get_product_price, set_order_config,
     resolve_numbered_reference, get_selling_price,
     create_or_update_quotation, save_draft_quotation, fetch_quotation_details_for_email,
+    peek_next_qt_docno,
 )
 from utils.procurement_stock_card_queries import (
     fetch_procurement_metric_breakdown,
@@ -239,6 +240,54 @@ def _safe_float(value, default=0.0):
         return float(text)
     except Exception:
         return default
+
+
+def _quotation_line_item_fields_for_select(dtl_columns: set) -> list:
+    """SL_QTDTL columns returned for quotation line APIs."""
+    item_fields = ['DTLKEY', 'DOCKEY', 'SEQ', 'ITEMCODE', 'DESCRIPTION', 'QTY', 'UNITPRICE', 'DISC', 'AMOUNT']
+    if 'UDF_STDPRICE' in dtl_columns:
+        item_fields.append('UDF_STDPRICE')
+    if 'DELIVERYDATE' in dtl_columns:
+        item_fields.append('DELIVERYDATE')
+    for opt in ('UDF_THICKNESS', 'UDF_WIDTH', 'UDF_LENGTH'):
+        if opt in dtl_columns:
+            item_fields.append(opt)
+    return item_fields
+
+
+def _quotation_line_item_from_row(row_map: dict, *, cur) -> dict:
+    """Build API line dict with optional ST_ITEM dimension UDFs for the create/edit UI."""
+    item = {
+        'DTLKEY': int(row_map.get('DTLKEY')) if row_map.get('DTLKEY') is not None else None,
+        'SEQ': int(row_map.get('SEQ')) if row_map.get('SEQ') is not None else 0,
+        'ITEMCODE': row_map.get('ITEMCODE'),
+        'DESCRIPTION': row_map.get('DESCRIPTION'),
+        'QTY': _safe_float(row_map.get('QTY')),
+        'UNITPRICE': _safe_float(row_map.get('UNITPRICE')),
+        'DISC': _safe_float(row_map.get('DISC')),
+        'AMOUNT': _safe_float(row_map.get('AMOUNT')),
+        'UDF_STDPRICE': _safe_float(row_map.get('UDF_STDPRICE')),
+        'DELIVERYDATE': str(row_map.get('DELIVERYDATE')) if row_map.get('DELIVERYDATE') is not None else None,
+    }
+    for db_col, js_key in (
+        ('UDF_THICKNESS', 'udfThickness'),
+        ('UDF_WIDTH', 'udfWidth'),
+        ('UDF_LENGTH', 'udfLength'),
+    ):
+        if db_col in row_map and row_map.get(db_col) is not None:
+            item[js_key] = str(row_map.get(db_col)).strip()
+
+    try:
+        from utils.sql_query_helpers import get_st_item_quotation_display_fields
+
+        code = str(item.get('ITEMCODE') or '').strip()
+        extras = get_st_item_quotation_display_fields(cur, code)
+        for key in ('udfThickness', 'udfWidth', 'udfLength', 'udfMoq', 'udfDleadtime', 'udfBundle'):
+            if not str(item.get(key) or '').strip() and extras.get(key):
+                item[key] = extras[key]
+    except Exception:
+        pass
+    return item
 
 
 def _dashboard_cache_get(key):
@@ -4017,10 +4066,10 @@ def api_admin_procurement_stock_item_uoms():
 
         def _push_uom(raw):
             v = str(raw or '').strip()
-            if not v:
+            if not v or v in ('----', '-', 'N/A', 'NA'):
                 return
             k = v.upper()
-            if k in seen:
+            if k in seen or k in ('----', '-', 'N/A', 'NA'):
                 return
             seen.add(k)
             out.append(v)
@@ -4076,6 +4125,26 @@ def api_admin_procurement_stock_item_uoms():
                     _push_uom(row[0])
             except Exception:
                 pass
+        if len(out) <= 1:
+            try:
+                for row in _fetch_stock_items_cached() or []:
+                    if not isinstance(row, dict):
+                        continue
+                    row_code = str(row.get('CODE') or row.get('code') or '').strip()
+                    if row_code != code:
+                        continue
+                    _push_uom(row.get('UOM') or row.get('uom'))
+                    _push_uom(row.get('SUOM') or row.get('suom'))
+                    _push_uom(row.get('UDF_2UOM') or row.get('udf_2uom'))
+                    sdsuom = row.get('sdsuom') or row.get('SDSUOM')
+                    if isinstance(sdsuom, list):
+                        for su_row in sdsuom:
+                            if isinstance(su_row, dict):
+                                _push_uom(su_row.get('uom') or su_row.get('UOM'))
+                    break
+            except Exception as cache_exc:
+                print(f"[PROCUREMENT STOCK ITEM UOMS] catalog fallback: {cache_exc}", flush=True)
+
         if not out:
             _push_uom('UNIT')
 
@@ -4273,9 +4342,17 @@ def _fetch_all_suppliers_from_sql_api():
 @app.route('/api/admin/procurement/suppliers')
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_procurement_suppliers():
-    """Proxy full supplier list from the external accounting API, enriched with local UDF_EMAIL."""
+    """Proxy full supplier list from SQL API GET /supplier (emails from udf_email01..15 on the row)."""
     try:
-        return jsonify({'success': True, 'data': _fetch_all_suppliers_from_sql_api()})
+        from utils.sql_api_supplier import enrich_supplier_row_for_procurement
+
+        rows = _fetch_all_suppliers_from_sql_api()
+        data = [
+            enrich_supplier_row_for_procurement(r)
+            for r in (rows or [])
+            if isinstance(r, dict)
+        ]
+        return jsonify({'success': True, 'data': data})
     except requests.exceptions.HTTPError as e:
         st = e.response.status_code if e.response is not None else 502
         return jsonify({'success': False, 'error': f'Supplier API returned {st}'}), 502
@@ -4288,6 +4365,25 @@ def api_admin_procurement_suppliers():
     except Exception as exc:
         print(f"[PROCUREMENT SUPPLIERS] Error: {exc}", flush=True)
         return jsonify({'success': False, 'error': str(exc)}), 500
+
+
+@app.route('/api/admin/procurement/supplier/sql_api_currency', methods=['GET'])
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_procurement_supplier_sql_api_currency():
+    """Currency for create e-PR from SQL API GET /supplier (not currency master list)."""
+    supplier_code = str(request.args.get('code') or '').strip()
+    if not supplier_code:
+        return jsonify({'success': False, 'error': 'code query parameter is required'}), 400
+    from utils.sql_api_supplier import sql_api_currency_and_code
+
+    fields = sql_api_currency_and_code(supplier_code)
+    return jsonify({
+        'success': True,
+        'sqlApiSupplierCode': fields.get('code') or supplier_code,
+        'sqlApiCurrencyCode': fields.get('currencycode', ''),
+        'source': 'sql_api_supplier_get',
+        'httpStatus': fields.get('httpStatus', ''),
+    })
 
 
 def _load_projects_from_firebird_fallback():
@@ -4381,10 +4477,10 @@ def _load_projects_from_firebird_fallback():
 
 
 def _load_projects_from_env_fallback():
-    """Fast fallback project list to avoid blocking UI when upstream project API is unavailable."""
+    """Last-resort project list when SQL API and Firebird are unavailable."""
     raw = (os.getenv('PROJECT_CODE_FALLBACK') or '').strip()
     if not raw:
-        raw = "----,P1,P2,P3,P4,P5"
+        raw = "NON-PROJECT"
     codes = []
     seen = set()
     for part in raw.split(','):
@@ -4396,108 +4492,70 @@ def _load_projects_from_env_fallback():
     return [{'code': code, 'description': code, 'isactive': True} for code in codes]
 
 
-@app.route('/api/admin/procurement/projects')
-@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
-def api_admin_procurement_projects():
-    """Proxy active project codes from SQL API /project for PR dropdown."""
-    try:
-        # Deterministic fast fallback so dropdown is always populated.
-        # Configure PROJECT_CODE_FALLBACK in .env if needed (e.g. "----,P1,P2,P3,P4,P5").
-        fallback_rows = _load_projects_from_env_fallback()
-        if fallback_rows:
-            return jsonify({'success': True, 'data': fallback_rows, 'source': 'env-fallback'})
+def _fetch_procurement_projects_uncached() -> list[dict]:
+    """Project dropdown — SQL API GET /project/* only (no Firebird/env fallbacks)."""
+    from utils.sql_api_projects import SqlApiProjectsError, fetch_projects_from_sql_api
 
-        headers = _build_sql_api_auth_headers()
-        rows: list[dict] = []
-        seen_codes = set()
-        page_limit = 50
-        max_pages = 100
-        endpoint_candidates = ["/project", "/project/*", "/projects"]
-        last_status = None
-        base_candidates = []
-        # Restrict to SQL API hosts; BASE_API_URL is PHP service and can hang for these paths.
-        for base in [PROJECT_API_BASE_URL, FASTAPI_BASE_URL]:
-            base_text = (base or '').strip().rstrip('/')
-            if base_text and base_text not in base_candidates:
-                base_candidates.append(base_text)
+    return fetch_projects_from_sql_api()
 
-        def _safe_get(url, params=None, use_headers=False):
-            try:
-                return requests.get(
-                    url,
-                    params=params,
-                    headers=(headers or None) if use_headers else None,
-                    timeout=(2, 4),
-                )
-            except requests.exceptions.RequestException:
-                return None
 
-        # Avoid spending too long on unreachable base URLs.
-        selected_endpoint = None
-        selected_base = None
-        for base_url in base_candidates:
-            base_has_network_error = False
-            for endpoint in endpoint_candidates:
-                probe_params = {'offset': 0} if endpoint != "/project/*" else None
-                probe = _safe_get(f"{base_url}{endpoint}", params=probe_params, use_headers=True)
-                if not probe or not probe.ok:
-                    probe = _safe_get(f"{base_url}{endpoint}", params=probe_params, use_headers=False)
-                if probe is None:
-                    base_has_network_error = True
-                    break
-                if probe is not None:
-                    last_status = probe.status_code
-                if probe and probe.ok:
-                    selected_base = base_url
-                    selected_endpoint = endpoint
-                    break
-            if base_has_network_error and selected_endpoint is None:
-                continue
-            if selected_endpoint:
+def _fetch_procurement_projects_via_http_proxy() -> list[dict]:
+    """Paginated GET against PROJECT_API_BASE_URL / FASTAPI_BASE_URL (legacy proxy)."""
+    headers = _build_sql_api_auth_headers()
+    rows: list[dict] = []
+    seen_codes: set[str] = set()
+    page_limit = 50
+    max_pages = 100
+    endpoint_candidates = ["/project", "/project/*", "/projects"]
+    base_candidates: list[str] = []
+    for base in [PROJECT_API_BASE_URL, FASTAPI_BASE_URL]:
+        base_text = (base or '').strip().rstrip('/')
+        if base_text and base_text not in base_candidates:
+            base_candidates.append(base_text)
+
+    def _safe_get(url, params=None, use_headers=False):
+        try:
+            return requests.get(
+                url,
+                params=params,
+                headers=(headers or None) if use_headers else None,
+                timeout=(2, 4),
+            )
+        except requests.exceptions.RequestException:
+            return None
+
+    selected_endpoint = None
+    selected_base = None
+    for base_url in base_candidates:
+        base_has_network_error = False
+        for endpoint in endpoint_candidates:
+            probe_params = {'offset': 0} if endpoint != "/project/*" else None
+            probe = _safe_get(f"{base_url}{endpoint}", params=probe_params, use_headers=True)
+            if not probe or not probe.ok:
+                probe = _safe_get(f"{base_url}{endpoint}", params=probe_params, use_headers=False)
+            if probe is None:
+                base_has_network_error = True
                 break
+            if probe and probe.ok:
+                selected_base = base_url
+                selected_endpoint = endpoint
+                break
+        if base_has_network_error and selected_endpoint is None:
+            continue
+        if selected_endpoint:
+            break
 
-        if not selected_endpoint:
-            fallback_rows = _load_projects_from_env_fallback()
-            return jsonify({'success': True, 'data': fallback_rows, 'source': 'firebird-fallback'})
+    if not selected_endpoint:
+        return []
 
-        # Non-paginated wildcard endpoint.
-        if selected_endpoint == "/project/*":
-            resp = _safe_get(f"{selected_base}{selected_endpoint}", use_headers=True)
-            if not resp or not resp.ok:
-                resp = _safe_get(f"{selected_base}{selected_endpoint}", use_headers=False)
-            if resp and resp.ok:
-                payload = resp.json() if resp.text else {}
-                page_rows = payload.get('data', []) if isinstance(payload, dict) else []
-                if isinstance(page_rows, list):
-                    for row in page_rows:
-                        if not isinstance(row, dict):
-                            continue
-                        code = str(row.get('code') or '').strip()
-                        if not code or code in seen_codes:
-                            continue
-                        seen_codes.add(code)
-                        rows.append(row)
-        else:
-            offset = 0
-            for _ in range(max_pages):
-                params = {'offset': offset}
-                resp = _safe_get(f"{selected_base}{selected_endpoint}", params=params, use_headers=True)
-                # Some environments reject custom SQL headers; retry once without headers.
-                if not resp or not resp.ok:
-                    resp = _safe_get(f"{selected_base}{selected_endpoint}", params=params, use_headers=False)
-                if not resp or not resp.ok:
-                    if resp is not None:
-                        last_status = resp.status_code
-                    break
-
-                payload = resp.json() if resp.text else {}
-                page_rows = payload.get('data', []) if isinstance(payload, dict) else []
-                if not isinstance(page_rows, list):
-                    break
-                if not page_rows:
-                    break
-
-                added_this_page = 0
+    if selected_endpoint == "/project/*":
+        resp = _safe_get(f"{selected_base}{selected_endpoint}", use_headers=True)
+        if not resp or not resp.ok:
+            resp = _safe_get(f"{selected_base}{selected_endpoint}", use_headers=False)
+        if resp and resp.ok:
+            payload = resp.json() if resp.text else {}
+            page_rows = payload.get('data', []) if isinstance(payload, dict) else []
+            if isinstance(page_rows, list):
                 for row in page_rows:
                     if not isinstance(row, dict):
                         continue
@@ -4506,55 +4564,97 @@ def api_admin_procurement_projects():
                         continue
                     seen_codes.add(code)
                     rows.append(row)
-                    added_this_page += 1
+    else:
+        offset = 0
+        for _ in range(max_pages):
+            params = {'offset': offset}
+            resp = _safe_get(f"{selected_base}{selected_endpoint}", params=params, use_headers=True)
+            if not resp or not resp.ok:
+                resp = _safe_get(f"{selected_base}{selected_endpoint}", params=params, use_headers=False)
+            if not resp or not resp.ok:
+                break
 
-                pagination = payload.get('pagination', {}) if isinstance(payload, dict) else {}
-                total_count = 0
-                reported_limit = page_limit
-                if isinstance(pagination, dict):
-                    try:
-                        total_count = int(pagination.get('count') or 0)
-                    except Exception:
-                        total_count = 0
-                    try:
-                        reported_limit = int(pagination.get('limit') or page_limit)
-                    except Exception:
-                        reported_limit = page_limit
-                    if reported_limit <= 0:
-                        reported_limit = page_limit
+            payload = resp.json() if resp.text else {}
+            page_rows = payload.get('data', []) if isinstance(payload, dict) else []
+            if not isinstance(page_rows, list) or not page_rows:
+                break
 
-                # Stop when we've reached the reported total.
-                if total_count > 0 and len(seen_codes) >= total_count:
-                    break
+            added_this_page = 0
+            for row in page_rows:
+                if not isinstance(row, dict):
+                    continue
+                code = str(row.get('code') or '').strip()
+                if not code or code in seen_codes:
+                    continue
+                seen_codes.add(code)
+                rows.append(row)
+                added_this_page += 1
 
-                # If no new code appeared, avoid infinite loops.
-                if added_this_page == 0:
-                    break
+            pagination = payload.get('pagination', {}) if isinstance(payload, dict) else {}
+            total_count = 0
+            reported_limit = page_limit
+            if isinstance(pagination, dict):
+                try:
+                    total_count = int(pagination.get('count') or 0)
+                except Exception:
+                    total_count = 0
+                try:
+                    reported_limit = int(pagination.get('limit') or page_limit)
+                except Exception:
+                    reported_limit = page_limit
+                if reported_limit <= 0:
+                    reported_limit = page_limit
 
-                # Advance by reported page size (or current payload size fallback).
-                step = reported_limit if reported_limit > 0 else len(page_rows)
-                offset += max(1, step)
+            if total_count > 0 and len(seen_codes) >= total_count:
+                break
+            if added_this_page == 0:
+                break
+            step = reported_limit if reported_limit > 0 else len(page_rows)
+            offset += max(1, step)
 
-        normalized = []
-        seen = set()
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            code = str(row.get('code') or '').strip()
-            if not code or code in seen:
-                continue
-            seen.add(code)
-            normalized.append({
-                'code': code,
-                'description': str(row.get('description') or '').strip(),
-                'isactive': bool(row.get('isactive') if row.get('isactive') is not None else True),
-            })
+    normalized: list[dict] = []
+    seen: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        code = str(row.get('code') or '').strip()
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        normalized.append({
+            'code': code,
+            'description': str(row.get('description') or '').strip() or code,
+            'isactive': bool(row.get('isactive') if row.get('isactive') is not None else True),
+        })
 
-        active_rows = [row for row in normalized if row.get('isactive')]
-        if not active_rows:
-            fallback_rows = _load_projects_from_env_fallback()
-            return jsonify({'success': True, 'data': fallback_rows, 'source': 'firebird-fallback'})
-        return jsonify({'success': True, 'data': active_rows})
+    return [row for row in normalized if row.get('isactive')]
+
+
+@app.route('/api/admin/procurement/projects')
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_procurement_projects():
+    """Active project codes for PR dropdown — SQL API GET /project/* only."""
+    from utils.sql_api_projects import SqlApiProjectsError
+
+    try:
+        # Drop legacy cache entries that may hold env-fallback P1–P5 from older builds.
+        for legacy_key in (
+            ('procurement', 'projects', 'v2'),
+            ('procurement', 'projects', 'v1'),
+            ('sql_api', 'project', 'all_v1'),
+        ):
+            sql_api_master_cache.invalidate(legacy_key)
+        data = sql_api_master_cache.get_or_load(
+            ('procurement', 'projects', 'v4_sqlapi_only'),
+            _fetch_procurement_projects_uncached,
+            ttl_seconds=_sql_api_master_cache_ttl_seconds(),
+        )
+        resp = jsonify({'success': True, 'data': data or [], 'source': 'sql_api_project_get'})
+        resp.headers['Cache-Control'] = 'no-store'
+        return resp
+    except SqlApiProjectsError as exc:
+        print(f"[PROCUREMENT PROJECTS] {exc}", flush=True)
+        return jsonify({'success': False, 'error': str(exc)}), 502
     except Exception as exc:
         print(f"[PROCUREMENT PROJECTS] Error: {exc}", flush=True)
         return jsonify({'success': False, 'error': str(exc)}), 500
@@ -4680,11 +4780,11 @@ def _list_selected_suppliers(request_dockey):
             if not isinstance(hit, dict):
                 continue
             company_name = str(hit.get('companyname') or '').strip()
-            udf_email = str(hit.get('udf_email') or '').strip()
+            api_email = str(hit.get('udf_email') or '').strip()
             if company_name:
                 row['name'] = company_name
-            if udf_email:
-                row['email'] = udf_email
+            if api_email and not str(row.get('email') or '').strip():
+                row['email'] = api_email
         return result
     except Exception as exc:
         print(f"[PROCUREMENT SELECTED SUPPLIERS] list warning: {exc}", flush=True)
@@ -4739,33 +4839,16 @@ def api_admin_create_purchase_request():
                 print(f"[PROCUREMENT] Created bid invitations for {len(suppliers)} supplier(s) on PR {result['requestNumber']}", flush=True)
 
                 if is_submitted:
-                    targets = []
-                    for raw in suppliers:
-                        if not isinstance(raw, dict):
-                            continue
-                        email = str(raw.get('email') or raw.get('udf_email') or '').strip()
-                        if not email:
-                            continue
-                        targets.append({
-                            'email': email,
-                            'code': str(raw.get('code') or '').strip(),
-                            'name': str(raw.get('name') or raw.get('companyname') or '').strip(),
-                        })
-
-                    if targets:
-                        request_number = str(result.get('requestNumber') or '').strip()
-                        # Supplier-facing: treat required date as requested date (DOCDATE).
-                        required_date = str(payload.get('requestDate') or payload.get('requiredDate') or '').strip()
-                        line_items = payload.get('lineItems') if isinstance(payload.get('lineItems'), list) else []
-
-                        threading.Thread(
-                            target=_send_rfq_invitation_emails_background,
-                            args=(targets, request_number, required_date, line_items),
-                            daemon=True,
-                        ).start()
-                        result['bidInvitationEmailsQueued'] = len(targets)
-                    else:
-                        result['bidInvitationEmailsQueued'] = 0
+                    request_number = str(result.get('requestNumber') or '').strip()
+                    required_date = str(payload.get('requestDate') or payload.get('requiredDate') or '').strip()
+                    line_items = payload.get('lineItems') if isinstance(payload.get('lineItems'), list) else []
+                    queued = _queue_rfq_invitation_emails_for_suppliers(
+                        suppliers,
+                        request_number,
+                        required_date,
+                        line_items,
+                    )
+                    result['bidInvitationEmailsQueued'] = queued
             except Exception as bid_exc:
                 print(f"[PROCUREMENT] Bid invitation creation failed (non-fatal): {bid_exc}", flush=True)
                 result['bidInvitationsSent'] = 0
@@ -4794,6 +4877,11 @@ def _fetch_supplier_master_from_sql_api(codes: list[str]) -> dict[str, dict[str,
     if not wanted:
         return {}
 
+    from utils.sql_api_supplier import (
+        supplier_emails_from_sql_api_row,
+        supplier_primary_email_from_sql_api_row,
+    )
+
     try:
         all_rows = _fetch_all_suppliers_from_sql_api()
     except Exception as exc:
@@ -4810,14 +4898,12 @@ def _fetch_supplier_master_from_sql_api(codes: list[str]) -> dict[str, dict[str,
         key_u = code.upper()
         if key_u not in wanted:
             continue
+
+        emails = supplier_emails_from_sql_api_row(row)
         out[key_u] = {
             'companyname': str(row.get('companyname') or row.get('companyName') or '').strip(),
-            'udf_email': str(
-                row.get('udf_email')
-                or row.get('udfEmail')
-                or row.get('UDF_EMAIL')
-                or ''
-            ).strip(),
+            'udf_email': supplier_primary_email_from_sql_api_row(row),
+            'emails': emails,
         }
         if len(out) == len(wanted):
             break
@@ -4984,8 +5070,44 @@ def _rfq_invite_safe_html(value) -> str:
     )
 
 
+def _rfq_recipient_count(invite_targets: list[dict]) -> int:
+    """Count individual To addresses across supplier invite targets."""
+    total = 0
+    for target in invite_targets or []:
+        if not isinstance(target, dict):
+            continue
+        emails = target.get('emails')
+        if isinstance(emails, list) and emails:
+            total += len([str(e).strip() for e in emails if str(e).strip()])
+            continue
+        raw = str(target.get('email') or '').strip()
+        if raw:
+            total += len([p for p in re.split(r'[,;]+', raw) if p.strip()])
+    return total
+
+
+def _queue_rfq_invitation_emails_for_suppliers(
+    suppliers: list,
+    request_number: str,
+    required_date: str,
+    line_items: list,
+) -> int:
+    """Queue RFQ emails for each invited supplier using SQL API udf_email01..15 (all non-empty)."""
+    if not suppliers or not str(request_number or '').strip():
+        return 0
+    targets = _dedupe_invitation_targets_by_email(_resolve_invitation_email_targets(suppliers))
+    if not targets:
+        return 0
+    threading.Thread(
+        target=_send_rfq_invitation_emails_background,
+        args=(targets, request_number, required_date, line_items),
+        daemon=True,
+    ).start()
+    return _rfq_recipient_count(targets)
+
+
 def _send_rfq_invitation_emails_background(invite_targets, req_no, req_required_date, req_lines):
-    """Send RFQ HTML emails (async worker). invite_targets: list of dict with email, name, code."""
+    """Send RFQ HTML emails (async worker). invite_targets: list of dict with email/emails, name, code."""
     item_rows = ''
     for idx, line in enumerate(req_lines or [], start=1):
         if not isinstance(line, dict):
@@ -5010,8 +5132,17 @@ def _send_rfq_invitation_emails_background(invite_targets, req_no, req_required_
         )
 
     for target in invite_targets:
-        to_email = str(target.get('email') or '').strip()
-        if not to_email:
+        recipients: list[str] = []
+        if isinstance(target.get('emails'), list):
+            for em in target['emails']:
+                p = str(em or '').strip()
+                if p:
+                    recipients.append(p)
+        if not recipients:
+            raw_to = str(target.get('email') or '').strip()
+            if raw_to:
+                recipients = [p.strip() for p in re.split(r'[,;]+', raw_to) if p.strip()]
+        if not recipients:
             continue
 
         supplier_name = _rfq_invite_safe_html(target.get('name') or target.get('code') or 'Supplier')
@@ -5042,31 +5173,43 @@ def _send_rfq_invitation_emails_background(invite_targets, req_no, req_required_
         </html>
         """
 
-        try:
-            ok = send_email(to_email, subject, body)
-            if ok:
-                print(f"[PROCUREMENT] RFQ invite email sent to {to_email} for PR {req_no}", flush=True)
-            else:
-                print(f"[PROCUREMENT] RFQ invite email failed to {to_email} for PR {req_no}", flush=True)
-        except Exception as mail_exc:
-            print(f"[PROCUREMENT] RFQ invite email exception for {to_email}: {mail_exc}", flush=True)
+        for to_email in recipients:
+            try:
+                ok = send_email(to_email, subject, body)
+                if ok:
+                    print(f"[PROCUREMENT] RFQ invite email sent to {to_email} for PR {req_no}", flush=True)
+                else:
+                    print(f"[PROCUREMENT] RFQ invite email failed to {to_email} for PR {req_no}", flush=True)
+            except Exception as mail_exc:
+                print(f"[PROCUREMENT] RFQ invite email exception for {to_email}: {mail_exc}", flush=True)
 
 
-def _resolve_invitation_email_targets(normalized_suppliers: list[dict]) -> list[dict]:
-    """Resolve udf_email / Firebird email for each supplier row."""
-    if not normalized_suppliers:
+def _resolve_invitation_email_targets(suppliers: list[dict]) -> list[dict]:
+    """Resolve RFQ recipients from SQL API GET /supplier: every non-empty udf_email01..15 per code."""
+    if not suppliers:
         return []
-    codes = [s.get('code') or '' for s in normalized_suppliers]
+    codes = [s.get('code') or s.get('supplierCode') or '' for s in suppliers]
     master = _fetch_supplier_master_from_sql_api(codes)
-    fb_map = _fetch_supplier_emails_by_codes(codes)
+    from utils.sql_api_supplier import supplier_emails_from_sql_api_row
+
+    cached_by_code: dict[str, dict] = {}
+    try:
+        for row in _fetch_all_suppliers_from_sql_api() or []:
+            if not isinstance(row, dict):
+                continue
+            c = str(row.get('code') or '').strip().upper()
+            if c and c not in cached_by_code:
+                cached_by_code[c] = row
+    except Exception as exc:
+        print(f"[PROCUREMENT] supplier cache lookup for RFQ emails: {exc}", flush=True)
+
     targets: list[dict] = []
-    for s in normalized_suppliers:
-        code = str(s.get('code') or '').strip()
+    for s in suppliers:
+        code = str(s.get('code') or s.get('supplierCode') or '').strip()
         if not code:
             continue
         key_u = code.upper()
 
-        # Collect every address for this supplier: SQL API master + all UDF_EMAIL* columns.
         emails: list[str] = []
         seen: set[str] = set()
 
@@ -5074,25 +5217,42 @@ def _resolve_invitation_email_targets(normalized_suppliers: list[dict]) -> list[
             v = (value or '').strip()
             if not v:
                 return
-            low = v.lower()
-            if low in seen:
-                return
-            seen.add(low)
-            emails.append(v)
+            for part in re.split(r'[,;]+', v):
+                p = part.strip()
+                if not p:
+                    continue
+                low = p.lower()
+                if low in seen:
+                    continue
+                seen.add(low)
+                emails.append(p)
+
+        api_row = cached_by_code.get(key_u)
+        for em in supplier_emails_from_sql_api_row(api_row):
+            _add(em)
 
         m = master.get(key_u)
         if m:
+            for em in m.get('emails') or []:
+                _add(str(em))
             _add(str(m.get('udf_email') or ''))
-        for em in fb_map.get(key_u) or []:
-            _add(em)
+
+        if not emails:
+            for em in supplier_emails_from_sql_api_row(s):
+                _add(em)
+            _add(str(s.get('email') or s.get('udf_email') or ''))
 
         if emails:
             targets.append({
-                # Comma-separated To => one invite delivered to all of the supplier's contacts.
                 'email': ', '.join(emails),
                 'emails': emails,
                 'code': code,
-                'name': str(s.get('name') or '').strip(),
+                'name': str(
+                    s.get('name')
+                    or s.get('companyname')
+                    or (m.get('companyname') if m else '')
+                    or ''
+                ).strip(),
             })
     return targets
 
@@ -5471,17 +5631,8 @@ def api_admin_list_purchase_requests():
                         em = str(master.get('udf_email') or '').strip()
                         if cn:
                             rec['supplierName'] = cn
-                        if em:
+                        if em and not str(rec.get('supplierEmail') or '').strip():
                             rec['supplierEmail'] = em
-
-                email_by_code = _fetch_supplier_emails_by_codes(supplier_codes)
-                for rec in records:
-                    cid = str(rec.get('supplierId') or '').strip()
-                    existing = str(rec.get('supplierEmail') or '').strip()
-                    if cid and not existing:
-                        rec['supplierEmail'] = ', '.join(email_by_code.get(cid.upper()) or [])
-                    elif not existing:
-                        rec['supplierEmail'] = ''
             except Exception as em_exc:
                 print(f"[PROCUREMENT LIST PR] supplier master/email enrichment warning: {em_exc}", flush=True)
 
@@ -5498,11 +5649,11 @@ def api_admin_list_purchase_requests():
                     master = api_master.get(cid.upper())
                     if isinstance(master, dict):
                         company_name = str(master.get('companyname') or '').strip()
-                        udf_email = str(master.get('udf_email') or '').strip()
+                        api_email = str(master.get('udf_email') or '').strip()
                         if company_name:
                             rec['supplierName'] = company_name
-                        if udf_email:
-                            rec['supplierEmail'] = udf_email
+                        if api_email and not str(rec.get('supplierEmail') or '').strip():
+                            rec['supplierEmail'] = api_email
             except Exception as em_exc:
                 print(f"[PROCUREMENT LIST PR] supplier master/email enrichment warning: {em_exc}", flush=True)
 
@@ -6146,19 +6297,14 @@ def api_admin_create_bidding_invitations():
         request_docno = str(request_header.get('docno') or request_no or '').strip()
         result = create_bid_invitations(request_dockey, request_docno, suppliers, actor)
         try:
-            normalized = _normalize_supplier_rows(suppliers)
-            email_targets = _resolve_invitation_email_targets(normalized)
-            email_targets = _dedupe_invitation_targets_by_email(email_targets)
             lines, req_date = _local_pr_lines_for_rfq_email(request_dockey, request_docno)
-            if email_targets:
-                threading.Thread(
-                    target=_send_rfq_invitation_emails_background,
-                    args=(email_targets, request_docno, req_date, lines),
-                    daemon=True,
-                ).start()
-                result['rfqEmailsQueued'] = len(email_targets)
-            else:
-                result['rfqEmailsQueued'] = 0
+            result['rfqEmailsQueued'] = _queue_rfq_invitation_emails_for_suppliers(
+                suppliers,
+                request_docno,
+                req_date,
+                lines,
+            )
+            if not result['rfqEmailsQueued']:
                 result['rfqEmailNote'] = (
                     'No supplier emails on file; invitations are saved for portal access. '
                     'Add UDF email in accounting.'
@@ -7155,6 +7301,25 @@ def api_admin_purchase_request_header_status_update():
         print(f"[PROCUREMENT PR HEADER STATUS UPDATE] error: {exc}", flush=True)
         return jsonify({'success': False, 'error': str(exc)}), 500
 
+@app.route('/api/quotation/next_docno')
+@api_login_required(unauth_message='Session expired. Please log in again.')
+def api_quotation_next_docno():
+    """Preview the next QT docno eQuotation will assign on create (read-only)."""
+    if not can_access_create_quotation(session):
+        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+    try:
+        for_dockey = int(request.args.get('dockey') or 0)
+    except (TypeError, ValueError):
+        for_dockey = 0
+    try:
+        result = peek_next_qt_docno(for_dockey=for_dockey)
+        if not result.get('success'):
+            return jsonify(result), 400
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
 @app.route('/api/create_quotation', methods=['POST'])
 @api_login_required(unauth_message='Session expired. Please log in again.')
 def api_create_quotation():
@@ -7190,6 +7355,17 @@ def api_create_quotation():
     if not items:
         print(f"DEBUG [Flask api_create_quotation]: No items provided", flush=True)
         return jsonify({'success': False, 'error': 'At least one item is required'}), 400
+
+    try:
+        from utils.sql_api_customer import sql_api_currency_and_code
+        _cc_preview = sql_api_currency_and_code(str(customer_code or "").strip())
+        print(
+            f"DEBUG [Flask api_create_quotation]: SQL API GET /customer currencycode="
+            f"{_cc_preview.get('currencycode')!r} httpStatus={_cc_preview.get('httpStatus')!r}",
+            flush=True,
+        )
+    except Exception as _cc_exc:
+        print(f"DEBUG [Flask api_create_quotation]: SQL API currency preview failed: {_cc_exc}", flush=True)
     
     try:
         if dockey:
@@ -7201,7 +7377,12 @@ def api_create_quotation():
         
         if not quotation_data.get('success'):
             err_code = quotation_data.get('errorCode')
-            http_status = 504 if err_code == 'SQL_API_TIMEOUT' else 500
+            if err_code == 'SQL_API_TIMEOUT':
+                http_status = 504
+            elif err_code == 'SQL_API_UNAUTHORIZED':
+                http_status = 502
+            else:
+                http_status = 500
             body = {
                 'success': False,
                 'error': quotation_data.get('error', 'Failed to create quotation'),
@@ -7619,11 +7800,7 @@ def api_get_quotation_details():
             )
             dtl_columns = {str(r[0]).strip() for r in (cur.fetchall() or []) if r and r[0]}
 
-            item_fields = ['DTLKEY', 'DOCKEY', 'SEQ', 'ITEMCODE', 'DESCRIPTION', 'QTY', 'UNITPRICE', 'DISC', 'AMOUNT']
-            if 'UDF_STDPRICE' in dtl_columns:
-                item_fields.append('UDF_STDPRICE')
-            if 'DELIVERYDATE' in dtl_columns:
-                item_fields.append('DELIVERYDATE')
+            item_fields = _quotation_line_item_fields_for_select(dtl_columns)
 
             cur.execute(
                 f"SELECT {', '.join(item_fields)} FROM SL_QTDTL WHERE DOCKEY = ? ORDER BY SEQ ASC",
@@ -7634,18 +7811,7 @@ def api_get_quotation_details():
             items = []
             for row in item_rows:
                 row_map = {item_fields[idx]: row[idx] for idx in range(len(item_fields))}
-                items.append({
-                    'DTLKEY': int(row_map.get('DTLKEY')) if row_map.get('DTLKEY') is not None else None,
-                    'SEQ': int(row_map.get('SEQ')) if row_map.get('SEQ') is not None else 0,
-                    'ITEMCODE': row_map.get('ITEMCODE'),
-                    'DESCRIPTION': row_map.get('DESCRIPTION'),
-                    'QTY': _safe_float(row_map.get('QTY')),
-                    'UNITPRICE': _safe_float(row_map.get('UNITPRICE')),
-                    'DISC': _safe_float(row_map.get('DISC')),
-                    'AMOUNT': _safe_float(row_map.get('AMOUNT')),
-                    'UDF_STDPRICE': _safe_float(row_map.get('UDF_STDPRICE')),
-                    'DELIVERYDATE': str(row_map.get('DELIVERYDATE')) if row_map.get('DELIVERYDATE') is not None else None,
-                })
+                items.append(_quotation_line_item_from_row(row_map, cur=cur))
 
             raw_st = header_map.get('STATUS')
             if isinstance(raw_st, (int, float)):
@@ -7911,11 +8077,7 @@ def api_admin_get_quotation_detail():
             )
             dtl_columns = {str(r[0]).strip() for r in (cur.fetchall() or []) if r and r[0]}
 
-            item_fields = ['DTLKEY', 'DOCKEY', 'SEQ', 'ITEMCODE', 'DESCRIPTION', 'QTY', 'UNITPRICE', 'DISC', 'AMOUNT']
-            if 'UDF_STDPRICE' in dtl_columns:
-                item_fields.append('UDF_STDPRICE')
-            if 'DELIVERYDATE' in dtl_columns:
-                item_fields.append('DELIVERYDATE')
+            item_fields = _quotation_line_item_fields_for_select(dtl_columns)
 
             cur.execute(
                 f"SELECT {', '.join(item_fields)} FROM SL_QTDTL WHERE DOCKEY = ? ORDER BY SEQ ASC",
@@ -7926,18 +8088,7 @@ def api_admin_get_quotation_detail():
             items = []
             for row in item_rows:
                 row_map = {item_fields[idx]: row[idx] for idx in range(len(item_fields))}
-                items.append({
-                    'DTLKEY': int(row_map.get('DTLKEY')) if row_map.get('DTLKEY') is not None else None,
-                    'SEQ': int(row_map.get('SEQ')) if row_map.get('SEQ') is not None else 0,
-                    'ITEMCODE': row_map.get('ITEMCODE'),
-                    'DESCRIPTION': row_map.get('DESCRIPTION'),
-                    'QTY': _safe_float(row_map.get('QTY')),
-                    'UNITPRICE': _safe_float(row_map.get('UNITPRICE')),
-                    'DISC': _safe_float(row_map.get('DISC')),
-                    'AMOUNT': _safe_float(row_map.get('AMOUNT')),
-                    'UDF_STDPRICE': _safe_float(row_map.get('UDF_STDPRICE')),
-                    'DELIVERYDATE': str(row_map.get('DELIVERYDATE')) if row_map.get('DELIVERYDATE') is not None else None,
-                })
+                items.append(_quotation_line_item_from_row(row_map, cur=cur))
 
             raw_st = header_map.get('STATUS')
             if isinstance(raw_st, (int, float)):
@@ -8801,6 +8952,7 @@ def api_get_user_info():
             'ADDRESS4': payload.get('ADDRESS4'),
             'PHONE1': payload.get('PHONE1'),
             'CREDITTERM': payload.get('CREDITTERM'),
+            'CURRENCYCODE': payload.get('CURRENCYCODE'),
             'UDF_EMAIL': payload.get('UDF_EMAIL'),
         }
         print(f"[DEBUG] get_user_info: Final payload source={source} summary={summary}", flush=True)
@@ -8811,7 +8963,9 @@ def api_get_user_info():
         sql_secret_key = (os.getenv('SQL_API_SECRET_KEY') or '').strip()
         sql_host = (os.getenv('SQL_API_HOST') or '').strip()
         sql_region = (os.getenv('SQL_API_REGION') or 'ap-southeast-5').strip()
-        sql_service = (os.getenv('SQL_API_SERVICE') or 'sqlaccount').strip()
+        from utils.sql_api_sigv4 import resolve_sql_api_sigv4_service
+
+        sql_service = resolve_sql_api_sigv4_service(sql_host, os.getenv('SQL_API_SERVICE'))
         sql_detail_path = (os.getenv('SQL_API_CUSTOMER_DETAIL_PATH') or '/customer/*').strip()
         sql_use_tls = (os.getenv('SQL_API_USE_TLS', 'true').strip().lower() in ('1', 'true', 'yes', 'on'))
 
@@ -8924,26 +9078,44 @@ def api_get_user_info():
                 phone1 = str(normalized.get('PHONE1', '')).strip().upper()
                 if addr1 not in ('', 'N/A') or phone1 not in ('', 'N/A'):
                     _debug_log_user_info_payload(f'sql_api_variant_{idx}', normalized)
+                    from utils.sql_api_customer import apply_sql_api_currency_to_customer_payload
+
+                    payload_out = apply_sql_api_currency_to_customer_payload(
+                        _merge_session_login_customer_udf_meta(normalized),
+                        customer_code,
+                    )
                     return jsonify({
                         'success': True,
-                        'data': _merge_session_login_customer_udf_meta(normalized),
+                        'data': payload_out,
                         'source': f'sql_api_variant_{idx}',
                     })
 
             if best_normalized is not None:
                 _debug_log_user_info_payload(best_source or 'sql_api', best_normalized)
+                from utils.sql_api_customer import apply_sql_api_currency_to_customer_payload
+
+                payload_out = apply_sql_api_currency_to_customer_payload(
+                    _merge_session_login_customer_udf_meta(best_normalized),
+                    customer_code,
+                )
                 return jsonify({
                     'success': True,
-                    'data': _merge_session_login_customer_udf_meta(best_normalized),
+                    'data': payload_out,
                     'source': best_source or 'sql_api',
                 })
 
             local_payload = _fetch_customer_info_from_local_ar(customer_code)
             if local_payload:
                 _debug_log_user_info_payload('local_firebird_ar', local_payload)
+                from utils.sql_api_customer import apply_sql_api_currency_to_customer_payload
+
+                payload_out = apply_sql_api_currency_to_customer_payload(
+                    _merge_session_login_customer_udf_meta(local_payload),
+                    customer_code,
+                )
                 return jsonify({
                     'success': True,
-                    'data': _merge_session_login_customer_udf_meta(local_payload),
+                    'data': payload_out,
                     'source': 'local_firebird_ar',
                 })
 
@@ -8962,9 +9134,15 @@ def api_get_user_info():
         local_only = _fetch_customer_info_from_local_ar(customer_code)
         if local_only:
             _debug_log_user_info_payload('local_firebird_ar', local_only)
+            from utils.sql_api_customer import apply_sql_api_currency_to_customer_payload
+
+            payload_out = apply_sql_api_currency_to_customer_payload(
+                _merge_session_login_customer_udf_meta(local_only),
+                customer_code,
+            )
             return jsonify({
                 'success': True,
-                'data': _merge_session_login_customer_udf_meta(local_only),
+                'data': payload_out,
                 'source': 'local_firebird_ar',
             })
         return jsonify({'success': False, 'error': 'No customer data from SQL API or local database'}), 404
@@ -8973,6 +9151,7 @@ def api_get_user_info():
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
+
 
 def _fetch_company_names_from_local_firebird():
     """

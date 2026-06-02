@@ -101,6 +101,61 @@ body.create-quotation-page .form-container h3 {
     color: var(--ice-heading);
 }
 
+body.create-quotation-page .quotation-next-docno-panel {
+    margin: 0 0 14px;
+    padding: 10px 14px;
+    background: var(--ice-surface-input);
+    border: 1px solid var(--ice-border-soft);
+    border-radius: 8px;
+}
+
+body.create-quotation-page .quotation-next-docno-main {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+}
+
+body.create-quotation-page .quotation-next-docno-label {
+    font-size: 13px;
+    color: var(--ice-text-muted);
+}
+
+body.create-quotation-page .quotation-next-docno-value {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--ice-heading);
+    letter-spacing: 0.02em;
+}
+
+body.create-quotation-page .quotation-next-docno-refresh {
+    border: 1px solid var(--ice-border);
+    background: var(--ice-surface);
+    color: var(--ice-accent);
+    border-radius: 6px;
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+}
+
+body.create-quotation-page .quotation-next-docno-refresh:hover {
+    background: var(--ice-accent-soft);
+}
+
+body.create-quotation-page .quotation-next-docno-hint {
+    margin: 6px 0 0;
+    font-size: 12px;
+    color: var(--ice-text-muted);
+    line-height: 1.4;
+}
+
+body.create-quotation-page .quotation-next-docno-panel.is-error .quotation-next-docno-value {
+    color: #b42318;
+    font-size: 14px;
+}
+
 /* Single-column layout: customer details on top, quotation lines below */
 body.create-quotation-page .create-quotation-form-body {
     display: flex;
@@ -165,21 +220,59 @@ body.create-quotation-page .customer-details-panel {
     gap: 0;
 }
 
+/* Customer details as plain tables */
+body.create-quotation-page .customer-details-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 13px;
+}
+
+body.create-quotation-page .customer-details-table th[scope="row"] {
+    width: 7.5rem;
+    padding: 5px 12px 5px 0;
+    text-align: left;
+    vertical-align: top;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--ice-text-muted);
+    white-space: nowrap;
+}
+
+body.create-quotation-page .customer-details-table td {
+    padding: 5px 20px 5px 0;
+    vertical-align: top;
+    color: var(--ice-text);
+    line-height: 1.35;
+    word-break: break-word;
+}
+
+body.create-quotation-page .customer-details-table tbody tr:nth-child(3) th[scope="row"],
+body.create-quotation-page .customer-details-table tbody tr:nth-child(3) td {
+    padding-top: 8px;
+    border-top: 1px solid var(--ice-border-soft);
+}
+
+body.create-quotation-page .customer-details-table tbody tr:first-child th[scope="row"],
+body.create-quotation-page .customer-details-table tbody tr:first-child td {
+    padding-top: 2px;
+}
+
+body.create-quotation-page .customer-detail-value--highlight {
+    font-weight: 600;
+    color: var(--ice-heading);
+}
+
 body.create-quotation-page .customer-details-grid {
     display: grid;
     gap: 6px 12px;
 }
 
-/* 3 columns × 2 rows: Agent | Area | Company / Email | Phone | Terms */
 body.create-quotation-page .customer-details-grid--fields {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     padding-bottom: 8px;
-}
-
-@media (min-width: 720px) {
-    body.create-quotation-page .customer-details-grid--fields {
-        gap: 4px 14px;
-    }
 }
 
 body.create-quotation-page .customer-detail-row--company .customer-detail-value {
@@ -451,8 +544,21 @@ body.create-quotation-page #quotation-form .form-actions {
         grid-template-columns: 1fr;
     }
 
-    body.create-quotation-page .customer-detail-row--address-line {
-        grid-template-columns: 68px minmax(0, 1fr);
+    body.create-quotation-page .customer-details-table thead,
+    body.create-quotation-page .customer-details-table tbody,
+    body.create-quotation-page .customer-details-table tr,
+    body.create-quotation-page .customer-details-table th,
+    body.create-quotation-page .customer-details-table td {
+        display: block;
+        width: 100%;
+    }
+
+    body.create-quotation-page .customer-details-table th[scope="row"] {
+        padding-bottom: 2px;
+    }
+
+    body.create-quotation-page .customer-details-table td {
+        padding-bottom: 8px;
     }
 
     body.create-quotation-page .create-quotation-lines-header {
