@@ -876,7 +876,11 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
     doc_date = today
     post_date = today
     tax_date = today
-    currency_code = str(data.get("currencyCode") or "MYR").strip() or "MYR"
+    raw_currency = str(data.get("currencyCode") or data.get("currencycode") or "").strip()
+    if raw_currency and raw_currency not in ("----", "-", "N/A"):
+        currency_code = raw_currency
+    else:
+        currency_code = "MYR"
     currency_rate = _as_decimal(data.get("currencyRate") or "1.00", "1.00")
 
     company_name = str(data.get("companyName") or "").strip()
@@ -885,6 +889,15 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
     address3 = str(data.get("address3") or "").strip()
     address4 = str(data.get("address4") or "").strip()
     phone1 = str(data.get("phone1") or "").strip()
+    mobile = str(data.get("mobile") or "").strip()
+    agent = str(data.get("agent") or data.get("AGENT") or "").strip()
+    area = str(data.get("area") or data.get("AREA") or "").strip()
+    if not agent:
+        agent = str((data.get("customerScalars") or {}).get("agent") or "").strip()
+    if not area:
+        area = str((data.get("customerScalars") or {}).get("area") or "").strip()
+    country = str(data.get("country") or data.get("COUNTRY") or "").strip()
+    tin = str(data.get("tin") or data.get("TIN") or "").strip()
     terms = str(data.get("terms") or data.get("creditTerm") or "30 Days").strip() or "30 Days"
     description = str(data.get("description") or "Quotation").strip() or "Quotation"
     shipper = str(data.get("shipper") or "----").strip() or "----"
@@ -1042,7 +1055,7 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
             )
             raise ValueError(f"Quotation line {i} has no itemcode ({row.get('description')!r}). {hint}")
 
-    return {
+    header_payload = {
         "dockey": header_dockey,
         "docno": doc_no,
         "docnoex": "",
@@ -1058,13 +1071,13 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
         "postcode": "",
         "city": "",
         "state": "",
-        "country": "",
+        "country": country,
         "phone1": phone1,
-        "mobile": "",
+        "mobile": mobile,
         "fax1": "",
         "attention": attention_val or "",
-        "area": "",
-        "agent": "",
+        "area": area,
+        "agent": agent,
         "project": "",
         "terms": terms,
         "currencycode": currency_code,
@@ -1098,7 +1111,7 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
         "taxexemptno": "",
         "salestaxno": "",
         "servicetaxno": "",
-        "tin": "",
+        "tin": tin,
         "idtype": 0,
         "idno": "",
         "tourismno": "",
@@ -1120,6 +1133,94 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
         "im_scan_autokey": 0,
         "udf_status": str(data.get("udfStatus") or data.get("udf_status") or "PENDING").strip() or "PENDING",
     }
+    _merge_customer_scalars_into_salesquotation_header(header_payload, data)
+    # Explicit create-quotation fields win over merge (agent / area must match Maintain Customer).
+    for field, keys in (
+        ("agent", ("agent", "AGENT")),
+        ("area", ("area", "AREA")),
+        ("companyname", ("companyName", "companyname")),
+        ("address1", ("address1",)),
+        ("address2", ("address2",)),
+        ("address3", ("address3",)),
+        ("address4", ("address4",)),
+        ("phone1", ("phone1",)),
+        ("mobile", ("mobile",)),
+        ("attention", ("attention",)),
+        ("terms", ("terms", "creditTerm", "creditterm")),
+        ("tin", ("tin", "TIN")),
+        ("country", ("country", "COUNTRY")),
+    ):
+        for k in keys:
+            v = str(data.get(k) or "").strip()
+            if v and v not in ("N/A", "—", "----"):
+                header_payload[field] = v
+                break
+    return header_payload
+
+
+def _merge_customer_scalars_into_salesquotation_header(payload: dict, data: dict) -> None:
+    """Apply SQL API customerScalars from create-quotation (fills empty header fields)."""
+    scalars = data.get("customerScalars")
+    if not isinstance(scalars, dict):
+        return
+    alias = {"creditterm": "terms", "companyname": "companyname"}
+    skip = frozenset(
+        {
+            "dockey",
+            "docno",
+            "docdate",
+            "postdate",
+            "taxdate",
+            "docamt",
+            "localdocamt",
+            "status",
+            "cancelled",
+            "updatecount",
+            "lastmodified",
+            "changed",
+            "sdsdocdetail",
+        }
+    )
+    branch_to_header = {
+        "postcode": "postcode",
+        "city": "city",
+        "state": "state",
+        "country": "country",
+        "fax1": "fax1",
+        "fax2": "fax2",
+        "branchname": "branchname",
+        "email": "cc",
+    }
+    for raw_key, raw_val in scalars.items():
+        key = str(raw_key or "").strip().lower()
+        if not key or key in skip:
+            continue
+        if key.startswith("branch."):
+            bk = key.split(".", 1)[-1]
+            target = branch_to_header.get(bk, bk)
+            if target in payload and not str(payload.get(target) or "").strip():
+                val = str(raw_val or "").strip()
+                if val and val not in ("—", "----", "N/A"):
+                    payload[target] = val
+            continue
+        val = str(raw_val or "").strip()
+        if not val or val in ("—", "----", "N/A", "null", "None"):
+            continue
+        target = alias.get(key, key)
+        if target not in payload:
+            continue
+        existing = payload.get(target)
+        if existing is not None and str(existing).strip() not in ("", "0", "0.00", "----"):
+            continue
+        if target in ("idtype", "submissiontype"):
+            try:
+                payload[target] = int(float(val))
+            except (TypeError, ValueError):
+                continue
+        elif target == "currencycode" and val in ("----", "-"):
+            continue
+        else:
+            payload[target] = val
 
 
 def create_or_update_quotation(base_api_url, customer_code, data):

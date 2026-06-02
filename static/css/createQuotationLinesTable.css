@@ -1,0 +1,212 @@
+/* Create quotation line items — plain table; load after createQuotationLight.css */
+body.create-quotation-page #create-quotation-lines-wrap,
+body.create-quotation-page .create-quotation-lines-wrap {
+    display: block !important;
+    visibility: visible !important;
+    width: 100%;
+    margin: 0 0 12px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+body.create-quotation-page #quotation-form table.quotation-lines-table {
+    display: table !important;
+    visibility: visible !important;
+    width: 100% !important;
+    border-collapse: collapse !important;
+    margin: 0 !important;
+    background: #fff;
+    table-layout: auto;
+}
+
+body.create-quotation-page #quotation-form table.quotation-lines-table thead {
+    display: table-header-group !important;
+}
+
+body.create-quotation-page #quotation-form table.quotation-lines-table tbody#quotation-line-items,
+body.create-quotation-page #quotation-form table.quotation-lines-table tbody#quotation-items-list {
+    display: table-row-group !important;
+    flex-direction: unset !important;
+    gap: 0 !important;
+}
+
+body.create-quotation-page #quotation-form table.quotation-lines-table tr.quotation-line-row {
+    display: table-row !important;
+}
+
+body.create-quotation-page #quotation-form table.quotation-lines-table thead th {
+    background: #e8f2f8;
+    color: #1e3a52;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: center;
+    white-space: nowrap;
+}
+
+body.create-quotation-page #quotation-form table.quotation-lines-table th,
+body.create-quotation-page #quotation-form table.quotation-lines-table td {
+    display: table-cell !important;
+    border: 1px solid #8fa8b8 !important;
+    padding: 6px 8px !important;
+    vertical-align: middle !important;
+}
+
+body.create-quotation-page #quotation-form table.quotation-lines-table td.item-source,
+body.create-quotation-page #quotation-form table.quotation-lines-table td.item-remove {
+    cursor: pointer;
+    user-select: none;
+    text-align: center;
+    white-space: nowrap;
+}
+
+body.create-quotation-page #quotation-form table.quotation-lines-table td.item-suggested-price,
+body.create-quotation-page #quotation-form table.quotation-lines-table td.item-price,
+body.create-quotation-page #quotation-form table.quotation-lines-table td.item-udf-moq,
+body.create-quotation-page #quotation-form table.quotation-lines-table td.item-udf-dleadtime,
+body.create-quotation-page #quotation-form table.quotation-lines-table td.item-udf-bundle,
+body.create-quotation-page #quotation-form table.quotation-lines-table td.item-udf-thickness,
+body.create-quotation-page #quotation-form table.quotation-lines-table td.item-udf-width,
+body.create-quotation-page #quotation-form table.quotation-lines-table td.item-udf-length {
+    text-align: center;
+    white-space: nowrap;
+}
+
+body.create-quotation-page #quotation-form table.quotation-lines-table input[type="text"],
+body.create-quotation-page #quotation-form table.quotation-lines-table input[type="number"],
+body.create-quotation-page #quotation-form table.quotation-lines-table input[type="date"] {
+    display: block;
+    width: 100%;
+    min-width: 3rem;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 4px 6px;
+    border: 1px solid #b8cdd9;
+    border-radius: 4px;
+    font: inherit;
+    color: #1e3a52;
+    background: #fff;
+}
+
+body.create-quotation-page #quotation-form table.quotation-lines-table input.item-product {
+    min-width: 10rem;
+}
+
+/* Qty & Discount — narrow columns (values are usually short) */
+body.create-quotation-page #quotation-form table.quotation-lines-table th:nth-child(9),
+body.create-quotation-page #quotation-form table.quotation-lines-table td:nth-child(9),
+body.create-quotation-page #quotation-form table.quotation-lines-table th:nth-child(10),
+body.create-quotation-page #quotation-form table.quotation-lines-table td:nth-child(10) {
+    width: 1%;
+    white-space: nowrap;
+    text-align: center;
+}
+
+body.create-quotation-page #quotation-form table.quotation-lines-table input.item-qty,
+body.create-quotation-page #quotation-form table.quotation-lines-table input.item-discount {
+    width: 4.25rem;
+    max-width: 4.75rem;
+    min-width: 2.75rem;
+    margin: 0 auto;
+    padding: 4px 4px;
+    text-align: center;
+}
+
+body.create-quotation-page #quotation-form table.quotation-lines-table input:focus {
+    outline: 2px solid #5ba3c9;
+    outline-offset: 0;
+    border-color: #5ba3c9;
+}
+
+/* Legacy flex list container (cached HTML) — must not occupy the lines area */
+body.create-quotation-page #quotation-form #quotation-items-list:not(tbody),
+body.create-quotation-page #quotation-form .create-quotation-lines-grid {
+    display: none !important;
+}
+
+/* Scrollable product picker (replaces native datalist — shows full catalog on click) */
+.cq-product-picker {
+    position: fixed;
+    z-index: 10050;
+    display: flex;
+    flex-direction: column;
+    max-height: 300px;
+    background: #fff;
+    border: 1px solid #8fa8b8;
+    border-radius: 8px;
+    box-shadow: 0 12px 32px rgba(30, 80, 120, 0.22);
+    overflow: hidden;
+}
+
+.cq-product-picker[hidden] {
+    display: none !important;
+}
+
+.cq-product-picker-header {
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #5a7a94;
+    background: #e8f2f8;
+    border-bottom: 1px solid #c5dce9;
+}
+
+.cq-product-picker-search {
+    margin: 8px 10px 6px;
+    padding: 6px 10px;
+    border: 1px solid #b8cdd9;
+    border-radius: 6px;
+    font: inherit;
+    font-size: 13px;
+    color: #1e3a52;
+}
+
+.cq-product-picker-list {
+    list-style: none;
+    margin: 0;
+    padding: 4px 0 8px;
+    overflow-y: auto;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.cq-product-picker-option {
+    padding: 8px 12px;
+    font-size: 13px;
+    line-height: 1.35;
+    color: #1e3a52;
+    cursor: pointer;
+    border-bottom: 1px solid #eef4f8;
+}
+
+.cq-product-picker-option:hover,
+.cq-product-picker-option.is-current {
+    background: #dbeafe;
+}
+
+.cq-product-picker-option.is-current {
+    font-weight: 600;
+}
+
+.cq-product-picker-empty,
+.cq-product-picker-more {
+    padding: 10px 12px;
+    font-size: 12px;
+    color: #5a7a94;
+    font-style: italic;
+}
+
+body.create-quotation-page #quotation-form table.quotation-lines-table td.cq-product-cell {
+    position: relative;
+    min-width: 14rem;
+}
+
+body.create-quotation-page .create-quotation-section--lines .btn-add-item {
+    display: inline-block !important;
+    width: auto !important;
+    min-width: 10rem;
+    max-width: 100%;
+    margin-top: 12px;
+    padding: 8px 16px;
+}

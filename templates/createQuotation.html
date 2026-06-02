@@ -7,9 +7,46 @@
     <link rel="stylesheet" href="/static/css/hamburger_menu.css?v=20260515_sidebar">
     <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
     <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515">
-    <link rel="stylesheet" href="/static/css/orderQuotation.css?v=20260505_line_grid_balance">
     <link rel="stylesheet" href="/static/css/quotationChatPopup.css?v=20260515_greeting_bubble">
-    <link rel="stylesheet" href="/static/css/createQuotationLight.css?v=20260515_create_compact">
+    <link rel="stylesheet" href="/static/css/createQuotationLight.css?v=20260529_addr_rows">
+    <link rel="stylesheet" href="/static/css/createQuotationLinesTable.css?v=20260529_product_picker">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <style id="cq-lines-critical">
+        /* Inline fallback: quotation lines table must stay visible even if cached CSS hides the grid */
+        body.create-quotation-page #create-quotation-lines-wrap,
+        body.create-quotation-page table.quotation-lines-table {
+            display: table !important;
+            visibility: visible !important;
+            width: 100% !important;
+            border-collapse: collapse !important;
+            margin: 0 0 12px !important;
+            background: #fff !important;
+        }
+        body.create-quotation-page #create-quotation-lines-wrap {
+            display: block !important;
+            overflow-x: auto !important;
+        }
+        body.create-quotation-page table.quotation-lines-table thead { display: table-header-group !important; }
+        body.create-quotation-page table.quotation-lines-table tbody { display: table-row-group !important; }
+        body.create-quotation-page table.quotation-lines-table tr { display: table-row !important; }
+        body.create-quotation-page table.quotation-lines-table th,
+        body.create-quotation-page table.quotation-lines-table td {
+            display: table-cell !important;
+            border: 1px solid #8fa8b8 !important;
+            padding: 6px 8px !important;
+            vertical-align: middle !important;
+        }
+        body.create-quotation-page #quotation-form #quotation-items-list:not(tbody),
+        body.create-quotation-page #quotation-form .create-quotation-lines-grid,
+        body.create-quotation-page #quotation-form .quotation-item-row-header {
+            display: none !important;
+        }
+        body.create-quotation-page .create-quotation-section--lines .btn-add-item {
+            display: inline-block !important;
+            width: auto !important;
+            min-width: 10rem;
+        }
+    </style>
 </head>
 <body class="equotation-icy-theme create-quotation-page" data-php-base-url="{{ php_base_url }}">
     <div class="container">
@@ -23,113 +60,165 @@
                 <div class="form-container">
                     <h3>Request New Quotation</h3>
                     <form id="quotation-form" data-dockey="{{ dockey }}" data-draft-dockey="{{ draft_dockey }}">
-                        <div class="create-quotation-layout">
-                            <div class="create-quotation-customer-panel">
-                                <h4 class="create-quotation-panel-title">Customer details</h4>
-                                <div class="customer-details-readonly">
-                                    <div class="customer-detail-row">
-                                        <span class="customer-detail-label">Customer email</span>
-                                        <span id="quotation-customer" class="customer-detail-value">{{ user_email }}</span>
-                                    </div>
-                                    <div id="quotation-department-row" class="customer-detail-row" style="display: none;">
-                                        <span class="customer-detail-label">Department</span>
-                                        <span id="quotation-department" class="customer-detail-value"></span>
-                                    </div>
-                                    <div class="customer-detail-row">
-                                        <span class="customer-detail-label">Company</span>
-                                        <span id="quotation-company" class="customer-detail-value">Loading…</span>
-                                    </div>
-                                    <div class="customer-detail-row">
-                                        <span class="customer-detail-label">Phone</span>
-                                        <span id="quotation-phone" class="customer-detail-value">Loading…</span>
-                                    </div>
-                                    <div class="customer-detail-row">
-                                        <span class="customer-detail-label">Credit terms</span>
-                                        <span id="quotation-terms" class="customer-detail-value">Loading…</span>
-                                    </div>
-                                    <div class="customer-detail-row">
-                                        <span class="customer-detail-label">Address 1</span>
-                                        <span id="quotation-address1" class="customer-detail-value">Loading…</span>
-                                    </div>
-                                    <div class="customer-detail-row">
-                                        <span class="customer-detail-label">Address 2</span>
-                                        <span id="quotation-address2" class="customer-detail-value">Loading…</span>
-                                    </div>
-                                    <div class="customer-detail-row">
-                                        <span class="customer-detail-label">Address 3</span>
-                                        <span id="quotation-address3" class="customer-detail-value"></span>
-                                    </div>
-                                    <div class="customer-detail-row">
-                                        <span class="customer-detail-label">Address 4</span>
-                                        <span id="quotation-address4" class="customer-detail-value"></span>
-                                    </div>
-                                </div>
-
-                                <div class="form-group customer-validity-field">
-                                    <label for="quotation-validity">Valid until</label>
-                                    <input type="date" id="quotation-validity">
-                                </div>
-
-                                <div class="form-group" style="display: none;">
-                                    <textarea id="quotation-description" rows="3" readonly>Quotation</textarea>
-                                </div>
-                            </div>
-
-                            <div class="create-quotation-lines-panel">
-                                <h4 class="create-quotation-panel-title">Quotation lines</h4>
-                                <div id="quotation-mini-item-codes" class="quotation-mini-item-codes" aria-live="polite"></div>
-                                <div class="create-quotation-lines-grid">
-                                <div class="item-row-header quotation-item-row-header">
-                                    <span>Source</span>
-                                    <span>Product</span>
-                                    <span>MOQ</span>
-                                    <span>Lead</span>
-                                    <span>Bundle</span>
-                                    <span>Thick</span>
-                                    <span>Width</span>
-                                    <span>Length</span>
-                                    <span>Qty</span>
-                                    <span>Discount</span>
-                                    <span class="item-header-ref-price">Ref. price</span>
-                                    <span>Unit price</span>
-                                    <span>Delivery</span>
-                                    <span class="item-header-actions" aria-hidden="true"></span>
-                                </div>
-                                <div id="quotation-items-list">
-                                    <div class="order-item">
-                                        <div class="item-row">
-                                            <select class="item-source" onchange="onProductSourceChange(this)">
-                                                <option value="catalog">From catalog</option>
-                                                <option value="custom">Custom order</option>
-                                            </select>
-                                            <input type="text" class="item-product" list="product-list" placeholder="Type code or name to search…" autocomplete="off" onchange="fetchProductPrice(this)">
-                                            <input type="text" class="item-product-custom" placeholder="Custom product" style="display:none;" onchange="fetchProductPrice(this)">
-                                            <input type="text" class="item-udf-moq" placeholder="—" readonly title="MOQ from ST_ITEM (catalog)">
-                                            <input type="text" class="item-udf-dleadtime" placeholder="—" readonly title="UDF_DLEADTIME from ST_ITEM (catalog)">
-                                            <input type="text" class="item-udf-bundle" placeholder="—" readonly title="UDF_BUNDLE from ST_ITEM (catalog)">
-                                            <input type="text" class="item-udf-thickness" placeholder="—" readonly title="UDF_THICKNESS (stockitem API)">
-                                            <input type="text" class="item-udf-width" placeholder="—" readonly title="UDF_WIDTH (stockitem API)">
-                                            <input type="text" class="item-udf-length" placeholder="—" readonly title="UDF_LENGTH (stockitem API)">
-                                            <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
-                                            <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
-                                            <input type="number" class="item-suggested-price" placeholder="Reference price" step="0.01" min="0" readonly>
-                                            <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" readonly title="Unit price from pricing rules (not editable)">
-                                            <input type="date" class="item-delivery-date">
-                                            <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
+                        <div class="create-quotation-form-body">
+                            <section class="create-quotation-section create-quotation-section--customer">
+                                <h4 class="create-quotation-section-title">Customer details</h4>
+                                <div class="customer-details-panel">
+                                    <div class="customer-details-grid customer-details-grid--fields">
+                                        <div class="customer-detail-row customer-detail-row-highlight">
+                                            <span class="customer-detail-label">Agent</span>
+                                            <span id="quotation-agent" class="customer-detail-value"></span>
+                                        </div>
+                                        <div class="customer-detail-row customer-detail-row-highlight">
+                                            <span class="customer-detail-label">Area</span>
+                                            <span id="quotation-area" class="customer-detail-value"></span>
+                                        </div>
+                                        <div class="customer-detail-row customer-detail-row--company">
+                                            <span class="customer-detail-label">Company</span>
+                                            <span id="quotation-company" class="customer-detail-value"></span>
+                                        </div>
+                                        <div class="customer-detail-row">
+                                            <span class="customer-detail-label">Customer email</span>
+                                            <span id="quotation-customer" class="customer-detail-value">{{ user_email }}</span>
+                                        </div>
+                                        <div class="customer-detail-row">
+                                            <span class="customer-detail-label">Phone</span>
+                                            <span id="quotation-phone" class="customer-detail-value"></span>
+                                        </div>
+                                        <div class="customer-detail-row">
+                                            <span class="customer-detail-label">Credit terms</span>
+                                            <span id="quotation-terms" class="customer-detail-value"></span>
+                                        </div>
+                                        <div id="quotation-department-row" class="customer-detail-row customer-detail-row--department" style="display: none;">
+                                            <span class="customer-detail-label">Department</span>
+                                            <span id="quotation-department" class="customer-detail-value"></span>
                                         </div>
                                     </div>
+                                    <div class="customer-details-address-block">
+                                        <p class="customer-details-address-heading">Address</p>
+                                        <div class="customer-details-grid customer-details-grid--addresses">
+                                            <div class="customer-detail-row customer-detail-row--address-line">
+                                                <span class="customer-detail-label">Address 1</span>
+                                                <span id="quotation-address1" class="customer-detail-value"></span>
+                                            </div>
+                                            <div class="customer-detail-row customer-detail-row--address-line">
+                                                <span class="customer-detail-label">Address 2</span>
+                                                <span id="quotation-address2" class="customer-detail-value"></span>
+                                            </div>
+                                            <div class="customer-detail-row customer-detail-row--address-line">
+                                                <span class="customer-detail-label">Address 3</span>
+                                                <span id="quotation-address3" class="customer-detail-value"></span>
+                                            </div>
+                                            <div class="customer-detail-row customer-detail-row--address-line">
+                                                <span class="customer-detail-label">Address 4</span>
+                                                <span id="quotation-address4" class="customer-detail-value"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div id="quotation-customer-all-fields" class="customer-all-fields-grid customer-all-fields-hidden" aria-hidden="true"></div>
                                 </div>
-                                </div>
+                            </section>
 
-                                <button type="button" class="btn-add-item" onclick="addQuotationItem()">+ Add Item</button>
+                            <div class="form-group" style="display: none;">
+                                <textarea id="quotation-description" rows="3" readonly>Quotation</textarea>
+                            </div>
 
-                                <div class="total-section">
-                                    <div class="total-row">
-                                        <span>Total:</span>
-                                        <span id="quotation-total">RM 0.00</span>
+                            <section class="create-quotation-section create-quotation-section--lines">
+                                <div class="create-quotation-lines-header">
+                                    <h4 class="create-quotation-section-title create-quotation-section-title-lines">Quotation lines</h4>
+                                    <div class="form-group customer-validity-field">
+                                        <label for="quotation-validity">Valid until</label>
+                                        <input type="date" id="quotation-validity">
                                     </div>
                                 </div>
+                            <div id="quotation-mini-item-codes" class="quotation-mini-item-codes" aria-live="polite"></div>
+                            <div id="create-quotation-lines-wrap" class="create-quotation-lines-wrap">
+                            <table class="quotation-lines-table" border="1" cellpadding="4" cellspacing="0">
+                                <thead>
+                                    <tr>
+                                        <th>Source</th>
+                                        <th>Product</th>
+                                        <th>MOQ</th>
+                                        <th>Lead</th>
+                                        <th>Bundle</th>
+                                        <th>Thick</th>
+                                        <th>Width</th>
+                                        <th>Length</th>
+                                        <th>Qty</th>
+                                        <th>Discount</th>
+                                        <th>Ref. price</th>
+                                        <th>Unit price</th>
+                                        <th>Delivery</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="quotation-line-items">
+                                    <tr class="quotation-line-row">
+                                        <td class="item-source" data-source="catalog">From catalog</td>
+                                        <td class="cq-product-cell"><input type="text" class="item-product" placeholder="Search or pick product…" value="" autocomplete="off" spellcheck="false"></td>
+                                        <td class="item-udf-moq">—</td>
+                                        <td class="item-udf-dleadtime">—</td>
+                                        <td class="item-udf-bundle">—</td>
+                                        <td class="item-udf-thickness">—</td>
+                                        <td class="item-udf-width">—</td>
+                                        <td class="item-udf-length">—</td>
+                                        <td><input type="number" class="item-qty" min="0" step="any" value="1"></td>
+                                        <td><input type="number" class="item-discount" min="0" step="any" value="0"></td>
+                                        <td class="item-suggested-price">—</td>
+                                        <td class="item-price">—</td>
+                                        <td><input type="date" class="item-delivery-date" value=""></td>
+                                        <td class="item-remove">Remove</td>
+                                    </tr>
+                                </tbody>
+                            </table>
                             </div>
+                            <!-- cq-lines-v3 -->
+                            <script>
+                            (function () {
+                                function ensureCreateQuotationLinesTable() {
+                                    if (!document.body.classList.contains('create-quotation-page')) return;
+                                    var section = document.querySelector('.create-quotation-section--lines');
+                                    if (!section) return;
+                                    section.querySelectorAll('.create-quotation-lines-grid, .quotation-item-row-header, #quotation-items-list:not(tbody)').forEach(function (el) { el.remove(); });
+                                    var wrap = section.querySelector('#create-quotation-lines-wrap');
+                                    var table = section.querySelector('table.quotation-lines-table');
+                                    if (!wrap) {
+                                        wrap = document.createElement('div');
+                                        wrap.id = 'create-quotation-lines-wrap';
+                                        wrap.className = 'create-quotation-lines-wrap';
+                                        var btn = section.querySelector('.btn-add-item');
+                                        section.insertBefore(wrap, btn || null);
+                                    }
+                                    if (!table) {
+                                        var loose = section.querySelector('table.quotation-lines-table');
+                                        if (loose) wrap.appendChild(loose);
+                                        else {
+                                            wrap.innerHTML = '<table class="quotation-lines-table" border="1" cellpadding="4" cellspacing="0"><thead><tr><th>Source</th><th>Product</th><th>MOQ</th><th>Lead</th><th>Bundle</th><th>Thick</th><th>Width</th><th>Length</th><th>Qty</th><th>Discount</th><th>Ref. price</th><th>Unit price</th><th>Delivery</th><th></th></tr></thead><tbody id="quotation-line-items"></tbody></table>';
+                                            table = wrap.querySelector('table.quotation-lines-table');
+                                        }
+                                    }
+                                    var tbody = document.getElementById('quotation-line-items');
+                                    if (tbody && !tbody.querySelector('tr.quotation-line-row')) {
+                                        var tr = document.createElement('tr');
+                                        tr.className = 'quotation-line-row';
+                                        tr.innerHTML = '<td class="item-source" data-source="catalog">From catalog</td><td class="cq-product-cell"><input type="text" class="item-product" placeholder="Search or pick product…" value="" autocomplete="off" spellcheck="false"></td><td class="item-udf-moq">—</td><td class="item-udf-dleadtime">—</td><td class="item-udf-bundle">—</td><td class="item-udf-thickness">—</td><td class="item-udf-width">—</td><td class="item-udf-length">—</td><td><input type="number" class="item-qty" min="0" step="any" value="1"></td><td><input type="number" class="item-discount" min="0" step="any" value="0"></td><td class="item-suggested-price">—</td><td class="item-price">—</td><td><input type="date" class="item-delivery-date" value=""></td><td class="item-remove">Remove</td>';
+                                        tbody.appendChild(tr);
+                                    }
+                                }
+                                ensureCreateQuotationLinesTable();
+                                document.addEventListener('DOMContentLoaded', ensureCreateQuotationLinesTable);
+                            })();
+                            </script>
+
+                            <button type="button" class="btn-add-item" onclick="addQuotationItem()">+ Add Item</button>
+
+                            <div class="total-section">
+                                <div class="total-row">
+                                    <span>Total</span>
+                                    <span id="quotation-total">RM 0.00</span>
+                                </div>
+                            </div>
+                            </section>
                         </div>
 
                         <div class="form-actions">
@@ -175,14 +264,16 @@
     </datalist>
     
     <script src="/static/js/hamburger_menu.js"></script>
-    <script src="/static/js/orderQuotation.js?v=20260529_line_dims"></script>
+    <script src="/static/js/orderQuotation.js?v=20260529_product_picker"></script>
     <script src="/static/js/quotationChatPopup.js?v=20260515_bubble_1_5s"></script>
     <script>
         // Set today's date as default for all delivery date inputs on load
         document.addEventListener('DOMContentLoaded', function() {
             const today = new Date().toISOString().split('T')[0];
-            document.querySelectorAll('.item-delivery-date').forEach(function(el) {
-                if (!el.value) el.value = today;
+            document.querySelectorAll('#quotation-line-items .item-delivery-date').forEach(function(el) {
+                if (!el.value) {
+                    el.value = today;
+                }
             });
             // Default validity to today + 30 days
             const validityInput = document.getElementById('quotation-validity');

@@ -15,7 +15,7 @@ import string
 from difflib import SequenceMatcher
 import traceback
 from urllib.parse import quote
-from flask import Flask, render_template, request, jsonify, session, redirect
+from flask import Flask, render_template, request, jsonify, session, redirect, make_response
 import fdb
 import openai
 import requests
@@ -1151,6 +1151,13 @@ def format_chatbot_response(text):
     return text
 
 app = Flask(__name__, template_folder="templates", static_folder="static", static_url_path="/static")
+
+# Dev server (8881) and FLASK_DEBUG: reload templates from disk so UI changes show without a full restart.
+_flask_port_cfg = str(os.getenv('FLASK_PORT', '8880')).strip()
+_flask_debug_cfg = str(os.getenv('FLASK_DEBUG', 'False')).strip().lower() in ('1', 'true', 'yes')
+if _flask_port_cfg == '8881' or _flask_debug_cfg:
+    app.config['TEMPLATES_AUTO_RELOAD'] = True
+    app.jinja_env.auto_reload = True
 
 
 @app.context_processor
@@ -2947,13 +2954,16 @@ def create_quotation_page():
         return redirect('/create-quotation')
     dockey = request.args.get('dockey', '')
     draft_dockey = request.args.get('draftDockey', '')
-    return render_protected_template(
+    response = make_response(render_protected_template(
         'createQuotation.html',
         dockey=dockey,
         draft_dockey=draft_dockey,
         php_base_url=BASE_API_URL,
         require_admin=False,
-    )
+    ))
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    return response
 
 
 @app.route('/view-quotation')
@@ -8361,6 +8371,8 @@ def _fetch_customer_info_from_local_ar(customer_code):
         master_order = [
             "COMPANYNAME",
             "CREDITTERM",
+            "AGENT",
+            "AREA",
             "PHONE1",
             "PHONE2",
             "TEL",
@@ -8423,7 +8435,7 @@ def _fetch_customer_info_from_local_ar(customer_code):
         try:
             cur.execute(
                 """
-                SELECT FIRST 1 ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, PHONE1, EMAIL
+                SELECT FIRST 1 ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, PHONE1, EMAIL, ATTENTION, MOBILE
                 FROM AR_CUSTOMERBRANCH
                 WHERE CODE = ? AND UPPER(TRIM(BRANCHTYPE)) = 'B'
                 ORDER BY DTLKEY
@@ -8432,13 +8444,26 @@ def _fetch_customer_info_from_local_ar(customer_code):
             )
             branch_row = cur.fetchone()
         except Exception as branch_err:
-            print(f"[DEBUG] get_user_info local: billing branch query failed ({branch_err}); trying any branch", flush=True)
+            print(f"[DEBUG] get_user_info local: billing branch query failed ({branch_err}); retry core columns", flush=True)
+            try:
+                cur.execute(
+                    """
+                    SELECT FIRST 1 ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, PHONE1, EMAIL
+                    FROM AR_CUSTOMERBRANCH
+                    WHERE CODE = ? AND UPPER(TRIM(BRANCHTYPE)) = 'B'
+                    ORDER BY DTLKEY
+                    """,
+                    (code,),
+                )
+                branch_row = cur.fetchone()
+            except Exception:
+                branch_row = None
 
         if not branch_row:
             try:
                 cur.execute(
                     """
-                    SELECT FIRST 1 ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, PHONE1, EMAIL
+                    SELECT FIRST 1 ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, PHONE1, EMAIL, ATTENTION, MOBILE
                     FROM AR_CUSTOMERBRANCH
                     WHERE CODE = ?
                     ORDER BY DTLKEY
@@ -8447,12 +8472,26 @@ def _fetch_customer_info_from_local_ar(customer_code):
                 )
                 branch_row = cur.fetchone()
             except Exception as any_branch_err:
-                print(f"[DEBUG] get_user_info local: any-branch query failed ({any_branch_err})", flush=True)
-                branch_row = None
+                print(f"[DEBUG] get_user_info local: any-branch query failed ({any_branch_err}); retry core columns", flush=True)
+                try:
+                    cur.execute(
+                        """
+                        SELECT FIRST 1 ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, PHONE1, EMAIL
+                        FROM AR_CUSTOMERBRANCH
+                        WHERE CODE = ?
+                        ORDER BY DTLKEY
+                        """,
+                        (code,),
+                    )
+                    branch_row = cur.fetchone()
+                except Exception:
+                    branch_row = None
 
         ba1 = ba2 = ba3 = ba4 = ""
         phone_branch = ""
         branch_email = ""
+        branch_attention = ""
+        branch_mobile = ""
         if branch_row:
             ba1 = str(branch_row[0] or "").strip()
             ba2 = str(branch_row[1] or "").strip()
@@ -8460,6 +8499,10 @@ def _fetch_customer_info_from_local_ar(customer_code):
             ba4 = str(branch_row[3] or "").strip()
             phone_branch = str(branch_row[4] or "").strip()
             branch_email = str(branch_row[5] or "").strip()
+            if len(branch_row) > 6:
+                branch_attention = str(branch_row[6] or "").strip()
+            if len(branch_row) > 7:
+                branch_mobile = str(branch_row[7] or "").strip()
 
         a1 = ba1 or ma1
         a2 = ba2 or ma2
@@ -8495,18 +8538,24 @@ def _fetch_customer_info_from_local_ar(customer_code):
         if not udf_email:
             udf_email = str(session.get("user_email") or "").strip()
 
-        def nz(val, placeholder="N/A"):
+        def nz(val, placeholder=""):
             s = str(val or "").strip()
             return s if s else placeholder
 
+        agent_val = mstr("AGENT")
+        area_val = mstr("AREA")
         payload = {
             "CODE": code,
             "COMPANYNAME": nz(company),
             "CREDITTERM": nz(credit),
+            "AGENT": agent_val or "",
+            "AREA": area_val or "",
+            "ATTENTION": branch_attention or "",
+            "MOBILE": branch_mobile or mstr("MOBILE") or "",
             "ADDRESS1": nz(a1),
             "ADDRESS2": nz(a2),
-            "ADDRESS3": a3,
-            "ADDRESS4": a4,
+            "ADDRESS3": a3 or "",
+            "ADDRESS4": a4 or "",
             "PHONE1": nz(phone),
             "UDF_EMAIL": udf_email,
         }
@@ -8516,7 +8565,33 @@ def _fetch_customer_info_from_local_ar(customer_code):
             payload["MATCHED_UDF_EMAIL_COLUMN"] = login_matched_col
         if login_suffix:
             payload["LOGIN_UDF_EMAIL_SUFFIX"] = login_suffix
-        return payload if _customer_info_has_meaningful_data(payload) else None
+        if not _customer_info_has_meaningful_data(payload):
+            return None
+        from utils.customer_display import flatten_customer_record, merge_legacy_customer_payload
+
+        local_source = {str(k).lower(): m.get(k.upper()) for k in select_cols}
+        branch_source = None
+        if branch_row:
+            branch_source = {
+                "address1": ba1,
+                "address2": ba2,
+                "address3": ba3,
+                "address4": ba4,
+                "phone1": phone_branch,
+                "email": branch_email,
+                "attention": branch_attention,
+                "mobile": branch_mobile,
+            }
+        display_fields, customer_scalars = flatten_customer_record(
+            local_source,
+            branch_obj=branch_source,
+            branch_label="Branch",
+        )
+        return merge_legacy_customer_payload(
+            payload,
+            display_fields=display_fields,
+            customer_scalars=customer_scalars,
+        )
     except Exception as exc:
         print(f"[DEBUG] get_user_info: local AR_CUSTOMER lookup failed: {exc}", flush=True)
         return None
@@ -8656,23 +8731,23 @@ def api_get_user_info():
                 return value
             return pick_from(branch_obj, branch_map, *keys, default=default)
 
-        return {
+        legacy = {
             'CODE': pick('CODE', 'code', default=customer_code),
             'COMPANYNAME': pick(
                 'COMPANYNAME', 'companyName', 'companyname', 'DESCRIPTION', 'description',
-                'CompanyName', 'custname', 'CUSTNAME', default='N/A',
+                'CompanyName', 'custname', 'CUSTNAME', default='',
             ),
             'CREDITTERM': pick(
                 'CREDITTERM', 'creditTerm', 'creditterm', 'TERMS', 'terms', 'CnTerms', 'CNTERMS',
-                default='N/A',
+                default='',
             ),
             'ADDRESS1': pick(
                 'ADDRESS1', 'address1', 'addr1', 'line1', 'street1', 'ADDR1', 'Add1',
-                'BillAddr1', 'billaddr1', 'BILLADDRESS1', 'Street1', default='N/A',
+                'BillAddr1', 'billaddr1', 'BILLADDRESS1', 'Street1', default='',
             ),
             'ADDRESS2': pick(
                 'ADDRESS2', 'address2', 'addr2', 'line2', 'street2', 'ADDR2', 'BillAddr2', 'billaddr2',
-                'BILLADDRESS2', default='N/A',
+                'BILLADDRESS2', default='',
             ),
             'ADDRESS3': pick(
                 'ADDRESS3', 'address3', 'addr3', 'line3', 'city', 'ADDR3', 'BillAddr3', 'Postcode', 'POSTCODE',
@@ -8684,10 +8759,34 @@ def api_get_user_info():
             ),
             'PHONE1': pick(
                 'PHONE1', 'phone', 'phone1', 'tel', 'telephone', 'TEL', 'MOBILE', 'mobile',
-                'FAX1', 'fax1', 'HP', 'Hp', 'CONTACT', 'Contact', 'PHONENO', 'PhoneNo', default='N/A',
+                'FAX1', 'fax1', 'HP', 'Hp', 'CONTACT', 'Contact', 'PHONENO', 'PhoneNo', default='',
             ),
             'UDF_EMAIL': pick('UDF_EMAIL', 'udf_email', 'EMAIL', 'email', default=''),
+            'AGENT': pick('AGENT', 'agent', default=''),
+            'AREA': pick('AREA', 'area', default=''),
+            'ATTENTION': (
+                pick_from(branch_obj, branch_map, 'ATTENTION', 'attention', default='')
+                or pick('ATTENTION', 'attention', default='')
+            ),
+            'MOBILE': (
+                pick_from(branch_obj, branch_map, 'MOBILE', 'mobile', default='')
+                or pick('MOBILE', 'mobile', default='')
+            ),
+            'CURRENCYCODE': pick('CURRENCYCODE', 'currencycode', 'currencyCode', default=''),
+            'TIN': pick('TIN', 'tin', default=''),
+            'COUNTRY': (
+                pick_from(branch_obj, branch_map, 'COUNTRY', 'country', default='')
+                or pick('COUNTRY', 'country', default='')
+            ),
         }
+        from utils.customer_display import flatten_customer_record, merge_legacy_customer_payload
+
+        display_fields, customer_scalars = flatten_customer_record(source, branch_obj=branch_obj)
+        return merge_legacy_customer_payload(
+            legacy,
+            display_fields=display_fields,
+            customer_scalars=customer_scalars,
+        )
 
     def _debug_log_user_info_payload(source, payload):
         if not isinstance(payload, dict):

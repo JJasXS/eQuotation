@@ -178,31 +178,20 @@ function removeOrderItem(button) {
 
 function buildQuotationPayload() {
     const items = [];
-    document.querySelectorAll('#quotation-items-list .order-item').forEach(item => {
-        const source = item.querySelector('.item-source')?.value || 'catalog';
-        let product = '';
-        if (source === 'custom') {
-            product = item.querySelector('.item-product-custom')?.value.trim() || '';
-        } else {
-            const productElement = item.querySelector('.item-product');
-            if (productElement) {
-                product = productElement.tagName === 'SELECT'
-                    ? productElement.options[productElement.selectedIndex]?.value.trim()
-                    : productElement.value.trim();
-            }
-        }
+    getQuotationLineRows().forEach(item => {
+        const source = readQuotationLineSource(item);
+        const product = source === 'custom'
+            ? readQuotationLineField(item, '.item-product-custom')
+            : readQuotationLineField(item, '.item-product');
 
-        const qty = parseFloat(item.querySelector('.item-qty').value) || 0;
-        const price = parseFloat(item.querySelector('.item-price').value) || 0;
-        const discount = parseFloat(item.querySelector('.item-discount')?.value) || 0;
-        const deliveryDate = item.querySelector('.item-delivery-date')?.value || null;
+        const qty = readQuotationLineNumber(item, '.item-qty');
+        const price = readQuotationLineNumber(item, '.item-price');
+        const discount = readQuotationLineNumber(item, '.item-discount');
+        const deliveryDate = readQuotationLineField(item, '.item-delivery-date') || null;
         // SQL Accounting /salesquotation expects ST_ITEM.CODE on lines; description-only rows can be very slow upstream.
         let itemCode = '';
         if (source === 'catalog') {
-            const prodEl = item.querySelector('.item-product');
-            const opt = prodEl && prodEl.tagName === 'SELECT' ? prodEl.selectedOptions[0] : null;
-            const fromOpt = opt && opt.getAttribute('data-stock-code');
-            itemCode = (fromOpt && String(fromOpt).trim()) || resolveCatalogItemCodeFromDescription(product) || '';
+            itemCode = resolveCatalogItemCodeFromDescription(product) || '';
         }
 
         if (product && qty > 0 && price >= 0) {
@@ -213,13 +202,22 @@ function buildQuotationPayload() {
     return {
         description: 'Quotation',
         validUntil: document.getElementById('quotation-validity').value,
-        companyName: readQuotationCustomerField('quotation-company'),
-        address1: readQuotationCustomerField('quotation-address1'),
-        address2: readQuotationCustomerField('quotation-address2'),
-        address3: readQuotationCustomerField('quotation-address3'),
-        address4: readQuotationCustomerField('quotation-address4'),
-        phone1: readQuotationCustomerField('quotation-phone'),
+        companyName: readCustomerScalar('companyname', 'companyName') || '',
+        address1: readCustomerScalar('address1') || '',
+        address2: readCustomerScalar('address2') || '',
+        address3: readCustomerScalar('address3') || '',
+        address4: readCustomerScalar('address4') || '',
+        phone1: readCustomerScalar('phone1', 'phone') || '',
         remarks: document.getElementById('quotation-remarks')?.value.trim() || '',
+        agent: readCustomerScalar('agent') || '',
+        area: readCustomerScalar('area') || '',
+        attention: readCustomerScalar('attention') || '',
+        mobile: readCustomerScalar('mobile') || '',
+        terms: readCustomerScalar('creditterm', 'terms') || '',
+        currencyCode: readCustomerScalar('currencycode', 'currencyCode') || '',
+        country: readCustomerScalar('country') || '',
+        tin: readCustomerScalar('tin') || '',
+        customerScalars: { ...quotationCustomerScalars },
 
         items: items
     };
@@ -235,6 +233,101 @@ function readQuotationCustomerField(id) {
     return String(el.textContent || '').trim();
 }
 
+function readCustomerScalar(...keys) {
+    for (const key of keys) {
+        const k = String(key || '').toLowerCase();
+        const v = quotationCustomerScalars[k];
+        if (v == null) continue;
+        const s = String(v).trim();
+        if (!s || s === '—' || s.toUpperCase() === 'N/A') {
+            continue;
+        }
+        return s;
+    }
+    return '';
+}
+
+function formatCustomerDisplayValue(value) {
+    const s = String(value == null ? '' : value).trim();
+    if (!s || s === '—' || s.toUpperCase() === 'N/A') {
+        return '';
+    }
+    return s;
+}
+
+function syncProminentCustomerFields() {
+    writeQuotationCustomerField('quotation-agent', formatCustomerDisplayValue(readCustomerScalar('agent')));
+    writeQuotationCustomerField('quotation-area', formatCustomerDisplayValue(readCustomerScalar('area')));
+    writeQuotationCustomerField('quotation-company', formatCustomerDisplayValue(readCustomerScalar('companyname', 'companyName')));
+    writeQuotationCustomerField('quotation-phone', formatCustomerDisplayValue(readCustomerScalar('phone1', 'phone')));
+    writeQuotationCustomerField('quotation-terms', formatCustomerDisplayValue(readCustomerScalar('creditterm', 'terms')));
+    writeQuotationCustomerField('quotation-address1', formatCustomerDisplayValue(readCustomerScalar('address1')));
+    writeQuotationCustomerField('quotation-address2', formatCustomerDisplayValue(readCustomerScalar('address2')));
+    writeQuotationCustomerField('quotation-address3', formatCustomerDisplayValue(readCustomerScalar('address3')));
+    writeQuotationCustomerField('quotation-address4', formatCustomerDisplayValue(readCustomerScalar('address4')));
+}
+
+function renderCustomerAllFields(displayFields) {
+    const container = document.getElementById('quotation-customer-all-fields');
+    if (!container) {
+        return;
+    }
+    container.innerHTML = '';
+    const rows = Array.isArray(displayFields) ? displayFields : [];
+    if (!rows.length) {
+        container.innerHTML = '<div class="customer-detail-row"><span class="customer-detail-value">No customer fields returned.</span></div>';
+        return;
+    }
+    rows.forEach((row) => {
+        const label = String(row.label || row.key || '').trim();
+        const value = row.value != null ? String(row.value).trim() : '—';
+        const key = String(row.key || '').trim();
+        const div = document.createElement('div');
+        div.className = 'customer-detail-row';
+        div.dataset.fieldKey = key;
+        div.innerHTML = `<span class="customer-detail-label">${escapeHtml(label)}</span><span class="customer-detail-value">${escapeHtml(value || '—')}</span>`;
+        container.appendChild(div);
+    });
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function ingestCustomerApiPayload(source) {
+    quotationCustomerScalars = {};
+    if (!source || typeof source !== 'object') {
+        return;
+    }
+    if (source.customerScalars && typeof source.customerScalars === 'object') {
+        quotationCustomerScalars = { ...source.customerScalars };
+    }
+    Object.keys(source).forEach((k) => {
+        if (k === 'displayFields' || k.startsWith('_')) {
+            return;
+        }
+        const v = source[k];
+        if (v != null && typeof v !== 'object') {
+            const key = String(k).toLowerCase();
+            const s = String(v).trim();
+            if (s.toUpperCase() === 'N/A') {
+                quotationCustomerScalars[key] = '';
+            } else {
+                quotationCustomerScalars[key] = s;
+            }
+        }
+    });
+    // Normalize blank placeholders from legacy uppercase keys.
+    ['address1', 'address2', 'address3', 'address4'].forEach((k) => {
+        const v = quotationCustomerScalars[k];
+        if (v && (v === '—' || v.toUpperCase() === 'N/A')) {
+            quotationCustomerScalars[k] = '';
+        }
+    });
+}
+
 function writeQuotationCustomerField(id, displayText) {
     const el = document.getElementById(id);
     if (!el) return;
@@ -247,78 +340,369 @@ function writeQuotationCustomerField(id, displayText) {
     el.textContent = text.trim();
 }
 
-/** Searchable catalog field on create quotation (type to filter via browser datalist). */
-const QUOTATION_CATALOG_PRODUCT_FIELD_HTML =
-    '<input type="text" class="item-product" list="product-list" placeholder="Type code or name to search…" autocomplete="off" onchange="fetchProductPrice(this)">';
+function getQuotationLineItemsBody() {
+    return document.getElementById('quotation-line-items')
+        || document.querySelector('table.quotation-lines-table tbody#quotation-items-list');
+}
 
-/** Read-only ST_ITEM / stockitem API fields on each quotation line row. */
-const QUOTATION_LINE_ST_ITEM_EXTRA_INPUTS = `
-            <input type="text" class="item-udf-moq" placeholder="—" readonly title="MOQ (stockitem API)">
-            <input type="text" class="item-udf-dleadtime" placeholder="—" readonly title="Lead time (stockitem API)">
-            <input type="text" class="item-udf-bundle" placeholder="—" readonly title="Bundle (stockitem API)">
-            <input type="text" class="item-udf-thickness" placeholder="—" readonly title="UDF_THICKNESS (stockitem API)">
-            <input type="text" class="item-udf-width" placeholder="—" readonly title="UDF_WIDTH (stockitem API)">
-            <input type="text" class="item-udf-length" placeholder="—" readonly title="UDF_LENGTH (stockitem API)">`;
+function getQuotationLineRows() {
+    const tbody = getQuotationLineItemsBody();
+    if (!tbody) {
+        return [];
+    }
+    return tbody.querySelectorAll('tr.quotation-line-row');
+}
+
+function ensureDefaultQuotationLineRow() {
+    const tbody = getQuotationLineItemsBody();
+    if (!tbody) {
+        return;
+    }
+    if (!tbody.querySelector('tr.quotation-line-row')) {
+        appendQuotationLineRow(tbody);
+    }
+}
+
+const CREATE_QUOTATION_LINES_TABLE_HTML = `
+<table class="quotation-lines-table" border="1" cellpadding="4" cellspacing="0">
+    <thead>
+        <tr>
+            <th>Source</th>
+            <th>Product</th>
+            <th>MOQ</th>
+            <th>Lead</th>
+            <th>Bundle</th>
+            <th>Thick</th>
+            <th>Width</th>
+            <th>Length</th>
+            <th>Qty</th>
+            <th>Discount</th>
+            <th>Ref. price</th>
+            <th>Unit price</th>
+            <th>Delivery</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody id="quotation-line-items"></tbody>
+</table>`;
+
+/** Fix cached/old markup: hidden flex grid or missing table left only the dashed Add Item box. */
+function repairCreateQuotationLinesUi() {
+    if (!document.body.classList.contains('create-quotation-page')
+        || document.body.classList.contains('update-quotation-page')) {
+        return;
+    }
+
+    const section = document.querySelector('.create-quotation-section--lines');
+    if (!section) {
+        return;
+    }
+
+    section.querySelectorAll('.create-quotation-lines-grid, .quotation-item-row-header').forEach((el) => {
+        el.remove();
+    });
+
+    const orphanItemsList = section.querySelector('#quotation-items-list');
+    if (orphanItemsList && String(orphanItemsList.tagName).toUpperCase() !== 'TBODY') {
+        orphanItemsList.remove();
+    }
+
+    let wrap = section.querySelector('#create-quotation-lines-wrap');
+    if (!wrap) {
+        wrap = document.createElement('div');
+        wrap.id = 'create-quotation-lines-wrap';
+        wrap.className = 'create-quotation-lines-wrap';
+        const addBtn = section.querySelector('.btn-add-item');
+        if (addBtn) {
+            section.insertBefore(wrap, addBtn);
+        } else {
+            section.appendChild(wrap);
+        }
+    }
+
+    let table = wrap.querySelector('table.quotation-lines-table');
+    if (!table) {
+        const looseTable = section.querySelector('table.quotation-lines-table');
+        if (looseTable) {
+            wrap.appendChild(looseTable);
+            table = looseTable;
+        } else {
+            wrap.innerHTML = CREATE_QUOTATION_LINES_TABLE_HTML;
+            table = wrap.querySelector('table.quotation-lines-table');
+        }
+    }
+
+    const tbody = table ? table.querySelector('#quotation-line-items, #quotation-items-list') : null;
+    if (tbody && tbody.id !== 'quotation-line-items') {
+        tbody.id = 'quotation-line-items';
+    }
+
+    const mini = section.querySelector('#quotation-mini-item-codes');
+    if (mini && mini.nextElementSibling !== wrap) {
+        section.insertBefore(mini, wrap);
+    }
+
+    ensureDefaultQuotationLineRow();
+
+    const today = new Date().toISOString().split('T')[0];
+    getQuotationLineRows().forEach((row) => {
+        const deliveryInput = row.querySelector('.item-delivery-date');
+        if (deliveryInput && !deliveryInput.value) {
+            deliveryInput.value = today;
+        }
+    });
+}
+
+function getQuotationLineRowFrom(el) {
+    return el ? el.closest('tr.quotation-line-row') : null;
+}
+
+function formatQuotationCellDisplay(value, useDash = true) {
+    if (value == null || String(value).trim() === '') {
+        return useDash ? '—' : '';
+    }
+    return String(value).trim();
+}
+
+function readQuotationLineField(row, selector) {
+    const el = row ? row.querySelector(selector) : null;
+    if (!el) {
+        return '';
+    }
+    const tag = (el.tagName || '').toUpperCase();
+    const raw = (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA')
+        ? String(el.value || '').trim()
+        : String(el.textContent || '').trim();
+    return raw === '—' ? '' : raw;
+}
+
+function writeQuotationLineField(row, selector, value) {
+    const el = row ? row.querySelector(selector) : null;
+    if (!el) {
+        return;
+    }
+    const tag = (el.tagName || '').toUpperCase();
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
+        if (el.type === 'number') {
+            const n = parseFloat(value);
+            el.value = Number.isFinite(n) ? String(n) : '0';
+            return;
+        }
+        if (el.type === 'date') {
+            el.value = value == null || String(value).trim() === '' ? '' : String(value).trim().split(' ')[0];
+            return;
+        }
+        el.value = value == null ? '' : String(value).trim();
+        return;
+    }
+    el.textContent = formatQuotationCellDisplay(value, true);
+}
+
+const QUOTATION_SOURCE_LABELS = {
+    catalog: 'From catalog',
+    custom: 'Custom order',
+};
+
+function readQuotationLineSource(row) {
+    const el = row ? row.querySelector('td.item-source') : null;
+    if (!el) {
+        return 'catalog';
+    }
+    const fromData = (el.getAttribute('data-source') || '').toLowerCase();
+    if (fromData === 'custom' || fromData === 'catalog') {
+        return fromData;
+    }
+    const text = String(el.textContent || '').toLowerCase();
+    return text.includes('custom') ? 'custom' : 'catalog';
+}
+
+function writeQuotationLineSource(row, source) {
+    const el = row ? row.querySelector('td.item-source') : null;
+    if (!el) {
+        return;
+    }
+    const key = source === 'custom' ? 'custom' : 'catalog';
+    el.setAttribute('data-source', key);
+    el.textContent = QUOTATION_SOURCE_LABELS[key];
+}
+
+function readQuotationLineNumber(row, selector) {
+    const raw = readQuotationLineField(row, selector);
+    if (!raw) {
+        return 0;
+    }
+    const n = parseFloat(raw);
+    return Number.isFinite(n) ? n : 0;
+}
+
+function onQuotationLineCellBlur(cell) {
+    const row = getQuotationLineRowFrom(cell);
+    if (!row) {
+        return;
+    }
+    if (cell.classList.contains('item-product') || cell.classList.contains('item-product-custom')) {
+        fetchProductPrice(cell);
+        return;
+    }
+    if (cell.classList.contains('item-qty') || cell.classList.contains('item-discount')) {
+        calculateQuotationTotal();
+    }
+}
+
+function escapeQuotationHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;');
+}
+
+function quotationLineStItemExtraCellsHtml() {
+    return `
+        <td class="item-udf-moq">—</td>
+        <td class="item-udf-dleadtime">—</td>
+        <td class="item-udf-bundle">—</td>
+        <td class="item-udf-thickness">—</td>
+        <td class="item-udf-width">—</td>
+        <td class="item-udf-length">—</td>`;
+}
+
+function buildQuotationLineRowInnerHtml(options = {}) {
+    const today = options.deliveryDate || new Date().toISOString().split('T')[0];
+    const isCustom = Boolean(options.isCustom);
+    const description = options.description != null ? String(options.description) : '';
+    const sourceKey = isCustom ? 'custom' : 'catalog';
+    const qty = options.qty != null ? options.qty : 1;
+    const disc = options.disc != null ? options.disc : 0;
+    const refPrice = options.refPrice != null ? options.refPrice : 0;
+    const unitPrice = options.unitPrice != null ? options.unitPrice : 0;
+
+    const productClass = isCustom ? 'item-product-custom' : 'item-product';
+    const productValue = isCustom ? escapeQuotationHtml(description) : '';
+    const refDisplay = refPrice ? Number(refPrice).toFixed(2) : '—';
+    const unitDisplay = unitPrice ? Number(unitPrice).toFixed(2) : '—';
+
+    return `
+        <td class="item-source" data-source="${sourceKey}">${QUOTATION_SOURCE_LABELS[sourceKey]}</td>
+        <td class="cq-product-cell"><input type="text" class="${productClass}" placeholder="Search or pick product…" value="${productValue}" autocomplete="off" spellcheck="false"></td>
+        ${quotationLineStItemExtraCellsHtml()}
+        <td><input type="number" class="item-qty" min="0" step="any" value="${qty}"></td>
+        <td><input type="number" class="item-discount" min="0" step="any" value="${disc}"></td>
+        <td class="item-suggested-price">${refDisplay}</td>
+        <td class="item-price">${unitDisplay}</td>
+        <td><input type="date" class="item-delivery-date" value="${today}"></td>
+        <td class="item-remove">Remove</td>`;
+}
+
+function appendQuotationLineRow(container, options = {}) {
+    const tr = document.createElement('tr');
+    tr.className = 'quotation-line-row';
+    tr.innerHTML = buildQuotationLineRowInnerHtml(options);
+    container.appendChild(tr);
+    const deliveryCell = tr.querySelector('.item-delivery-date');
+    if (deliveryCell && !readQuotationLineField(tr, '.item-delivery-date')) {
+        writeQuotationLineField(
+            tr,
+            '.item-delivery-date',
+            new Date().toISOString().split('T')[0],
+        );
+    }
+    const productInput = tr.querySelector('input.item-product:not(.item-product-custom)');
+    if (productInput) {
+        bindCatalogProductInput(productInput);
+    }
+    return tr;
+}
 
 // Add Quotation Item
 function addQuotationItem() {
-    const container = document.getElementById('quotation-items-list');
-    const today = new Date().toISOString().split('T')[0];
-    const newItem = document.createElement('div');
-    newItem.className = 'order-item';
-    newItem.innerHTML = `
-        <div class="item-row">
-            <select class="item-source" onchange="onProductSourceChange(this)">
-                <option value="catalog">From catalog</option>
-                <option value="custom">Custom order</option>
-            </select>
-            ${QUOTATION_CATALOG_PRODUCT_FIELD_HTML}
-            <input type="text" class="item-product-custom" placeholder="Custom product" style="display:none;" onchange="fetchProductPrice(this)">
-            ${QUOTATION_LINE_ST_ITEM_EXTRA_INPUTS}
-            <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
-            <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
-            <input type="number" class="item-suggested-price" placeholder="Reference price" step="0.01" min="0" readonly>
-            <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" readonly title="Unit price from pricing rules (not editable)">
-            <input type="date" class="item-delivery-date" value="${today}">
-            <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
-        </div>
-    `;
-    container.appendChild(newItem);
+    const container = getQuotationLineItemsBody();
+    if (!container) {
+        return;
+    }
+    appendQuotationLineRow(container);
     syncProductDatalist();
     refreshQuotationMiniItemCodes();
 }
 
-// Handle product source change (catalog vs custom)
-function onProductSourceChange(selectElement) {
-    const row = selectElement.closest('.item-row');
-    const catalogSelect = row.querySelector('.item-product');
-    const customInput = row.querySelector('.item-product-custom');
-    const suggestedPriceInput = row.querySelector('.item-suggested-price');
-    const priceInput = row.querySelector('.item-price');
-    
-    if (selectElement.value === 'custom') {
-        catalogSelect.style.display = 'none';
-        customInput.style.display = 'inline-block';
-        catalogSelect.value = '';
-        suggestedPriceInput.value = '';
-        priceInput.value = '';
-        clearQuotationLineStItemExtras(row);
-    } else {
-        catalogSelect.style.display = 'inline-block';
-        customInput.style.display = 'none';
-        customInput.value = '';
-        priceInput.value = '';
-        suggestedPriceInput.value = '';
-        clearQuotationLineStItemExtras(row);
+function setQuotationLineSourceMode(row, source) {
+    const productInput = row.querySelector('input.item-product, input.item-product-custom');
+    if (!productInput) {
+        return;
     }
+    writeQuotationLineSource(row, source);
+    if (source === 'custom') {
+        productInput.classList.remove('item-product');
+        productInput.classList.add('item-product-custom');
+    } else {
+        productInput.classList.remove('item-product-custom');
+        productInput.classList.add('item-product');
+    }
+    writeQuotationLineField(row, 'input.item-product, input.item-product-custom', '');
+    writeQuotationLineField(row, '.item-suggested-price', '');
+    writeQuotationLineField(row, '.item-price', '');
+    clearQuotationLineStItemExtras(row);
     refreshQuotationMiniItemCodes();
+    hideCatalogProductPicker();
+    if (source === 'catalog') {
+        bindCatalogProductInput(productInput);
+    }
+}
+
+function toggleQuotationLineSource(sourceCell) {
+    const row = getQuotationLineRowFrom(sourceCell);
+    if (!row) {
+        return;
+    }
+    const next = readQuotationLineSource(row) === 'custom' ? 'catalog' : 'custom';
+    setQuotationLineSourceMode(row, next);
+}
+
+function initQuotationLineTableEvents() {
+    const table = document.querySelector('#quotation-form table.quotation-lines-table');
+    if (!table || table.dataset.lineEventsBound === '1') {
+        return;
+    }
+    table.dataset.lineEventsBound = '1';
+    table.addEventListener('click', (e) => {
+        const td = e.target.closest('td');
+        if (!td || !table.contains(td)) {
+            return;
+        }
+        if (td.classList.contains('item-source')) {
+            toggleQuotationLineSource(td);
+        } else if (td.classList.contains('item-remove')) {
+            removeQuotationItem(td);
+        }
+    });
+    table.addEventListener('change', (e) => {
+        const el = e.target;
+        if (!el || !table.contains(el)) {
+            return;
+        }
+        if (el.matches('.item-product, .item-product-custom, .item-qty, .item-discount, .item-delivery-date')) {
+            onQuotationLineCellBlur(el);
+        }
+    });
+    table.addEventListener(
+        'blur',
+        (e) => {
+            const el = e.target;
+            if (!el || !table.contains(el)) {
+                return;
+            }
+            if (el.matches('.item-product, .item-product-custom, .item-qty, .item-discount')) {
+                onQuotationLineCellBlur(el);
+            }
+        },
+        true,
+    );
 }
 
 // Remove Quotation Item
 function removeQuotationItem(button) {
-    const items = document.querySelectorAll('#quotation-items-list .order-item');
+    const items = getQuotationLineRows();
     if (items.length > 1) {
-        button.closest('.order-item').remove();
+        getQuotationLineRowFrom(button)?.remove();
         calculateQuotationTotal();
         refreshQuotationMiniItemCodes();
     } else {
@@ -342,13 +726,13 @@ function calculateOrderTotal() {
 
 // Calculate Quotation Total
 function calculateQuotationTotal() {
-    const items = document.querySelectorAll('#quotation-items-list .order-item');
+    const items = getQuotationLineRows();
     let total = 0;
     
     items.forEach(item => {
-        const qty = parseFloat(item.querySelector('.item-qty').value) || 0;
-        const unitPrice = parseFloat(item.querySelector('.item-price')?.value) || 0;
-        const discount = parseFloat(item.querySelector('.item-discount')?.value) || 0;
+        const qty = readQuotationLineNumber(item, '.item-qty');
+        const unitPrice = readQuotationLineNumber(item, '.item-price');
+        const discount = readQuotationLineNumber(item, '.item-discount');
         const lineSubtotal = qty * unitPrice;
         const discountAmount = discount > 0 ? discount : 0;
         total += Math.max(0, lineSubtotal - discountAmount);
@@ -361,11 +745,14 @@ function clearQuotationLineStItemExtras(row) {
     if (!row) {
         return;
     }
-    row.querySelectorAll(
-        '.item-udf-moq, .item-udf-dleadtime, .item-udf-bundle, .item-udf-thickness, .item-udf-width, .item-udf-length',
-    ).forEach((el) => {
-        el.value = '';
-    });
+    [
+        '.item-udf-moq',
+        '.item-udf-dleadtime',
+        '.item-udf-bundle',
+        '.item-udf-thickness',
+        '.item-udf-width',
+        '.item-udf-length',
+    ].forEach((sel) => writeQuotationLineField(row, sel, ''));
 }
 
 function applyQuotationLineStItemExtras(row, data) {
@@ -388,12 +775,7 @@ function applyQuotationLineStItemExtras(row, data) {
         ['.item-udf-width', 'udfWidth'],
         ['.item-udf-length', 'udfLength'],
     ];
-    fields.forEach(([sel, key]) => {
-        const el = row.querySelector(sel);
-        if (el) {
-            el.value = pick(key);
-        }
-    });
+    fields.forEach(([sel, key]) => writeQuotationLineField(row, sel, pick(key)));
 }
 
 function applyQuotationLineStItemExtrasFromProduct(row, product) {
@@ -488,26 +870,9 @@ function clearQuotationForm() {
         if (quotationDescription) {
             quotationDescription.value = 'Quotation';
         }
-        const container = document.getElementById('quotation-items-list');
-        container.innerHTML = `
-            <div class="order-item">
-                <div class="item-row">
-                    <select class="item-source" onchange="onProductSourceChange(this)">
-                        <option value="catalog">From catalog</option>
-                        <option value="custom">Custom order</option>
-                    </select>
-                    ${QUOTATION_CATALOG_PRODUCT_FIELD_HTML}
-                    <input type="text" class="item-product-custom" placeholder="Custom product" style="display:none;" onchange="fetchProductPrice(this)">
-                    ${QUOTATION_LINE_ST_ITEM_EXTRA_INPUTS}
-                    <input type="number" class="item-qty" placeholder="Qty" min="1" value="1" onchange="calculateQuotationTotal()">
-                    <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="0" onchange="calculateQuotationTotal()">
-                    <input type="number" class="item-suggested-price" placeholder="Reference price" step="0.01" min="0" readonly>
-                    <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" readonly title="Unit price from pricing rules (not editable)">
-                    <input type="date" class="item-delivery-date" value="${new Date().toISOString().split('T')[0]}">
-                    <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
-                </div>
-            </div>
-        `;
+        const container = document.getElementById('quotation-line-items');
+        container.innerHTML = '';
+        appendQuotationLineRow(container);
         syncProductDatalist();
         calculateQuotationTotal();
         loadUserInfo();
@@ -517,62 +882,84 @@ function clearQuotationForm() {
 
 // Fetch product price when a product is selected
 async function fetchProductPrice(input) {
-    // Skip API call for custom product inputs
-    if (input.classList.contains('item-product-custom')) {
+    if (input.classList && input.classList.contains('item-product-custom')) {
         return;
     }
 
-    const row = input.closest('.item-row');
-    const productName = input.value.trim();
+    const row = getQuotationLineRowFrom(input) || input.closest('.item-row');
+    const inQuotationTable = Boolean(input.closest && input.closest('#quotation-line-items'));
+    const productName = inQuotationTable && row
+        ? (
+            readQuotationLineField(row, '.item-product')
+            || readQuotationLineField(row, '.item-product-custom')
+            || String(input.value || '').trim()
+        )
+        : String(input.value || '').trim();
     if (!productName) {
-        if (row && input.closest('#quotation-items-list')) {
+        if (row && inQuotationTable) {
             clearQuotationLineStItemExtras(row);
         }
         return;
     }
 
-    if (row && input.closest('#quotation-items-list')) {
+    if (row && inQuotationTable) {
         applyQuotationLineStItemExtrasFromProduct(row, findCatalogProductByDescription(productName));
     }
 
+    const quotationLine = getQuotationLineRowFrom(input);
+    if (quotationLine) {
+        quotationLine.dataset.productDescription = productName;
+    }
     const orderItem = input.closest('.order-item');
     if (orderItem) {
         orderItem.dataset.productDescription = productName;
     }
-    const suggestedPriceInput = row.querySelector('.item-price');
-    const priceInput = input.closest('.item-row').querySelector('.item-suggested-price');
     
     try {
         const response = await fetch(`/api/get_product_price?description=${encodeURIComponent(productName)}`);
         const data = await response.json();
         
         if (data.success && data.price !== undefined && data.price !== null) {
-            if (suggestedPriceInput) {
+            if (row && inQuotationTable) {
                 if (data.suggestedPrice !== undefined && data.suggestedPrice !== null) {
-                    suggestedPriceInput.value = Number(data.suggestedPrice).toFixed(2);
+                    writeQuotationLineField(row, '.item-suggested-price', Number(data.suggestedPrice).toFixed(2));
                 } else {
-                    suggestedPriceInput.value = '';
+                    writeQuotationLineField(row, '.item-suggested-price', '');
                     if (data.suggestedReason) {
                         console.log('Suggested price unavailable:', data.suggestedReason, '| source:', data.source, '| rule:', data.matchedRuleCode);
                     }
                 }
                 const stItemPrice = Number(data.stItemPrice);
                 if (Number.isFinite(stItemPrice)) {
-                    priceInput.value = stItemPrice.toFixed(2);
+                    writeQuotationLineField(row, '.item-price', stItemPrice.toFixed(2));
                 } else {
-                    priceInput.value = data.price.toFixed(2);
+                    writeQuotationLineField(row, '.item-price', data.price.toFixed(2));
                 }
-            } else {
-                priceInput.value = data.price.toFixed(2);
+            } else if (row) {
+                const suggestedPriceInput = row.querySelector('.item-suggested-price');
+                const unitPriceInput = row.querySelector('.item-price');
+                if (suggestedPriceInput) {
+                    if (data.suggestedPrice !== undefined && data.suggestedPrice !== null) {
+                        suggestedPriceInput.value = Number(data.suggestedPrice).toFixed(2);
+                    } else {
+                        suggestedPriceInput.value = '';
+                    }
+                }
+                if (unitPriceInput) {
+                    const stItemPrice = Number(data.stItemPrice);
+                    unitPriceInput.value = Number.isFinite(stItemPrice)
+                        ? stItemPrice.toFixed(2)
+                        : data.price.toFixed(2);
+                }
             }
             // Trigger total recalculation
-            const isOrder = input.closest('#order-items-list') !== null;
+            const isOrder = input.closest && input.closest('#order-items-list') !== null;
             if (isOrder) {
                 calculateOrderTotal();
             } else {
                 calculateQuotationTotal();
             }
-            if (row && input.closest('#quotation-items-list')) {
+            if (row && inQuotationTable) {
                 applyQuotationLineStItemExtras(row, {
                     udfMoq: data.udfMoq,
                     udfDleadtime: data.udfDleadtime,
@@ -582,22 +969,25 @@ async function fetchProductPrice(input) {
                     udfLength: data.udfLength,
                 });
             }
-        } else if (row && input.closest('#quotation-items-list')) {
+        } else if (row && inQuotationTable) {
             clearQuotationLineStItemExtras(row);
         }
     } catch (error) {
         console.error('Failed to fetch product price:', error);
-        if (row && input.closest('#quotation-items-list')) {
+        if (row && inQuotationTable) {
             clearQuotationLineStItemExtras(row);
         }
     }
-    if (input.closest('#quotation-items-list')) {
+    if (inQuotationTable) {
         refreshQuotationMiniItemCodes();
     }
 }
 
 // Store products globally
 let availableProducts = [];
+
+/** Scalar map from GET /api/get_user_info (SQL API → salesquotation). */
+let quotationCustomerScalars = {};
 
 // Load Products for Autocomplete
 async function loadProducts() {
@@ -625,6 +1015,7 @@ async function loadProducts() {
 function syncProductDatalist() {
     const datalist = document.getElementById('product-list');
     if (!datalist) {
+        initQuotationCatalogProductPickers();
         return;
     }
     datalist.innerHTML = '';
@@ -643,6 +1034,229 @@ function syncProductDatalist() {
             option.label = `${desc} (${code})`;
         }
         datalist.appendChild(option);
+    });
+    initQuotationCatalogProductPickers();
+}
+
+let cqProductPickerActiveInput = null;
+let cqProductPickerCloseTimer = null;
+
+function normalizeProductSearchText(value) {
+    return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function getCatalogProductPickerOptions() {
+    const options = [];
+    const seen = new Set();
+    (availableProducts || []).forEach((item) => {
+        const code = String(item.CODE ?? item.code ?? item.StockCode ?? item.stockCode ?? '').trim();
+        const desc = String(item.DESCRIPTION ?? item.description ?? item.Description ?? '').trim();
+        const value = desc || code;
+        if (!value) {
+            return;
+        }
+        const key = normalizeProductSearchText(value);
+        if (seen.has(key)) {
+            return;
+        }
+        seen.add(key);
+        options.push({
+            value,
+            code,
+            label: code && desc ? `${desc} (${code})` : value,
+        });
+    });
+    options.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+    return options;
+}
+
+function ensureCatalogProductPicker() {
+    let picker = document.getElementById('cq-product-picker');
+    if (picker) {
+        return picker;
+    }
+    picker = document.createElement('div');
+    picker.id = 'cq-product-picker';
+    picker.className = 'cq-product-picker';
+    picker.hidden = true;
+    picker.innerHTML = `
+        <div class="cq-product-picker-header">Choose product</div>
+        <input type="text" class="cq-product-picker-search" placeholder="Type to filter…" autocomplete="off" />
+        <ul class="cq-product-picker-list" role="listbox"></ul>`;
+    document.body.appendChild(picker);
+
+    const search = picker.querySelector('.cq-product-picker-search');
+    search.addEventListener('input', () => {
+        if (cqProductPickerActiveInput) {
+            renderCatalogProductPickerList(cqProductPickerActiveInput, search.value);
+        }
+    });
+    search.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            hideCatalogProductPicker();
+        }
+    });
+    document.addEventListener('mousedown', (event) => {
+        if (picker.hidden) {
+            return;
+        }
+        if (picker.contains(event.target)) {
+            return;
+        }
+        if (event.target === cqProductPickerActiveInput) {
+            return;
+        }
+        hideCatalogProductPicker();
+    });
+    return picker;
+}
+
+function positionCatalogProductPicker(input, picker) {
+    const rect = input.getBoundingClientRect();
+    const width = Math.max(rect.width, 380);
+    let left = rect.left;
+    let top = rect.bottom + 4;
+    if (left + width > window.innerWidth - 8) {
+        left = Math.max(8, window.innerWidth - width - 8);
+    }
+    const maxHeight = 300;
+    if (top + maxHeight > window.innerHeight - 8) {
+        top = Math.max(8, rect.top - maxHeight - 4);
+    }
+    picker.style.left = `${left}px`;
+    picker.style.top = `${top}px`;
+    picker.style.width = `${width}px`;
+}
+
+function renderCatalogProductPickerList(input, filterText) {
+    const picker = ensureCatalogProductPicker();
+    const list = picker.querySelector('.cq-product-picker-list');
+    const query = normalizeProductSearchText(filterText);
+    const row = getQuotationLineRowFrom(input);
+    const current = normalizeProductSearchText(
+        row ? readQuotationLineField(row, '.item-product') : input.value,
+    );
+    const matches = getCatalogProductPickerOptions().filter((opt) => {
+        if (!query) {
+            return true;
+        }
+        const blob = normalizeProductSearchText(`${opt.label} ${opt.code} ${opt.value}`);
+        return blob.includes(query);
+    });
+
+    list.innerHTML = '';
+    if (!matches.length) {
+        const empty = document.createElement('li');
+        empty.className = 'cq-product-picker-empty';
+        empty.textContent = 'No products match';
+        list.appendChild(empty);
+        return;
+    }
+
+    const limit = 150;
+    matches.slice(0, limit).forEach((opt) => {
+        const item = document.createElement('li');
+        item.className = 'cq-product-picker-option';
+        item.setAttribute('role', 'option');
+        item.textContent = opt.label;
+        if (normalizeProductSearchText(opt.value) === current) {
+            item.classList.add('is-current');
+        }
+        item.addEventListener('mousedown', (event) => {
+            event.preventDefault();
+            applyCatalogProductSelection(input, opt.value);
+        });
+        list.appendChild(item);
+    });
+    if (matches.length > limit) {
+        const more = document.createElement('li');
+        more.className = 'cq-product-picker-more';
+        more.textContent = `Showing ${limit} of ${matches.length} — type to narrow`;
+        list.appendChild(more);
+    }
+}
+
+function applyCatalogProductSelection(input, value) {
+    const row = getQuotationLineRowFrom(input);
+    if (!row || !input) {
+        return;
+    }
+    writeQuotationLineField(row, '.item-product', value);
+    hideCatalogProductPicker();
+    fetchProductPrice(input);
+}
+
+function showCatalogProductPicker(input) {
+    if (!input || input.classList.contains('item-product-custom')) {
+        return;
+    }
+    if (!document.body.classList.contains('create-quotation-page')) {
+        return;
+    }
+    clearTimeout(cqProductPickerCloseTimer);
+    const picker = ensureCatalogProductPicker();
+    cqProductPickerActiveInput = input;
+    positionCatalogProductPicker(input, picker);
+    const search = picker.querySelector('.cq-product-picker-search');
+    search.value = '';
+    renderCatalogProductPickerList(input, '');
+    picker.hidden = false;
+    requestAnimationFrame(() => search.focus());
+}
+
+function hideCatalogProductPicker() {
+    const picker = document.getElementById('cq-product-picker');
+    if (picker) {
+        picker.hidden = true;
+    }
+    cqProductPickerActiveInput = null;
+}
+
+function bindCatalogProductInput(input) {
+    if (!input || input.dataset.cqProductPickerBound === '1') {
+        return;
+    }
+    if (!input.classList.contains('item-product') || input.classList.contains('item-product-custom')) {
+        return;
+    }
+    input.dataset.cqProductPickerBound = '1';
+    input.removeAttribute('list');
+    input.setAttribute('autocomplete', 'off');
+    input.setAttribute('spellcheck', 'false');
+    if (!input.placeholder || input.placeholder === 'Product') {
+        input.placeholder = 'Search or pick product…';
+    }
+
+    const openPicker = () => showCatalogProductPicker(input);
+    input.addEventListener('focus', openPicker);
+    input.addEventListener('click', openPicker);
+    input.addEventListener('input', () => {
+        if (cqProductPickerActiveInput !== input) {
+            return;
+        }
+        const picker = document.getElementById('cq-product-picker');
+        const search = picker ? picker.querySelector('.cq-product-picker-search') : null;
+        if (search) {
+            search.value = input.value;
+            renderCatalogProductPickerList(input, input.value);
+        }
+    });
+    input.addEventListener('blur', () => {
+        cqProductPickerCloseTimer = setTimeout(hideCatalogProductPicker, 200);
+    });
+
+    const cell = input.closest('td');
+    if (cell) {
+        cell.classList.add('cq-product-cell');
+    }
+}
+
+function initQuotationCatalogProductPickers() {
+    if (!document.body.classList.contains('create-quotation-page')) {
+        return;
+    }
+    document.querySelectorAll('#quotation-line-items input.item-product:not(.item-product-custom)').forEach((input) => {
+        bindCatalogProductInput(input);
     });
 }
 
@@ -703,30 +1317,16 @@ function refreshQuotationMiniItemCodes() {
         return;
     }
     const parts = [];
-    document.querySelectorAll('#quotation-items-list .order-item').forEach((orderItem) => {
-        const row = orderItem.querySelector('.item-row');
-        if (!row) {
-            return;
-        }
-        const sourceSel = row.querySelector('.item-source');
-        const source = sourceSel ? sourceSel.value : 'catalog';
+    getQuotationLineRows().forEach((row) => {
+        const source = readQuotationLineSource(row);
         if (source === 'custom') {
             return;
         }
-        const sel = row.querySelector('.item-product');
-        if (!sel || sel.classList.contains('item-product-custom')) {
-            return;
-        }
-        const desc = (sel.value || '').trim();
+        const desc = readQuotationLineField(row, '.item-product');
         if (!desc) {
             return;
         }
-        const fromAttr =
-            sel.tagName === 'SELECT' && sel.selectedOptions[0]
-                ? sel.selectedOptions[0].getAttribute('data-stock-code')
-                : null;
-        const code =
-            (fromAttr && String(fromAttr).trim()) || resolveCatalogItemCodeFromDescription(desc);
+        const code = resolveCatalogItemCodeFromDescription(desc);
         if (code) {
             parts.push(code);
         }
@@ -965,9 +1565,9 @@ async function loadUserInfo() {
 
         if (data.success && data.data) {
             const source = data.data || {};
-            const addressObj = source.address && typeof source.address === 'object' ? source.address : null;
-            const addresses = Array.isArray(source.addresses) ? source.addresses : null;
-            const firstAddress = addresses && addresses.length > 0 && typeof addresses[0] === 'object' ? addresses[0] : null;
+            ingestCustomerApiPayload(source);
+            renderCustomerAllFields(source.displayFields);
+            syncProminentCustomerFields();
 
             const pickFrom = (obj, keys) => {
                 if (!obj || typeof obj !== 'object') return '';
@@ -979,101 +1579,6 @@ async function loadUserInfo() {
                 }
                 return '';
             };
-
-            const pickValue = (...keys) => {
-                return (
-                    pickFrom(source, keys) ||
-                    pickFrom(addressObj, keys) ||
-                    pickFrom(firstAddress, keys) ||
-                    ''
-                );
-            };
-
-            writeQuotationCustomerField(
-                'quotation-company',
-                pickValue('COMPANYNAME', 'companyName', 'companyname', 'DESCRIPTION', 'description') || 'N/A',
-            );
-
-            writeQuotationCustomerField(
-                'quotation-address1',
-                pickValue(
-                    'ADDRESS1',
-                    'address1',
-                    'addr1',
-                    'line1',
-                    'street1',
-                    'BillAddr1',
-                    'billAddr1',
-                    'BILLADDRESS1',
-                ) || 'N/A',
-            );
-
-            writeQuotationCustomerField(
-                'quotation-address2',
-                pickValue(
-                    'ADDRESS2',
-                    'address2',
-                    'addr2',
-                    'line2',
-                    'street2',
-                    'BillAddr2',
-                    'billAddr2',
-                    'BILLADDRESS2',
-                ) || 'N/A',
-            );
-
-            writeQuotationCustomerField(
-                'quotation-address3',
-                pickValue(
-                    'ADDRESS3',
-                    'address3',
-                    'addr3',
-                    'line3',
-                    'city',
-                    'BillAddr3',
-                    'Postcode',
-                    'POSTCODE',
-                ) || '',
-            );
-
-            writeQuotationCustomerField(
-                'quotation-address4',
-                pickValue(
-                    'ADDRESS4',
-                    'address4',
-                    'addr4',
-                    'line4',
-                    'state',
-                    'country',
-                    'BillAddr4',
-                    'Region',
-                    'STATE',
-                ) || '',
-            );
-
-            writeQuotationCustomerField(
-                'quotation-phone',
-                pickValue(
-                    'PHONE1',
-                    'phone1',
-                    'PHONE',
-                    'phone',
-                    'tel',
-                    'telephone',
-                    'TEL',
-                    'MOBILE',
-                    'mobile',
-                    'CONTACT',
-                    'Contact',
-                    'HP',
-                    'Hp',
-                ) || 'N/A',
-            );
-
-            writeQuotationCustomerField(
-                'quotation-terms',
-                pickValue('CREDITTERM', 'creditTerm', 'creditterm', 'TERMS', 'terms') || 'N/A',
-            );
 
             const dept = pickFrom(source, ['DEPARTMENT', 'department']) || '';
             const deptRow = document.getElementById('quotation-department-row');
@@ -1103,10 +1608,9 @@ async function loadUserInfo() {
 
 // Helper function to set all customer fields to N/A
 function setDefaultCustomerInfo() {
-    const fields = ['quotation-company', 'quotation-address1', 'quotation-address2', 'quotation-phone', 'quotation-terms'];
-    fields.forEach((fieldId) => writeQuotationCustomerField(fieldId, 'N/A'));
-    writeQuotationCustomerField('quotation-address3', '');
-    writeQuotationCustomerField('quotation-address4', '');
+    quotationCustomerScalars = {};
+    renderCustomerAllFields([]);
+    syncProminentCustomerFields();
     const deptRow = document.getElementById('quotation-department-row');
     const deptEl = document.getElementById('quotation-department');
     if (deptRow && deptEl) {
@@ -1139,19 +1643,17 @@ async function loadDraftQuotation(dockey) {
                 validityField.value = validityDate;
             }
             
-            writeQuotationCustomerField('quotation-terms', quotation.TERMS || '');
-            writeQuotationCustomerField('quotation-company', quotation.COMPANYNAME || '');
-            writeQuotationCustomerField('quotation-address1', quotation.ADDRESS1 || '');
-            writeQuotationCustomerField('quotation-address2', quotation.ADDRESS2 || '');
-            writeQuotationCustomerField('quotation-address3', quotation.ADDRESS3 || '');
-            writeQuotationCustomerField('quotation-address4', quotation.ADDRESS4 || '');
-            writeQuotationCustomerField('quotation-phone', quotation.PHONE1 || '');
+            await loadUserInfo();
 
             // Populate items
             if (quotation.items && quotation.items.length > 0) {
-                const container = document.getElementById('quotation-items-list');
+                const container = getQuotationLineItemsBody();
+                if (!container) {
+                    ensureDefaultQuotationLineRow();
+                    return;
+                }
                 container.innerHTML = ''; // Clear default item
-                
+
                 quotation.items.forEach(item => {
                     const explicitSource = (item.SOURCE || '').toString().toLowerCase();
                     const description = (item.DESCRIPTION || '').toString();
@@ -1161,31 +1663,20 @@ async function loadDraftQuotation(dockey) {
                     });
                     const source = explicitSource || (hasCatalogMatch ? 'catalog' : 'custom');
                     const isCustom = source !== 'catalog';
-                    const newItem = document.createElement('div');
-                    newItem.className = 'order-item';
-                    newItem.innerHTML = `
-                        <div class="item-row">
-                            <select class="item-source" onchange="onProductSourceChange(this)">
-                                <option value="catalog" ${isCustom ? '' : 'selected'}>From catalog</option>
-                                <option value="custom" ${isCustom ? 'selected' : ''}>Custom order</option>
-                            </select>
-                            <input type="text" class="item-product" list="product-list" placeholder="Type code or name to search…" autocomplete="off" onchange="fetchProductPrice(this)" style="display:${isCustom ? 'none' : 'inline-block'};">
-                            <input type="text" class="item-product-custom" placeholder="Custom product" style="display:${isCustom ? 'inline-block' : 'none'};" value="${isCustom ? (item.DESCRIPTION || '') : ''}" onchange="fetchProductPrice(this)">
-                            ${QUOTATION_LINE_ST_ITEM_EXTRA_INPUTS}
-                            <input type="number" class="item-qty" placeholder="Qty" min="1" value="${item.QTY || 1}" onchange="calculateQuotationTotal()">
-                            <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="${item.DISC || 0}" onchange="calculateQuotationTotal()">
-                            <input type="number" class="item-suggested-price" placeholder="Reference price" step="0.01" min="0" value="${item.UDF_STDPRICE || 0}" readonly>
-                            <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" value="${item.UNITPRICE || 0}" readonly title="Unit price from pricing rules (not editable)">
-                            <input type="date" class="item-delivery-date" value="${item.DELIVERYDATE || new Date().toISOString().split('T')[0]}">
-                            <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
-                        </div>
-                    `;
-                    container.appendChild(newItem);
+                    const newItem = appendQuotationLineRow(container, {
+                        isCustom,
+                        description,
+                        qty: item.QTY || 1,
+                        disc: item.DISC || 0,
+                        refPrice: item.UDF_STDPRICE || 0,
+                        unitPrice: item.UNITPRICE || 0,
+                        deliveryDate: item.DELIVERYDATE || new Date().toISOString().split('T')[0],
+                    });
                     syncProductDatalist();
 
                     const productField = newItem.querySelector('.item-product');
                     if (!isCustom && item.DESCRIPTION && productField) {
-                        productField.value = item.DESCRIPTION;
+                        writeQuotationLineField(newItem, '.item-product', item.DESCRIPTION);
                         fetchProductPrice(productField);
                     }
                 });
@@ -1207,8 +1698,10 @@ async function loadDraftQuotation(dockey) {
         } else {
             console.error('Failed to load draft quotation:', data.error);
         }
+        ensureDefaultQuotationLineRow();
     } catch (error) {
         console.error('Error loading draft quotation:', error);
+        ensureDefaultQuotationLineRow();
     }
 }
 
@@ -1237,16 +1730,14 @@ async function loadSlQtDraftForEdit(draftDockey) {
         if (draft.VALIDITY) {
             fillField('quotation-validity', draft.VALIDITY.split(' ')[0]);
         }
-        fillField('quotation-terms', draft.TERMS);
-        fillField('quotation-company', draft.COMPANYNAME);
-        fillField('quotation-address1', draft.ADDRESS1);
-        fillField('quotation-address2', draft.ADDRESS2);
-        fillField('quotation-address3', draft.ADDRESS3);
-        fillField('quotation-address4', draft.ADDRESS4);
-        fillField('quotation-phone', draft.PHONE1);
+        await loadUserInfo();
 
         if (draft.items && draft.items.length > 0) {
-            const container = document.getElementById('quotation-items-list');
+            const container = getQuotationLineItemsBody();
+            if (!container) {
+                ensureDefaultQuotationLineRow();
+                return;
+            }
             container.innerHTML = '';
             draft.items.forEach(item => {
                 const explicitSource = (item.SOURCE || '').toString().toLowerCase();
@@ -1257,26 +1748,15 @@ async function loadSlQtDraftForEdit(draftDockey) {
                 });
                 const source = explicitSource || (hasCatalogMatch ? 'catalog' : 'custom');
                 const isCustom = source !== 'catalog';
-                const newItem = document.createElement('div');
-                newItem.className = 'order-item';
-                newItem.innerHTML = `
-                    <div class="item-row">
-                        <select class="item-source" onchange="onProductSourceChange(this)">
-                            <option value="catalog" ${isCustom ? '' : 'selected'}>From catalog</option>
-                            <option value="custom" ${isCustom ? 'selected' : ''}>Custom order</option>
-                        </select>
-                        <input type="text" class="item-product" list="product-list" placeholder="Type code or name to search…" autocomplete="off" onchange="fetchProductPrice(this)" style="display:${isCustom ? 'none' : 'inline-block'};">
-                        <input type="text" class="item-product-custom" placeholder="Custom product" style="display:${isCustom ? 'inline-block' : 'none'};" value="${isCustom ? (item.DESCRIPTION || '') : ''}" onchange="fetchProductPrice(this)">
-                        ${QUOTATION_LINE_ST_ITEM_EXTRA_INPUTS}
-                        <input type="number" class="item-qty" placeholder="Qty" min="1" value="${item.QTY || 1}" onchange="calculateQuotationTotal()">
-                        <input type="number" class="item-discount" placeholder="Discount" step="0.01" min="0" value="${item.DISC || 0}" onchange="calculateQuotationTotal()">
-                        <input type="number" class="item-suggested-price" placeholder="Reference price" step="0.01" min="0" value="${item.UDF_STDPRICE || 0}" readonly>
-                        <input type="number" class="item-price" placeholder="Unit Price" step="0.01" min="0" value="${item.UNITPRICE || 0}" readonly title="Unit price from pricing rules (not editable)">
-                        <input type="date" class="item-delivery-date" value="${item.DELIVERYDATE || new Date().toISOString().split('T')[0]}">
-                        <button type="button" class="btn-remove" onclick="removeQuotationItem(this)">✕</button>
-                    </div>
-                `;
-                container.appendChild(newItem);
+                const newItem = appendQuotationLineRow(container, {
+                    isCustom,
+                    description,
+                    qty: item.QTY || 1,
+                    disc: item.DISC || 0,
+                    refPrice: item.UDF_STDPRICE || 0,
+                    unitPrice: item.UNITPRICE || 0,
+                    deliveryDate: item.DELIVERYDATE || new Date().toISOString().split('T')[0],
+                });
                 syncProductDatalist();
 
                 const productField = newItem.querySelector('.item-product');
@@ -1293,7 +1773,7 @@ async function loadSlQtDraftForEdit(draftDockey) {
                             rowLabel = String(byCode.DESCRIPTION || byCode.CODE || rowLabel).trim();
                         }
                     }
-                    productField.value = rowLabel;
+                    writeQuotationLineField(newItem, '.item-product', rowLabel);
                     fetchProductPrice(productField);
                 }
             });
@@ -1308,13 +1788,17 @@ async function loadSlQtDraftForEdit(draftDockey) {
         if (pageTitle) pageTitle.textContent = 'Edit Draft Quotation';
         const formTitle = document.querySelector('#quotation-form').previousElementSibling;
         if (formTitle && formTitle.tagName === 'H3') formTitle.textContent = `Edit Draft - ${draft.DOCNO || ''}`;
+        ensureDefaultQuotationLineRow();
     } catch (error) {
         console.error('Error loading SL_QTDRAFT draft:', error);
+        ensureDefaultQuotationLineRow();
     }
 }
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', async function() {
+    repairCreateQuotationLinesUi();
+
     const quotationForm = document.getElementById('quotation-form');
     const urlParams = new URLSearchParams(window.location.search);
     const draftDockey = urlParams.get('draftDockey');
@@ -1339,9 +1823,10 @@ document.addEventListener('DOMContentLoaded', async function() {
         input.addEventListener('change', calculateOrderTotal);
     });
 
-    document.querySelectorAll('#quotation-items-list .item-qty, #quotation-items-list .item-price').forEach(input => {
-        input.addEventListener('change', calculateQuotationTotal);
-    });
+    initQuotationLineTableEvents();
+    repairCreateQuotationLinesUi();
+    ensureDefaultQuotationLineRow();
+    initQuotationCatalogProductPickers();
 });
 
 // AUTO-FILL FROM CHATBOT
@@ -1596,20 +2081,19 @@ function addProductToQuotation(productDescription, quantity = 1, sourceButton = 
     const normalizedProduct = normalizeProductName(productDescription);
     const parsedQuantity = Number(quantity) || 1;
 
-    const existingItems = document.querySelectorAll('#quotation-items-list .order-item');
+    const existingItems = getQuotationLineRows();
     for (const item of existingItems) {
-        const select = item.querySelector('.item-product');
-        const qtyInput = item.querySelector('.item-qty');
+        const productCell = item.querySelector('.item-product');
         const existingProduct = normalizeProductName(
-            item.dataset.productDescription || select?.value || select?.options?.[select.selectedIndex]?.text || ''
+            item.dataset.productDescription || readQuotationLineField(item, '.item-product')
         );
 
-        if (existingProduct && existingProduct === normalizedProduct && qtyInput) {
-            const currentQty = Number(qtyInput.value) || 0;
-            qtyInput.value = currentQty + parsedQuantity;
+        if (existingProduct && existingProduct === normalizedProduct && productCell) {
+            const currentQty = readQuotationLineNumber(item, '.item-qty');
+            writeQuotationLineField(item, '.item-qty', currentQty + parsedQuantity);
             item.dataset.productDescription = productDescription.trim();
             calculateQuotationTotal();
-            fetchProductPrice(select);
+            fetchProductPrice(productCell);
             item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             updateChatSuggestionButtonState(sourceButton, `Qty updated (+${parsedQuantity})`, 'is-updated');
             return true;
@@ -1618,11 +2102,10 @@ function addProductToQuotation(productDescription, quantity = 1, sourceButton = 
     
     // Find the last empty item or add a new one
     let lastItem = null;
-    const items = document.querySelectorAll('#quotation-items-list .order-item');
+    const items = getQuotationLineRows();
     
     for (let i = items.length - 1; i >= 0; i--) {
-        const select = items[i].querySelector('.item-product');
-        if (!select.value) {
+        if (!readQuotationLineField(items[i], '.item-product')) {
             lastItem = items[i];
             break;
         }
@@ -1631,21 +2114,16 @@ function addProductToQuotation(productDescription, quantity = 1, sourceButton = 
     // If no empty item found, add a new one
     if (!lastItem) {
         addQuotationItem();
-        lastItem = document.querySelectorAll('#quotation-items-list .order-item')[
-            document.querySelectorAll('#quotation-items-list .order-item').length - 1
-        ];
+        const rows = getQuotationLineRows();
+        lastItem = rows[rows.length - 1];
     }
     
-    // Fill in the product and quantity
-    const select = lastItem.querySelector('.item-product');
-    const qtyInput = lastItem.querySelector('.item-qty');
-    
+    const productCell = lastItem.querySelector('.item-product');
     lastItem.dataset.productDescription = productDescription.trim();
-    select.value = productDescription;
-    qtyInput.value = parsedQuantity;
+    writeQuotationLineField(lastItem, '.item-product', productDescription);
+    writeQuotationLineField(lastItem, '.item-qty', parsedQuantity);
     
-    // Trigger price fetch
-    fetchProductPrice(select);
+    fetchProductPrice(productCell);
     updateChatSuggestionButtonState(sourceButton, 'Added to quotation', 'is-added');
     
     // Scroll to the form
