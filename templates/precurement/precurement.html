@@ -47353,12 +47353,29 @@
         }
 
         function filterPrCatalogProducts(query) {
-            const q = String(query || '').trim().toLowerCase();
+            const normalizeSearch = (value) => String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+            const normalizeCompact = (value) => normalizeSearch(value).replace(/[\s\-_/()]+/g, '');
+            const q = normalizeSearch(query);
+            const qCompact = normalizeCompact(query);
             if (!q) return prCatalogProducts.filter((p) => prCatalogProductCode(p)).slice(0, 50);
             return prCatalogProducts.filter((p) => {
-                const code = prCatalogProductCode(p).toLowerCase();
-                const desc = prCatalogProductDesc(p).toLowerCase();
-                return (code && code.includes(q)) || (desc && desc.includes(q));
+                const code = prCatalogProductCode(p);
+                const desc = prCatalogProductDesc(p);
+                const shortList = prCatalogScalar(
+                    p,
+                    'SHORT',
+                    'SHORT_DESC',
+                    'SHORT_DESCRIPTION',
+                    'DESC_SHORT',
+                    'DISPLAY_CODE',
+                    'DISPLAY_SHORT',
+                    'ITEM_SHORT',
+                    'ITEMSHORT',
+                );
+                const hay = `${desc} ${code} ${shortList}`;
+                if (normalizeSearch(hay).includes(q)) return true;
+                if (qCompact && normalizeCompact(hay).includes(qCompact)) return true;
+                return false;
             }).slice(0, 50);
         }
 
@@ -47492,7 +47509,12 @@
                     _renderPrProductDropdown(picker, search.value.trim(), lineIndex);
                 });
                 search.addEventListener('focus', () => {
-                    _renderPrProductDropdown(picker, search.value.trim(), lineIndex);
+                    // Always show full list on focus, even when a product is already selected.
+                    _renderPrProductDropdown(picker, '', lineIndex);
+                });
+                search.addEventListener('click', () => {
+                    // Clicking into the field should also reopen with the full catalog list.
+                    _renderPrProductDropdown(picker, '', lineIndex);
                 });
                 search.addEventListener('keydown', (e) => {
                     if (e.key === 'Escape') _hidePrProductDropdown(dropdown, picker);
