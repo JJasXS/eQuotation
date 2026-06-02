@@ -840,72 +840,6 @@
 
 
 
-            const itemRows = [];
-
-            const itemMap = new Map();
-
-            bids.forEach((bid) => {
-
-                (bid.lines || []).forEach((line) => {
-
-                    const key = String(line.itemCode || line.description || '').trim();
-
-                    if (!key) {
-
-                        return;
-
-                    }
-
-                    if (!itemMap.has(key)) {
-
-                        itemMap.set(key, []);
-
-                    }
-
-                    itemMap.get(key).push({
-
-                        supplierCode: String(bid.supplierCode || '').trim(),
-
-                        supplierName: String(bid.supplierName || '').trim(),
-
-                        unitPrice: Number(line.unitPrice || 0),
-
-                        amount: Number(line.amount || 0),
-
-                    });
-
-                });
-
-            });
-
-
-
-            itemMap.forEach((offers, itemCode) => {
-
-                const ranked = offers.slice().sort((a, b) => a.unitPrice - b.unitPrice);
-
-                const best = ranked[0] || null;
-
-                const offerText = offers.map((o) => `${esc(o.supplierCode)}: ${money(o.unitPrice)}`).join(' | ');
-
-                itemRows.push(`
-
-                    <tr>
-
-                        <td>${esc(itemCode)}</td>
-
-                        <td>${offerText || '-'}</td>
-
-                        <td class="best-cost">${best ? `${esc(best.supplierCode)} (${money(best.unitPrice)})` : '-'}</td>
-
-                    </tr>
-
-                `);
-
-            });
-
-
-
             const compareHtml = `
 
                 <div class="compare-card">
@@ -939,16 +873,6 @@
                             `).join('')}
 
                         </tbody>
-
-                    </table>
-
-                    <div class="compare-title" style="margin-top:14px;">By item (unit price)</div>
-
-                    <table>
-
-                        <thead><tr><th>Item</th><th>Offers</th><th>Best</th></tr></thead>
-
-                        <tbody>${itemRows.join('') || '<tr><td colspan="3" class="muted">No item comparison available.</td></tr>'}</tbody>
 
                     </table>
 

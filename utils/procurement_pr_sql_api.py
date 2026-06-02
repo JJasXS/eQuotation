@@ -168,10 +168,11 @@ def build_sdsdocdetail_line(
     from utils.procurement_purchase_request import parse_line_qty_sq_su
 
     qty_sq, qty_su, pricing_qty, _basis = parse_line_qty_sq_su(item)
+    pricing_qty_dec = _as_decimal(str(pricing_qty), "0")
     unit_price = _as_decimal(item.get("unitPrice") if item.get("unitPrice") is not None else item.get("unitprice"), "0")
     tax = _as_decimal(item.get("tax") if item.get("tax") is not None else item.get("taxamt"), "0")
     line_uom = _resolve_line_uom(item, stock)
-    amount = _money(_as_decimal(item.get("amount"), str(pricing_qty * unit_price + tax)))
+    amount = _money(_as_decimal(item.get("amount"), str(pricing_qty_dec * unit_price + tax)))
 
     delivery_raw = _clean_text(item.get("deliveryDate") or item.get("deliverydate"))
     delivery_date = delivery_raw or (default_delivery.isoformat() if default_delivery else "")

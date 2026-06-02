@@ -5190,6 +5190,7 @@ def _resolve_invitation_email_targets(suppliers: list[dict]) -> list[dict]:
         return []
     codes = [s.get('code') or s.get('supplierCode') or '' for s in suppliers]
     master = _fetch_supplier_master_from_sql_api(codes)
+    local_email_map = _fetch_supplier_emails_by_codes(codes)
     from utils.sql_api_supplier import supplier_emails_from_sql_api_row
 
     cached_by_code: dict[str, dict] = {}
@@ -5236,6 +5237,10 @@ def _resolve_invitation_email_targets(suppliers: list[dict]) -> list[dict]:
             for em in m.get('emails') or []:
                 _add(str(em))
             _add(str(m.get('udf_email') or ''))
+
+        # Robust fallback: use local Firebird supplier email columns when SQL API /supplier fails (401/502).
+        for em in (local_email_map.get(key_u) or []):
+            _add(str(em))
 
         if not emails:
             for em in supplier_emails_from_sql_api_row(s):
