@@ -1579,9 +1579,6 @@ function showCatalogProductPicker(input) {
     if (!input || input.classList.contains('item-product-custom')) {
         return;
     }
-    if (!document.body.classList.contains('create-quotation-page')) {
-        return;
-    }
     clearTimeout(cqProductPickerCloseTimer);
     const picker = ensureCatalogProductPicker();
     cqProductPickerActiveInput = input;
@@ -1641,10 +1638,7 @@ function bindCatalogProductInput(input) {
 }
 
 function initQuotationCatalogProductPickers() {
-    if (!document.body.classList.contains('create-quotation-page')) {
-        return;
-    }
-    document.querySelectorAll('#quotation-line-items input.item-product:not(.item-product-custom)').forEach((input) => {
+    document.querySelectorAll('input.item-product:not(.item-product-custom)').forEach((input) => {
         bindCatalogProductInput(input);
     });
 }

@@ -1582,7 +1582,7 @@
 
 
 
-                                                        <th class="qty-col">Shortage Qty</th>
+                                                        <th class="qty-col">Order</th>
 
 
 
@@ -3971,137 +3971,6 @@
 
 
                                     </div>
-
-
-
-
-
-
-
-
-
-
-
-                                    <div class="pr-form-row pr-form-row--details">
-
-
-
-
-
-
-
-
-
-
-
-                                        <label class="pr-field">
-
-
-
-
-
-
-
-
-
-
-
-                                            <span>Description</span>
-
-
-
-
-
-
-
-
-
-
-
-                                            <input type="text" id="pr-header-description" placeholder="Description" />
-
-
-
-
-
-
-
-
-
-
-
-                                        </label>
-
-
-
-
-
-
-
-
-
-
-
-                                        <label class="pr-field">
-
-
-
-
-
-
-
-
-
-
-
-                                            <span>Delivery location</span>
-
-
-
-
-
-
-
-
-
-
-
-                                            <input type="text" id="pr-delivery-location" autocomplete="address-line1" />
-
-
-
-
-
-
-
-
-
-
-
-                                        </label>
-
-
-
-
-
-
-
-
-
-
-
-                                    </div>
-
-
-
-
-
-
-
-
-
-
-
                                         <style>
 
 
@@ -5058,18 +4927,6 @@
 
 
                                                 <th>UOM</th>
-
-
-
-
-
-
-
-
-
-
-
-                                                <th>UDF Reason</th>
 
 
 
@@ -8550,6 +8407,7 @@
 
 
         const STOCK_CARD_SELECTED_LOCATIONS_LS = 'procurementStockCardSelectedLocations';
+        const PURCHASE_REQUEST_DRAFT_LS_KEY = 'procurementCreatePrDraftItemsV1';
 
 
 
@@ -9497,7 +9355,7 @@
 
 
 
-        /** Positive UDF_WEIGHT from catalog row (SQL API / ST_ITEM); omitted or invalid → no auto SUOM. */
+        /** Positive UDF_WTP from catalog row (SQL API / ST_ITEM); omitted or invalid → no auto SUOM. */
 
 
 
@@ -9533,7 +9391,9 @@
 
 
 
-            const raw = product.UDF_WEIGHT != null ? product.UDF_WEIGHT : product.udf_weight;
+            const raw = product.UDF_WTP != null
+                ? product.UDF_WTP
+                : (product.udf_wtp != null ? product.udf_wtp : (product.UDF_WEIGHT != null ? product.UDF_WEIGHT : product.udf_weight));
 
 
 
@@ -9617,7 +9477,7 @@
 
 
 
-        /** SUOMQTY = SQTY × UDF_WEIGHT when the item has a positive weight in ST_ITEM. */
+        /** SUOMQTY = SQTY × UDF_WTP when the item has a positive WTP in ST_ITEM. */
 
 
 
@@ -10169,7 +10029,7 @@
 
 
 
-            { key: 'need_to_buy_by_location', label: 'Shortage Qty', maps: { sqty: 'need_to_buy_sqty_by_location', suom: 'need_to_buy_suom_by_location' } },
+            { key: 'need_to_buy_by_location', label: 'Order', maps: { sqty: 'need_to_buy_sqty_by_location', suom: 'need_to_buy_suom_by_location' } },
 
 
 
@@ -29873,7 +29733,7 @@
 
 
 
-            document.getElementById('pr-header-description').value = String(header.description || '');
+            
 
 
 
@@ -29885,7 +29745,7 @@
 
 
 
-            document.getElementById('pr-delivery-location').value = String(header.deliveryLocation || '');
+            
 
 
 
@@ -29945,6 +29805,8 @@
 
 
 
+            savePurchaseRequestDraftItems();
+            savePurchaseRequestDraftItems();
             showTab('create');
 
 
@@ -32549,6 +32411,69 @@
 
 
 
+        function savePurchaseRequestDraftItems() {
+            try {
+                if (!Array.isArray(window.purchaseRequestItems) || !window.purchaseRequestItems.length) {
+                    localStorage.removeItem(PURCHASE_REQUEST_DRAFT_LS_KEY);
+                    return;
+                }
+                const items = window.purchaseRequestItems.map((item) => ({
+                    itemCode: String(item?.itemCode || '').trim(),
+                    itemName: String(item?.itemName || '').trim(),
+                    locationCode: String(item?.locationCode || '').trim(),
+                    description: String(item?.description || '').trim(),
+                    uom: String(item?.uom || '').trim(),
+                    udfReason: String(item?.udfReason || '').trim(),
+                    project: String(item?.project || '').trim(),
+                    qtySqty: Number(item?.qtySqty || 0),
+                    qtySuomqty: Number(item?.qtySuomqty || 0),
+                    quantity: Number(item?.quantity || 0),
+                    unitPrice: Number(item?.unitPrice || 0),
+                    deliveryDate: String(item?.deliveryDate || '').trim(),
+                    stockQtyUom: String(item?.stockQtyUom || '').trim().toUpperCase(),
+                }));
+                localStorage.setItem(PURCHASE_REQUEST_DRAFT_LS_KEY, JSON.stringify(items));
+            } catch (_) {}
+        }
+
+        function clearPurchaseRequestDraftItems() {
+            try {
+                localStorage.removeItem(PURCHASE_REQUEST_DRAFT_LS_KEY);
+            } catch (_) {}
+        }
+
+        function tryRestorePurchaseRequestDraftItems() {
+            try {
+                const raw = localStorage.getItem(PURCHASE_REQUEST_DRAFT_LS_KEY);
+                if (!raw) return false;
+                const parsed = JSON.parse(raw);
+                if (!Array.isArray(parsed) || !parsed.length) return false;
+                const restored = parsed.map((item) => {
+                    const row = {
+                        itemCode: String(item?.itemCode || '').trim(),
+                        itemName: String(item?.itemName || '').trim(),
+                        locationCode: String(item?.locationCode || '').trim(),
+                        description: String(item?.description || '').trim(),
+                        uom: String(item?.uom || '').trim(),
+                        udfReason: String(item?.udfReason || '').trim(),
+                        project: String(item?.project || '').trim(),
+                        qtySqty: Number(item?.qtySqty || 0),
+                        qtySuomqty: Number(item?.qtySuomqty || 0),
+                        quantity: Number(item?.quantity || 0),
+                        unitPrice: Number(item?.unitPrice || 0),
+                        deliveryDate: String(item?.deliveryDate || '').trim() || prTodayIso(),
+                        stockQtyUom: String(item?.stockQtyUom || defaultPrStockQtyUom()).trim().toUpperCase(),
+                    };
+                    syncPrLineQuantityDerived(row);
+                    return row;
+                });
+                window.purchaseRequestItems = restored;
+                return true;
+            } catch (_) {
+                return false;
+            }
+        }
+
         function goToCreateProcurement() {
 
 
@@ -32874,6 +32799,7 @@
 
 
                 window.purchaseRequestItems = [row];
+                savePurchaseRequestDraftItems();
 
 
 
@@ -34397,7 +34323,7 @@
 
 
 
-        /** Shortage SUOM for stock card: SQTY × UDF_WEIGHT when catalog has weight; otherwise report SU shortage. */
+        /** Shortage SUOM for stock card: SQTY × UDF_WTP when catalog has WTP; otherwise report SU shortage. */
 
 
 
@@ -38969,7 +38895,7 @@
 
 
 
-                { label: 'Shortage Qty', maps: { sqty: 'need_to_buy_sqty_by_location', suom: 'need_to_buy_suom_by_location' }, bg: '#f5d4dc', color: '#7a2222' },
+                { label: 'Order', maps: { sqty: 'need_to_buy_sqty_by_location', suom: 'need_to_buy_suom_by_location' }, bg: '#f5d4dc', color: '#7a2222' },
 
 
 
@@ -40229,7 +40155,7 @@
 
 
 
-                        ? 'SUOMQTY from SQTY × UDF_WEIGHT; updates when you edit SQTY.'
+                        ? 'SUOMQTY from SQTY × UDF_WTP; updates when you edit SQTY.'
 
 
 
@@ -47549,7 +47475,20 @@
                 if (!Number.isFinite(lineIndex)) return;
                 if (search.dataset.prPickerBound === '1') return;
                 search.dataset.prPickerBound = '1';
+                const clearCommittedSelectionIfTypingNew = () => {
+                    const typed = String(search.value || '').trim();
+                    const committed = String(prProductInputTextForLine(lineIndex) || '').trim();
+                    if (!typed || !committed) return;
+                    if (typed.toUpperCase() === committed.toUpperCase()) return;
+                    const item = window.purchaseRequestItems && window.purchaseRequestItems[lineIndex];
+                    if (!item) return;
+                    item.itemCode = '';
+                    item.itemName = '';
+                    item.description = '';
+                    item.uom = '';
+                };
                 search.addEventListener('input', () => {
+                    clearCommittedSelectionIfTypingNew();
                     _renderPrProductDropdown(picker, search.value.trim(), lineIndex);
                 });
                 search.addEventListener('focus', () => {
@@ -47561,7 +47500,6 @@
                 search.addEventListener('blur', () => {
                     setTimeout(() => {
                         _hidePrProductDropdown(dropdown, picker);
-                        search.value = prProductInputTextForLine(lineIndex);
                     }, 180);
                 });
             });
@@ -49156,7 +49094,7 @@
 
 
 
-                    ? 'SUOMQTY from SQTY × UDF_WEIGHT (read-only)'
+                    ? 'SUOMQTY from SQTY × UDF_WTP (read-only)'
 
 
 
@@ -49341,18 +49279,6 @@
 
 
 
-                        <td><input type="text" value="${escapeHtml(item.udfReason || '')}" oninput="updatePurchaseRequestItem(${idx}, 'udfReason', this.value)" /></td>
-
-
-
-
-
-
-
-
-
-
-
                         <td class="pr-qty-cell"><input type="number" class="pr-input-qty" data-pr-field="qtySqty" min="0" step="0.0001" value="${escapeHtml(qtySqty)}" oninput="updatePurchaseRequestItem(${idx}, 'qtySqty', this.value)" title="Stock quantity (SQTY)" /></td>
 
 
@@ -49499,6 +49425,7 @@
 
             recalcPurchaseRequestTotals();
             initPrLineProductPickers();
+            savePurchaseRequestDraftItems();
 
 
 
@@ -51058,7 +50985,7 @@
 
 
 
-                description: document.getElementById('pr-header-description').value.trim(),
+                description: '',
 
 
 
@@ -51070,7 +50997,7 @@
 
 
 
-                deliveryLocation: document.getElementById('pr-delivery-location').value.trim(),
+                deliveryLocation: '',
 
 
 
@@ -52186,7 +52113,7 @@
 
 
 
-                    description: document.getElementById('pr-header-description').value.trim(),
+                    description: '',
 
 
 
@@ -52198,7 +52125,7 @@
 
 
 
-                    deliveryLocation: document.getElementById('pr-delivery-location').value.trim(),
+                    deliveryLocation: '',
 
 
 
@@ -56459,6 +56386,7 @@
 
 
             prFormEditState = null;
+            clearPurchaseRequestDraftItems();
 
 
 
@@ -56926,7 +56854,9 @@
 
 
 
-                initPurchaseRequestForm();
+                if (!tryRestorePurchaseRequestDraftItems()) {
+                    initPurchaseRequestForm();
+                }
 
 
 
