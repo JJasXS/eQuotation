@@ -7201,6 +7201,88 @@ def api_admin_purchase_request_detail_approval_update():
         return jsonify({'success': False, 'error': 'Insufficient permissions to update PR line approvals'}), 403
     payload = request.get_json(silent=True) or {}
 
+    def _apply_detail_approval_local_fallback(update_payload: dict) -> dict:
+        changes = update_payload.get('changes') if isinstance(update_payload, dict) else None
+        if not isinstance(changes, list) or not changes:
+            raise ValueError('changes[] is required')
+
+        con = None
+        cur = None
+        try:
+            con = get_db_connection()
+            cur = con.cursor()
+
+            cur.execute(
+                """
+                SELECT TRIM(RF.RDB$FIELD_NAME)
+                FROM RDB$RELATION_FIELDS RF
+                WHERE RF.RDB$RELATION_NAME = 'PH_PQDTL'
+                """
+            )
+            cols = {str(r[0]).strip().upper() for r in (cur.fetchall() or []) if r and r[0]}
+            key_col = 'DTLKEY' if 'DTLKEY' in cols else ('PQDTLKEY' if 'PQDTLKEY' in cols else ('ID' if 'ID' in cols else ''))
+            approved_col = 'UDF_PQAPPROVED' if 'UDF_PQAPPROVED' in cols else ''
+            transferable_col = 'TRANSFERABLE' if 'TRANSFERABLE' in cols else ''
+            if not key_col or not approved_col:
+                raise RuntimeError('PH_PQDTL key/UDF_PQAPPROVED columns not found')
+
+            def _field_type(table_name: str, column_name: str):
+                cur.execute(
+                    """
+                    SELECT F.RDB$FIELD_TYPE
+                    FROM RDB$RELATION_FIELDS RF
+                    JOIN RDB$FIELDS F ON RF.RDB$FIELD_SOURCE = F.RDB$FIELD_NAME
+                    WHERE RF.RDB$RELATION_NAME = ? AND RF.RDB$FIELD_NAME = ?
+                    """,
+                    (table_name.upper(), column_name.upper()),
+                )
+                row = cur.fetchone()
+                return int(row[0]) if row and row[0] is not None else None
+
+            def _encode_bool(table_name: str, column_name: str, value: bool):
+                t = _field_type(table_name, column_name)
+                if t == 23:  # BOOLEAN
+                    return bool(value)
+                if t in {7, 8, 16, 27}:  # SMALLINT/INTEGER/BIGINT/NUMERIC
+                    return 1 if value else 0
+                return 'TRUE' if value else 'FALSE'
+
+            updated = 0
+            for raw in changes:
+                if not isinstance(raw, dict) or raw.get('detailId') is None:
+                    continue
+                try:
+                    detail_id = int(raw.get('detailId'))
+                except Exception:
+                    continue
+                approved = bool(raw.get('approved'))
+                approved_val = _encode_bool('PH_PQDTL', approved_col, approved)
+                if transferable_col:
+                    transferable_val = _encode_bool('PH_PQDTL', transferable_col, approved)
+                    cur.execute(
+                        f"UPDATE PH_PQDTL SET {approved_col} = ?, {transferable_col} = ? WHERE {key_col} = ?",
+                        (approved_val, transferable_val, detail_id),
+                    )
+                else:
+                    cur.execute(
+                        f"UPDATE PH_PQDTL SET {approved_col} = ? WHERE {key_col} = ?",
+                        (approved_val, detail_id),
+                    )
+                updated += int(cur.rowcount or 0)
+            con.commit()
+            return {'success': True, 'updated': updated, 'requested': len(changes), 'source': 'local_fallback'}
+        finally:
+            try:
+                if cur is not None:
+                    cur.close()
+            except Exception:
+                pass
+            try:
+                if con is not None:
+                    con.close()
+            except Exception:
+                pass
+
     try:
         headers = _build_sql_api_auth_headers()
         try:
@@ -7220,12 +7302,24 @@ def api_admin_purchase_request_detail_approval_update():
                     message = (e.response.text or '').strip()
             st = e.response.status_code if e.response is not None else 502
             err = f"SQL API returned {st}" + (f": {message}" if message else '')
-            return jsonify({'success': False, 'error': err}), 502
+            try:
+                fallback = _apply_detail_approval_local_fallback(payload)
+                return jsonify({'success': True, 'data': fallback, 'warning': err})
+            except Exception as fallback_exc:
+                return jsonify({'success': False, 'error': err, 'fallback_error': str(fallback_exc)}), 502
         return jsonify({'success': True, 'data': body})
     except requests.exceptions.Timeout:
-        return jsonify({'success': False, 'error': 'Approval update request timed out'}), 504
+        try:
+            fallback = _apply_detail_approval_local_fallback(payload)
+            return jsonify({'success': True, 'data': fallback, 'warning': 'Approval update request timed out; local fallback applied'})
+        except Exception:
+            return jsonify({'success': False, 'error': 'Approval update request timed out'}), 504
     except requests.exceptions.ConnectionError:
-        return jsonify({'success': False, 'error': 'Cannot reach SQL API for approval update'}), 503
+        try:
+            fallback = _apply_detail_approval_local_fallback(payload)
+            return jsonify({'success': True, 'data': fallback, 'warning': 'Cannot reach SQL API; local fallback applied'})
+        except Exception:
+            return jsonify({'success': False, 'error': 'Cannot reach SQL API for approval update'}), 503
     except Exception as exc:
         print(f"[PROCUREMENT PR APPROVAL UPDATE] error: {exc}", flush=True)
         return jsonify({'success': False, 'error': str(exc)}), 500

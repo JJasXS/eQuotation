@@ -272,18 +272,22 @@ def _append_pqdtl_sqty_suom_update(
 
 
 def _next_key(cur: Any, table_name: str, key_column: str, generator_candidates: list[str]) -> int:
+    cur.execute(f"SELECT COALESCE(MAX({key_column}), 0) FROM {table_name}")
+    row = cur.fetchone()
+    max_existing = int(row[0] if row and row[0] is not None else 0)
+
     for generator_name in generator_candidates:
         try:
             cur.execute(f"SELECT GEN_ID({generator_name}, 1) FROM RDB$DATABASE")
             row = cur.fetchone()
             if row and row[0] is not None:
-                return int(row[0])
+                gen_val = int(row[0])
+                # Keep in sync with existing SQL rows even when a generator is behind.
+                return gen_val if gen_val > max_existing else (max_existing + 1)
         except Exception:
             continue
 
-    cur.execute(f"SELECT COALESCE(MAX({key_column}), 0) + 1 FROM {table_name}")
-    row = cur.fetchone()
-    return int(row[0] if row and row[0] is not None else 1)
+    return max_existing + 1
 
 
 def _insert_dynamic(cur: Any, table_name: str, data: dict[str, Any], existing_columns: set[str]) -> None:
@@ -693,20 +697,12 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
     currency = ""
 
     if supplier_id:
-        from utils.procurement_pr_sql_api import resolve_pr_currency_code
-
-        try:
-            currency = resolve_pr_currency_code(supplier_id, required=True)
-        except ValueError as exc:
-            errors.append(str(exc))
+        # Keep header currency blank during bidding; it will be set after award/confirmation.
+        currency = ""
     elif invited_codes and pr_status == "SUBMITTED":
-        from utils.procurement_pr_sql_api import resolve_pr_currency_code
-
-        try:
-            currency = resolve_pr_currency_code(invited_codes[0], required=True)
-        except ValueError as exc:
-            errors.append(str(exc))
+        # Multi-supplier bidding starts without a fixed header supplier/currency.
         supplier_id = ""
+        currency = ""
     elif pr_status == "SUBMITTED":
         errors.append("Select at least one supplier to invite for bidding when submitting")
 

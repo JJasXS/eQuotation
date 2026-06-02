@@ -670,17 +670,11 @@ def update_purchase_request_detail_approval(
             encoded_value = _encode_bool_for_column(cur, "PH_PQDTL", approved_col, approved)
 
             if transferable_col:
-                if approved:
-                    transferable_value = _encode_bool_for_column(cur, "PH_PQDTL", transferable_col, True)
-                    cur.execute(
-                        f"UPDATE PH_PQDTL SET {approved_col} = ?, {transferable_col} = ? WHERE {detail_key_col} = ?",
-                        (encoded_value, transferable_value, detail_id),
-                    )
-                else:
-                    cur.execute(
-                        f"UPDATE PH_PQDTL SET {approved_col} = ?, {transferable_col} = NULL WHERE {detail_key_col} = ?",
-                        (encoded_value, detail_id),
-                    )
+                transferable_value = _encode_bool_for_column(cur, "PH_PQDTL", transferable_col, approved)
+                cur.execute(
+                    f"UPDATE PH_PQDTL SET {approved_col} = ?, {transferable_col} = ? WHERE {detail_key_col} = ?",
+                    (encoded_value, transferable_value, detail_id),
+                )
             else:
                 cur.execute(
                     f"UPDATE PH_PQDTL SET {approved_col} = ? WHERE {detail_key_col} = ?",

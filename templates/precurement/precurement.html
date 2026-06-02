@@ -2339,6 +2339,8 @@
 
 
                                                     class="view-pr-refresh-btn view-pr-update-availability-btn"
+                                                    hidden
+                                                    aria-hidden="true"
 
 
 
@@ -2530,7 +2532,7 @@
 
 
 
-                                    <div id="view-pr-bulk-pending-bar" class="view-pr-bulk-pending-bar" hidden>
+                                    <div id="view-pr-bulk-pending-bar" class="view-pr-bulk-pending-bar" hidden style="display:none !important;">
 
 
 
@@ -3262,7 +3264,7 @@
 
 
 
-                                            <input type="hidden" id="pr-edit-currency" value="MYR" />
+                                            <input type="hidden" id="pr-edit-currency" value="" />
 
 
 
@@ -7387,6 +7389,7 @@
 
 
         let viewDetailFetchPromises = new Map();
+        let viewDetailFetchStartedAtMs = new Map();
 
 
 
@@ -12837,7 +12840,7 @@
 
 
 
-            btn.textContent = saving ? 'Saving...' : 'Update Item Availability';
+            btn.textContent = saving ? 'Saving...' : 'Update';
 
 
 
@@ -12849,7 +12852,7 @@
 
 
 
-            btn.title = 'Save pending approval status and line selections (including bulk-queued changes).';
+            btn.title = 'Save pending approval status and line selections.';
 
 
 
@@ -15909,7 +15912,6 @@
 
 
 
-            if (hasPendingApprovalChangesForHeader(header.id)) return false;
 
 
 
@@ -15945,7 +15947,7 @@
 
 
 
-            return selectedDetails.every((detail) => toApprovalBool(detail._originalApproved));
+            return selectedDetails.every((detail) => isDetailChecked(detail));
 
 
 
@@ -16065,7 +16067,7 @@
 
 
 
-            if (hasPendingApprovalChangesForHeader(header.id)) {
+            if (false) {
 
 
 
@@ -16149,7 +16151,7 @@
 
 
 
-            if (!selectedDetails.every((detail) => toApprovalBool(detail._originalApproved))) {
+            if (!selectedDetails.every((detail) => isDetailChecked(detail))) {
 
 
 
@@ -16161,7 +16163,7 @@
 
 
 
-                return 'Only rows with saved UDF_PQAPPROVED = true can be transferred.';
+                return 'Only rows with UDF_PQAPPROVED = true can be transferred.';
 
 
 
@@ -16426,6 +16428,7 @@
 
 
                     quantity: getDetailTransferQuantity(detail),
+                    transferable: isDetailChecked(detail),
 
 
 
@@ -17542,6 +17545,7 @@
 
 
             detail.udfPqApproved = Boolean(checked);
+            detail.transferable = Boolean(checked);
 
 
 
@@ -17733,6 +17737,95 @@
 
 
 
+        function onDetailApprovalToggleAll(headerId, checked) {
+            if (document.body.classList.contains('procurement-hide-pr-approval-edits')) {
+                return;
+            }
+            const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(headerId));
+            if (!header || !Array.isArray(header.details)) {
+                return;
+            }
+
+            const nextChecked = Boolean(checked);
+            header.details.forEach((detail) => {
+                const detailId = Number(detail && detail.id ? detail.id : 0);
+                if (!detailId) {
+                    return;
+                }
+                const original = toApprovalBool(detail._originalApproved);
+                detail.udfPqApproved = nextChecked;
+                detail.transferable = nextChecked;
+                if (nextChecked === original) {
+                    viewApprovalPendingChanges.delete(String(detailId));
+                } else {
+                    viewApprovalPendingChanges.set(String(detailId), {
+                        detailId,
+                        approved: nextChecked,
+                        requestId: Number(headerId),
+                    });
+                }
+            });
+
+            const hasPending = header.details.some((row) => Number(row && row.id ? row.id : 0) > 0 && isDetailChecked(row));
+            queueHeaderUdfPendingFromSaved(headerId, hasPending ? 'APPROVED' : 'PENDING');
+            updateViewApprovalButtonState();
+            renderFilteredViewPurchaseRequests();
+        }
+
+        async function onDetailApprovalChangeAutoHeader(headerId, detailId, checked) {
+            onDetailApprovalChange(headerId, detailId, checked);
+            const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(headerId));
+            if (!header || !Array.isArray(header.details)) {
+                return;
+            }
+            const hasPending = header.details.some((row) => Number(row && row.id ? row.id : 0) > 0 && isDetailChecked(row));
+            queueHeaderUdfPendingFromSaved(headerId, hasPending ? 'APPROVED' : 'PENDING');
+            updateViewApprovalButtonState();
+            renderFilteredViewPurchaseRequests();
+            await persistSingleDetailApprovalChange(headerId, detailId, checked);
+        }
+
+        async function persistSingleDetailApprovalChange(headerId, detailId, checked) {
+            const headerNum = Number(headerId || 0);
+            const detailNum = Number(detailId || 0);
+            if (!headerNum || !detailNum) {
+                return;
+            }
+            try {
+                const res = await fetch('/api/admin/procurement/purchase-requests/details/approval', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        changes: [{
+                            detailId: detailNum,
+                            approved: Boolean(checked),
+                            requestId: headerNum,
+                        }],
+                    }),
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    throw new Error(data.error || `Failed to save line approval (HTTP ${res.status})`);
+                }
+
+                const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === headerNum);
+                if (header && Array.isArray(header.details)) {
+                    const detail = header.details.find((row) => Number(row.id || 0) === detailNum);
+                    if (detail) {
+                        detail._originalApproved = Boolean(checked);
+                        detail.udfPqApproved = Boolean(checked);
+                        detail.transferable = Boolean(checked);
+                    }
+                }
+                viewApprovalPendingChanges.delete(String(detailNum));
+                updateViewApprovalButtonState();
+            } catch (error) {
+                console.warn('[View PR] Failed to auto-save line approval:', error);
+            }
+        }
+
         async function saveViewDetailApprovals() {
 
 
@@ -17866,6 +17959,8 @@
 
 
             try {
+                let headerStatusSaveFailed = false;
+                let headerStatusError = '';
 
 
 
@@ -18033,7 +18128,12 @@
 
 
 
-                        throw new Error(statusData.error || `Failed to update header status (HTTP ${statusRes.status})`);
+                        const statusErr = statusData.error || `Failed to update header status (HTTP ${statusRes.status})`;
+                        if (viewApprovalPendingChanges.size === 0) {
+                            throw new Error(statusErr);
+                        }
+                        headerStatusSaveFailed = true;
+                        headerStatusError = statusErr;
 
 
 
@@ -18346,6 +18446,7 @@
 
 
                         detail.udfPqApproved = Boolean(change.approved);
+                        detail.transferable = Boolean(change.approved);
 
 
 
@@ -18393,7 +18494,8 @@
 
 
 
-                viewHeaderStatusPendingChanges.forEach((change) => {
+                if (!headerStatusSaveFailed) {
+                    viewHeaderStatusPendingChanges.forEach((change) => {
 
 
 
@@ -18465,7 +18567,8 @@
 
 
 
-                });
+                    });
+                }
 
 
 
@@ -18501,7 +18604,9 @@
 
 
 
-                viewHeaderStatusPendingChanges.clear();
+                if (!headerStatusSaveFailed) {
+                    viewHeaderStatusPendingChanges.clear();
+                }
 
 
 
@@ -18538,6 +18643,9 @@
 
 
                 await loadViewPurchaseRequests(true);
+                if (headerStatusSaveFailed) {
+                    alert(`Line approvals saved, but header status update failed: ${headerStatusError || 'SQL API returned an error.'}`);
+                }
 
 
 
@@ -19042,6 +19150,9 @@
 
 
             const savedUdfDisplay = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
+            const udfLocked = ['APPROVED', 'CANCELLED'].includes(normalizeUdfStatus(header._originalUdfStatus || header.udfStatus));
+            const selectUdf = normalizeUdfStatus(getHeaderPendingUdfStatus(header) || savedUdfDisplay);
+            const hideApprovalEdits = document.body.classList.contains('procurement-hide-pr-approval-edits');
 
 
 
@@ -19196,6 +19307,10 @@
 
 
 
+
+            const selectableDetailCount = details.filter((detail) => Number(detail.id || 0) > 0).length;
+            const selectedDetailCount = details.filter((detail) => Number(detail.id || 0) > 0 && isDetailChecked(detail)).length;
+            const allDetailsSelected = selectableDetailCount > 0 && selectedDetailCount === selectableDetailCount;
 
             const detailRows = details.length
 
@@ -19425,7 +19540,7 @@
 
 
 
-                        ${toApprovalBool(detail._originalApproved) && detail.id ? '' : 'disabled'}
+                        ${isDetailChecked(detail) && detail.id ? '' : 'disabled'}
 
 
 
@@ -19437,7 +19552,7 @@
 
 
 
-                        title="${escapeHtml(toApprovalBool(detail._originalApproved) ? `Enter transfer quantity up to ${formatStockCardNumber(getDetailMaxTransferQuantity(detail))}; total quantity is ${formatStockCardNumber(detail.quantity || 0)}.` : 'Save approval first before setting transfer quantity.')}"
+                        title="${escapeHtml(isDetailChecked(detail) ? `Enter transfer quantity up to ${formatStockCardNumber(getDetailMaxTransferQuantity(detail))}; total quantity is ${formatStockCardNumber(detail.quantity || 0)}.` : 'Tick approval first before setting transfer quantity.')}"
 
 
 
@@ -19629,7 +19744,7 @@
 
 
 
-                        ${toApprovalBool(detail.udfPqApproved) ? 'checked' : ''}
+                        ${isDetailChecked(detail) ? 'checked' : ''}
 
 
 
@@ -19641,7 +19756,7 @@
 
 
 
-                        onchange="onDetailApprovalChange(${headerId}, ${Number(detail.id || 0)}, this.checked)"
+                        onchange="onDetailApprovalChangeAutoHeader(${headerId}, ${Number(detail.id || 0)}, this.checked)"
 
 
 
@@ -20649,7 +20764,17 @@
 
 
 
-                                <th class="col-approved">Selected</th>
+                                <th class="col-approved">
+                                    <label class="view-pr-approved-head-toggle" title="Select or unselect all line items">
+                                        <input
+                                            type="checkbox"
+                                            aria-label="Select all line items"
+                                            ${allDetailsSelected ? 'checked' : ''}
+                                            ${selectableDetailCount ? '' : 'disabled'}
+                                            onchange="onDetailApprovalToggleAll(${headerId}, this.checked)"
+                                        />
+                                    </label>
+                                </th>
 
 
 
@@ -20746,6 +20871,18 @@
 
 
                     </table>
+
+                    ${hideApprovalEdits || udfLocked ? '' : `
+                    <div class="view-pr-detail-lines-footer">
+                        <div class="view-pr-detail-status-actions">
+                            <label class="view-pr-detail-status-label" for="view-pr-detail-udf-${headerId}">Status</label>
+                            <select id="view-pr-detail-udf-${headerId}" class="view-pr-udf-status view-pr-detail-udf-status" onchange="onHeaderUdfStatusChange(${headerId}, this.value)" title="Approval status">
+                                <option value="APPROVED" ${selectUdf === 'APPROVED' ? 'selected' : ''}>Approved</option>
+                                <option value="CANCELLED" ${selectUdf === 'CANCELLED' ? 'selected' : ''}>Cancelled</option>
+                            </select>
+                            <button type="button" class="view-pr-refresh-btn view-pr-detail-update-btn" onclick="saveViewDetailApprovals()">Update</button>
+                        </div>
+                    </div>`}
 
 
 
@@ -21094,6 +21231,8 @@
 
 
             if (!Array.isArray(header.details)) {
+                const missingId = Number(header.id || 0);
+                if (viewLoadingDetailIds.has(missingId) || viewDetailFetchPromises.has(missingId)) {
 
 
 
@@ -21106,6 +21245,11 @@
 
 
                 panel.innerHTML = '<div class="view-pr-detail-empty view-pr-detail-empty--loading">Loading line items…</div>';
+                } else {
+                    const detailError = String(header._detailError || '').trim();
+                    const msg = detailError ? `Failed to load line items: ${escapeHtml(detailError)}` : 'Line items are not loaded yet.';
+                    panel.innerHTML = `<div class="view-pr-detail-empty">${msg} <button type="button" class="view-pr-refresh-btn" onclick="retryViewPurchaseRequestDetails(${missingId})">Retry</button></div>`;
+                }
 
 
 
@@ -21153,7 +21297,14 @@
 
 
 
-            panel.innerHTML = buildViewPurchaseRequestDetailHtml(header);
+            try {
+                panel.innerHTML = buildViewPurchaseRequestDetailHtml(header);
+            } catch (error) {
+                console.error('Failed to render request detail panel:', error);
+                const renderError = error && error.message ? String(error.message) : 'Unknown render error';
+                header._detailError = renderError;
+                panel.innerHTML = `<div class="view-pr-detail-empty">Failed to render line items: ${escapeHtml(renderError)} <button type="button" class="view-pr-refresh-btn" onclick="retryViewPurchaseRequestDetails(${Number(header.id || 0)})">Retry</button></div>`;
+            }
 
 
 
@@ -22089,7 +22240,7 @@
 
 
 
-                    ? `<span class="view-pr-pending-status" title="Pending status change. Press Update Item Availability to save.">→ ${escapeHtml(pendingUdf)}</span>`
+                    ? `<span class="view-pr-pending-status" title="Pending status change. Press Update to save.">→ ${escapeHtml(pendingUdf)}</span>`
 
 
 
@@ -22233,7 +22384,7 @@
 
 
 
-                const bulkMode = isViewPendingBulkSelectMode() && !document.body.classList.contains('procurement-hide-pr-approval-edits');
+                const bulkMode = false;
 
 
 
@@ -22593,55 +22744,7 @@
 
 
 
-                        ${udfLocked ? approvalBadgeHtml : `<select class="view-pr-udf-status" onchange="onHeaderUdfStatusChange(${headerId}, this.value)" title="Approval status">
-
-
-
-
-
-
-
-
-
-
-
-                            <option value="APPROVED" ${selectUdf === 'APPROVED' ? 'selected' : ''}>APPROVED</option>
-
-
-
-
-
-
-
-
-
-
-
-                            <option value="CANCELLED" ${selectUdf === 'CANCELLED' ? 'selected' : ''}>CANCELLED</option>
-
-
-
-
-
-
-
-
-
-
-
-                            <option value="PENDING" ${selectUdf === 'PENDING' ? 'selected' : ''}>PENDING</option>
-
-
-
-
-
-
-
-
-
-
-
-                        </select>`}
+                        ${udfLocked ? approvalBadgeHtml : `<span class="pr-view-pr-card__udf-badge pr-view-pr-card__udf-badge--${String(selectUdf || 'PENDING').toLowerCase()}">${escapeHtml(selectUdf)}</span>`}
 
 
 
@@ -23230,6 +23333,7 @@
 
 
                     console.error('Failed to load request detail:', error);
+                    record._detailError = error && error.message ? String(error.message) : 'Failed to load detail rows';
 
 
 
@@ -23241,7 +23345,9 @@
 
 
 
-                    record.details = [];
+                    if (!Array.isArray(record.details)) {
+                        record.details = [];
+                    }
 
 
 
@@ -23349,6 +23455,7 @@
 
 
 
+            record._detailError = '';
             record.details = Array.isArray(payload.details) ? payload.details : [];
 
 
@@ -23661,7 +23768,7 @@
 
 
 
-                detail._originalApproved = toApprovalBool(detail.udfPqApproved);
+                detail._originalApproved = isDetailChecked(detail);
 
 
 
@@ -23829,6 +23936,45 @@
 
 
 
+        function fetchWithFallback(primaryUrl, fallbackUrl, signal, requestId) {
+            const fetchJson = (url) => fetch(url, { signal }).then((res) => res.json());
+
+            return fetchJson(primaryUrl).then((payload) => {
+                if (payload && payload.success) return payload;
+                const firstError = payload && payload.error ? String(payload.error) : 'Failed to load detail rows';
+                return fetchJson(fallbackUrl).then((fallbackPayload) => {
+                    if (fallbackPayload && fallbackPayload.success) {
+                        console.warn(`[VIEW PR] detail fallback endpoint used for request_id=${requestId}: ${firstError}`);
+                        return fallbackPayload;
+                    }
+                    const fallbackError = fallbackPayload && fallbackPayload.error ? String(fallbackPayload.error) : firstError;
+                    throw new Error(fallbackError || 'Failed to load detail rows');
+                });
+            });
+        }
+
+        function retryViewPurchaseRequestDetails(headerId) {
+            const id = Number(headerId || viewSelectedHeaderId || 0);
+            if (!id) return;
+            const record = viewPurchaseRequests.find((row) => Number(row.id || 0) === id);
+            if (!record) return;
+
+            viewLoadingDetailIds.add(id);
+            renderFilteredViewPurchaseRequests();
+            fetchViewPurchaseRequestDetail(record, true)
+                .catch((error) => {
+                    console.error('Retry failed to load request detail:', error);
+                    record._detailError = error && error.message ? String(error.message) : 'Failed to load detail rows';
+                    if (!Array.isArray(record.details)) {
+                        record.details = [];
+                    }
+                })
+                .finally(() => {
+                    viewLoadingDetailIds.delete(id);
+                    renderFilteredViewPurchaseRequests();
+                });
+        }
+
         function fetchViewPurchaseRequestDetail(record, forceRefresh) {
 
 
@@ -23973,7 +24119,19 @@
 
 
 
-                return viewDetailFetchPromises.get(id);
+                const startedAtMs = Number(viewDetailFetchStartedAtMs.get(id) || 0);
+                const requestAgeMs = Date.now() - startedAtMs;
+                if (startedAtMs > 0 && requestAgeMs > 12000) {
+                    const staleController = viewDetailFetchControllers.get(id);
+                    if (staleController) {
+                        try { staleController.abort(); } catch (e) { /* no-op */ }
+                    }
+                    viewDetailFetchControllers.delete(id);
+                    viewDetailFetchPromises.delete(id);
+                    viewDetailFetchStartedAtMs.delete(id);
+                } else {
+                    return viewDetailFetchPromises.get(id);
+                }
 
 
 
@@ -24106,6 +24264,7 @@
 
 
             const controller = new AbortController();
+            const detailFetchTimeoutId = window.setTimeout(() => controller.abort(), 10000);
 
 
 
@@ -24153,30 +24312,15 @@
 
 
 
-            const fetchPromise = fetch(`/api/admin/procurement/purchase-requests/details?request_id=${id}&request_no=${requestNo}`, {
-
-
-
-
-
-
-
-
-
-
-
-                signal: controller.signal,
-
-
-
-
-
-
-
-
-
-
-
+            const fetchPromise = fetchWithFallback(
+                `/api/admin/procurement/purchase-requests/details?request_id=${id}&request_no=${requestNo}`,
+                `/api/admin/procurement/purchase-requests/${id}`,
+                controller.signal,
+                id
+            ).then((payload) => {
+                const elapsed = Math.round(performance.now() - startedAt);
+                console.log(`[VIEW PR PERF] detail request_id=${id} loaded in ${elapsed}ms`);
+                return hydrateViewPurchaseRequestDetails(record, payload);
             })
 
 
@@ -24189,115 +24333,8 @@
 
 
 
-                .then((res) => res.json())
-
-
-
-
-
-
-
-
-
-
-
-                .then((payload) => {
-
-
-
-
-
-
-
-
-
-
-
-                    if (!payload.success) {
-
-
-
-
-
-
-
-
-
-
-
-                        throw new Error(payload.error || 'Failed to load detail rows');
-
-
-
-
-
-
-
-
-
-
-
-                    }
-
-
-
-
-
-
-
-
-
-
-
-                    const elapsed = Math.round(performance.now() - startedAt);
-
-
-
-
-
-
-
-
-
-
-
-                    console.log(`[VIEW PR PERF] detail request_id=${id} loaded in ${elapsed}ms`);
-
-
-
-
-
-
-
-
-
-
-
-                    return hydrateViewPurchaseRequestDetails(record, payload);
-
-
-
-
-
-
-
-
-
-
-
-                })
-
-
-
-
-
-
-
-
-
-
-
                 .finally(() => {
+                    window.clearTimeout(detailFetchTimeoutId);
 
 
 
@@ -24358,6 +24395,7 @@
 
 
                         viewDetailFetchPromises.delete(id);
+                        viewDetailFetchStartedAtMs.delete(id);
 
 
 
@@ -24405,6 +24443,7 @@
 
 
 
+            viewDetailFetchStartedAtMs.set(id, Date.now());
             viewDetailFetchPromises.set(id, fetchPromise);
 
 
@@ -25846,6 +25885,7 @@
 
 
             viewDetailFetchPromises = new Map();
+            viewDetailFetchStartedAtMs = new Map();
 
 
 
@@ -29625,7 +29665,7 @@
 
 
 
-                currency: String(header.currency || 'MYR'),
+                currency: String(header.currency || ''),
 
 
 
@@ -30059,7 +30099,7 @@
 
 
 
-            prEditState.currency = String(document.getElementById('pr-edit-currency').value || '').trim() || 'MYR';
+            prEditState.currency = String(document.getElementById('pr-edit-currency').value || '').trim();
 
 
 
@@ -32472,6 +32512,13 @@
             } catch (_) {
                 return false;
             }
+        }
+
+        function isDetailChecked(detail) {
+            if (detail && detail.transferable !== null && detail.transferable !== undefined && detail.transferable !== '') {
+                return toApprovalBool(detail.transferable);
+            }
+            return toApprovalBool(detail?.udfPqApproved);
         }
 
         function goToCreateProcurement() {
@@ -45039,7 +45086,7 @@
 
 
 
-                return 'MYR';
+                return '';
 
 
 
@@ -45087,7 +45134,8 @@
 
 
 
-            return c || 'MYR';
+            if (!c || c === '----' || c === '-') return '';
+            return c;
 
 
 
@@ -52123,7 +52171,7 @@
 
 
 
-                    currency: (prFormEditState && prFormEditState.currency) ? String(prFormEditState.currency) : 'MYR',
+                    currency: (prFormEditState && prFormEditState.currency) ? String(prFormEditState.currency) : '',
 
 
 
@@ -56878,6 +56926,10 @@
 
                 if (!tryRestorePurchaseRequestDraftItems()) {
                     initPurchaseRequestForm();
+                }
+                const prNoEl = document.getElementById('pr-request-number');
+                if (prNoEl && !String(prNoEl.value || '').trim()) {
+                    loadNextPurchaseRequestNumber();
                 }
 
 

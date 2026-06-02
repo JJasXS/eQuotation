@@ -3142,6 +3142,37 @@ body.procurement-warm-ui .pr-line-items-table .pr-stock-uom-readonly {
     color: #f3f7ff;
 }
 
+.view-pr-detail-lines-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 12px 14px;
+    border-top: 1px solid #dbe4ee;
+    background: #f8fafc;
+}
+
+.view-pr-detail-status-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.view-pr-detail-status-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #64748b;
+}
+
+.view-pr-detail-udf-status {
+    min-width: 140px;
+}
+
+.view-pr-detail-update-btn {
+    min-width: 88px;
+}
+
 .view-pr-toggle {
     text-align: center;
     font-weight: 700;
