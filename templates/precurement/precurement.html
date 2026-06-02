@@ -32514,11 +32514,28 @@
             }
         }
 
-        function isDetailChecked(detail) {
-            if (detail && detail.transferable !== null && detail.transferable !== undefined && detail.transferable !== '') {
-                return toApprovalBool(detail.transferable);
+        function resolveDetailTransferableValue(detail) {
+            if (!detail || typeof detail !== 'object') return undefined;
+            const candidates = [
+                detail.transferable,
+                detail.isTransferable,
+                detail.transferableFlag,
+                detail.transferable_status,
+                detail.udfPqApproved,
+                detail.udf_pqapproved,
+            ];
+            for (const value of candidates) {
+                if (value !== null && value !== undefined && String(value).trim() !== '') {
+                    return value;
+                }
             }
-            return toApprovalBool(detail?.udfPqApproved);
+            return undefined;
+        }
+
+        function isDetailChecked(detail) {
+            const value = resolveDetailTransferableValue(detail);
+            if (value === undefined) return false;
+            return toApprovalBool(value);
         }
 
         function goToCreateProcurement() {

@@ -5775,6 +5775,7 @@ def api_admin_purchase_request_details(request_id):
                 'tax': _num(row.get('taxamt')),
                 'amount': _num(row.get('amount')),
                 'deliveryDate': row.get('deliverydate'),
+                'transferable': row.get('transferable'),
                 'udfPqApproved': row.get('udf_pqapproved'),
                 'udfReason': str(row.get('udf_reason') or '').strip(),
                 'sqty': sqty_v,
@@ -5922,6 +5923,7 @@ def api_admin_purchase_request_details_fallback():
                 'tax': _num(row.get('taxamt')),
                 'amount': _num(row.get('amount')),
                 'deliveryDate': row.get('deliverydate'),
+                'transferable': row.get('transferable'),
                 'udfPqApproved': row.get('udf_pqapproved'),
                 'udfReason': str(row.get('udf_reason') or '').strip(),
                 'transferredQty': transferred_qty,
@@ -6060,6 +6062,18 @@ def api_admin_purchase_request_details_fallback():
             total_ms = round((time.perf_counter() - started_total) * 1000, 1)
             upstream_ms = round((time.perf_counter() - upstream_started) * 1000, 1)
             detail_count = len(extracted.get('details') or [])
+            try:
+                detail_transferable = [
+                    row.get('transferable')
+                    for row in (extracted.get('details') or [])
+                    if isinstance(row, dict)
+                ]
+                print(
+                    f"[PROCUREMENT PR DETAIL STATE] request_id={extracted.get('id')} transferable={detail_transferable}",
+                    flush=True
+                )
+            except Exception:
+                pass
             print(
                 f"[PROCUREMENT PR DETAIL PERF] request_id={extracted.get('id')} total_ms={total_ms} upstream_ms={upstream_ms} "
                 f"gate_ms={_num(extracted.get('_perfGateMs')):.1f} detail_count={detail_count}",
