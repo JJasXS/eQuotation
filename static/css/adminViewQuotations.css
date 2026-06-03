@@ -2,21 +2,57 @@
 
 .admin-quotations-view {
     text-align: left;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 /* Filter toolbar (classes used by adminViewQuotations.js — icy palette) */
+.avq-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 16px 24px;
+    padding: 12px 14px !important;
+}
+
+.avq-filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.avq-filter-group-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ice-text-muted, #5a7a94);
+}
+
+.avq-filter-group-fields {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+}
+
 .quotation-filter-label {
     display: flex;
     align-items: center;
     gap: 6px;
     color: var(--ice-text-muted, #5a7a94);
     font-size: 13px;
+    white-space: nowrap;
 }
 
 .quotation-filter-input,
 .quotation-company-select {
-    padding: 6px 10px;
-    border-radius: 6px;
+    padding: 8px 10px;
+    border-radius: 8px;
     border: 1px solid var(--ice-border-soft, #c5dce9);
     background: var(--ice-surface-input, #f0f9ff);
     color: var(--ice-text, #1e3a52);
@@ -24,8 +60,8 @@
 }
 
 .quotation-company-select {
-    padding: 8px 12px;
-    width: 240px;
+    min-width: 220px;
+    max-width: 280px;
 }
 
 .quotation-filter-btn {
@@ -54,6 +90,21 @@
 
 .quotation-filter-btn--secondary:hover {
     background: var(--ice-accent-soft, #dbeafe);
+}
+
+.quotation-filter-btn--ghost {
+    background: transparent;
+    color: var(--ice-text-muted, #5a7a94);
+    border: none;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    padding: 8px 6px;
+    font-weight: 500;
+}
+
+.quotation-filter-btn--ghost:hover {
+    color: var(--ice-accent-hover, #2d74a3);
+    background: transparent;
 }
 
 .quotation-bulk-select-label {
@@ -99,12 +150,6 @@
     color: var(--ice-text, #1e3a52);
 }
 
-.quotation-list-table thead {
-    position: sticky;
-    top: 0;
-    z-index: 2;
-}
-
 .quotation-list-col--chk {
     width: 48px;
 }
@@ -118,28 +163,28 @@
 }
 
 .quotation-list-col--creator {
-    width: 28%;
-    min-width: 140px;
+    width: 34%;
+    min-width: 160px;
 }
 
 .quotation-list-col--department {
-    width: 12%;
-    min-width: 88px;
+    width: 14%;
+    min-width: 96px;
 }
 
 .quotation-list-col--amount {
-    width: 118px;
+    width: 108px;
 }
 
 .quotation-list-col--actions {
-    width: 188px;
+    width: 160px;
 }
 
 .quotation-list-th {
-    text-align: center;
+    text-align: left;
     vertical-align: middle;
-    padding: 8px 6px;
-    font-size: 10px;
+    padding: 10px 10px;
+    font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -157,11 +202,16 @@
 tr.quotation-card {
     cursor: pointer;
     background: var(--ice-surface, #f7fbff);
-    border-left: 3px solid var(--ice-accent, #3b8fc4);
+    border-left: 4px solid var(--quotation-accent, var(--ice-accent, #3b8fc4));
     box-sizing: border-box;
+    transition: background 0.12s ease;
 }
 
-tr.quotation-card:hover {
+tr.quotation-card:hover:not(.is-selected) {
+    background: var(--ice-surface-alt, #eef6fc);
+}
+
+tr.quotation-card.is-selected:hover {
     background: var(--ice-accent-soft, #dbeafe);
 }
 
@@ -170,7 +220,7 @@ tr.quotation-card td {
 }
 
 .quotation-card__cell {
-    padding: 10px 8px;
+    padding: 12px 10px;
     vertical-align: middle;
 }
 
@@ -196,11 +246,17 @@ tr.quotation-card td {
 .quotation-list-cell-center {
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     width: 100%;
     min-width: 0;
-    min-height: 44px;
+    min-height: 36px;
     box-sizing: border-box;
+}
+
+.quotation-card__cell--doc .quotation-list-cell-center,
+.quotation-card__cell--date .quotation-list-cell-center,
+.quotation-card__cell--amount .quotation-list-cell-center {
+    justify-content: center;
 }
 
 .quotation-list-cell-center--amount .quotation-card__amount-col {
@@ -229,12 +285,12 @@ tr.quotation-card td {
 }
 
 .quotation-card__cell--creator {
-    text-align: center;
+    text-align: left;
     vertical-align: middle;
 }
 
 .quotation-card__cell--department {
-    text-align: center;
+    text-align: left;
     vertical-align: middle;
 }
 
@@ -259,10 +315,10 @@ tr.quotation-card td {
 .quotation-card__doc-value {
     display: block;
     min-width: 0;
-    max-width: 88px;
+    max-width: 100%;
     margin: 0 auto;
     font-weight: 700;
-    font-size: 12px;
+    font-size: 13px;
     color: var(--ice-heading, #1a4d6e);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -411,7 +467,7 @@ body.admin-quotations-view-page .tab-content.active {
     flex-direction: column;
     flex: 1;
     min-height: 0;
-    padding: 0 8px 8px;
+    padding: 0 12px 12px;
     overflow: hidden;
     background: var(--ice-bg, #e3f2fa);
 }
@@ -432,22 +488,14 @@ body.admin-quotations-view-page #quotation-content {
     font-size: 13px;
 }
 
-.admin-quotations-view--compact {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    padding: 0;
-}
-
 .quotation-page-header {
     background: var(--ice-surface, #f7fbff);
     border: 1px solid var(--ice-border, #b8d4e8);
-    border-radius: 8px;
+    border-radius: 10px;
     overflow: hidden;
-    margin-bottom: 6px;
+    margin-bottom: 10px;
     flex-shrink: 0;
-    box-shadow: none;
+    box-shadow: 0 1px 3px rgba(26, 77, 110, 0.06);
 }
 
 .quotation-page-header--compact .avq-status-tabs.eq-line-tabs {
@@ -473,6 +521,7 @@ body.admin-quotations-view-page #quotation-content {
     align-items: center;
     padding: 6px 10px;
     border-bottom: 1px solid var(--ice-border, #b8d4e8);
+    background: linear-gradient(180deg, var(--ice-surface, #f7fbff) 0%, var(--ice-surface-alt, #eef6fc) 100%);
 }
 
 /* Legacy class names if cached shell still renders approval-tab */
@@ -513,42 +562,133 @@ body.admin-quotations-view-page #quotation-tab-content {
     flex: 1;
     min-height: 0;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
 .quotation-split-wrap {
     display: grid;
-    grid-template-columns: minmax(300px, 38%) minmax(0, 1fr);
-    gap: 8px;
+    grid-template-columns: minmax(320px, 42%) minmax(0, 1fr);
+    gap: 12px;
     align-items: stretch;
-    height: 100%;
+    flex: 1;
     min-height: 0;
+    overflow: hidden;
 }
 
 .quotation-list-pane {
     min-height: 0;
-    max-height: none;
-    height: 100%;
-    overflow-y: auto;
-    padding-right: 2px;
+    min-width: 0;
+    overflow: hidden;
+    padding: 0;
     border: 1px solid var(--ice-border, #b8d4e8);
-    border-radius: 8px;
+    border-radius: 10px;
+    background: var(--ice-surface, #f7fbff);
+    display: flex;
+    flex-direction: column;
+}
+
+.quotation-list-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--ice-accent, #3b8fc4) var(--ice-surface-alt, #eef6fc);
+}
+
+.quotation-list-scroll::-webkit-scrollbar {
+    width: 10px;
+}
+
+.quotation-list-scroll::-webkit-scrollbar-thumb {
+    background: var(--ice-border, #b8d4e8);
+    border-radius: 6px;
+    border: 2px solid var(--ice-surface-alt, #eef6fc);
+}
+
+.quotation-list-scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--ice-accent, #3b8fc4);
+}
+
+.quotation-list-scroll:focus-visible {
+    outline: 2px solid var(--ice-accent, #3b8fc4);
+    outline-offset: -2px;
+}
+
+.quotation-list-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    flex-shrink: 0;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    border-left: none !important;
+    border-right: none !important;
+    border-top: none !important;
+    padding: 10px 12px !important;
     background: var(--ice-surface-alt, #eef6fc);
+    border-bottom: 1px solid var(--ice-border, #b8d4e8);
+}
+
+.quotation-list-scroll .quotation-list-table thead {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+
+.quotation-list-scroll:has(.quotation-list-toolbar) .quotation-list-table thead {
+    top: 52px;
+}
+
+.quotation-list-footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    padding: 6px 12px;
+    font-size: 12px;
+    color: var(--ice-text-muted, #5a7a94);
+    text-align: center;
+    background: linear-gradient(180deg, transparent 0%, var(--ice-surface, #f7fbff) 35%);
+    border-top: 1px solid var(--ice-border-soft, #c5dce9);
 }
 
 .quotation-detail-pane {
     background: var(--ice-surface, #f7fbff);
     border: 1px solid var(--ice-border, #b8d4e8);
-    border-radius: 8px;
-    padding: 8px 10px;
+    border-radius: 10px;
+    padding: 16px 18px;
     min-height: 0;
-    height: 100%;
-    overflow-y: auto;
-    box-shadow: none;
+    min-width: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 1px 4px rgba(26, 77, 110, 0.06);
+}
+
+.quotation-detail-pane-layout {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.quotation-detail-pane-top {
+    flex-shrink: 0;
 }
 
 tr.quotation-card.is-selected {
     background: var(--ice-accent-soft, #dbeafe);
-    box-shadow: inset 0 0 0 1px rgba(59, 143, 196, 0.35);
+    box-shadow: inset 0 0 0 1px rgba(59, 143, 196, 0.25);
+}
+
+tr.quotation-card.is-selected .quotation-card__amount {
+    background: var(--ice-accent, #3b8fc4);
+    color: #fff;
+    border-color: transparent;
 }
 
 .quotation-list-table .quotation-card__amount-col {
@@ -583,70 +723,145 @@ tr.quotation-card.is-selected {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    gap: 10px;
-    margin-bottom: 8px;
+    gap: 14px;
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--ice-border-soft, #c5dce9);
 }
 
 .quotation-detail-title {
-    font-size: 17px;
+    font-size: 20px;
     font-weight: 700;
+    letter-spacing: -0.02em;
     color: var(--ice-heading, #1a4d6e);
+    line-height: 1.25;
 }
 
 .quotation-detail-sub {
-    font-size: 13px;
+    font-size: 14px;
     color: var(--ice-text-muted, #5a7a94);
-    margin-top: 3px;
+    margin-top: 4px;
+    line-height: 1.4;
 }
 
 .quotation-detail-amount {
     background: var(--ice-accent, #3b8fc4);
     color: #fff;
     font-weight: 700;
-    border-radius: 8px;
-    padding: 6px 10px;
-    font-size: 13px;
+    border-radius: 10px;
+    padding: 8px 14px;
+    font-size: 15px;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
 }
 
 .quotation-detail-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px 18px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 8px 16px;
     font-size: 13px;
     color: var(--ice-text-muted, #5a7a94);
-    border-top: 1px solid var(--ice-border, #b8d4e8);
-    border-bottom: 1px solid var(--ice-border, #b8d4e8);
-    padding: 8px 0;
-    margin-bottom: 10px;
+    background: var(--ice-surface-alt, #eef6fc);
+    border: 1px solid var(--ice-border-soft, #c5dce9);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+}
+
+.quotation-detail-meta strong {
+    color: var(--ice-heading, #1a4d6e);
+    font-weight: 600;
 }
 
 .quotation-detail-actions {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    margin-bottom: 10px;
+    margin-bottom: 14px;
 }
 
+.quotation-detail-items {
+    flex: 1;
+    min-height: 120px;
+    border: 1px solid var(--ice-border, #b8d4e8);
+    border-radius: 8px;
+    overflow-y: auto;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    background: var(--ice-surface, #f7fbff);
+}
+
+.quotation-detail-items .quotation-items-table {
+    margin: 0;
+}
+
+.quotation-detail-items .quotation-detail-loading,
+.quotation-detail-items .quotation-detail-empty,
+.quotation-detail-items .quotation-detail-error {
+    padding: 20px;
+}
+
+/* Shared action buttons (detail pane + customer list) */
+.qt-btn,
 .quotation-detail-actions .edit-button,
 .quotation-detail-actions .activate-btn,
 .quotation-detail-actions .toggle-cancelled-btn {
     border: none;
-    border-radius: 6px;
+    border-radius: 8px;
     color: #fff;
-    padding: 6px 12px;
-    font-size: 12px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 600;
     cursor: pointer;
+    white-space: nowrap;
+    transition: filter 0.12s ease, transform 0.08s ease;
 }
 
+.qt-btn:hover,
+.quotation-detail-actions .edit-button:hover,
+.quotation-detail-actions .activate-btn:hover,
+.quotation-detail-actions .toggle-cancelled-btn:hover {
+    filter: brightness(1.06);
+}
+
+.qt-btn--edit,
 .quotation-detail-actions .edit-button { background: #5a8fc4; }
+
+.qt-btn--success,
 .quotation-detail-actions .activate-btn { background: #4b9e6e; }
+
+.qt-btn--danger,
 .quotation-detail-actions .toggle-cancelled-btn { background: #a65c5c; }
+
+.qt-btn--muted { background: #4b6e9e; }
+
+.quotation-bulk-checkbox,
+.quotation-row-checkbox {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    flex-shrink: 0;
+    accent-color: var(--ice-accent, #3b8fc4);
+}
+
+.quotation-bulk-checkbox--danger,
+.quotation-row-checkbox--danger {
+    accent-color: #c45a5a;
+}
 
 .quotation-detail-loading,
 .quotation-detail-empty {
     color: var(--ice-text-muted, #5a7a94);
     text-align: center;
     padding: 14px 8px;
+}
+
+#quotation-detail-pane > .quotation-detail-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
+    font-size: 14px;
 }
 
 .quotation-detail-error {
@@ -673,36 +888,23 @@ tr.quotation-card.is-selected {
     text-align: right;
 }
 
-/* Compact list + detail density */
-.admin-quotations-view--compact .quotation-list-th {
-    padding: 5px 4px;
-    font-size: 9px;
+.quotation-list-th--doc,
+.quotation-list-th--date,
+.quotation-list-th--amount,
+.quotation-card__cell--amount {
+    text-align: center;
 }
 
-.admin-quotations-view--compact .quotation-card__cell {
-    padding: 6px 6px;
-}
-
-.admin-quotations-view--compact .quotation-list-cell-center {
-    min-height: 30px;
-}
-
-.admin-quotations-view--compact .quotation-card__doc-value {
-    font-size: 11px;
-    max-width: 84px;
-}
-
-.admin-quotations-view--compact .quotation-detail-meta {
-    padding: 6px 0;
-    margin-bottom: 6px;
-    font-size: 12px;
+.quotation-list-th--chk,
+.quotation-card__cell--chk {
+    text-align: center;
 }
 
 /* Reviewed tab batch cancel (CANCELLED) + quotation list card header grid
    (shared by /admin/view-quotations and procurement View e-PR — was inline in adminViewQuotations.html) */
 .active-tab-controls {
     display: none;
-    gap: 15px;
+    gap: 12px;
     align-items: center;
     padding: 12px;
     background: var(--ice-surface-alt, #eef6fc);
@@ -713,6 +915,13 @@ tr.quotation-card.is-selected {
 
 .active-tab-controls.show {
     display: flex;
+}
+
+.quotation-list-empty {
+    padding: 32px 16px;
+    text-align: center;
+    color: var(--ice-text-muted, #5a7a94);
+    font-size: 14px;
 }
 
 .btn-delete-active {
@@ -807,14 +1016,18 @@ tr.quotation-card.is-selected {
 }
 
 .quotation-card__amount {
-    background: #4b6e9e;
-    color: #fff;
-    padding: 3px 8px;
-    border-radius: 6px;
-    font-size: 11px;
+    background: var(--ice-surface-alt, #eef6fc);
+    color: var(--ice-heading, #1a4d6e);
+    border: 1px solid var(--ice-border-soft, #c5dce9);
+    padding: 4px 10px;
+    border-radius: 8px;
+    font-size: 12px;
     font-weight: 600;
     white-space: nowrap;
-    text-align: right;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    min-width: 5.5rem;
+    display: inline-block;
 }
 
 .quotation-card__side-actions {
@@ -825,6 +1038,64 @@ tr.quotation-card.is-selected {
     align-items: center;
     gap: 6px;
     width: 100%;
+}
+
+/* Customer /view-quotation (my quotations — same shell as admin, tuned layout) */
+body.customer-my-quotations-page .quotation-split-wrap {
+    grid-template-columns: minmax(280px, 40%) minmax(0, 1fr);
+}
+
+body.customer-my-quotations-page .quotation-list-table {
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+body.customer-my-quotations-page .quotation-card__cell {
+    padding: 13px 12px;
+}
+
+body.customer-my-quotations-page .quotation-list-cell-center {
+    min-height: 40px;
+}
+
+body.customer-my-quotations-page .quotation-list-cell--creator,
+body.customer-my-quotations-page .quotation-list-cell--department {
+    font-size: 13px;
+    line-height: 1.35;
+    white-space: normal;
+    text-overflow: unset;
+    overflow: visible;
+    display: block;
+    text-align: left;
+}
+
+body.customer-my-quotations-page .quotation-list-col--doc {
+    width: 32%;
+}
+
+body.customer-my-quotations-page .quotation-list-col--department {
+    width: 28%;
+}
+
+body.customer-my-quotations-page .quotation-list-col--date {
+    width: 22%;
+}
+
+body.customer-my-quotations-page .quotation-list-col--amount {
+    width: 96px;
+}
+
+body.customer-my-quotations-page .quotation-card__doc-value {
+    font-size: 14px;
+    max-width: 100%;
+}
+
+body.customer-my-quotations-page .quotation-detail-meta {
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
+
+body.customer-my-quotations-page .quotation-detail-actions .edit-button {
+    min-width: 7rem;
 }
 
 @media (max-width: 900px) {

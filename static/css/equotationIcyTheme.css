@@ -1130,9 +1130,13 @@ body.equotation-icy-theme.view-quotation-page .view-quotation-tabs button:hover 
     border-color: var(--ice-accent) !important;
 }
 
-body.equotation-icy-theme.view-quotation-page #tab-pending.is-active {
-    background: var(--ice-accent) !important;
-    border-color: var(--ice-accent-hover) !important;
+/* eq-line tabs on /view-quotation (adminViewQuotations shell): same active style as admin — no filled Pending pill */
+body.equotation-icy-theme.view-quotation-page .avq-status-tabs .eq-line-tab.is-active,
+body.equotation-icy-theme.view-quotation-page.admin-quotations-view-page .eq-line-tab.avq-status-tab.is-active {
+    color: var(--ice-heading) !important;
+    font-weight: 600 !important;
+    background: var(--ice-surface) !important;
+    border-bottom-color: var(--ice-accent) !important;
 }
 
 body.equotation-icy-theme.view-quotation-page .view-quotation-split,
@@ -1254,7 +1258,11 @@ body.equotation-icy-theme.admin-quotations-view-page tr.quotation-card {
     border-left-color: var(--ice-accent) !important;
 }
 
-body.equotation-icy-theme.admin-quotations-view-page tr.quotation-card:hover {
+body.equotation-icy-theme.admin-quotations-view-page tr.quotation-card:hover:not(.is-selected) {
+    background: var(--ice-surface-alt) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page tr.quotation-card.is-selected:hover {
     background: var(--ice-accent-soft) !important;
 }
 

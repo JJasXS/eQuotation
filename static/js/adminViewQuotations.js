@@ -144,27 +144,35 @@ function quotationDetailCacheKey(row) {
 function buildViewQuotationsShellHtml(showAdminFilters) {
     const filterInner = showAdminFilters
         ? `
-                        <label class="quotation-filter-label">From
-                            <input type="date" id="quotation-date-from" class="quotation-filter-input">
-                        </label>
-                        <label class="quotation-filter-label">To
-                            <input type="date" id="quotation-date-to" class="quotation-filter-input">
-                        </label>
-                        <button type="button" id="quotation-date-apply" class="quotation-filter-btn quotation-filter-btn--primary">Apply</button>
-                        <button type="button" id="quotation-date-clear" class="quotation-filter-btn quotation-filter-btn--secondary">Clear dates</button>
-                        <select id="company-filter-dropdown" class="quotation-company-select">
-                            <option value="">All Companies</option>
-                        </select>
-                        <button type="button" id="company-filter-clear" class="quotation-filter-btn quotation-filter-btn--secondary">Clear</button>
+                        <div class="avq-filter-group avq-filter-group--dates">
+                            <span class="avq-filter-group-label">Date range</span>
+                            <div class="avq-filter-group-fields">
+                                <label class="quotation-filter-label">From
+                                    <input type="date" id="quotation-date-from" class="quotation-filter-input">
+                                </label>
+                                <label class="quotation-filter-label">To
+                                    <input type="date" id="quotation-date-to" class="quotation-filter-input">
+                                </label>
+                                <button type="button" id="quotation-date-apply" class="quotation-filter-btn quotation-filter-btn--primary">Apply</button>
+                                <button type="button" id="quotation-date-clear" class="quotation-filter-btn quotation-filter-btn--ghost">Clear dates</button>
+                            </div>
+                        </div>
+                        <div class="avq-filter-group avq-filter-group--company">
+                            <span class="avq-filter-group-label">Company</span>
+                            <div class="avq-filter-group-fields">
+                                <select id="company-filter-dropdown" class="quotation-company-select" aria-label="Filter by company">
+                                    <option value="">All Companies</option>
+                                </select>
+                                <button type="button" id="company-filter-clear" class="quotation-filter-btn quotation-filter-btn--secondary">Clear</button>
+                            </div>
+                        </div>
                     `
-        : `
-                        
-                    `;
+        : '';
     const filterBlock = showAdminFilters
-        ? `<div class="quotation-page-header-controls">${filterInner}</div>`
+        ? `<div class="quotation-page-header-controls avq-filter-bar">${filterInner}</div>`
         : '';
     return `
-            <div class="admin-quotations-view admin-quotations-view--compact">
+            <div class="admin-quotations-view">
                 <div class="quotation-page-header quotation-page-header--compact">
                     ${filterBlock}
                     <nav class="eq-line-tabs avq-status-tabs" role="tablist" aria-label="Quotation status">
@@ -298,13 +306,18 @@ function canShowQuotationWorkflowActions(filterTab) {
     return !hideQuotationStatusActionsFromPage();
 }
 
-/** Actions column in list table: Drafts only on customer view; always on admin list. */
+/** Submitted-by column: admin only (customer "my quotations" is always the logged-in user). */
+function showQuotationListCreatorColumn() {
+    return !isCustomerMyQuotationsPage();
+}
+
+/** Actions column in list: customer drafts only; admin uses detail pane for workflow actions. */
 function showQuotationListActionsColumn(filterTab) {
     const tab = (filterTab || getActiveQuotationTab()).trim().toLowerCase();
     if (isCustomerMyQuotationsPage()) {
         return tab === 'drafts';
     }
-    return true;
+    return false;
 }
 
 /** Row checkboxes for bulk actions (admin pending/reviewed tabs only). */
@@ -553,10 +566,19 @@ function refreshQuotationListView() {
     const visibleList = getCombinedQuotationList();
     applyActiveTabSelection(visibleList);
 
+    const listCount = visibleList.length;
+    const listHtml = renderQuotationList(visibleList, {}, 'combined', false);
+    const listFooter =
+        listCount > 0
+            ? `<div class="quotation-list-footer" aria-live="polite">${listCount} quotation${listCount === 1 ? '' : 's'}${listCount > 8 ? ' — scroll the list to see all' : ''}</div>`
+            : '';
     const html = `
         <div class="quotation-split-wrap">
             <div class="quotation-list-pane">
-                ${renderQuotationList(visibleList, {}, 'combined', false)}
+                <div class="quotation-list-scroll" tabindex="0" role="region" aria-label="Quotation list">
+                    ${listHtml}
+                    ${listFooter}
+                </div>
             </div>
             <div class="quotation-detail-pane" id="quotation-detail-pane">
                 <div class="quotation-detail-empty">Select a quotation to view details.</div>
@@ -704,19 +726,20 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
     const activeTab = getActiveQuotationTab();
     const showChkCol = showQuotationListCheckboxColumn(activeTab);
     const showActionsCol = showQuotationListActionsColumn(activeTab);
+    const showCreatorCol = showQuotationListCreatorColumn();
     const hideStatus = hideQuotationStatusActionsFromPage();
     const hasReviewedInList = list.some((qt) => (qt._filterTab || 'reviewed') === 'reviewed');
     const hasPendingInList = list.some((qt) => (qt._filterTab || '') === 'pending');
     let controlsHtml = '';
     if (hasPendingInList && canShowQuotationWorkflowActions('pending')) {
         controlsHtml += `
-            <div class="active-tab-controls show">
+            <div class="quotation-list-toolbar active-tab-controls show">
                 <label class="quotation-bulk-select-label">
-                    <input type="checkbox" id="select-all-pending" onchange="toggleSelectAllPending(event)" style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--ice-accent, #3b8fc4);">
-                    Select All
+                    <input type="checkbox" id="select-all-pending" class="quotation-bulk-checkbox" onchange="toggleSelectAllPending(event)">
+                    Select all
                 </label>
                 <button type="button" id="bulk-review-pending-btn" onclick="performBulkReviewPending()" class="btn-bulk-review-pending" disabled>
-                    Reviewed
+                    Mark reviewed
                 </button>
                 <span id="selected-count-pending" class="quotation-bulk-selected-count">0 selected</span>
             </div>
@@ -724,13 +747,13 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
     }
     if (hasReviewedInList && canShowQuotationWorkflowActions('reviewed')) {
         controlsHtml += `
-            <div class="active-tab-controls show">
+            <div class="quotation-list-toolbar active-tab-controls show">
                 <label class="quotation-bulk-select-label">
-                    <input type="checkbox" id="select-all-active" onchange="toggleSelectAllActive(event)" style="width: 18px; height: 18px; cursor: pointer; accent-color: #dc3545;">
-                    Select All
+                    <input type="checkbox" id="select-all-active" class="quotation-bulk-checkbox quotation-bulk-checkbox--danger" onchange="toggleSelectAllActive(event)">
+                    Select all
                 </label>
                 <button id="bulk-delete-active-btn" onclick="showDeleteConfirmActive()" class="btn-delete-active" disabled>
-                    Batch cancel selected
+                    Batch cancel
                 </button>
                 <span id="selected-count-active" class="quotation-bulk-selected-count">0 selected</span>
             </div>
@@ -746,7 +769,7 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
                 ${showChkCol ? '<col class="quotation-list-col quotation-list-col--chk" />' : ''}
                 <col class="quotation-list-col quotation-list-col--doc" />
                 <col class="quotation-list-col quotation-list-col--date" />
-                <col class="quotation-list-col quotation-list-col--creator" />
+                ${showCreatorCol ? '<col class="quotation-list-col quotation-list-col--creator" />' : ''}
                 <col class="quotation-list-col quotation-list-col--department" />
                 <col class="quotation-list-col quotation-list-col--amount" />
                 ${showActionsCol ? '<col class="quotation-list-col quotation-list-col--actions" />' : ''}
@@ -756,7 +779,7 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
                     ${showChkCol ? '<th class="quotation-list-th quotation-list-th--chk" scope="col"><span class="visually-hidden">Select</span></th>' : ''}
                     <th class="quotation-list-th quotation-list-th--doc" scope="col">QT code</th>
                     <th class="quotation-list-th quotation-list-th--date" scope="col">Date</th>
-                    <th class="quotation-list-th quotation-list-th--creator" scope="col">Submitted by</th>
+                    ${showCreatorCol ? '<th class="quotation-list-th quotation-list-th--creator" scope="col">Submitted by</th>' : ''}
                     <th class="quotation-list-th quotation-list-th--department" scope="col">Department</th>
                     <th class="quotation-list-th quotation-list-th--amount" scope="col">Amount</th>
                     ${showActionsCol ? '<th class="quotation-list-th quotation-list-th--actions" scope="col">Actions</th>' : ''}
@@ -779,16 +802,15 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
               : isDrafts
                 ? '#6b7c9a'
                 : '#2d5a8a';
-        const badgeColor = borderColor;
         const isSelected =
             filterTab === activeTab
             && Number(qt.DOCKEY) === Number(selectedQuotationDockey);
 
         let checkboxHtml = '';
         if (showChkCol && isReviewed) {
-            checkboxHtml = `<input type="checkbox" class="quotation-checkbox-active" data-dockey="${qt.DOCKEY}" ${selectedActiveQuotations.has(Number(qt.DOCKEY)) ? 'checked' : ''} onchange="handleActiveCheckboxChange(); event.stopPropagation();" style="width: 18px; height: 18px; cursor: pointer; accent-color: #dc3545; flex-shrink: 0;">`;
+            checkboxHtml = `<input type="checkbox" class="quotation-checkbox-active quotation-row-checkbox quotation-row-checkbox--danger" data-dockey="${qt.DOCKEY}" ${selectedActiveQuotations.has(Number(qt.DOCKEY)) ? 'checked' : ''} onchange="handleActiveCheckboxChange(); event.stopPropagation();">`;
         } else if (showChkCol && isPending) {
-            checkboxHtml = `<input type="checkbox" class="quotation-checkbox-pending" data-dockey="${qt.DOCKEY}" ${selectedPendingQuotations.has(Number(qt.DOCKEY)) ? 'checked' : ''} onchange="handlePendingCheckboxChange(); event.stopPropagation();" style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--ice-accent, #3b8fc4); flex-shrink: 0;">`;
+            checkboxHtml = `<input type="checkbox" class="quotation-checkbox-pending quotation-row-checkbox" data-dockey="${qt.DOCKEY}" ${selectedPendingQuotations.has(Number(qt.DOCKEY)) ? 'checked' : ''} onchange="handlePendingCheckboxChange(); event.stopPropagation();">`;
         }
 
         const chkCell = showChkCol
@@ -798,15 +820,15 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
             : '';
 
         const rowActionButtons = showActionsCol
-            ? `${canShowQuotationEdit(filterTab) && isDrafts ? `<button type="button" class="edit-button" data-dockey="${qt.DOCKEY}" data-filter-tab="${escapeHtml(filterTab)}" data-draft-source="${qt._sourceSlQtDraft ? 'slqtdraft' : 'slqt'}" onclick="editQuotationFromBtn(this); event.stopPropagation();" style="background: #5a8fc4; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Edit</button>` : ''}
-                            ${canShowQuotationEdit(filterTab) && isPending && canShowQuotationWorkflowActions(filterTab) ? `<button type="button" class="edit-button" data-dockey="${qt.DOCKEY}" data-filter-tab="${escapeHtml(filterTab)}" data-draft-source="slqt" onclick="editQuotationFromBtn(this); event.stopPropagation();" style="background: #5a8fc4; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Edit</button>` : ''}
-                            ${isPending && canShowQuotationWorkflowActions(filterTab) ? `<button class="activate-btn" onclick="activateQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #4b9e6e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Reviewed</button>` : ''}
-                            ${isReviewed && canShowQuotationWorkflowActions(filterTab) ? `<button class="toggle-cancelled-btn" onclick="event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, false);" style="background: #a65c5c; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Cancel</button>` : ''}
-                            ${isCancelled && canShowQuotationWorkflowActions(filterTab) ? `<button class="toggle-cancelled-btn" onclick="event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, true);" style="background: #4b6e9e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Restore</button>` : ''}`
+            ? `${canShowQuotationEdit(filterTab) && isDrafts ? `<button type="button" class="edit-button qt-btn qt-btn--edit" data-dockey="${qt.DOCKEY}" data-filter-tab="${escapeHtml(filterTab)}" data-draft-source="${qt._sourceSlQtDraft ? 'slqtdraft' : 'slqt'}" onclick="editQuotationFromBtn(this); event.stopPropagation();">Edit</button>` : ''}
+                            ${canShowQuotationEdit(filterTab) && isPending && canShowQuotationWorkflowActions(filterTab) ? `<button type="button" class="edit-button qt-btn qt-btn--edit" data-dockey="${qt.DOCKEY}" data-filter-tab="${escapeHtml(filterTab)}" data-draft-source="slqt" onclick="editQuotationFromBtn(this); event.stopPropagation();">Edit</button>` : ''}
+                            ${isPending && canShowQuotationWorkflowActions(filterTab) ? `<button type="button" class="activate-btn qt-btn qt-btn--success" onclick="activateQuotation(${qt.DOCKEY}); event.stopPropagation();">Reviewed</button>` : ''}
+                            ${isReviewed && canShowQuotationWorkflowActions(filterTab) ? `<button type="button" class="toggle-cancelled-btn qt-btn qt-btn--danger" onclick="event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, false);">Cancel</button>` : ''}
+                            ${isCancelled && canShowQuotationWorkflowActions(filterTab) ? `<button type="button" class="toggle-cancelled-btn qt-btn qt-btn--muted" onclick="event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, true);">Restore</button>` : ''}`
             : '';
 
         html += `
-            <tr class="quotation-card ${isSelected ? 'is-selected' : ''}" data-dockey="${qt.DOCKEY}" data-filter-tab="${escapeHtml(filterTab)}" style="--quotation-accent: ${borderColor};">
+            <tr class="quotation-card ${isSelected ? 'is-selected' : ''}" data-dockey="${qt.DOCKEY}" data-filter-tab="${escapeHtml(filterTab)}" data-status="${escapeHtml(filterTab)}" style="--quotation-accent: ${borderColor};">
                 ${showChkCol ? `<td class="quotation-card__cell quotation-card__cell--chk">${chkCell}</td>` : ''}
                 <td class="quotation-card__cell quotation-card__cell--doc">
                     <div class="quotation-list-cell-center">
@@ -818,16 +840,16 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
                         <span class="quotation-card__date-value">${docDateEsc(qt)}</span>
                     </div>
                 </td>
-                <td class="quotation-card__cell quotation-card__cell--creator">
+                ${showCreatorCol ? `<td class="quotation-card__cell quotation-card__cell--creator">
                     <div class="quotation-list-cell-center quotation-list-cell--creator" title="${creatorDisplayTitle(qt.creatorName, qt.creatorEmail)}">${formatCreatorDisplay(qt.creatorName, qt.creatorEmail)}</div>
-                </td>
+                </td>` : ''}
                 <td class="quotation-card__cell quotation-card__cell--department">
                     <div class="quotation-list-cell-center quotation-list-cell--department" title="Department at submission">${formatCreatorDepartmentDisplay(qt.creatorDepartment)}</div>
                 </td>
                 <td class="quotation-card__cell quotation-card__cell--amount">
                     <div class="quotation-list-cell-center quotation-list-cell-center--amount">
                         <div class="quotation-card__amount-col">
-                            <span class="quotation-card__amount" style="background: ${badgeColor};">RM ${amount}</span>
+                            <span class="quotation-card__amount">RM ${amount}</span>
                         </div>
                     </div>
                 </td>
@@ -882,23 +904,28 @@ async function renderQuotationDetail(currentList, options = {}) {
     const companyName = selected.COMPANYNAME || 'N/A';
     const customerCode = selected.CODE || 'N/A';
 
+    const showSubmitterInMeta = !isCustomerMyQuotationsPage();
     panel.innerHTML = `
-        <div class="quotation-detail-head">
-            <div>
-                <div class="quotation-detail-title">${selected.DOCNO || ('DOCKEY #' + selected.DOCKEY)}</div>
-                <div class="quotation-detail-sub">${companyName} (${customerCode})</div>
+        <div class="quotation-detail-pane-layout">
+            <div class="quotation-detail-pane-top">
+                <div class="quotation-detail-head">
+                    <div>
+                        <div class="quotation-detail-title">${escapeHtml(selected.DOCNO || ('DOCKEY #' + selected.DOCKEY))}</div>
+                        <div class="quotation-detail-sub">${escapeHtml(companyName)} (${escapeHtml(customerCode)})</div>
+                    </div>
+                    <div class="quotation-detail-amount">RM ${amount}</div>
+                </div>
+                <div class="quotation-detail-meta">
+                    <span><strong>Date:</strong> ${docDate}</span>
+                    <span><strong>Valid Until:</strong> ${validity}</span>
+                    ${showSubmitterInMeta ? `<span><strong>Submitted by:</strong> ${formatCreatorDisplay(selected.creatorName, selected.creatorEmail)}</span>` : ''}
+                    <span><strong>Department:</strong> ${formatCreatorDepartmentDisplay(selected.creatorDepartment)}</span>
+                </div>
+                ${detailActionsHtml ? `<div class="quotation-detail-actions">${detailActionsHtml}</div>` : ''}
             </div>
-            <div class="quotation-detail-amount">RM ${amount}</div>
-        </div>
-        <div class="quotation-detail-meta">
-            <span><strong>Date:</strong> ${docDate}</span>
-            <span><strong>Valid Until:</strong> ${validity}</span>
-            <span><strong>Submitted by:</strong> ${formatCreatorDisplay(selected.creatorName, selected.creatorEmail)}</span>
-            <span><strong>Department:</strong> ${formatCreatorDepartmentDisplay(selected.creatorDepartment)}</span>
-        </div>
-        ${detailActionsHtml ? `<div class="quotation-detail-actions">${detailActionsHtml}</div>` : ''}
-        <div class="quotation-detail-items" id="quotation-detail-items">
-            <div class="quotation-detail-loading">Loading items...</div>
+            <div class="quotation-detail-items" id="quotation-detail-items">
+                <div class="quotation-detail-loading">Loading items...</div>
+            </div>
         </div>
     `;
 
