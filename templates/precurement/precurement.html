@@ -3597,7 +3597,7 @@
 
 
 
-                                            <input type="date" id="pr-request-date" required readonly class="pr-system-generated" />
+                                            <input type="date" id="pr-request-date" required />
 
 
 
@@ -50328,7 +50328,7 @@
 
 
 
-            // Multi-supplier: use first selected as primary, pass all as array
+            // Invited suppliers are for bidding only; SQL PR header has no vendor until award.
 
 
 
@@ -50340,7 +50340,6 @@
 
 
 
-            const primarySupplier = selectedSuppliers[0] || null;
 
 
 
@@ -50352,7 +50351,6 @@
 
 
 
-            const supplierCode = primarySupplier ? primarySupplier.code : '';
 
 
 
@@ -50364,7 +50362,6 @@
 
 
 
-            const supplierName = primarySupplier ? primarySupplier.name : '';
 
 
 
@@ -50688,7 +50685,6 @@
 
 
 
-                supplierId: supplierCode,
 
 
 
@@ -50700,7 +50696,6 @@
 
 
 
-                supplierName: supplierName,
 
 
 
@@ -50724,7 +50719,6 @@
 
 
 
-                currency: getPrimarySupplierCurrency(),
 
 
 

@@ -485,18 +485,18 @@ def transfer_purchase_request_to_po(
             "DOCAMT": float(_money(total_doc_amount)),
             "LOCALDOCAMT": float(_money(total_doc_amount)),
             "BRANCHNAME": _clean_text(supplier.get("branchname")),
-            "DADDRESS1": _clean_text(purchase_request.get("daddress1")),
-            "DADDRESS2": _clean_text(purchase_request.get("daddress2")),
-            "DADDRESS3": _clean_text(purchase_request.get("daddress3")),
-            "DADDRESS4": _clean_text(purchase_request.get("daddress4")),
-            "DPOSTCODE": _clean_text(purchase_request.get("dpostcode")),
-            "DCITY": _clean_text(purchase_request.get("dcity")),
-            "DSTATE": _clean_text(purchase_request.get("dstate")),
-            "DCOUNTRY": _clean_text(purchase_request.get("dcountry")),
-            "DATTENTION": _clean_text(purchase_request.get("dattention")),
-            "DPHONE1": _clean_text(purchase_request.get("dphone1")),
-            "DMOBILE": _clean_text(purchase_request.get("dmobile")),
-            "DFAX1": _clean_text(purchase_request.get("dfax1")),
+            "DADDRESS1": _clean_text(supplier.get("daddress1") or supplier.get("address1")),
+            "DADDRESS2": _clean_text(supplier.get("daddress2") or supplier.get("address2")),
+            "DADDRESS3": _clean_text(supplier.get("daddress3") or supplier.get("address3")),
+            "DADDRESS4": _clean_text(supplier.get("daddress4") or supplier.get("address4")),
+            "DPOSTCODE": _clean_text(supplier.get("dpostcode") or supplier.get("postcode")),
+            "DCITY": _clean_text(supplier.get("dcity") or supplier.get("city")),
+            "DSTATE": _clean_text(supplier.get("dstate") or supplier.get("state")),
+            "DCOUNTRY": _clean_text(supplier.get("dcountry") or supplier.get("country")),
+            "DATTENTION": _clean_text(supplier.get("dattention") or supplier.get("attention")),
+            "DPHONE1": _clean_text(supplier.get("dphone1") or supplier.get("phone1")),
+            "DMOBILE": _clean_text(supplier.get("dmobile") or supplier.get("mobile")),
+            "DFAX1": _clean_text(supplier.get("dfax1") or supplier.get("fax1")),
             "TAXEXEMPTNO": _clean_text(supplier.get("taxexemptno")),
             "SALESTAXNO": _clean_text(supplier.get("salestaxno")),
             "SERVICETAXNO": _clean_text(supplier.get("servicetaxno")),
@@ -521,6 +521,20 @@ def transfer_purchase_request_to_po(
             _insert_dynamic(cur, "ST_XTRANS", _fit_string_values(row, xtrans_str_len), xtrans_cols)
 
         con.commit()
+
+        sql_po_sync: dict[str, Any] = {"skipped": True}
+        try:
+            from utils.procurement_sql_api_sync import sync_purchase_order_supplier_sql_api
+
+            sql_po_sync = sync_purchase_order_supplier_sql_api(
+                int(po_dockey),
+                supplier_code,
+                po_number=docno,
+            )
+        except Exception as sync_exc:
+            print(f"[PROCUREMENT PO TRANSFER] SQL API purchaseorder PUT warning: {sync_exc}", flush=True)
+            sql_po_sync = {"synced": False, "error": str(sync_exc)}
+
         return {
             "poDockey": po_dockey,
             "poNumber": docno,
@@ -528,6 +542,7 @@ def transfer_purchase_request_to_po(
             "sourceRequestNumber": request_docno,
             "lineCount": len(detail_inserts),
             "transferredQty": float(sum((line["quantity"] for line in normalized_transfers), Decimal("0"))),
+            "sqlPurchaseOrderSync": sql_po_sync,
         }
     except Exception:
         con.rollback()

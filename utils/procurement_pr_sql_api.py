@@ -5,7 +5,8 @@ from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 
-from utils.sql_api_supplier import sql_api_currency_and_code
+from utils.customer_display import _format_currency_display_value
+from utils.sql_api_supplier import sql_api_currency_and_code, supplier_master_document_fields
 
 
 def _clean_text(value: Any) -> str:
@@ -57,6 +58,82 @@ def strip_client_pr_currency_fields(payload: dict[str, Any]) -> dict[str, Any]:
     ):
         out.pop(key, None)
     return out
+
+
+_PH_PQ_COL_BY_FLAT_KEY: dict[str, str] = {
+    "code": "CODE",
+    "companyname": "COMPANYNAME",
+    "companyname2": "COMPANYNAME2",
+    "controlaccount": "CONTROLACCOUNT",
+    "companycategory": "COMPANYCATEGORY",
+    "area": "AREA",
+    "agent": "AGENT",
+    "currencycode": "CURRENCYCODE",
+    "currencyrate": "CURRENCYRATE",
+    "creditterm": "CREDITTERM",
+    "terms": "TERMS",
+    "creditlimit": "CREDITLIMIT",
+    "businessunit": "BUSINESSUNIT",
+    "branchname": "BRANCHNAME",
+    "address1": "ADDRESS1",
+    "address2": "ADDRESS2",
+    "address3": "ADDRESS3",
+    "address4": "ADDRESS4",
+    "postcode": "POSTCODE",
+    "city": "CITY",
+    "state": "STATE",
+    "country": "COUNTRY",
+    "phone1": "PHONE1",
+    "phone2": "PHONE2",
+    "mobile": "MOBILE",
+    "fax1": "FAX1",
+    "fax2": "FAX2",
+    "attention": "ATTENTION",
+    "daddress1": "DADDRESS1",
+    "daddress2": "DADDRESS2",
+    "daddress3": "DADDRESS3",
+    "daddress4": "DADDRESS4",
+    "dpostcode": "DPOSTCODE",
+    "dcity": "DCITY",
+    "dstate": "DSTATE",
+    "dcountry": "DCOUNTRY",
+    "dattention": "DATTENTION",
+    "dphone1": "DPHONE1",
+    "dmobile": "DMOBILE",
+    "dfax1": "DFAX1",
+    "taxexemptno": "TAXEXEMPTNO",
+    "brn": "BRN",
+    "brn2": "BRN2",
+    "gstno": "GSTNO",
+    "salestaxno": "SALESTAXNO",
+    "servicetaxno": "SERVICETAXNO",
+    "tin": "TIN",
+    "idno": "IDNO",
+    "idtype": "IDTYPE",
+    "tourismno": "TOURISMNO",
+    "sic": "SIC",
+    "submissiontype": "SUBMISSIONTYPE",
+}
+
+
+def ph_pq_header_updates_from_sql_supplier(row: dict[str, Any]) -> dict[str, Any]:
+    """Map SQL API GET /supplier row (+ billing branch) onto PH_PQ column names."""
+    flat = supplier_master_document_fields(row)
+    updates: dict[str, Any] = {"SHIPPER": "----"}
+    for flat_key, col in _PH_PQ_COL_BY_FLAT_KEY.items():
+        if flat_key not in flat:
+            continue
+        updates[col] = flat[flat_key]
+    code = _clean_text(updates.get("CODE"))
+    if code:
+        updates["SUPPLIERID"] = code
+    cc = _clean_text(updates.get("CURRENCYCODE"))
+    if cc:
+        updates["CURRENCY"] = cc
+    if "CURRENCYRATE" not in updates:
+        updates["CURRENCYRATE"] = 1
+
+    return {k: v for k, v in updates.items() if v is not None and _clean_text(v) != ""}
 
 
 def resolve_pr_currency_code(supplier_code: str, *, required: bool = True) -> str:
@@ -211,8 +288,12 @@ def build_purchaserequest_upstream_payload(validated: dict[str, Any], *, request
     if not request_date:
         request_date = date.today().isoformat()
 
+    # Create/submit: SQL PR is header-only (lines + dates); vendor/currency set after bidding award.
+    if not supplier_code:
+        supplier_code = "----"
+        supplier_name = ""
     currency_code = _clean_text(validated.get("currency"))
-    if not currency_code and supplier_code:
+    if not currency_code and supplier_code and supplier_code != "----":
         currency_code = resolve_pr_currency_code(supplier_code, required=True)
     if not currency_code:
         currency_code = "----"

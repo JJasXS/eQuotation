@@ -518,6 +518,7 @@ def _normalize_sql_api_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if status and status not in {"DRAFT", "SUBMITTED"}:
         errors.append("status must be DRAFT/SUBMITTED or 0/1 for create")
 
+    invited_codes = _invited_supplier_codes_from_payload(payload)
     supplier_id = (
         _clean_text(payload.get("code"))
         or _clean_text(payload.get("supplierId"))
@@ -525,7 +526,10 @@ def _normalize_sql_api_payload(payload: dict[str, Any]) -> dict[str, Any]:
     )
     supplier_name = _clean_text(payload.get("companyname") or payload.get("supplierName"))
     currency = ""
-    if supplier_id:
+    if invited_codes:
+        supplier_id = ""
+        supplier_name = ""
+    elif supplier_id:
         try:
             currency = resolve_pr_currency_code(supplier_id, required=True)
         except ValueError as exc:
@@ -692,24 +696,17 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
     if status and status not in {"DRAFT", "SUBMITTED"}:
         errors.append("status must be DRAFT or SUBMITTED for create")
 
-    supplier_id = _normalize_supplier_id_for_header(payload.get("supplierId"))
     invited_codes = _invited_supplier_codes_from_payload(payload)
-    currency = ""
-
-    if supplier_id:
-        # Keep header currency blank during bidding; it will be set after award/confirmation.
-        currency = ""
-    elif invited_codes and pr_status == "SUBMITTED":
-        # Multi-supplier bidding starts without a fixed header supplier/currency.
-        supplier_id = ""
-        currency = ""
-    elif pr_status == "SUBMITTED":
+    if pr_status == "SUBMITTED" and not invited_codes:
         errors.append("Select at least one supplier to invite for bidding when submitting")
 
     if errors:
         raise PurchaseRequestValidationError("; ".join(errors))
 
-    supplier_name = _clean_text(payload.get("supplierName")) if supplier_id else ""
+    # Invited suppliers are stored for bidding only; SQL Accounting PR has no vendor until award.
+    supplier_id = ""
+    supplier_name = ""
+    currency = ""
 
     return {
         "requestNumber": request_number,
@@ -997,17 +994,40 @@ def set_purchase_request_header_supplier(
     *,
     actor: str = "admin",
 ) -> dict[str, Any] | None:
-    """Record the awarded supplier on PH_PQ after admin confirms bidding."""
+    """Apply awarded supplier master (SQL API GET /supplier) onto PH_PQ for SQL / View e-PR."""
     code = _normalize_supplier_id_for_header(supplier_code)
     if not code:
         return None
-    name = _clean_text(supplier_name) or code
-    from utils.procurement_pr_sql_api import resolve_pr_currency_code
+    fallback_name = _clean_text(supplier_name) or code
 
-    try:
-        currency = resolve_pr_currency_code(code, required=True)
-    except ValueError:
-        currency = ""
+    from utils.procurement_pr_sql_api import (
+        ph_pq_header_updates_from_sql_supplier,
+        resolve_pr_currency_code,
+    )
+    from utils.sql_api_supplier import fetch_supplier_row_by_code
+
+    sql_row = fetch_supplier_row_by_code(code)
+    if sql_row:
+        updates = ph_pq_header_updates_from_sql_supplier(sql_row)
+        name = _clean_text(updates.get("COMPANYNAME")) or fallback_name
+        currency = _clean_text(updates.get("CURRENCYCODE") or updates.get("CURRENCY")) or "----"
+    else:
+        name = fallback_name
+        try:
+            currency = resolve_pr_currency_code(code, required=True)
+        except ValueError:
+            currency = "----"
+        updates = {
+            "CODE": code,
+            "SUPPLIERID": code,
+            "COMPANYNAME": name,
+            "CURRENCYCODE": currency,
+            "CURRENCY": currency,
+            "CURRENCYRATE": 1,
+        }
+
+    updates["UPDATEDBY"] = _clean_text(actor) or "admin"
+    updates["UPDATED_AT"] = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
 
     con = _connect_db()
     try:
@@ -1016,15 +1036,6 @@ def set_purchase_request_header_supplier(
         header_key_col = _pick_existing(header_cols, "DOCKEY", "PQKEY", "ID")
         if not header_key_col:
             return None
-        updates: dict[str, Any] = {
-            "CODE": code,
-            "SUPPLIERID": code,
-            "COMPANYNAME": name,
-            "CURRENCYCODE": currency or "----",
-            "CURRENCY": currency or "----",
-            "UPDATEDBY": _clean_text(actor) or "admin",
-            "UPDATED_AT": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
-        }
         set_parts = [f"{col} = ?" for col in updates if col in header_cols]
         if not set_parts:
             return None
@@ -1034,8 +1045,45 @@ def set_purchase_request_header_supplier(
             f"UPDATE PH_PQ SET {', '.join(set_parts)} WHERE {header_key_col} = ?",
             tuple(values),
         )
+        request_number = ""
+        docno_col = _pick_existing(header_cols, "DOCNO", "REQUESTNO", "PRNO")
+        if docno_col:
+            cur.execute(
+                f"SELECT FIRST 1 {docno_col} FROM PH_PQ WHERE {header_key_col} = ?",
+                (int(request_dockey),),
+            )
+            doc_row = cur.fetchone()
+            if doc_row and doc_row[0] is not None:
+                request_number = _clean_text(doc_row[0])
+
         con.commit()
-        return {"supplierId": code, "supplierName": name, "currency": currency}
+
+        sql_pr_sync: dict[str, Any] = {"skipped": True}
+        sql_po_syncs: list[dict[str, Any]] = []
+        try:
+            from utils.procurement_sql_api_sync import (
+                sync_linked_purchase_orders_for_request,
+                sync_purchase_request_supplier_sql_api,
+            )
+
+            sql_pr_sync = sync_purchase_request_supplier_sql_api(
+                int(request_dockey),
+                code,
+                request_number=request_number,
+            )
+            sql_po_syncs = sync_linked_purchase_orders_for_request(int(request_dockey), code)
+        except Exception as sync_exc:
+            print(f"[PROCUREMENT] SQL API supplier document PUT warning: {sync_exc}", flush=True)
+            sql_pr_sync = {"synced": False, "error": str(sync_exc)}
+
+        return {
+            "supplierId": code,
+            "supplierName": name,
+            "currency": currency,
+            "sqlSupplierSynced": bool(sql_row),
+            "sqlPurchaseRequestSync": sql_pr_sync,
+            "sqlPurchaseOrderSyncs": sql_po_syncs,
+        }
     except Exception:
         con.rollback()
         raise

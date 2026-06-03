@@ -7193,22 +7193,19 @@ def api_admin_transfer_purchase_request_to_po():
             code = str(selected_code or '').strip()
             if not code:
                 return {}
-            hit_supplier: dict = {}
             try:
-                for row in _fetch_all_suppliers_from_sql_api() or []:
-                    if isinstance(row, dict) and str(row.get('code') or '').strip() == code:
-                        hit_supplier = row
-                        break
-            except Exception:
-                hit_supplier = {}
+                from utils.sql_api_supplier import (
+                    fetch_supplier_row_by_code,
+                    supplier_master_document_fields,
+                )
 
-            if not hit_supplier:
-                hit_supplier = {}
-            if not hit_supplier.get('code'):
-                hit_supplier['code'] = code
-            if not hit_supplier.get('companyname'):
-                hit_supplier['companyname'] = str(fallback_name or '').strip()
-            return hit_supplier
+                row = fetch_supplier_row_by_code(code)
+                if row:
+                    return supplier_master_document_fields(row)
+            except Exception:
+                pass
+            name = str(fallback_name or '').strip()
+            return {"code": code, "companyname": name or code}
 
         supplier_groups: dict[str, dict[str, object]] = {}
         if awarded_lines:
