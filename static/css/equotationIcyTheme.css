@@ -1204,25 +1204,39 @@ body.equotation-icy-theme.admin-quotations-view-page .tab-content.active {
     background: linear-gradient(135deg, var(--ice-surface) 0%, var(--ice-bg-deep) 100%) !important;
 }
 
-body.equotation-icy-theme.admin-quotations-view-page .approvals-tabs,
+body.equotation-icy-theme.admin-quotations-view-page .tab-content.active {
+    background: var(--ice-bg) !important;
+}
+
 body.equotation-icy-theme.admin-quotations-view-page .quotation-page-header {
+    background: var(--ice-surface) !important;
+    border-color: var(--ice-border) !important;
+    box-shadow: none !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .avq-status-tabs.eq-line-tabs,
+body.equotation-icy-theme.admin-quotations-view-page .approvals-tabs {
     background: var(--ice-surface-alt) !important;
     border-color: var(--ice-border) !important;
 }
 
+body.equotation-icy-theme.admin-quotations-view-page .eq-line-tab.avq-status-tab,
 body.equotation-icy-theme.admin-quotations-view-page .approval-tab {
     color: var(--ice-text-muted) !important;
+    flex: 0 1 auto !important;
 }
 
+body.equotation-icy-theme.admin-quotations-view-page .eq-line-tab.avq-status-tab:hover,
 body.equotation-icy-theme.admin-quotations-view-page .approval-tab:hover {
     background: var(--ice-accent-soft) !important;
     color: var(--ice-heading) !important;
 }
 
+body.equotation-icy-theme.admin-quotations-view-page .eq-line-tab.avq-status-tab.is-active,
 body.equotation-icy-theme.admin-quotations-view-page .approval-tab.active {
     color: var(--ice-heading) !important;
     border-bottom-color: var(--ice-accent) !important;
-    background: var(--ice-accent-soft) !important;
+    background: var(--ice-surface) !important;
 }
 
 body.equotation-icy-theme.admin-quotations-view-page .admin-quotations-view,

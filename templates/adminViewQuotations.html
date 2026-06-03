@@ -10,14 +10,13 @@
 
     <title>{% if customer_my_quotations_only | default(false) %}View Quotation{% else %}Admin - View All Quotations{% endif %}</title>
 
-    <link rel="stylesheet" href="/static/css/chat.css">
-
     <link rel="stylesheet" href="/static/css/hamburger_menu.css?v=20260515_sidebar">
 
     <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
+    <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260604_tabs_size">
     <link rel="stylesheet" href="/static/css/orderQuotation.css">
 
-    <link rel="stylesheet" href="/static/css/adminViewQuotations.css?v=20260515_dept_col">
+    <link rel="stylesheet" href="/static/css/adminViewQuotations.css?v=20260604_qt_submitter">
 
     <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515_priority_icy">
 
@@ -43,9 +42,9 @@
 
             <div class="tab-content active">
 
-                <div id="quotation-content" style="padding: 20px;">
+                <div id="quotation-content">
 
-                    <div style="padding: 20px; text-align: center; color: #888;">Loading...</div>
+                    <div class="admin-quotations-loading">Loading…</div>
 
                 </div>
 
@@ -109,7 +108,7 @@
 
     <script src="/static/js/hamburger_menu.js"></script>
 
-    <script src="/static/js/adminViewQuotations.js?v=20260515_default_pending"></script>
+    <script src="/static/js/adminViewQuotations.js?v=20260604_qt_submitter"></script>
 
 </body>
 

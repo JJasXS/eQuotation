@@ -3,12 +3,72 @@ let reviewedQuotationsCache = [];
 let cancelledQuotationsCache = [];
 let pendingQuotationsCache = [];
 let companyFilter = '';
-/** One or more of: drafts, pending, reviewed, cancelled. At least one must stay selected. */
+const VIEW_QT_TAB_KEYS = new Set(['drafts', 'pending', 'reviewed', 'cancelled']);
+
+/** Exactly one status tab active at a time. */
 let selectedQuotationTabFilters = new Set(['pending']);
+
+/** Last selected DOCKEY per status tab (so switching tabs does not jump lists). */
+const selectedDockeyByTab = { drafts: null, pending: null, reviewed: null, cancelled: null };
+
 let selectedActiveQuotations = new Set();
 let selectedPendingQuotations = new Set();
 let selectedQuotationDockey = null;
 const quotationDetailCache = new Map();
+
+function getActiveQuotationTab() {
+    const tab = [...selectedQuotationTabFilters][0];
+    return VIEW_QT_TAB_KEYS.has(tab) ? tab : 'pending';
+}
+
+function readTabFromUrl() {
+    try {
+        const raw = new URLSearchParams(window.location.search).get('tab');
+        const tab = (raw || '').trim().toLowerCase();
+        return VIEW_QT_TAB_KEYS.has(tab) ? tab : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+function syncTabToUrl(tabName) {
+    if (!VIEW_QT_TAB_KEYS.has(tabName)) {
+        return;
+    }
+    try {
+        const url = new URL(window.location.href);
+        url.searchParams.set('tab', tabName);
+        const qs = url.searchParams.toString();
+        window.history.replaceState({}, '', url.pathname + (qs ? `?${qs}` : '') + url.hash);
+    } catch (e) {
+        /* ignore */
+    }
+}
+
+function applyActiveTabSelection(visibleList) {
+    const activeTab = getActiveQuotationTab();
+    let selectedRow = visibleList.find(
+        (row) =>
+            (row._filterTab || activeTab) === activeTab
+            && Number(row.DOCKEY) === Number(selectedDockeyByTab[activeTab]),
+    );
+    if (!selectedRow && visibleList.length) {
+        selectedRow = visibleList[0];
+    }
+    selectedDockeyByTab[activeTab] = selectedRow ? Number(selectedRow.DOCKEY) : null;
+    selectedQuotationDockey = selectedDockeyByTab[activeTab];
+    return selectedRow;
+}
+
+function syncRowSelectionHighlight() {
+    const activeTab = getActiveQuotationTab();
+    document.querySelectorAll('.quotation-card').forEach((card) => {
+        const match =
+            card.dataset.filterTab === activeTab
+            && Number(card.dataset.dockey) === Number(selectedQuotationDockey);
+        card.classList.toggle('is-selected', match);
+    });
+}
 
 /** Date filter (YYYY-MM-DD from input type=date) */
 let adminDateFrom = '';
@@ -34,19 +94,38 @@ function escapeHtml(s) {
         .replace(/'/g, '&#39;');
 }
 
-/** Escaped `email from (department)`; empty if both missing. */
-function formatSubmittedByCreatorInner(emailRaw, deptRaw) {
-    const e = emailRaw != null ? String(emailRaw).trim() : '';
-    const d = deptRaw != null ? String(deptRaw).trim() : '';
-    if (!e && !d) return '';
-    if (e && d) return `${escapeHtml(e)} from (${escapeHtml(d)})`;
-    if (e) return escapeHtml(e);
-    return `(${escapeHtml(d)})`;
+/** Prefer SY_USER NAME; fall back to email only when name is missing. */
+function formatCreatorDisplay(nameRaw, emailRaw) {
+    const name = nameRaw != null ? String(nameRaw).trim() : '';
+    const email = emailRaw != null ? String(emailRaw).trim() : '';
+    if (name) {
+        return escapeHtml(name);
+    }
+    if (email) {
+        return escapeHtml(email);
+    }
+    return '—';
 }
 
-function formatCreatorEmailDisplay(emailRaw) {
-    const e = emailRaw != null ? String(emailRaw).trim() : '';
-    return e ? escapeHtml(e) : '—';
+function creatorDisplayTitle(nameRaw, emailRaw) {
+    const name = nameRaw != null ? String(nameRaw).trim() : '';
+    const email = emailRaw != null ? String(emailRaw).trim() : '';
+    if (name && email) return `Submitted by: ${name} (${email})`;
+    if (email) return `Submitted by: ${email}`;
+    if (name) return `Submitted by: ${name}`;
+    return 'Submitted by';
+}
+
+/** Escaped submitter label with optional department; empty if both missing. */
+function formatSubmittedByCreatorInner(nameRaw, emailRaw, deptRaw) {
+    const name = nameRaw != null ? String(nameRaw).trim() : '';
+    const email = emailRaw != null ? String(emailRaw).trim() : '';
+    const who = name || email;
+    const d = deptRaw != null ? String(deptRaw).trim() : '';
+    if (!who && !d) return '';
+    if (who && d) return `${escapeHtml(who)} (${escapeHtml(d)})`;
+    if (who) return escapeHtml(who);
+    return `(${escapeHtml(d)})`;
 }
 
 function formatCreatorDepartmentDisplay(deptRaw) {
@@ -81,28 +160,21 @@ function buildViewQuotationsShellHtml(showAdminFilters) {
         : `
                         
                     `;
+    const filterBlock = showAdminFilters
+        ? `<div class="quotation-page-header-controls">${filterInner}</div>`
+        : '';
     return `
-            <div class="admin-quotations-view" style="padding: 16px;">
-                <div class="quotation-page-header">
-                    <div class="quotation-page-header-controls">
-                        ${filterInner}
-                    </div>
-                    <div class="approvals-tabs quotation-page-header-tabs">
-                        <button type="button" id="tab-drafts" class="approval-tab ${selectedQuotationTabFilters.has('drafts') ? 'active' : ''}" onclick="toggleQuotationFilter('drafts')">
-                            Drafts (${draftsQuotationsCache.length})
-                        </button>
-                        <button type="button" id="tab-pending" class="approval-tab ${selectedQuotationTabFilters.has('pending') ? 'active' : ''}" onclick="toggleQuotationFilter('pending')">
-                            Pending (${pendingQuotationsCache.length})
-                        </button>
-                        <button type="button" id="tab-reviewed" class="approval-tab ${selectedQuotationTabFilters.has('reviewed') ? 'active' : ''}" onclick="toggleQuotationFilter('reviewed')">
-                            Reviewed (${reviewedQuotationsCache.length})
-                        </button>
-                        <button type="button" id="tab-cancelled" class="approval-tab ${selectedQuotationTabFilters.has('cancelled') ? 'active' : ''}" onclick="toggleQuotationFilter('cancelled')">
-                            Cancelled (${cancelledQuotationsCache.length})
-                        </button>
-                    </div>
+            <div class="admin-quotations-view admin-quotations-view--compact">
+                <div class="quotation-page-header quotation-page-header--compact">
+                    ${filterBlock}
+                    <nav class="eq-line-tabs avq-status-tabs" role="tablist" aria-label="Quotation status">
+                        <button type="button" role="tab" id="tab-drafts" class="eq-line-tab avq-status-tab${selectedQuotationTabFilters.has('drafts') ? ' is-active' : ''}" aria-selected="${selectedQuotationTabFilters.has('drafts') ? 'true' : 'false'}" onclick="toggleQuotationFilter('drafts')">Drafts (${draftsQuotationsCache.length})</button>
+                        <button type="button" role="tab" id="tab-pending" class="eq-line-tab avq-status-tab${selectedQuotationTabFilters.has('pending') ? ' is-active' : ''}" aria-selected="${selectedQuotationTabFilters.has('pending') ? 'true' : 'false'}" onclick="toggleQuotationFilter('pending')">Pending (${pendingQuotationsCache.length})</button>
+                        <button type="button" role="tab" id="tab-reviewed" class="eq-line-tab avq-status-tab${selectedQuotationTabFilters.has('reviewed') ? ' is-active' : ''}" aria-selected="${selectedQuotationTabFilters.has('reviewed') ? 'true' : 'false'}" onclick="toggleQuotationFilter('reviewed')">Reviewed (${reviewedQuotationsCache.length})</button>
+                        <button type="button" role="tab" id="tab-cancelled" class="eq-line-tab avq-status-tab${selectedQuotationTabFilters.has('cancelled') ? ' is-active' : ''}" aria-selected="${selectedQuotationTabFilters.has('cancelled') ? 'true' : 'false'}" onclick="toggleQuotationFilter('cancelled')">Cancelled (${cancelledQuotationsCache.length})</button>
+                    </nav>
                 </div>
-                <div id="quotation-tab-content" style="padding-top: 12px;"></div>
+                <div id="quotation-tab-content"></div>
             </div>
         `;
 }
@@ -200,6 +272,7 @@ function quotationWorkflowBucket(qt) {
     return 'reviewed';
 }
 
+/** Hide admin workflow actions (Reviewed/Cancel/bulk/checkboxes). Customer view still edits drafts. */
 function hideQuotationStatusActionsFromPage() {
     return (
         typeof document !== 'undefined' &&
@@ -207,6 +280,67 @@ function hideQuotationStatusActionsFromPage() {
         document.body.dataset.hideQuotationActions === 'true'
     );
 }
+
+/** Edit button visibility: customers may edit Drafts tab only; staff use full workflow. */
+function canShowQuotationEdit(filterTab) {
+    const tab = (filterTab || '').trim().toLowerCase();
+    if (isCustomerMyQuotationsPage()) {
+        return tab === 'drafts';
+    }
+    return !hideQuotationStatusActionsFromPage();
+}
+
+/** List/detail workflow buttons (Reviewed, Cancel, Restore, bulk) — not on customer View Quotation. */
+function canShowQuotationWorkflowActions(filterTab) {
+    if (isCustomerMyQuotationsPage()) {
+        return false;
+    }
+    return !hideQuotationStatusActionsFromPage();
+}
+
+/** Actions column in list table: Drafts only on customer view; always on admin list. */
+function showQuotationListActionsColumn(filterTab) {
+    const tab = (filterTab || getActiveQuotationTab()).trim().toLowerCase();
+    if (isCustomerMyQuotationsPage()) {
+        return tab === 'drafts';
+    }
+    return true;
+}
+
+/** Row checkboxes for bulk actions (admin pending/reviewed tabs only). */
+function showQuotationListCheckboxColumn(filterTab) {
+    const tab = (filterTab || getActiveQuotationTab()).trim().toLowerCase();
+    if (!canShowQuotationWorkflowActions(tab)) {
+        return false;
+    }
+    return tab === 'pending' || tab === 'reviewed';
+}
+
+function findQuotationRowInCaches(dockey, filterTab) {
+    const id = Number(dockey);
+    if (!Number.isFinite(id)) {
+        return null;
+    }
+    const tab = (filterTab || getActiveQuotationTab()).toLowerCase();
+    const lists = {
+        drafts: draftsQuotationsCache,
+        pending: pendingQuotationsCache,
+        reviewed: reviewedQuotationsCache,
+        cancelled: cancelledQuotationsCache,
+    };
+    const list = lists[tab] || [];
+    return list.find((row) => Number(row.DOCKEY) === id) || null;
+}
+
+window.editQuotationFromBtn = function (btn) {
+    if (!btn || !btn.dataset) {
+        return;
+    }
+    const dockey = btn.dataset.dockey;
+    const filterTab = btn.dataset.filterTab || getActiveQuotationTab();
+    const source = btn.dataset.draftSource || '';
+    editQuotation(dockey, { filterTab, source });
+};
 
 window.toggleCancelledStatus = async function(dockey, isCancelled) {
     if (hideQuotationStatusActionsFromPage()) {
@@ -380,6 +514,7 @@ window.toggleQuotationFilter = function (name) {
         return;
     }
     selectedQuotationTabFilters = new Set([name]);
+    syncTabToUrl(name);
     refreshQuotationListView();
 };
 
@@ -405,16 +540,18 @@ function refreshQuotationListView() {
     reviewedBtn.textContent = `Reviewed (${reviewedList.length})`;
     cancelledBtn.textContent = `Cancelled (${cancelledList.length})`;
 
-    draftsBtn.classList.toggle('active', selectedQuotationTabFilters.has('drafts'));
-    pendingBtn.classList.toggle('active', selectedQuotationTabFilters.has('pending'));
-    reviewedBtn.classList.toggle('active', selectedQuotationTabFilters.has('reviewed'));
-    cancelledBtn.classList.toggle('active', selectedQuotationTabFilters.has('cancelled'));
+    ['tab-drafts', 'tab-pending', 'tab-reviewed', 'tab-cancelled'].forEach((id) => {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        const key = id.replace('tab-', '');
+        const on = selectedQuotationTabFilters.has(key);
+        btn.classList.toggle('is-active', on);
+        btn.classList.toggle('active', on);
+        btn.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
 
     const visibleList = getCombinedQuotationList();
-
-    if (!visibleList.some((row) => Number(row.DOCKEY) === Number(selectedQuotationDockey))) {
-        selectedQuotationDockey = visibleList.length ? Number(visibleList[0].DOCKEY) : null;
-    }
+    applyActiveTabSelection(visibleList);
 
     const html = `
         <div class="quotation-split-wrap">
@@ -437,8 +574,11 @@ function refreshQuotationListView() {
                 && !e.target.closest('.quotation-checkbox-active')
                 && !e.target.closest('.quotation-checkbox-pending')
             ) {
+                const filterTab = this.dataset.filterTab || getActiveQuotationTab();
                 selectedQuotationDockey = Number(this.dataset.dockey);
-                refreshQuotationListView();
+                selectedDockeyByTab[filterTab] = selectedQuotationDockey;
+                syncRowSelectionHighlight();
+                renderQuotationDetail(visibleList);
             }
         });
     });
@@ -535,6 +675,11 @@ async function loadQuotations() {
             adminDateFrom = '';
             adminDateTo = '';
         }
+        const urlTab = readTabFromUrl();
+        if (urlTab) {
+            selectedQuotationTabFilters = new Set([urlTab]);
+        }
+        syncTabToUrl(getActiveQuotationTab());
         refreshQuotationListView();
     } catch (error) {
         content.innerHTML = '<div style="padding: 20px; text-align: center; color: #ff6b6b;">Failed to load quotations.</div>';
@@ -543,10 +688,11 @@ async function loadQuotations() {
 }
 
 function setQuotationTab(tabName) {
-    if (!['drafts', 'pending', 'reviewed', 'cancelled'].includes(tabName)) {
+    if (!VIEW_QT_TAB_KEYS.has(tabName)) {
         return;
     }
     selectedQuotationTabFilters = new Set([tabName]);
+    syncTabToUrl(tabName);
     refreshQuotationListView();
 }
 
@@ -555,11 +701,14 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
         return '<div class="quotation-list-empty">No quotations</div>';
     }
 
+    const activeTab = getActiveQuotationTab();
+    const showChkCol = showQuotationListCheckboxColumn(activeTab);
+    const showActionsCol = showQuotationListActionsColumn(activeTab);
     const hideStatus = hideQuotationStatusActionsFromPage();
     const hasReviewedInList = list.some((qt) => (qt._filterTab || 'reviewed') === 'reviewed');
     const hasPendingInList = list.some((qt) => (qt._filterTab || '') === 'pending');
     let controlsHtml = '';
-    if (hasPendingInList && !hideStatus) {
+    if (hasPendingInList && canShowQuotationWorkflowActions('pending')) {
         controlsHtml += `
             <div class="active-tab-controls show">
                 <label class="quotation-bulk-select-label">
@@ -573,7 +722,7 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
             </div>
         `;
     }
-    if (hasReviewedInList && !hideStatus) {
+    if (hasReviewedInList && canShowQuotationWorkflowActions('reviewed')) {
         controlsHtml += `
             <div class="active-tab-controls show">
                 <label class="quotation-bulk-select-label">
@@ -594,23 +743,23 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
     html += `
         <table class="quotation-list-table" role="grid" aria-label="Quotations">
             <colgroup>
-                <col class="quotation-list-col quotation-list-col--chk" />
+                ${showChkCol ? '<col class="quotation-list-col quotation-list-col--chk" />' : ''}
                 <col class="quotation-list-col quotation-list-col--doc" />
                 <col class="quotation-list-col quotation-list-col--date" />
                 <col class="quotation-list-col quotation-list-col--creator" />
                 <col class="quotation-list-col quotation-list-col--department" />
                 <col class="quotation-list-col quotation-list-col--amount" />
-                <col class="quotation-list-col quotation-list-col--actions" />
+                ${showActionsCol ? '<col class="quotation-list-col quotation-list-col--actions" />' : ''}
             </colgroup>
             <thead>
                 <tr>
-                    <th class="quotation-list-th quotation-list-th--chk" scope="col"><span class="visually-hidden">Select</span></th>
+                    ${showChkCol ? '<th class="quotation-list-th quotation-list-th--chk" scope="col"><span class="visually-hidden">Select</span></th>' : ''}
                     <th class="quotation-list-th quotation-list-th--doc" scope="col">QT code</th>
                     <th class="quotation-list-th quotation-list-th--date" scope="col">Date</th>
                     <th class="quotation-list-th quotation-list-th--creator" scope="col">Submitted by</th>
                     <th class="quotation-list-th quotation-list-th--department" scope="col">Department</th>
                     <th class="quotation-list-th quotation-list-th--amount" scope="col">Amount</th>
-                    <th class="quotation-list-th quotation-list-th--actions" scope="col">Actions</th>
+                    ${showActionsCol ? '<th class="quotation-list-th quotation-list-th--actions" scope="col">Actions</th>' : ''}
                 </tr>
             </thead>
             <tbody>
@@ -631,22 +780,34 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
                 ? '#6b7c9a'
                 : '#2d5a8a';
         const badgeColor = borderColor;
-        const isSelected = Number(qt.DOCKEY) === Number(selectedQuotationDockey);
+        const isSelected =
+            filterTab === activeTab
+            && Number(qt.DOCKEY) === Number(selectedQuotationDockey);
 
         let checkboxHtml = '';
-        if (!hideStatus && isReviewed) {
+        if (showChkCol && isReviewed) {
             checkboxHtml = `<input type="checkbox" class="quotation-checkbox-active" data-dockey="${qt.DOCKEY}" ${selectedActiveQuotations.has(Number(qt.DOCKEY)) ? 'checked' : ''} onchange="handleActiveCheckboxChange(); event.stopPropagation();" style="width: 18px; height: 18px; cursor: pointer; accent-color: #dc3545; flex-shrink: 0;">`;
-        } else if (!hideStatus && isPending) {
+        } else if (showChkCol && isPending) {
             checkboxHtml = `<input type="checkbox" class="quotation-checkbox-pending" data-dockey="${qt.DOCKEY}" ${selectedPendingQuotations.has(Number(qt.DOCKEY)) ? 'checked' : ''} onchange="handlePendingCheckboxChange(); event.stopPropagation();" style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--ice-accent, #3b8fc4); flex-shrink: 0;">`;
         }
 
-        const chkCell = checkboxHtml
-            ? `<div class="quotation-card__chk-cell-inner">${checkboxHtml}</div>`
-            : '<div class="quotation-card__chk-cell-inner quotation-card__chk-cell-inner--empty" aria-hidden="true"></div>';
+        const chkCell = showChkCol
+            ? (checkboxHtml
+                ? `<div class="quotation-card__chk-cell-inner">${checkboxHtml}</div>`
+                : '<div class="quotation-card__chk-cell-inner quotation-card__chk-cell-inner--empty" aria-hidden="true"></div>')
+            : '';
+
+        const rowActionButtons = showActionsCol
+            ? `${canShowQuotationEdit(filterTab) && isDrafts ? `<button type="button" class="edit-button" data-dockey="${qt.DOCKEY}" data-filter-tab="${escapeHtml(filterTab)}" data-draft-source="${qt._sourceSlQtDraft ? 'slqtdraft' : 'slqt'}" onclick="editQuotationFromBtn(this); event.stopPropagation();" style="background: #5a8fc4; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Edit</button>` : ''}
+                            ${canShowQuotationEdit(filterTab) && isPending && canShowQuotationWorkflowActions(filterTab) ? `<button type="button" class="edit-button" data-dockey="${qt.DOCKEY}" data-filter-tab="${escapeHtml(filterTab)}" data-draft-source="slqt" onclick="editQuotationFromBtn(this); event.stopPropagation();" style="background: #5a8fc4; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Edit</button>` : ''}
+                            ${isPending && canShowQuotationWorkflowActions(filterTab) ? `<button class="activate-btn" onclick="activateQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #4b9e6e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Reviewed</button>` : ''}
+                            ${isReviewed && canShowQuotationWorkflowActions(filterTab) ? `<button class="toggle-cancelled-btn" onclick="event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, false);" style="background: #a65c5c; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Cancel</button>` : ''}
+                            ${isCancelled && canShowQuotationWorkflowActions(filterTab) ? `<button class="toggle-cancelled-btn" onclick="event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, true);" style="background: #4b6e9e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Restore</button>` : ''}`
+            : '';
 
         html += `
-            <tr class="quotation-card ${isSelected ? 'is-selected' : ''}" data-dockey="${qt.DOCKEY}" style="--quotation-accent: ${borderColor};">
-                <td class="quotation-card__cell quotation-card__cell--chk">${chkCell}</td>
+            <tr class="quotation-card ${isSelected ? 'is-selected' : ''}" data-dockey="${qt.DOCKEY}" data-filter-tab="${escapeHtml(filterTab)}" style="--quotation-accent: ${borderColor};">
+                ${showChkCol ? `<td class="quotation-card__cell quotation-card__cell--chk">${chkCell}</td>` : ''}
                 <td class="quotation-card__cell quotation-card__cell--doc">
                     <div class="quotation-list-cell-center">
                         <span class="quotation-card__doc-value">${docLabel(qt)}</span>
@@ -658,7 +819,7 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
                     </div>
                 </td>
                 <td class="quotation-card__cell quotation-card__cell--creator">
-                    <div class="quotation-list-cell-center quotation-list-cell--creator" title="eQuotation submitter email">${formatCreatorEmailDisplay(qt.creatorEmail)}</div>
+                    <div class="quotation-list-cell-center quotation-list-cell--creator" title="${creatorDisplayTitle(qt.creatorName, qt.creatorEmail)}">${formatCreatorDisplay(qt.creatorName, qt.creatorEmail)}</div>
                 </td>
                 <td class="quotation-card__cell quotation-card__cell--department">
                     <div class="quotation-list-cell-center quotation-list-cell--department" title="Department at submission">${formatCreatorDepartmentDisplay(qt.creatorDepartment)}</div>
@@ -670,18 +831,13 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
                         </div>
                     </div>
                 </td>
-                <td class="quotation-card__cell quotation-card__cell--actions">
+                ${showActionsCol ? `<td class="quotation-card__cell quotation-card__cell--actions">
                     <div class="quotation-list-cell-center quotation-list-cell-center--actions">
                         <div class="quotation-card__button-col">
-                            <div class="quotation-card__side-actions">
-                            ${isDrafts && !hideStatus ? `<button class="edit-button" onclick="editQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #5a8fc4; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Edit</button>` : ''}
-                            ${isPending && !hideStatus ? `<button class="edit-button" onclick="editQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #5a8fc4; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Edit</button>` : ''}
-                            ${isPending && !hideStatus ? `<button class="activate-btn" onclick="activateQuotation(${qt.DOCKEY}); event.stopPropagation();" style="background: #4b9e6e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Reviewed</button>` : ''}
-                            ${isReviewed && !hideStatus ? `<button class="toggle-cancelled-btn" onclick="event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, false);" style="background: #a65c5c; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Cancel</button>` : ''}
-                            ${isCancelled && !hideStatus ? `<button class="toggle-cancelled-btn" onclick="event.stopPropagation(); toggleCancelledStatus(${qt.DOCKEY}, true);" style="background: #4b6e9e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;">Restore</button>` : ''}
+                            <div class="quotation-card__side-actions">${rowActionButtons}</div>
                         </div>
                     </div>
-                </td>
+                </td>` : ''}
             </tr>
         `;
     });
@@ -698,18 +854,28 @@ async function renderQuotationDetail(currentList, options = {}) {
     const panel = document.getElementById('quotation-detail-pane');
     if (!panel) return;
 
-    const selected = (currentList || []).find((row) => Number(row.DOCKEY) === Number(selectedQuotationDockey));
+    const activeTab = getActiveQuotationTab();
+    const selected = (currentList || []).find(
+        (row) =>
+            Number(row.DOCKEY) === Number(selectedQuotationDockey)
+            && (row._filterTab || activeTab) === activeTab,
+    );
     if (!selected) {
         panel.innerHTML = '<div class="quotation-detail-empty">Select a quotation to view details.</div>';
         return;
     }
 
-    const hideStatus = hideQuotationStatusActionsFromPage();
     const filterTab = selected._filterTab || 'reviewed';
     const isPending = filterTab === 'pending';
     const isCancelled = filterTab === 'cancelled';
     const isReviewed = filterTab === 'reviewed';
     const isDrafts = filterTab === 'drafts';
+    const detailActionsHtml =
+        `${canShowQuotationEdit(filterTab) && isDrafts ? `<button type="button" class="edit-button" data-dockey="${selected.DOCKEY}" data-filter-tab="${escapeHtml(filterTab)}" data-draft-source="${selected._sourceSlQtDraft ? 'slqtdraft' : 'slqt'}" onclick="editQuotationFromBtn(this)">Edit</button>` : ''}`
+        + `${canShowQuotationEdit(filterTab) && isPending && canShowQuotationWorkflowActions(filterTab) ? `<button type="button" class="edit-button" data-dockey="${selected.DOCKEY}" data-filter-tab="${escapeHtml(filterTab)}" data-draft-source="slqt" onclick="editQuotationFromBtn(this)">Edit</button>` : ''}`
+        + `${isPending && canShowQuotationWorkflowActions(filterTab) ? `<button class="activate-btn" onclick="activateQuotation(${selected.DOCKEY})">Reviewed</button>` : ''}`
+        + `${isReviewed && canShowQuotationWorkflowActions(filterTab) ? `<button class="toggle-cancelled-btn" onclick="toggleCancelledStatus(${selected.DOCKEY}, false)">Cancel</button>` : ''}`
+        + `${isCancelled && canShowQuotationWorkflowActions(filterTab) ? `<button class="toggle-cancelled-btn" onclick="toggleCancelledStatus(${selected.DOCKEY}, true)">Restore</button>` : ''}`;
     const amount = Number(selected.DOCAMT || 0).toFixed(2);
     const docDate = formatDateForDisplay(selected.DOCDATE);
     const validity = formatDateForDisplay(selected.VALIDITY);
@@ -727,16 +893,10 @@ async function renderQuotationDetail(currentList, options = {}) {
         <div class="quotation-detail-meta">
             <span><strong>Date:</strong> ${docDate}</span>
             <span><strong>Valid Until:</strong> ${validity}</span>
-            <span><strong>Submitted by:</strong> ${formatCreatorEmailDisplay(selected.creatorEmail)}</span>
+            <span><strong>Submitted by:</strong> ${formatCreatorDisplay(selected.creatorName, selected.creatorEmail)}</span>
             <span><strong>Department:</strong> ${formatCreatorDepartmentDisplay(selected.creatorDepartment)}</span>
         </div>
-        <div class="quotation-detail-actions">
-            ${isDrafts && !hideStatus ? `<button class="edit-button" onclick="editQuotation(${selected.DOCKEY})">Edit</button>` : ''}
-            ${isPending && !hideStatus ? `<button class="edit-button" onclick="editQuotation(${selected.DOCKEY})">Edit</button>` : ''}
-            ${isPending && !hideStatus ? `<button class="activate-btn" onclick="activateQuotation(${selected.DOCKEY})">Reviewed</button>` : ''}
-            ${isReviewed && !hideStatus ? `<button class="toggle-cancelled-btn" onclick="toggleCancelledStatus(${selected.DOCKEY}, false)">Cancel</button>` : ''}
-            ${isCancelled && !hideStatus ? `<button class="toggle-cancelled-btn" onclick="toggleCancelledStatus(${selected.DOCKEY}, true)">Restore</button>` : ''}
-        </div>
+        ${detailActionsHtml ? `<div class="quotation-detail-actions">${detailActionsHtml}</div>` : ''}
         <div class="quotation-detail-items" id="quotation-detail-items">
             <div class="quotation-detail-loading">Loading items...</div>
         </div>
@@ -805,11 +965,22 @@ async function renderQuotationDetail(currentList, options = {}) {
     }
 }
 
-function editQuotation(dockey) {
-    if (hideQuotationStatusActionsFromPage()) {
+function editQuotation(dockey, options = {}) {
+    const filterTab = (options.filterTab || getActiveQuotationTab()).toLowerCase();
+    if (!canShowQuotationEdit(filterTab)) {
         return;
     }
-    window.location.href = `/admin/update-quotation?dockey=${dockey}`;
+    const id = encodeURIComponent(dockey);
+    if (isCustomerMyQuotationsPage()) {
+        const source = (options.source || '').toLowerCase();
+        const row = findQuotationRowInCaches(dockey, filterTab);
+        const isSlQtDraft = source === 'slqtdraft' || (row && row._sourceSlQtDraft);
+        window.location.href = isSlQtDraft
+            ? `/create-quotation?draftDockey=${id}`
+            : `/create-quotation?dockey=${id}`;
+        return;
+    }
+    window.location.href = `/admin/update-quotation?dockey=${id}`;
 }
 
 // Reviewed tab: batch cancel (CANCELLED status — same as /api/admin/delete_quotations)

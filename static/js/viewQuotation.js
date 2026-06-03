@@ -41,13 +41,15 @@ function escapeHtml(s) {
         .replace(/'/g, '&#39;');
 }
 
-/** Escaped `email from (department)` for list/detail; empty if both missing. */
-function formatSubmittedByCreatorInner(emailRaw, deptRaw) {
-    const e = emailRaw != null ? String(emailRaw).trim() : '';
+/** Escaped submitter label with optional department; prefers creator name over email. */
+function formatSubmittedByCreatorInner(nameRaw, emailRaw, deptRaw) {
+    const name = nameRaw != null ? String(nameRaw).trim() : '';
+    const email = emailRaw != null ? String(emailRaw).trim() : '';
+    const who = name || email;
     const d = deptRaw != null ? String(deptRaw).trim() : '';
-    if (!e && !d) return '';
-    if (e && d) return `${escapeHtml(e)} from (${escapeHtml(d)})`;
-    if (e) return escapeHtml(e);
+    if (!who && !d) return '';
+    if (who && d) return `${escapeHtml(who)} (${escapeHtml(d)})`;
+    if (who) return escapeHtml(who);
     return `(${escapeHtml(d)})`;
 }
 
@@ -326,7 +328,7 @@ function renderDetailPanel(data, listType, cardSource) {
     if (d.DESCRIPTION) {
         meta.push(['<dt>Description</dt>', `<dd>${escapeHtml(d.DESCRIPTION)}</dd>`]);
     }
-    const creatorDetail = formatSubmittedByCreatorInner(d.creatorEmail, d.creatorDepartment);
+    const creatorDetail = formatSubmittedByCreatorInner(d.creatorName, d.creatorEmail, d.creatorDepartment);
     if (creatorDetail) {
         meta.push(['<dt>Submitted by</dt>', `<dd>${creatorDetail}</dd>`]);
     }
@@ -571,7 +573,7 @@ function renderQuotationList(list, listType) {
         const validity = escapeHtml(qt.VALIDITY || '—');
         const companyName = escapeHtml(qt.COMPANYNAME || 'N/A');
         const docno = escapeHtml(qt.DOCNO || 'DOCKEY #' + qt.DOCKEY);
-        const creatorInner = formatSubmittedByCreatorInner(qt.creatorEmail, qt.creatorDepartment);
+        const creatorInner = formatSubmittedByCreatorInner(qt.creatorName, qt.creatorEmail, qt.creatorDepartment);
         const creatorLine = creatorInner
             ? `<div class="view-qt-list-card__creator" title="Submitted by">Submitted by: ${creatorInner}</div>`
             : '';

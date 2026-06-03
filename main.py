@@ -736,6 +736,97 @@ def _resolve_quotation_creator_department(row_map):
     return ''
 
 
+def _creator_email_lookup_key(email) -> str:
+    return str(email or '').strip().upper()
+
+
+def _fetch_sy_user_names_by_emails(cur, emails: list[str]) -> dict[str, str]:
+    """Map upper(trim(email)) -> SY_USER.NAME for submitter display."""
+    keys: list[str] = []
+    seen: set[str] = set()
+    for raw in emails:
+        text = str(raw or '').strip()
+        if not text or '@' not in text:
+            continue
+        key = _creator_email_lookup_key(text)
+        if key in seen:
+            continue
+        seen.add(key)
+        keys.append(text)
+    if not keys:
+        return {}
+
+    try:
+        cur.execute(
+            """
+            SELECT COUNT(*)
+            FROM RDB$RELATIONS
+            WHERE TRIM(RDB$RELATION_NAME) = 'SY_USER'
+            """
+        )
+        if not (cur.fetchone() or [0])[0]:
+            return {}
+        cur.execute(
+            """
+            SELECT TRIM(RF.RDB$FIELD_NAME)
+            FROM RDB$RELATION_FIELDS RF
+            WHERE TRIM(RF.RDB$RELATION_NAME) = 'SY_USER'
+            """
+        )
+        cols = {str(r[0]).strip().upper() for r in (cur.fetchall() or []) if r and r[0]}
+        if 'EMAIL' not in cols or 'NAME' not in cols:
+            return {}
+    except Exception:
+        return {}
+
+    out: dict[str, str] = {}
+    chunk_size = 40
+    for i in range(0, len(keys), chunk_size):
+        chunk = keys[i : i + chunk_size]
+        placeholders = ', '.join(['?'] * len(chunk))
+        try:
+            cur.execute(
+                f"""
+                SELECT TRIM(EMAIL), TRIM(NAME)
+                FROM SY_USER
+                WHERE UPPER(TRIM(EMAIL)) IN ({placeholders})
+                """,
+                tuple(k.upper() for k in chunk),
+            )
+            for row in cur.fetchall() or []:
+                if not row or not row[0]:
+                    continue
+                email_key = _creator_email_lookup_key(row[0])
+                name = str(row[1] or '').strip() if len(row) > 1 else ''
+                if email_key and name and email_key not in out:
+                    out[email_key] = name
+        except Exception as exc:
+            print(f"[quotation creator name] SY_USER lookup skipped: {exc}", flush=True)
+            break
+    return out
+
+
+def _attach_creator_names_to_quotations(cur, quotations: list[dict]) -> None:
+    if not quotations:
+        return
+    name_map = _fetch_sy_user_names_by_emails(
+        cur,
+        [str(q.get('creatorEmail') or '').strip() for q in quotations if isinstance(q, dict)],
+    )
+    for q in quotations:
+        if not isinstance(q, dict):
+            continue
+        email_key = _creator_email_lookup_key(q.get('creatorEmail'))
+        q['creatorName'] = name_map.get(email_key, '') if email_key else ''
+
+
+def _resolve_quotation_creator_name(cur, creator_email: str) -> str:
+    email = str(creator_email or '').strip()
+    if not email:
+        return ''
+    return _fetch_sy_user_names_by_emails(cur, [email]).get(_creator_email_lookup_key(email), '')
+
+
 def _try_set_sl_qt_creator_meta_after_submit(dockey, login_email, login_department):
     """Back-fill SL_QT UDF_CREATOR_* from session (first submit only, column must exist)."""
     email = (login_email or '').strip()
@@ -8099,6 +8190,7 @@ def api_get_my_quotations():
             rec['creatorDepartment'] = _resolve_quotation_creator_department(row_map)
             quotations.append(rec)
 
+        _attach_creator_names_to_quotations(cur, quotations)
         return jsonify({'success': True, 'data': quotations})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -8276,6 +8368,7 @@ def api_get_quotation_details():
 
             data['creatorEmail'] = _resolve_quotation_creator_email(header_map)
             data['creatorDepartment'] = _resolve_quotation_creator_department(header_map)
+            data['creatorName'] = _resolve_quotation_creator_name(cur, data['creatorEmail'])
 
             return jsonify({'success': True, 'data': data})
         finally:
@@ -8425,6 +8518,7 @@ def api_admin_get_all_quotations():
             cancelled_norm = str(cancelled).strip().lower() in ('1', 'true', 't', 'yes', 'y')
             quotations = [q for q in quotations if q.get('CANCELLED') is cancelled_norm]
 
+        _attach_creator_names_to_quotations(cur, quotations)
         return jsonify({'success': True, 'count': len(quotations), 'data': quotations})
     except Exception as e:
         print(f"[GET ALL QUOTATIONS] DB error: {e}", flush=True)
@@ -8535,6 +8629,10 @@ def api_admin_get_quotation_detail():
                 'creatorEmail': _resolve_quotation_creator_email(header_map),
                 'creatorDepartment': _resolve_quotation_creator_department(header_map),
             }
+            quotation['creatorName'] = _resolve_quotation_creator_name(
+                cur,
+                quotation.get('creatorEmail'),
+            )
             if 'CANCELLED' in header_map:
                 cr = header_map.get('CANCELLED')
                 if cr is None:

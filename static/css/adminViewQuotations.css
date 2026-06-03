@@ -109,13 +109,17 @@
     width: 48px;
 }
 
+.quotation-list-col--doc {
+    width: 88px;
+}
+
 .quotation-list-col--date {
-    width: 100px;
+    width: 96px;
 }
 
 .quotation-list-col--creator {
-    width: 16%;
-    min-width: 120px;
+    width: 28%;
+    min-width: 140px;
 }
 
 .quotation-list-col--department {
@@ -238,19 +242,27 @@ tr.quotation-card td {
 .quotation-list-cell--department {
     font-size: 12px;
     color: #3d5a78;
-    word-break: break-word;
     line-height: 1.25;
     padding: 2px 4px;
-    text-align: center;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+}
+
+.quotation-list-cell--creator {
+    font-weight: 600;
+    color: var(--ice-heading, #1a4d6e);
 }
 
 .quotation-card__doc-value {
     display: block;
     min-width: 0;
-    max-width: 100%;
+    max-width: 88px;
     margin: 0 auto;
     font-weight: 700;
-    font-size: 13px;
+    font-size: 12px;
     color: var(--ice-heading, #1a4d6e);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -362,37 +374,122 @@ tr.quotation-card td {
     box-sizing: border-box;
 }
 
-.admin-quotations-view-page .tab-content.active {
-    background: linear-gradient(135deg, var(--ice-surface, #f7fbff) 0%, var(--ice-bg-deep, #d4eaf6) 100%);
+/* Full-height workspace; orderQuotation .tab-content padding overridden below */
+body.admin-quotations-view-page {
+    margin: 0;
 }
 
-.admin-quotations-view-page .approvals-tabs {
-    background: var(--ice-surface-alt, #eef6fc);
-    border-bottom: 1px solid var(--ice-border, #b8d4e8);
+body.admin-quotations-view-page .container,
+body.admin-quotations-view-page .main-content {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    min-height: 100dvh;
+}
+
+body.admin-quotations-view-page .main-content {
+    flex: 1;
+    min-height: 0;
+}
+
+body.admin-quotations-view-page .app-page-header {
+    min-height: 44px;
+    padding: 8px 14px;
+    flex-shrink: 0;
+}
+
+body.admin-quotations-view-page .app-page-header__breadcrumb-trail {
+    font-size: 15px;
+}
+
+body.admin-quotations-view-page .app-page-header__subtitle {
+    font-size: 12px;
+}
+
+body.admin-quotations-view-page .tab-content.active {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    padding: 0 8px 8px;
+    overflow: hidden;
+    background: var(--ice-bg, #e3f2fa);
+}
+
+body.admin-quotations-view-page #quotation-content {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 0 !important;
+}
+
+.admin-quotations-loading {
+    padding: 12px;
+    text-align: center;
+    color: var(--ice-text-muted, #5a7a94);
+    font-size: 13px;
+}
+
+.admin-quotations-view--compact {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
 }
 
 .quotation-page-header {
-    background: var(--ice-surface-alt, #eef6fc);
+    background: var(--ice-surface, #f7fbff);
     border: 1px solid var(--ice-border, #b8d4e8);
-    border-radius: 10px;
+    border-radius: 8px;
     overflow: hidden;
-    margin-bottom: 12px;
+    margin-bottom: 6px;
+    flex-shrink: 0;
+    box-shadow: none;
+}
+
+.quotation-page-header--compact .avq-status-tabs.eq-line-tabs {
+    margin: 0;
+    padding: 0 6px;
+    border: none;
+    border-bottom: 1px solid var(--ice-border, #b8d4e8);
+    background: var(--ice-surface-alt, #eef6fc);
+}
+
+.quotation-page-header--compact .avq-status-tabs .eq-line-tab {
+    flex: 0 1 auto;
+    padding: 10px 18px;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.3;
 }
 
 .quotation-page-header-controls {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 6px;
     align-items: center;
-    padding: 10px 12px;
+    padding: 6px 10px;
     border-bottom: 1px solid var(--ice-border, #b8d4e8);
 }
 
-.quotation-page-header-tabs {
-    margin: 0;
+/* Legacy class names if cached shell still renders approval-tab */
+.admin-quotations-view-page .approvals-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+    padding: 0 6px;
+    border-bottom: 1px solid var(--ice-border, #b8d4e8);
+    background: var(--ice-surface-alt, #eef6fc);
 }
 
 .admin-quotations-view-page .approval-tab {
+    flex: 0 1 auto;
+    padding: 10px 18px;
+    font-size: 14px;
+    line-height: 1.3;
     color: var(--ice-text-muted, #5a7a94);
 }
 
@@ -401,37 +498,52 @@ tr.quotation-card td {
     color: var(--ice-heading, #1a4d6e);
 }
 
-.admin-quotations-view-page .approval-tab.active {
+.admin-quotations-view-page .approval-tab.active,
+.admin-quotations-view-page .approval-tab.is-active {
     color: var(--ice-heading, #1a4d6e);
     border-bottom: 2px solid var(--ice-accent, #3b8fc4);
-    background: var(--ice-accent-soft, #dbeafe);
+    background: var(--ice-surface, #f7fbff);
 }
 
 .admin-quotations-view-page .admin-quotations-view {
     color: var(--ice-text, #1e3a52);
 }
 
+body.admin-quotations-view-page #quotation-tab-content {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
 .quotation-split-wrap {
     display: grid;
-    grid-template-columns: minmax(340px, 44%) minmax(420px, 56%);
-    gap: 14px;
-    align-items: start;
+    grid-template-columns: minmax(300px, 38%) minmax(0, 1fr);
+    gap: 8px;
+    align-items: stretch;
+    height: 100%;
+    min-height: 0;
 }
 
 .quotation-list-pane {
     min-height: 0;
-    max-height: calc(100vh - 285px);
+    max-height: none;
+    height: 100%;
     overflow-y: auto;
-    padding-right: 4px;
+    padding-right: 2px;
+    border: 1px solid var(--ice-border, #b8d4e8);
+    border-radius: 8px;
+    background: var(--ice-surface-alt, #eef6fc);
 }
 
 .quotation-detail-pane {
     background: var(--ice-surface, #f7fbff);
     border: 1px solid var(--ice-border, #b8d4e8);
-    border-radius: 10px;
-    padding: 12px;
-    min-height: 420px;
-    box-shadow: 0 2px 8px var(--ice-shadow, rgba(30, 80, 120, 0.1));
+    border-radius: 8px;
+    padding: 8px 10px;
+    min-height: 0;
+    height: 100%;
+    overflow-y: auto;
+    box-shadow: none;
 }
 
 tr.quotation-card.is-selected {
@@ -559,6 +671,31 @@ tr.quotation-card.is-selected {
 
 .admin-quotations-view .quotation-items-table .quotation-items-total td:first-child {
     text-align: right;
+}
+
+/* Compact list + detail density */
+.admin-quotations-view--compact .quotation-list-th {
+    padding: 5px 4px;
+    font-size: 9px;
+}
+
+.admin-quotations-view--compact .quotation-card__cell {
+    padding: 6px 6px;
+}
+
+.admin-quotations-view--compact .quotation-list-cell-center {
+    min-height: 30px;
+}
+
+.admin-quotations-view--compact .quotation-card__doc-value {
+    font-size: 11px;
+    max-width: 84px;
+}
+
+.admin-quotations-view--compact .quotation-detail-meta {
+    padding: 6px 0;
+    margin-bottom: 6px;
+    font-size: 12px;
 }
 
 /* Reviewed tab batch cancel (CANCELLED) + quotation list card header grid
