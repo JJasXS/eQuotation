@@ -240,12 +240,39 @@ def main() -> int:
         for d in details
     ]
 
+    # Distinct unit prices per supplier so you can see changes after Save Item Awards.
+    if args.split_test and len(details) >= 2:
+        winner_prices = [15.0, 30.0]
+        other_prices = [25.0, 18.0]
+        winner_bid_lines = [
+            {
+                **bid_lines[i],
+                "unitPrice": winner_prices[i],
+                "remarks": f"Test bid — {WINNER_CODE} line {i + 1}",
+            }
+            for i in range(len(bid_lines))
+        ]
+        other_bid_lines = [
+            {
+                **bid_lines[i],
+                "unitPrice": other_prices[i],
+                "remarks": f"Test bid — {OTHER_CODE} line {i + 1}",
+            }
+            for i in range(len(bid_lines))
+        ]
+    else:
+        winner_bid_lines = bid_lines
+        other_bid_lines = [
+            {**row, "unitPrice": round(float(row["unitPrice"]) * 1.1, 2), "remarks": "Test bid — other"}
+            for row in bid_lines
+        ]
+
     submit_supplier_bid(
         request_dockey=request_id,
         request_no=request_no,
         supplier_code=WINNER_CODE,
         supplier_name=WINNER_NAME,
-        bid_lines=bid_lines,
+        bid_lines=winner_bid_lines,
         remarks="Automated test bid (winner)",
         created_by=WINNER_CODE,
     )
@@ -255,10 +282,7 @@ def main() -> int:
         request_no=request_no,
         supplier_code=OTHER_CODE,
         supplier_name=OTHER_NAME,
-        bid_lines=[
-            {**row, "unitPrice": round(float(row["unitPrice"]) * 1.1, 2), "remarks": "Test bid — other"}
-            for row in bid_lines
-        ],
+        bid_lines=other_bid_lines,
         remarks="Automated test bid (other supplier)",
         created_by=OTHER_CODE,
     )
@@ -281,6 +305,27 @@ def main() -> int:
     print(f"  Winning supplier: {WINNER_CODE} — {WINNER_NAME}")
     print(f"  Winning bid id:  {bid_id}")
     print(f"  Line detail ids: {[d['detailId'] for d in details]}")
+    print(f"  Supplier A: {WINNER_CODE}")
+    print(f"  Supplier B: {OTHER_CODE}")
+    print("")
+    print("  PR lines BEFORE awards (PH_PQDTL):")
+    for d in details:
+        print(
+            f"    dtl {d['detailId']}  {d['itemcode'][:24]:24}  "
+            f"PR unit price RM {float(d['unitprice']):.2f}"
+        )
+    print("")
+    print("  Bid unit prices (pick these when you save awards):")
+    for d in details:
+        did = d["detailId"]
+        w_bid = next((b for b in bids if str(b.get("supplierCode") or "").strip() == WINNER_CODE), None)
+        o_bid = next((b for b in bids if str(b.get("supplierCode") or "").strip() == OTHER_CODE), None)
+        w_ln = next((ln for ln in (w_bid or {}).get("lines") or [] if int(ln.get("detailId") or 0) == did), {})
+        o_ln = next((ln for ln in (o_bid or {}).get("lines") or [] if int(ln.get("detailId") or 0) == did), {})
+        print(
+            f"    dtl {did}  {WINNER_CODE}: RM {float(w_ln.get('unitPrice') or 0):.2f}  |  "
+            f"{OTHER_CODE}: RM {float(o_ln.get('unitPrice') or 0):.2f}"
+        )
     print("")
     print("Manual UI steps:")
     print(f"  1. Restart eQuotation if you have not since the PR-split change")

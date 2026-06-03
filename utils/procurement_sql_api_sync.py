@@ -483,6 +483,104 @@ def post_purchaserequest_sql_api(
     }
 
 
+def _local_pqdtl_pricing_by_dtlkey(
+    request_dockey: int,
+    keep_dtlkeys: set[int],
+) -> dict[int, dict[str, float]]:
+    """Read latest PH_PQDTL unit price / tax / amount for SQL API PUT merge."""
+    if not keep_dtlkeys:
+        return {}
+    from utils.db_utils import get_db_connection
+    from utils.procurement_purchase_request import _as_decimal, _get_table_columns, _money, _pick_existing
+
+    con = get_db_connection()
+    try:
+        cur = con.cursor()
+        detail_cols = _get_table_columns(cur, "PH_PQDTL")
+        fk_col = _pick_existing(detail_cols, "DOCKEY", "PQKEY", "REQUEST_ID", "HEADER_ID")
+        dtl_col = _pick_existing(detail_cols, "DTLKEY", "PQDTLKEY", "ID")
+        price_col = _pick_existing(detail_cols, "UNITPRICE", "UNIT_PRICE")
+        tax_col = _pick_existing(detail_cols, "TAXAMT", "TAX")
+        amt_col = _pick_existing(detail_cols, "AMOUNT", "TOTAL", "LINEAMOUNT")
+        if not fk_col or not dtl_col or not price_col:
+            return {}
+        select_cols = [dtl_col, price_col]
+        if tax_col:
+            select_cols.append(tax_col)
+        if amt_col:
+            select_cols.append(amt_col)
+        placeholders = ", ".join(["?"] * len(keep_dtlkeys))
+        cur.execute(
+            f"""
+            SELECT {", ".join(select_cols)}
+            FROM PH_PQDTL
+            WHERE {fk_col} = ? AND {dtl_col} IN ({placeholders})
+            """,
+            tuple([int(request_dockey), *sorted(keep_dtlkeys)]),
+        )
+        out: dict[int, dict[str, float]] = {}
+        for row in cur.fetchall() or []:
+            if not row or row[0] is None:
+                continue
+            try:
+                dtlkey = int(row[0])
+            except (TypeError, ValueError):
+                continue
+            unit_price = float(_money(_as_decimal(row[1], "0")))
+            idx = 2
+            tax = 0.0
+            if tax_col:
+                tax = float(_money(_as_decimal(row[idx], "0")))
+                idx += 1
+            amount = 0.0
+            if amt_col:
+                amount = float(_money(_as_decimal(row[idx], "0")))
+            if amount <= 0:
+                amount = float(_money(unit_price + tax))
+            out[dtlkey] = {
+                "unitprice": unit_price,
+                "tax": tax,
+                "amount": amount,
+            }
+        return out
+    finally:
+        con.close()
+
+
+def _merge_local_pqdtl_prices_into_document(
+    document: dict[str, Any],
+    request_dockey: int,
+    keep_dtlkeys: set[int],
+) -> dict[str, Any]:
+    """Overlay Firebird PH_PQDTL pricing onto SQL API sdsdocdetail before PUT."""
+    pricing = _local_pqdtl_pricing_by_dtlkey(request_dockey, keep_dtlkeys)
+    if not pricing:
+        return document
+    lines = document.get("sdsdocdetail") if isinstance(document.get("sdsdocdetail"), list) else []
+    merged: list[dict[str, Any]] = []
+    for ln in lines:
+        if not isinstance(ln, dict):
+            continue
+        try:
+            dtlkey = int(ln.get("dtlkey") or 0)
+        except (TypeError, ValueError):
+            merged.append(ln)
+            continue
+        hit = pricing.get(dtlkey)
+        if not hit:
+            merged.append(ln)
+            continue
+        patched = dict(ln)
+        patched["unitprice"] = hit["unitprice"]
+        if "tax" in patched or hit.get("tax"):
+            patched["tax"] = hit["tax"]
+        if "taxamt" in patched:
+            patched["taxamt"] = hit["tax"]
+        patched["amount"] = hit["amount"]
+        merged.append(patched)
+    return {**document, "sdsdocdetail": merged}
+
+
 def put_purchaserequest_lines_and_supplier_sql_api(
     request_dockey: int,
     supplier_code: str,
@@ -529,6 +627,7 @@ def put_purchaserequest_lines_and_supplier_sql_api(
                 if isinstance(ln, dict) and int(ln.get("dtlkey") or 0) in keep
             ],
         }
+        existing = _merge_local_pqdtl_prices_into_document(existing, dockey, keep)
 
     put_dockey = int(existing.get("dockey") or dockey)
     status, preview, with_lines = _put_supplier_with_retry(

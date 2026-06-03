@@ -1238,6 +1238,111 @@ def reject_bid(request_dockey: int, bid_id: int, actor: str, udf_reason: str = "
         con.close()
 
 
+def _fetch_bid_line_pricing_by_pair(
+    cur: Any,
+    bid_ids: list[int],
+) -> dict[tuple[int, int], dict[str, Any]]:
+    """Map (bid_id, source_dtlkey) -> qty, unitPrice, tax, amount from PR_BID_DTL."""
+    if not bid_ids:
+        return {}
+    placeholders = ", ".join(["?"] * len(bid_ids))
+    cur.execute(
+        f"""
+        SELECT BID_ID, SOURCE_DTLKEY, BID_QTY, BID_UNITPRICE, BID_TAXAMT, BID_AMOUNT
+        FROM PR_BID_DTL
+        WHERE BID_ID IN ({placeholders})
+        """,
+        tuple(bid_ids),
+    )
+    out: dict[tuple[int, int], dict[str, Any]] = {}
+    for row in cur.fetchall() or []:
+        if not row or row[0] is None or row[1] is None:
+            continue
+        try:
+            bid_id = int(row[0])
+            detail_id = int(row[1])
+        except (TypeError, ValueError):
+            continue
+        qty = _money(_as_decimal(row[2], "0"))
+        unit_price = _money(_as_decimal(row[3], "0"))
+        tax = _money(_as_decimal(row[4], "0"))
+        amount = _money(_as_decimal(row[5], "0"))
+        if amount <= 0:
+            amount = _money((qty * unit_price) + tax)
+        out[(bid_id, detail_id)] = {
+            "quantity": float(qty),
+            "unitPrice": float(unit_price),
+            "tax": float(tax),
+            "amount": float(amount),
+        }
+    return out
+
+
+def _apply_awarded_bid_pricing_to_pr_details(
+    cur: Any,
+    normalized: list[tuple[int, int]],
+) -> set[int]:
+    """
+    Copy winning bid unit price / tax / amount onto PH_PQDTL for each awarded line.
+    Returns PH_PQ dockeys that were touched (for header total recalc).
+    """
+    if not normalized or not _table_exists(cur, "PH_PQDTL"):
+        return set()
+
+    bid_ids = sorted({bid_id for _, bid_id in normalized})
+    pricing = _fetch_bid_line_pricing_by_pair(cur, bid_ids)
+    if not pricing:
+        return set()
+
+    detail_cols = _get_table_columns(cur, "PH_PQDTL")
+    fk_col = _pick_existing(detail_cols, "DOCKEY", "PQKEY", "REQUEST_ID", "HEADER_ID")
+    dtl_col = _pick_existing(detail_cols, "DTLKEY", "PQDTLKEY", "ID")
+    qty_col = _pick_existing(detail_cols, "QTY", "QUANTITY")
+    price_col = _pick_existing(detail_cols, "UNITPRICE", "UNIT_PRICE")
+    tax_col = _pick_existing(detail_cols, "TAXAMT", "TAX")
+    amt_col = _pick_existing(detail_cols, "AMOUNT", "TOTAL", "LINEAMOUNT")
+    if not dtl_col or not price_col:
+        return set()
+
+    touched_dockeys: set[int] = set()
+    for detail_id, bid_id in normalized:
+        line = pricing.get((bid_id, detail_id))
+        if not line:
+            continue
+
+        set_parts: list[str] = [f"{price_col} = ?"]
+        values: list[Any] = [float(line["unitPrice"])]
+        if tax_col:
+            set_parts.append(f"{tax_col} = ?")
+            values.append(float(line["tax"]))
+        if amt_col:
+            set_parts.append(f"{amt_col} = ?")
+            values.append(float(line["amount"]))
+        if qty_col:
+            set_parts.append(f"{qty_col} = ?")
+            values.append(float(line["quantity"]))
+
+        values.append(int(detail_id))
+        cur.execute(
+            f"UPDATE PH_PQDTL SET {', '.join(set_parts)} WHERE {dtl_col} = ?",
+            tuple(values),
+        )
+
+        if fk_col:
+            cur.execute(
+                f"SELECT FIRST 1 {fk_col} FROM PH_PQDTL WHERE {dtl_col} = ?",
+                (int(detail_id),),
+            )
+            hdr_row = cur.fetchone()
+            if hdr_row and hdr_row[0] is not None:
+                try:
+                    touched_dockeys.add(int(hdr_row[0]))
+                except (TypeError, ValueError):
+                    pass
+
+    return touched_dockeys
+
+
 def save_line_awards(
     request_dockey: int,
     awards: list[dict[str, Any]],
@@ -1398,9 +1503,32 @@ def save_line_awards(
                 con.rollback()
                 raise BiddingValidationError(f"Mixed-supplier PR split failed: {split_exc}") from split_exc
 
+        # Persist awarded bid pricing on PR lines (unit price drives amount + header totals).
+        touched_dockeys = _apply_awarded_bid_pricing_to_pr_details(cur, normalized)
+        touched_dockeys.add(int(request_dockey))
+        if split_result and split_result.get("split"):
+            for child in split_result.get("childPrs") or []:
+                if isinstance(child, dict):
+                    child_dk = int(child.get("dockey") or 0)
+                    if child_dk > 0:
+                        touched_dockeys.add(child_dk)
+        try:
+            from utils.procurement_pr_split import _recalc_header_amounts
+
+            header_cols = _get_table_columns(cur, "PH_PQ")
+            for dockey in sorted(touched_dockeys):
+                if dockey > 0 and header_cols:
+                    _recalc_header_amounts(cur, dockey, header_cols)
+        except Exception as recalc_exc:
+            print(
+                f"[PROCUREMENT BIDDING] PR line pricing applied; header recalc warning: {recalc_exc}",
+                flush=True,
+            )
+
         con.commit()
 
         sql_sync: dict[str, Any] | None = None
+        sql_line_sync: dict[str, Any] | None = None
         if split_result and split_result.get("split"):
             try:
                 from utils.procurement_purchase_request import set_purchase_request_header_supplier
@@ -1438,6 +1566,18 @@ def save_line_awards(
                 )
             except Exception as sync_exc:
                 print(f"[PROCUREMENT BIDDING] PR header supplier sync warning: {sync_exc}", flush=True)
+            try:
+                from utils.procurement_sql_api_sync import put_purchaserequest_lines_and_supplier_sql_api
+
+                detail_ids = {int(d) for d, _ in normalized if int(d) > 0}
+                sql_line_sync = put_purchaserequest_lines_and_supplier_sql_api(
+                    request_dockey,
+                    only_code,
+                    keep_dtlkeys=detail_ids,
+                )
+            except Exception as line_sync_exc:
+                print(f"[PROCUREMENT BIDDING] PR line SQL API sync warning: {line_sync_exc}", flush=True)
+                sql_line_sync = {"synced": False, "error": str(line_sync_exc)}
 
         out: dict[str, Any] = {
             "requestDockey": int(request_dockey),
@@ -1448,6 +1588,8 @@ def save_line_awards(
             out["split"] = split_result
             if sql_sync is not None:
                 out["sqlSync"] = sql_sync
+        elif len(supplier_codes) == 1 and sql_line_sync is not None:
+            out["sqlLineSync"] = sql_line_sync
         return out
     except Exception:
         con.rollback()
