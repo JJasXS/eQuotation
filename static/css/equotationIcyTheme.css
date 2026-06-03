@@ -741,34 +741,26 @@ body.equotation-icy-theme.procurement-warm-ui .view-pr-transfer-btn:disabled {
     color: var(--ice-text-muted) !important;
 }
 
-body.equotation-icy-theme.procurement-warm-ui #panel-view .quotation-page-header .approvals-tabs.quotation-page-header-tabs,
-body.equotation-icy-theme.procurement-warm-ui #panel-view .view-pr-filter-tabs--bar {
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs.eq-line-tabs {
     background: var(--ice-surface-alt) !important;
-    border-color: var(--ice-border) !important;
+    border-bottom-color: var(--ice-border) !important;
 }
 
-body.equotation-icy-theme.procurement-warm-ui #panel-view .quotation-page-header .approval-tab.view-pr-filter-tab,
-body.equotation-icy-theme.procurement-warm-ui #panel-view .view-pr-filter-tabs--bar .view-pr-filter-tab {
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .eq-line-tab.view-pr-filter-tab {
+    color: var(--ice-text-muted) !important;
+    background: transparent !important;
+    border: none !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .eq-line-tab.view-pr-filter-tab:hover {
+    background: var(--ice-accent-soft) !important;
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .eq-line-tab.view-pr-filter-tab.is-active {
+    color: var(--ice-heading) !important;
     background: var(--ice-surface) !important;
-    color: var(--ice-text) !important;
-    border-right-color: var(--ice-border) !important;
-}
-
-body.equotation-icy-theme.procurement-warm-ui #panel-view .quotation-page-header .approval-tab.view-pr-filter-tab:hover,
-body.equotation-icy-theme.procurement-warm-ui #panel-view .view-pr-filter-tabs--bar .view-pr-filter-tab:hover {
-    background: var(--ice-accent-soft) !important;
-    color: var(--ice-heading) !important;
-}
-
-body.equotation-icy-theme.procurement-warm-ui #panel-view .quotation-page-header .approval-tab.view-pr-filter-tab.is-active {
-    color: var(--ice-heading) !important;
-    background: var(--ice-accent-soft) !important;
     border-bottom-color: var(--ice-accent) !important;
-}
-
-body.equotation-icy-theme.procurement-warm-ui #panel-view .view-pr-filter-tabs--bar .view-pr-filter-tab.is-active {
-    background: var(--ice-accent) !important;
-    color: #fff !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui .view-pr-list-column .view-pr-list::-webkit-scrollbar-track {

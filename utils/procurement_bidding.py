@@ -648,6 +648,85 @@ def submit_supplier_bid(
         con.close()
 
 
+def _fetch_pr_detail_item_map(cur: Any, request_dockey: int) -> dict[int, dict[str, str]]:
+    """Map PH_PQDTL line id -> item code / description for bid line display."""
+    if not request_dockey:
+        return {}
+    if not _table_exists(cur, "PH_PQDTL"):
+        return {}
+    cols = _get_table_columns(cur, "PH_PQDTL")
+    dtl_key = _pick_existing(cols, "DTLKEY", "PQDTLKEY", "ID")
+    fk_col = _pick_existing(cols, "DOCKEY", "PQKEY", "REQUEST_ID", "HEADER_ID")
+    item_col = _pick_existing(cols, "ITEMCODE", "ITEM_CODE")
+    desc_col = _pick_existing(
+        cols,
+        "DESCRIPTION3",
+        "DESCRIPTION2",
+        "DESCRIPTION",
+        "ITEMNAME",
+        "ITEM_NAME",
+    )
+    if not dtl_key or not fk_col:
+        return {}
+    select_parts = [f"{dtl_key} AS DTLKEY"]
+    if item_col:
+        select_parts.append(f"{item_col} AS ITEMCODE")
+    else:
+        select_parts.append("CAST(NULL AS VARCHAR(60)) AS ITEMCODE")
+    if desc_col:
+        select_parts.append(f"{desc_col} AS DESCR")
+    else:
+        select_parts.append("CAST(NULL AS VARCHAR(255)) AS DESCR")
+    cur.execute(
+        f"SELECT {', '.join(select_parts)} FROM PH_PQDTL WHERE {fk_col} = ?",
+        (int(request_dockey),),
+    )
+    out: dict[int, dict[str, str]] = {}
+    for row in cur.fetchall() or []:
+        if not row:
+            continue
+        try:
+            key = int(row[0])
+        except Exception:
+            continue
+        out[key] = {
+            "itemCode": _clean_text(row[1] if len(row) > 1 else ""),
+            "description": _clean_text(row[2] if len(row) > 2 else ""),
+        }
+    return out
+
+
+def _enrich_bid_lines_from_pr_details(
+    cur: Any,
+    request_dockey: int,
+    lines: list[dict[str, Any]],
+    detail_map: dict[int, dict[str, str]] | None = None,
+) -> list[dict[str, Any]]:
+    if not lines:
+        return lines
+    if detail_map is None:
+        detail_map = _fetch_pr_detail_item_map(cur, request_dockey)
+    if not detail_map:
+        return lines
+    for line in lines:
+        if not isinstance(line, dict):
+            continue
+        try:
+            detail_id = int(line.get("detailId") or 0)
+        except Exception:
+            continue
+        if detail_id <= 0:
+            continue
+        hit = detail_map.get(detail_id)
+        if not isinstance(hit, dict):
+            continue
+        if not _clean_text(line.get("itemCode")):
+            line["itemCode"] = hit.get("itemCode") or ""
+        if not _clean_text(line.get("description")):
+            line["description"] = hit.get("description") or ""
+    return lines
+
+
 def _bid_hdr_row_to_lines(cur: Any, bid_id: int) -> list[dict[str, Any]]:
     cur.execute(
         """
@@ -714,10 +793,13 @@ def list_bids_for_request(request_dockey: int) -> list[dict[str, Any]]:
         )
         bid_rows = cur.fetchall() or []
 
+        detail_map = _fetch_pr_detail_item_map(cur, int(request_dockey))
         result: list[dict[str, Any]] = []
         for bid in bid_rows:
             bid_id = int(bid[0])
             lines = _bid_hdr_row_to_lines(cur, bid_id)
+            if detail_map:
+                lines = _enrich_bid_lines_from_pr_details(cur, int(request_dockey), lines, detail_map)
             result.append(_bid_hdr_row_to_dict(bid, lines))
         return result
     finally:
@@ -1006,8 +1088,10 @@ def save_line_awards(
     awards: list[dict[str, Any]],
     actor: str,
     udf_reason: str = "",
+    pr_udf_status: str = "",
 ) -> dict[str, Any]:
     """Save per-detail awarded supplier bid lines for one request."""
+    assert_pr_line_awards_editable(request_dockey, pr_udf_status)
     if not isinstance(awards, list) or not awards:
         raise BiddingValidationError("awards[] is required")
 
@@ -1214,6 +1298,61 @@ def get_line_awards_for_request(request_dockey: int) -> list[dict[str, Any]]:
         con.close()
 
 
+def normalize_pr_udf_status(value: Any) -> str:
+    text = str(value or "").strip().upper()
+    if text == "ACTIVE":
+        return "APPROVED"
+    if text == "INACTIVE":
+        return "CANCELLED"
+    return text
+
+
+def is_pr_line_awards_locked(udf_status: Any) -> bool:
+    return normalize_pr_udf_status(udf_status) in {"APPROVED", "CANCELLED"}
+
+
+def get_pr_udf_status_local(request_dockey: int) -> str:
+    """Read PH_PQ.UDF_STATUS for one purchase request (View e-PR tab updates)."""
+    if not request_dockey:
+        return ""
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        if not _table_exists(cur, "PH_PQ"):
+            return ""
+        cols = _get_table_columns(cur, "PH_PQ")
+        key_col = _pick_existing(cols, "DOCKEY", "PQKEY", "ID")
+        udf_col = _pick_existing(cols, "UDF_STATUS")
+        if not key_col or not udf_col:
+            return ""
+        cur.execute(
+            f"SELECT FIRST 1 {udf_col} FROM PH_PQ WHERE {key_col} = ?",
+            (int(request_dockey),),
+        )
+        row = cur.fetchone()
+        if not row:
+            return ""
+        return normalize_pr_udf_status(row[0])
+    except Exception:
+        return ""
+    finally:
+        con.close()
+
+
+def assert_pr_line_awards_editable(request_dockey: int, udf_status: Any = "") -> None:
+    """Block item-award changes after View e-PR marks the PR Approved or Cancelled."""
+    statuses = []
+    if udf_status:
+        statuses.append(normalize_pr_udf_status(udf_status))
+    local = get_pr_udf_status_local(request_dockey)
+    if local:
+        statuses.append(local)
+    if any(is_pr_line_awards_locked(s) for s in statuses):
+        raise BiddingValidationError(
+            "Item awards cannot be changed after this purchase request is Approved or Cancelled on View e-PR."
+        )
+
+
 def get_transfer_gate_state(request_dockey: int) -> dict[str, Any]:
     con = _connect_db()
     try:
@@ -1228,6 +1367,7 @@ def get_transfer_gate_state(request_dockey: int) -> dict[str, Any]:
 
         approved = get_approved_bid_for_request(request_dockey)
         line_awards = get_line_awards_for_request(request_dockey)
+        pr_udf_status = get_pr_udf_status_local(request_dockey)
         return {
             "requestDockey": request_dockey,
             "hasInvitations": invite_count > 0,
@@ -1236,6 +1376,8 @@ def get_transfer_gate_state(request_dockey: int) -> dict[str, Any]:
             "approvedBid": approved,
             "lineAwards": line_awards,
             "hasLineAwards": bool(line_awards),
+            "prUdfStatus": pr_udf_status,
+            "lineAwardsLocked": is_pr_line_awards_locked(pr_udf_status),
         }
     finally:
         con.close()

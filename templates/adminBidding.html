@@ -194,6 +194,37 @@
 
         let currentBidLineAwards = new Map();
 
+        let lineAwardsLocked = false;
+
+
+
+        function normalizePrUdfStatus(value) {
+            const s = String(value || '').trim().toUpperCase();
+            if (s === 'ACTIVE') return 'APPROVED';
+            if (s === 'INACTIVE') return 'CANCELLED';
+            return s;
+        }
+
+        function isLineAwardsLocked() {
+            if (!activePr) return false;
+            const udf = normalizePrUdfStatus(activePr.udfStatus);
+            return lineAwardsLocked || udf === 'APPROVED' || udf === 'CANCELLED';
+        }
+
+        function applyLineAwardsLockState() {
+            const locked = isLineAwardsLocked();
+            const saveBtn = document.getElementById('save-line-awards-btn');
+            if (saveBtn) {
+                saveBtn.disabled = !activePr || locked;
+                saveBtn.title = locked
+                    ? 'Locked: PR is Approved or Cancelled on View e-PR'
+                    : '';
+            }
+            document.querySelectorAll('.line-award-checkbox').forEach((cb) => {
+                cb.disabled = locked;
+            });
+        }
+
 
 
         function msg(text, isError) {
@@ -207,6 +238,38 @@
         }
 
 
+
+        function looksLikeEmail(value) {
+            const s = String(value || '').trim();
+            return s.includes('@') && s.includes('.');
+        }
+
+        function formatBidLineItem(line) {
+            const code = String(line.itemCode || '').trim();
+            const desc = String(line.description || '').trim();
+            if (code && desc && code.toUpperCase() !== desc.toUpperCase()) {
+                return `${code} — ${desc}`;
+            }
+            return code || desc || (line.detailId ? `Line #${line.detailId}` : '—');
+        }
+
+        function supplierCompanyLabel(code, storedName) {
+            const codeStr = String(code || '').trim();
+            const fromApi = String(storedName || '').trim();
+            if (fromApi && !looksLikeEmail(fromApi)) {
+                return fromApi;
+            }
+            const inv = activeInvitations.find(
+                (r) => String(r.supplierCode || '').trim().toUpperCase() === codeStr.toUpperCase()
+            );
+            const invName = inv
+                ? String(inv.supplierDisplayName || inv.supplierName || '').trim()
+                : '';
+            if (invName && !looksLikeEmail(invName)) {
+                return invName;
+            }
+            return fromApi || invName || codeStr || '-';
+        }
 
         function esc(v) {
 
@@ -362,17 +425,22 @@
 
             document.getElementById('load-bids-btn').disabled = !activePr;
 
-            document.getElementById('save-line-awards-btn').disabled = !activePr;
+            applyLineAwardsLockState();
 
             const sub = document.getElementById('current-pr-subtitle');
 
             if (sub) {
 
-                sub.textContent = activePr
-
-                    ? (`PR ${activePr.requestNumber || activePr.id} - Status: ${activePr.status || '-'}`)
-
-                    : 'Select a purchase request to load bids.';
+                if (!activePr) {
+                    sub.textContent = 'Select a purchase request to load bids.';
+                } else {
+                    const udf = normalizePrUdfStatus(activePr.udfStatus);
+                    const lockNote = isLineAwardsLocked()
+                        ? ' · Item awards locked (Approved/Cancelled on View e-PR)'
+                        : '';
+                    sub.textContent =
+                        `PR ${activePr.requestNumber || activePr.id} - Doc: ${activePr.status || '-'} - Approval: ${udf || '-'}${lockNote}`;
+                }
 
             }
 
@@ -426,7 +494,7 @@
 
                                 <td>${esc(row.supplierCode || '-')}</td>
 
-                                <td>${esc(row.supplierName || '-')}</td>
+                                <td>${esc(supplierCompanyLabel(row.supplierCode, row.supplierDisplayName || row.supplierName) || '-')}</td>
 
                                 <td>${esc(row.inviteStatus || '-')}</td>
 
@@ -516,7 +584,17 @@
 
         function selectPr(id, requestNumber, status, supplierName) {
 
-            activePr = { id, requestNumber, status, supplierName };
+            const row = requestsCache.find((r) => Number(r.id) === Number(id));
+
+            activePr = {
+                id,
+                requestNumber,
+                status,
+                supplierName,
+                udfStatus: row ? (row.udfStatus || '') : '',
+            };
+
+            lineAwardsLocked = false;
 
             seenPrIds.add(Number(id));
 
@@ -788,6 +866,11 @@
 
             const gate = body.gate || {};
 
+            lineAwardsLocked = !!gate.lineAwardsLocked;
+            if (activePr && gate.prUdfStatus) {
+                activePr.udfStatus = gate.prUdfStatus;
+            }
+
             const lineAwards = Array.isArray(gate.lineAwards) ? gate.lineAwards : [];
 
             currentBidLineAwards = new Map();
@@ -820,7 +903,7 @@
 
                     supplierCode: String(bid.supplierCode || '').trim(),
 
-                    supplierName: String(bid.supplierName || '').trim(),
+                    supplierName: supplierCompanyLabel(bid.supplierCode, bid.supplierDisplayName || bid.supplierName),
 
                     status: String(bid.status || '').trim(),
 
@@ -840,13 +923,17 @@
 
 
 
+            const awardsLockNote = isLineAwardsLocked()
+                ? '<div class="compare-note compare-note--locked">Item awards are locked because this PR is <strong>Approved</strong> or <strong>Cancelled</strong> on View e-PR. Change status there first if you need to revise awards.</div>'
+                : '<div class="compare-note">Tick line checkboxes in Submitted bids, then click Save Item Awards. You can choose Item A from Supplier 1 and Item B from Supplier 2.</div>';
+
             const compareHtml = `
 
                 <div class="compare-card">
 
                     <div class="compare-title">Totals by supplier</div>
 
-                    <div class="compare-note">Tick line checkboxes in Submitted bids, then click Save Item Awards. You can choose Item A from Supplier 1 and Item B from Supplier 2.</div>
+                    ${awardsLockNote}
 
                     <table>
 
@@ -858,7 +945,7 @@
 
                                 <tr>
 
-                                    <td>${esc(s.supplierCode)} - ${esc(s.supplierName)}</td>
+                                    <td>${esc(s.supplierCode)} — ${esc(s.supplierName)}</td>
 
                                     <td>${esc(s.status || '-')}</td>
 
@@ -912,17 +999,15 @@
 
                         </td>
 
-                        <td>${esc(line.itemCode || '')}</td>
+                        <td class="bid-td-item" title="${esc(formatBidLineItem(line))}">${esc(formatBidLineItem(line))}</td>
 
-                        <td>${Number(line.quantity || 0).toFixed(2)}</td>
+                        <td class="bid-td-num">${Number(line.quantity || 0).toFixed(2)}</td>
 
-                        <td>${Number(line.unitPrice || 0).toFixed(2)}</td>
+                        <td class="bid-td-num">${Number(line.unitPrice || 0).toFixed(2)}</td>
 
-                        <td>${Number(line.tax || 0).toFixed(2)}</td>
+                        <td class="bid-td-num">${Number(line.amount || 0).toFixed(2)}</td>
 
-                        <td>${Number(line.amount || 0).toFixed(2)}</td>
-
-                        <td>${Number(line.leadDays || 0)}</td>
+                        <td class="bid-td-num">${Number(line.leadDays || 0)}</td>
 
                     </tr>
 
@@ -936,7 +1021,7 @@
 
                         <div class="toolbar">
 
-                            <strong>${esc(bid.supplierCode)} - ${esc(bid.supplierName)}${newBadge}</strong>
+                            <strong>${esc(bid.supplierCode)} — ${esc(supplierCompanyLabel(bid.supplierCode, bid.supplierDisplayName || bid.supplierName))}${newBadge}</strong>
 
                             <span class="status ${status}">${status || '-'}</span>
 
@@ -944,11 +1029,20 @@
 
                         <div class="muted">Submitted by ${esc(bid.createdBy || '-')} | ${esc(bid.createdAt || '')}</div>
 
-                        <table>
+                        <table class="bid-lines-table">
 
-                            <thead><tr><th style="width:30px;">Pick</th><th>Item</th><th>Qty</th><th>Unit Price</th><th>Tax</th><th>Amount</th><th>Lead Days</th></tr></thead>
+                            <colgroup>
+                                <col class="bid-col-pick" />
+                                <col class="bid-col-item" />
+                                <col class="bid-col-qty" />
+                                <col class="bid-col-price" />
+                                <col class="bid-col-amt" />
+                                <col class="bid-col-lead" />
+                            </colgroup>
 
-                            <tbody>${rows || '<tr><td colspan="7" class="muted">No lines</td></tr>'}</tbody>
+                            <thead><tr><th>Pick</th><th>Item</th><th>Qty</th><th>Unit Price</th><th>Amount</th><th>Lead</th></tr></thead>
+
+                            <tbody>${rows || '<tr><td colspan="6" class="muted">No lines</td></tr>'}</tbody>
 
                         </table>
 
@@ -962,11 +1056,21 @@
 
             if (bidsWrap) bidsWrap.innerHTML = bidsHtml;
 
+            setSelectionUi();
+
+            applyLineAwardsLockState();
+
         }
 
 
 
         function onLineAwardToggle(el) {
+
+            if (isLineAwardsLocked()) {
+                if (el) el.checked = false;
+                msg('Item awards are locked for Approved or Cancelled purchase requests.', true);
+                return;
+            }
 
             const detailId = Number(el?.dataset?.detailId || 0);
 
@@ -999,6 +1103,14 @@
             if (!activePr) {
 
                 msg('Select a purchase request first.', true);
+
+                return;
+
+            }
+
+            if (isLineAwardsLocked()) {
+
+                msg('Item awards cannot be changed after this PR is Approved or Cancelled on View e-PR.', true);
 
                 return;
 

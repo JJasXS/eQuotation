@@ -63,15 +63,19 @@ from utils.procurement_bidding import (
     BiddingValidationError,
     _normalize_supplier_rows,
     approve_bid,
+    assert_pr_line_awards_editable,
     create_bid_invitations,
     get_line_awards_for_request,
+    get_pr_udf_status_local,
     get_supplier_bid_snapshot,
     get_transfer_gate_state,
+    is_pr_line_awards_locked,
     list_bids_for_request,
     list_invited_suppliers_for_request,
     list_supplier_invitations,
     map_approved_bid_suppliers_by_request_ids,
     map_awarded_suppliers_by_request_ids,
+    normalize_pr_udf_status,
     reject_bid,
     save_line_awards,
     submit_supplier_bid,
@@ -6560,7 +6564,7 @@ def api_admin_create_bidding_invitations():
 def api_admin_list_request_invitations(request_id):
     """List invited suppliers for one purchase request."""
     try:
-        rows = list_invited_suppliers_for_request(int(request_id))
+        rows = _enrich_supplier_rows_company_names(list_invited_suppliers_for_request(int(request_id)))
         return jsonify({'success': True, 'data': rows, 'count': len(rows)})
     except BiddingValidationError as exc:
         return jsonify({'success': False, 'error': str(exc)}), 400
@@ -6908,13 +6912,80 @@ def api_supplier_submit_bid():
         return jsonify({'success': False, 'error': str(exc)}), 500
 
 
+def _looks_like_email(value) -> bool:
+    text = str(value or '').strip()
+    if not text or '@' not in text:
+        return False
+    local, _, domain = text.partition('@')
+    return bool(local.strip()) and '.' in domain
+
+
+def _resolve_supplier_company_display(code: str, stored_name: str, master: dict) -> str:
+    """Prefer SQL API company name when bid/invite row stored an email in SUPPLIER_NAME."""
+    code_u = str(code or '').strip().upper()
+    stored = str(stored_name or '').strip()
+    company = ''
+    if code_u and isinstance(master, dict):
+        hit = master.get(code_u)
+        if isinstance(hit, dict):
+            company = str(hit.get('companyname') or hit.get('companyName') or '').strip()
+    if company and (_looks_like_email(stored) or not stored):
+        return company
+    if stored and not _looks_like_email(stored):
+        return stored
+    return company or stored or code_u
+
+
+def _enrich_supplier_rows_company_names(rows: list) -> list:
+    if not isinstance(rows, list) or not rows:
+        return rows
+    codes = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        code = str(row.get('supplierCode') or '').strip()
+        if code:
+            codes.append(code)
+    master = _fetch_supplier_master_from_sql_api(codes)
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = _resolve_supplier_company_display(row.get('supplierCode'), row.get('supplierName'), master)
+        row['supplierName'] = name
+        row['supplierDisplayName'] = name
+    return rows
+
+
+def _enrich_bidding_gate_with_pr_udf(request_id: int, gate: dict) -> dict:
+    """Merge SQL API + local PH_PQ UDF status so item awards lock matches View e-PR."""
+    if not isinstance(gate, dict):
+        gate = {}
+    api_udf = ''
+    try:
+        headers = _build_sql_api_auth_headers()
+        request_header, _status = _resolve_purchase_request_header(request_id, '', headers, timeout=8)
+        if isinstance(request_header, dict):
+            api_udf = normalize_pr_udf_status(
+                request_header.get('udf_status') or request_header.get('udfStatus')
+            )
+    except Exception:
+        api_udf = ''
+    local_udf = normalize_pr_udf_status(gate.get('prUdfStatus') or get_pr_udf_status_local(request_id))
+    display_udf = api_udf or local_udf
+    gate['prUdfStatus'] = display_udf
+    gate['prUdfStatusApi'] = api_udf
+    gate['prUdfStatusLocal'] = local_udf
+    gate['lineAwardsLocked'] = is_pr_line_awards_locked(api_udf) or is_pr_line_awards_locked(local_udf)
+    return gate
+
+
 @app.route('/api/admin/procurement/purchase-requests/<int:request_id>/bids', methods=['GET'])
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_list_request_bids(request_id):
     """List supplier bids and transfer gate state for one purchase request."""
     try:
-        bids = list_bids_for_request(request_id)
-        gate = get_transfer_gate_state(request_id)
+        bids = _enrich_supplier_rows_company_names(list_bids_for_request(request_id))
+        gate = _enrich_bidding_gate_with_pr_udf(request_id, get_transfer_gate_state(request_id))
         return jsonify({'success': True, 'data': bids, 'count': len(bids), 'gate': gate})
     except Exception as exc:
         print(f"[PROCUREMENT BIDDING LIST] error: {exc}", flush=True)
@@ -6930,8 +7001,10 @@ def api_admin_save_bid_line_awards(request_id):
     udf_reason = str(payload.get('udfReason') or payload.get('reason') or '').strip()
     actor = (session.get('user_email') or session.get('user_name') or 'admin').strip()
     try:
-        result = save_line_awards(request_id, awards, actor, udf_reason)
-        gate = get_transfer_gate_state(request_id)
+        gate_preview = _enrich_bidding_gate_with_pr_udf(request_id, get_transfer_gate_state(request_id))
+        api_udf = str(gate_preview.get('prUdfStatusApi') or gate_preview.get('prUdfStatus') or '').strip()
+        result = save_line_awards(request_id, awards, actor, udf_reason, pr_udf_status=api_udf)
+        gate = _enrich_bidding_gate_with_pr_udf(request_id, get_transfer_gate_state(request_id))
         return jsonify({'success': True, 'message': 'Line awards saved', 'data': result, 'gate': gate})
     except BiddingValidationError as exc:
         return jsonify({'success': False, 'error': str(exc)}), 400

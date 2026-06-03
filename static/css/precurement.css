@@ -4735,54 +4735,7 @@ body.procurement-warm-ui #panel-view .view-pr-text--amount {
     font-weight: 700;
 }
 
-/* View e-PR: APPROVED / PENDING / CANCELLED — override chat.css dark .approvals-tabs + .approval-tab */
-body.procurement-warm-ui #panel-view .quotation-page-header .approvals-tabs.quotation-page-header-tabs {
-    background: #f0e6d4;
-    border-bottom: 1px solid #e2cfab;
-    border-top: none;
-    padding: 0 8px;
-}
-
-body.procurement-warm-ui #panel-view .quotation-page-header .approval-tab.view-pr-filter-tab {
-    color: #5c4a32;
-    background: rgba(255, 255, 255, 0.45);
-    border: none;
-    border-bottom: 3px solid transparent;
-    font-weight: 500;
-}
-
-body.procurement-warm-ui #panel-view .quotation-page-header .approval-tab.view-pr-filter-tab:hover {
-    color: #2a241b;
-    background: #fff8ec;
-}
-
-body.procurement-warm-ui #panel-view .quotation-page-header .approval-tab.view-pr-filter-tab.is-active {
-    color: #1a4a6b;
-    background: #e3eef8;
-    border-bottom-color: #4b6e9e;
-    font-weight: 600;
-}
-
-body.procurement-warm-ui #panel-view .view-pr-filter-tabs--bar {
-    border-color: #dccfb8;
-    background: #efe8dc;
-}
-
-body.procurement-warm-ui #panel-view .view-pr-filter-tabs--bar .view-pr-filter-tab {
-    background: #faf6ee;
-    color: #5c4a32;
-    border-right-color: #dccfb8;
-}
-
-body.procurement-warm-ui #panel-view .view-pr-filter-tabs--bar .view-pr-filter-tab:hover {
-    background: #fff8ed;
-    color: #2a241b;
-}
-
-body.procurement-warm-ui #panel-view .view-pr-filter-tabs--bar .view-pr-filter-tab.is-active {
-    background: #8b5a1f;
-    color: #fff;
-}
+/* View e-PR filter tabs — styled via eq-line-tabs.css (icy line tabs) */
 
 body.procurement-warm-ui .view-pr-list-column .view-pr-list::-webkit-scrollbar-track {
     background: rgba(139, 90, 31, 0.08);

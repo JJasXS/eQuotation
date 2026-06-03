@@ -1,6 +1,5 @@
 /**
- * Line tabs (tab bar / underline tabs) — horizontal nav with a bottom indicator on the active tab.
- * Used for module switching and in-page filters (e.g. invitation status, PR approval status).
+ * Line tabs — shared icy palette (underline indicator, no boxed borders).
  */
 .eq-line-tabs {
     display: flex;
@@ -8,9 +7,9 @@
     align-items: stretch;
     gap: 0;
     margin: 0 0 12px;
-    padding: 0 4px;
+    padding: 0 6px;
     border-bottom: 1px solid var(--ice-border, #b8d4e8);
-    background: var(--ice-surface, #f7fbff);
+    background: var(--ice-surface-alt, #eef6fc);
     list-style: none;
 }
 
@@ -18,11 +17,12 @@
     position: relative;
     flex: 0 1 auto;
     margin: 0;
-    padding: 10px 16px;
-    border: none;
-    border-bottom: 2px solid transparent;
+    padding: 10px 18px;
+    border: none !important;
+    border-bottom: 2px solid transparent !important;
     border-radius: 6px 6px 0 0;
-    background: transparent;
+    background: transparent !important;
+    box-shadow: none !important;
     color: var(--ice-text-muted, #5a7a94);
     font: inherit;
     font-size: 13px;
@@ -35,7 +35,7 @@
 
 .eq-line-tab:hover {
     color: var(--ice-heading, #1a4d6e);
-    background: var(--ice-accent-soft, #e8f4fc);
+    background: var(--ice-accent-soft, #dbeafe) !important;
 }
 
 .eq-line-tab:focus-visible {
@@ -44,34 +44,45 @@
 }
 
 .eq-line-tab.is-active {
-    color: var(--ice-accent, #2563eb);
+    color: var(--ice-heading, #1a4d6e);
     font-weight: 600;
-    background: #ede9fe;
-    border-bottom-color: var(--ice-accent, #3b8fc4);
+    background: var(--ice-surface, #f7fbff) !important;
+    border-bottom-color: var(--ice-accent, #3b8fc4) !important;
 }
 
-/* Procurement warm theme */
-body.procurement-warm-ui .eq-line-tabs {
-    border-bottom-color: #dccfb8;
-    background: #faf6ee;
+/* Procurement — module switcher (Dashboard / View e-PR / Create e-PR) */
+body.procurement-warm-ui .procurement-module-tabs.eq-line-tabs {
+    flex-shrink: 0;
+    margin: 6px 10px 0;
+    padding: 4px 8px 0;
+    border: 1px solid var(--ice-border, #b8d4e8);
+    border-bottom: 2px solid var(--ice-border, #b8d4e8);
+    border-radius: 10px 10px 0 0;
+    background: var(--ice-surface-alt, #eef6fc);
 }
 
-body.procurement-warm-ui .eq-line-tab {
-    color: #6b5a45;
+body.procurement-warm-ui .procurement-module-tabs .eq-line-tab {
+    min-width: 7.5rem;
+    text-align: center;
 }
 
-body.procurement-warm-ui .eq-line-tab:hover {
-    color: #2a241b;
-    background: #fff8ec;
+/* View e-PR approval filters (Draft / Approved / Pending / Cancelled) */
+body.procurement-warm-ui #panel-view .pr-view-filter-tabs.eq-line-tabs {
+    margin: 0;
+    padding: 0 6px;
+    border: none;
+    border-bottom: 1px solid var(--ice-border, #b8d4e8);
+    border-radius: 0;
+    background: var(--ice-surface-alt, #eef6fc);
 }
 
-body.procurement-warm-ui .eq-line-tab.is-active {
-    color: #1a4a6b;
-    background: #e3eef8;
-    border-bottom-color: #4b6e9e;
+body.procurement-warm-ui #panel-view .pr-view-filter-tabs .eq-line-tab {
+    font-size: 12px;
+    padding: 8px 14px;
 }
 
-.procurement-module-tabs {
-    margin-top: 4px;
-    margin-bottom: 16px;
+/* Supplier bidding invitation filters */
+.sb-invite-tabs.eq-line-tabs {
+    border-top: 1px solid var(--ice-border-soft, #c5dce9);
+    border-radius: 0;
 }
