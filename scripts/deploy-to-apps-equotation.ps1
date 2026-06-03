@@ -11,6 +11,7 @@ if (-not (Test-Path $dst)) {
 
 $files = @(
     'main.py',
+    'api\routes\suppliers.py',
     'utils\sql_api_projects.py',
     'utils\sql_api_supplier.py',
     'utils\procurement_pr_sql_api.py',

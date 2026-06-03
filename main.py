@@ -4307,6 +4307,10 @@ def api_admin_procurement_stock_card_breakdown():
 
 def _fetch_all_suppliers_from_sql_api_uncached():
     """Walk the paginated /supplier API once. Used through the TTL cache below."""
+    print(
+        f"[PROCUREMENT SUPPLIERS] Fetching from {FASTAPI_BASE_URL}/supplier (cache miss) …",
+        flush=True,
+    )
     headers = _build_sql_api_auth_headers()
     all_suppliers = []
     offset = 0
@@ -4320,20 +4324,46 @@ def _fetch_all_suppliers_from_sql_api_uncached():
         )
         rows = payload.get('data', []) if isinstance(payload, dict) else []
         if not isinstance(rows, list) or not rows:
+            print(
+                f"[PROCUREMENT SUPPLIERS] Page offset={offset}: no rows (stop)",
+                flush=True,
+            )
             break
         all_suppliers.extend(rows)
+        sample = [
+            str((r or {}).get('code') or (r or {}).get('CODE') or '').strip()
+            for r in rows[:3]
+            if isinstance(r, dict)
+        ]
+        print(
+            f"[PROCUREMENT SUPPLIERS] Page offset={offset}: +{len(rows)} rows"
+            f"{f' (e.g. {sample})' if sample else ''}",
+            flush=True,
+        )
         pagination = payload.get('pagination', {})
-        total_count = pagination.get('count', len(rows)) if isinstance(pagination, dict) else len(rows)
+        if isinstance(pagination, dict) and pagination.get('count') is not None:
+            try:
+                total_count = int(pagination.get('count'))
+            except (TypeError, ValueError):
+                total_count = None
+        else:
+            total_count = None
         offset += limit
-        if offset >= total_count:
+        if len(rows) < limit:
             break
+        if total_count is not None and offset >= total_count:
+            break
+    print(
+        f"[PROCUREMENT SUPPLIERS] Fetched {len(all_suppliers)} supplier(s) from SQL API",
+        flush=True,
+    )
     return all_suppliers
 
 
 def _fetch_all_suppliers_from_sql_api():
     """Cached supplier list. Same TTL knob as customer cache (SQL_API_MASTER_CACHE_TTL_SECONDS)."""
     return sql_api_master_cache.get_or_load(
-        ('sql_api', 'supplier', 'all_v1'),
+        ('sql_api', 'supplier', 'all_v3'),
         _fetch_all_suppliers_from_sql_api_uncached,
         ttl_seconds=_sql_api_master_cache_ttl_seconds(),
     )
@@ -4346,12 +4376,28 @@ def api_admin_procurement_suppliers():
     try:
         from utils.sql_api_supplier import enrich_supplier_row_for_procurement
 
-        rows = _fetch_all_suppliers_from_sql_api()
+        cache_key = ('sql_api', 'supplier', 'all_v3')
+        cache_hits_before = sql_api_master_cache.hits
+        sql_rows = _fetch_all_suppliers_from_sql_api()
+        from_cache = sql_api_master_cache.hits > cache_hits_before
+        fb_rows = _fetch_all_suppliers_from_firebird()
+        rows = _merge_procurement_supplier_lists(sql_rows, fb_rows)
         data = [
             enrich_supplier_row_for_procurement(r)
             for r in (rows or [])
             if isinstance(r, dict)
         ]
+        sample_codes = [
+            str(d.get('code') or '').strip()
+            for d in data[:5]
+            if d.get('code')
+        ]
+        print(
+            f"[PROCUREMENT SUPPLIERS] UI request: returning {len(data)} supplier(s)"
+            f" ({'cache hit' if from_cache else 'fresh fetch'})"
+            f"{f' — sample codes: {sample_codes}' if sample_codes else ''}",
+            flush=True,
+        )
         return jsonify({'success': True, 'data': data})
     except requests.exceptions.HTTPError as e:
         st = e.response.status_code if e.response is not None else 502
@@ -5057,6 +5103,109 @@ def _fetch_supplier_emails_by_codes(codes: list[str]) -> dict[str, list[str]]:
                 con.close()
         except Exception:
             pass
+
+
+def _fetch_all_suppliers_from_firebird() -> list[dict]:
+    """All suppliers from local AR_SUPPLIER / AP_SUPPLIER (Create e-PR merge when SQL API list is short)."""
+    merged: dict[str, dict] = {}
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        for table in ('AP_SUPPLIER', 'AR_SUPPLIER'):
+            try:
+                cur.execute(
+                    'SELECT COUNT(*) FROM RDB$RELATIONS WHERE RDB$RELATION_NAME = ?',
+                    (table.upper(),),
+                )
+                chk = cur.fetchone()
+                if not chk or int(chk[0] or 0) <= 0:
+                    continue
+            except Exception:
+                continue
+            try:
+                cur.execute(
+                    f"""
+                    SELECT TRIM(CODE), TRIM(COMPANYNAME)
+                    FROM {table}
+                    WHERE TRIM(CODE) <> ''
+                    ORDER BY CODE
+                    """
+                )
+            except Exception as exc:
+                print(f"[PROCUREMENT SUPPLIERS] Firebird {table} list skipped: {exc}", flush=True)
+                continue
+            for row in cur.fetchall() or []:
+                if not row:
+                    continue
+                code = str(row[0] or '').strip()
+                if not code:
+                    continue
+                key = code.upper()
+                if key in merged:
+                    continue
+                name = str(row[1] or '').strip() or code
+                merged[key] = {'code': code, 'companyname': name}
+    except Exception as exc:
+        print(f"[PROCUREMENT SUPPLIERS] Firebird supplier list error: {exc}", flush=True)
+        return []
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if con:
+                con.close()
+        except Exception:
+            pass
+
+    if not merged:
+        return []
+
+    email_map = _fetch_supplier_emails_by_codes([r['code'] for r in merged.values()])
+    for key, row in merged.items():
+        emails = email_map.get(key) or []
+        if emails:
+            row['udf_email01'] = emails[0]
+            for i, em in enumerate(emails[1:16], start=2):
+                row[f'udf_email{i:02d}'] = em
+    rows = list(merged.values())
+    print(
+        f"[PROCUREMENT SUPPLIERS] Firebird: {len(rows)} supplier(s)"
+        f" — codes: {[r.get('code') for r in rows[:8]]}",
+        flush=True,
+    )
+    return rows
+
+
+def _merge_procurement_supplier_lists(sql_rows: list, fb_rows: list) -> list[dict]:
+    """SQL API rows first; add Firebird-only codes not returned by GET /supplier."""
+    by_code: dict[str, dict] = {}
+    for row in sql_rows or []:
+        if not isinstance(row, dict):
+            continue
+        code = str(row.get('code') or row.get('CODE') or '').strip()
+        if not code:
+            continue
+        by_code[code.upper()] = row
+    added = 0
+    for row in fb_rows or []:
+        if not isinstance(row, dict):
+            continue
+        code = str(row.get('code') or '').strip()
+        if not code:
+            continue
+        key = code.upper()
+        if key in by_code:
+            continue
+        by_code[key] = row
+        added += 1
+    if added:
+        print(f"[PROCUREMENT SUPPLIERS] Merged {added} supplier(s) from Firebird (not in SQL API list)", flush=True)
+    return list(by_code.values())
 
 
 def _rfq_invite_safe_html(value) -> str:

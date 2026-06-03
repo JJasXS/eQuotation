@@ -47404,31 +47404,194 @@
             return prCatalogScalar(p, 'DESCRIPTION', 'description') || prCatalogProductCode(p);
         }
 
-        function filterPrCatalogProducts(query) {
-            const normalizeSearch = (value) => String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
-            const normalizeCompact = (value) => normalizeSearch(value).replace(/[\s\-_/()]+/g, '');
-            const q = normalizeSearch(query);
-            const qCompact = normalizeCompact(query);
-            if (!q) return prCatalogProducts.filter((p) => prCatalogProductCode(p)).slice(0, 50);
-            return prCatalogProducts.filter((p) => {
+        function prProductLabel(product) {
+            const code = prCatalogProductCode(product);
+            const desc = prCatalogProductDesc(product);
+            if (!code) return desc;
+            return desc && desc !== code ? `${desc} (${code})` : desc;
+        }
+
+        function normalizePrProductSearchText(value) {
+            return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+        }
+
+        let prCatalogPickerActiveInput = null;
+        let prCatalogPickerActiveLineIndex = null;
+        let prCatalogPickerCloseTimer = null;
+
+        function getPrCatalogPickerOptions() {
+            const options = [];
+            const seen = new Set();
+            (prCatalogProducts || []).forEach((p) => {
                 const code = prCatalogProductCode(p);
                 const desc = prCatalogProductDesc(p);
-                const shortList = prCatalogScalar(
-                    p,
-                    'SHORT',
-                    'SHORT_DESC',
-                    'SHORT_DESCRIPTION',
-                    'DESC_SHORT',
-                    'DISPLAY_CODE',
-                    'DISPLAY_SHORT',
-                    'ITEM_SHORT',
-                    'ITEMSHORT',
-                );
-                const hay = `${desc} ${code} ${shortList}`;
-                if (normalizeSearch(hay).includes(q)) return true;
-                if (qCompact && normalizeCompact(hay).includes(qCompact)) return true;
-                return false;
-            }).slice(0, 50);
+                if (!code) return;
+                const key = normalizePrProductSearchText(code);
+                if (seen.has(key)) return;
+                seen.add(key);
+                options.push({
+                    code,
+                    desc,
+                    label: prProductLabel(p),
+                });
+            });
+            options.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+            return options;
+        }
+
+        function ensurePrCatalogProductPicker() {
+            let picker = document.getElementById('pr-catalog-product-picker');
+            if (picker) return picker;
+            picker = document.createElement('div');
+            picker.id = 'pr-catalog-product-picker';
+            picker.className = 'pr-catalog-product-picker';
+            picker.hidden = true;
+            picker.innerHTML = `
+                <div class="pr-catalog-product-picker-header">Choose product</div>
+                <input type="text" class="pr-catalog-product-picker-search" placeholder="Type to filter…" autocomplete="off" />
+                <ul class="pr-catalog-product-picker-list" role="listbox"></ul>`;
+            document.body.appendChild(picker);
+
+            const search = picker.querySelector('.pr-catalog-product-picker-search');
+            search.addEventListener('input', () => {
+                if (prCatalogPickerActiveLineIndex != null) {
+                    renderPrCatalogProductPickerList(prCatalogPickerActiveLineIndex, search.value);
+                }
+            });
+            search.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape') hidePrCatalogProductPicker();
+            });
+            document.addEventListener('mousedown', (event) => {
+                if (picker.hidden) return;
+                if (picker.contains(event.target)) return;
+                if (event.target === prCatalogPickerActiveInput) return;
+                hidePrCatalogProductPicker();
+            });
+            return picker;
+        }
+
+        function positionPrCatalogProductPicker(input, picker) {
+            const rect = input.getBoundingClientRect();
+            const width = Math.max(rect.width, 380);
+            let left = rect.left;
+            let top = rect.bottom + 4;
+            if (left + width > window.innerWidth - 8) {
+                left = Math.max(8, window.innerWidth - width - 8);
+            }
+            const maxHeight = 300;
+            if (top + maxHeight > window.innerHeight - 8) {
+                top = Math.max(8, rect.top - maxHeight - 4);
+            }
+            picker.style.left = `${left}px`;
+            picker.style.top = `${top}px`;
+            picker.style.width = `${width}px`;
+        }
+
+        function renderPrCatalogProductPickerList(lineIndex, filterText) {
+            const picker = ensurePrCatalogProductPicker();
+            const list = picker.querySelector('.pr-catalog-product-picker-list');
+            const query = normalizePrProductSearchText(filterText);
+            const item = window.purchaseRequestItems && window.purchaseRequestItems[lineIndex];
+            const currentCode = item ? normalizePrProductSearchText(item.itemCode) : '';
+            const matches = getPrCatalogPickerOptions().filter((opt) => {
+                if (!query) return true;
+                const blob = normalizePrProductSearchText(`${opt.label} ${opt.code} ${opt.desc}`);
+                return blob.includes(query);
+            });
+
+            list.innerHTML = '';
+            if (!matches.length) {
+                const empty = document.createElement('li');
+                empty.className = 'pr-catalog-product-picker-empty';
+                empty.textContent = 'No products match';
+                list.appendChild(empty);
+                return;
+            }
+
+            const limit = 150;
+            matches.slice(0, limit).forEach((opt) => {
+                const row = document.createElement('li');
+                row.className = 'pr-catalog-product-picker-option';
+                row.setAttribute('role', 'option');
+                row.textContent = opt.label;
+                if (normalizePrProductSearchText(opt.code) === currentCode) {
+                    row.classList.add('is-current');
+                }
+                row.addEventListener('mousedown', (event) => {
+                    event.preventDefault();
+                    applyPrCatalogProductSelection(lineIndex, opt.code);
+                });
+                list.appendChild(row);
+            });
+            if (matches.length > limit) {
+                const more = document.createElement('li');
+                more.className = 'pr-catalog-product-picker-more';
+                more.textContent = `Showing ${limit} of ${matches.length} — type to narrow`;
+                list.appendChild(more);
+            }
+        }
+
+        function applyPrCatalogProductSelection(lineIndex, code) {
+            hidePrCatalogProductPicker();
+            onPurchaseRequestProductChange(lineIndex, code);
+        }
+
+        function showPrCatalogProductPicker(input, lineIndex) {
+            if (!input || !Number.isFinite(lineIndex)) return;
+            clearTimeout(prCatalogPickerCloseTimer);
+            const picker = ensurePrCatalogProductPicker();
+            prCatalogPickerActiveInput = input;
+            prCatalogPickerActiveLineIndex = lineIndex;
+            positionPrCatalogProductPicker(input, picker);
+            const search = picker.querySelector('.pr-catalog-product-picker-search');
+            search.value = '';
+            renderPrCatalogProductPickerList(lineIndex, '');
+            picker.hidden = false;
+            requestAnimationFrame(() => search.focus());
+        }
+
+        function hidePrCatalogProductPicker() {
+            const picker = document.getElementById('pr-catalog-product-picker');
+            if (picker) picker.hidden = true;
+            prCatalogPickerActiveInput = null;
+            prCatalogPickerActiveLineIndex = null;
+        }
+
+        function bindPrCatalogProductInput(input) {
+            if (!input || input.dataset.prCatalogPickerBound === '1') return;
+            const lineIndex = parseInt(input.getAttribute('data-pr-index'), 10);
+            if (!Number.isFinite(lineIndex)) return;
+            input.dataset.prCatalogPickerBound = '1';
+            input.setAttribute('autocomplete', 'off');
+            input.setAttribute('spellcheck', 'false');
+            if (!input.placeholder) {
+                input.placeholder = 'Search or pick product…';
+            }
+
+            const openPicker = () => showPrCatalogProductPicker(input, lineIndex);
+            input.addEventListener('focus', openPicker);
+            input.addEventListener('click', openPicker);
+            input.addEventListener('input', () => {
+                if (prCatalogPickerActiveInput !== input) return;
+                const picker = document.getElementById('pr-catalog-product-picker');
+                const search = picker ? picker.querySelector('.pr-catalog-product-picker-search') : null;
+                if (search) {
+                    search.value = input.value;
+                    renderPrCatalogProductPickerList(lineIndex, input.value);
+                }
+            });
+            input.addEventListener('blur', () => {
+                prCatalogPickerCloseTimer = setTimeout(hidePrCatalogProductPicker, 200);
+            });
+
+            const cell = input.closest('td');
+            if (cell) cell.classList.add('pr-catalog-product-cell');
+        }
+
+        function initPrCatalogProductPickers() {
+            document.querySelectorAll('#pr-line-items-body .pr-catalog-product-input').forEach((input) => {
+                bindPrCatalogProductInput(input);
+            });
         }
 
         function prCatalogUdfValue(product, key) {
@@ -47436,164 +47599,6 @@
             if (!v) return '';
             if (String(v).trim() === '0') return '';
             return v;
-        }
-
-        function prCatalogProductMetaLine(product) {
-            const th = prCatalogUdfValue(product, 'udf_thickness');
-            const w = prCatalogUdfValue(product, 'udf_width');
-            const l = prCatalogUdfValue(product, 'udf_length');
-            const dp = prCatalogUdfValue(product, 'udf_dp');
-            const dfp = prCatalogUdfValue(product, 'udf_dfp');
-            const costkg = prCatalogUdfValue(product, 'udf_costkg');
-            const parts = [];
-            if (th) parts.push(`T:${escapeHtml(th)}`);
-            if (w) parts.push(`W:${escapeHtml(w)}`);
-            if (l) parts.push(`L:${escapeHtml(l)}`);
-            if (dp) parts.push(`DP:${escapeHtml(dp)}`);
-            if (dfp) parts.push(`DFP:${escapeHtml(dfp)}`);
-            if (costkg) parts.push(`C/KG:${escapeHtml(costkg)}`);
-            if (!parts.length) return '';
-            return `<div class="pr-product-meta">${parts.map((p) => `<span class="pr-product-meta-pill">${p}</span>`).join('')}</div>`;
-        }
-
-        function prProductInputTextForLine(lineIndex) {
-            const item = window.purchaseRequestItems && window.purchaseRequestItems[lineIndex];
-            const code = item && String(item.itemCode || '').trim();
-            if (!code) return '';
-            const product = findPrProductByCode(code);
-            return prCatalogProductDesc(product || { CODE: code, DESCRIPTION: code });
-        }
-
-        function _hidePrProductDropdown(dropdown, picker) {
-            if (!dropdown) return;
-            dropdown.style.display = 'none';
-            if (picker && dropdown.parentElement === document.body) picker.appendChild(dropdown);
-            dropdown.classList.remove('pr-product-dropdown--fixed');
-            dropdown.style.position = '';
-            dropdown.style.left = '';
-            dropdown.style.top = '';
-            dropdown.style.width = '';
-            dropdown.style.maxHeight = '';
-            dropdown.style.zIndex = '';
-        }
-
-        function _positionPrProductFloatingDropdown(search, dropdown) {
-            const rect = search.getBoundingClientRect();
-            const gap = 6;
-            const maxH = 260;
-            const spaceBelow = window.innerHeight - rect.bottom - gap;
-            const spaceAbove = rect.top - gap;
-            let maxHeight = Math.min(maxH, Math.max(120, spaceBelow - 8));
-            let top = rect.bottom + gap;
-            if (maxHeight < 160 && spaceAbove > spaceBelow) {
-                maxHeight = Math.min(maxH, Math.max(120, spaceAbove - 8));
-                top = Math.max(8, rect.top - gap - maxHeight);
-            }
-            if (dropdown.parentElement !== document.body) document.body.appendChild(dropdown);
-            dropdown.classList.add('pr-product-dropdown--fixed');
-            dropdown.style.position = 'fixed';
-            dropdown.style.left = `${rect.left}px`;
-            dropdown.style.width = `${Math.max(rect.width, 320)}px`;
-            dropdown.style.top = `${top}px`;
-            dropdown.style.maxHeight = `${maxHeight}px`;
-            dropdown.style.zIndex = '10050';
-            dropdown.style.display = 'block';
-        }
-
-        function _renderPrProductDropdown(picker, query, lineIndex) {
-            const search = picker.querySelector('.pr-product-search');
-            const dropdown = picker.querySelector('.pr-product-dropdown');
-            if (!search || !dropdown) return;
-            dropdown._prPickerHost = picker;
-            const filtered = filterPrCatalogProducts(query);
-            if (!filtered.length) {
-                dropdown.innerHTML = '<div class="pr-product-dropdown-empty">No matches</div>';
-                _positionPrProductFloatingDropdown(search, dropdown);
-                return;
-            }
-            dropdown.innerHTML = filtered.map((p) => {
-                const code = prCatalogProductCode(p);
-                const desc = prCatalogProductDesc(p);
-                if (!code || !desc) return '';
-                return `<button type="button" class="pr-product-dropdown-item" data-code="${escapeHtml(code)}">`
-                    + `<div class="pr-product-row-main"><span class="pr-product-row-desc">${escapeHtml(desc)}</span><span class="pr-product-row-code">${escapeHtml(code)}</span></div>`
-                    + prCatalogProductMetaLine(p)
-                    + '</button>';
-            }).join('');
-            _positionPrProductFloatingDropdown(search, dropdown);
-            dropdown.querySelectorAll('.pr-product-dropdown-item').forEach((btn) => {
-                btn.addEventListener('mousedown', (e) => e.preventDefault());
-                btn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const code = btn.getAttribute('data-code') || '';
-                    _hidePrProductDropdown(dropdown, picker);
-                    onPurchaseRequestProductChange(lineIndex, code);
-                    const input = picker.querySelector('.pr-product-search');
-                    if (input) input.value = prProductInputTextForLine(lineIndex);
-                });
-            });
-        }
-
-        function initPrLineProductPickers() {
-            document.querySelectorAll('#pr-line-items-body .pr-product-picker').forEach((picker) => {
-                const search = picker.querySelector('.pr-product-search');
-                const dropdown = picker.querySelector('.pr-product-dropdown');
-                if (!search || !dropdown) return;
-                const lineIndex = parseInt(picker.getAttribute('data-pr-index'), 10);
-                if (!Number.isFinite(lineIndex)) return;
-                if (search.dataset.prPickerBound === '1') return;
-                search.dataset.prPickerBound = '1';
-                const clearCommittedSelectionIfTypingNew = () => {
-                    const typed = String(search.value || '').trim();
-                    const committed = String(prProductInputTextForLine(lineIndex) || '').trim();
-                    if (!typed || !committed) return;
-                    if (typed.toUpperCase() === committed.toUpperCase()) return;
-                    const item = window.purchaseRequestItems && window.purchaseRequestItems[lineIndex];
-                    if (!item) return;
-                    item.itemCode = '';
-                    item.itemName = '';
-                    item.description = '';
-                    item.uom = '';
-                };
-                search.addEventListener('input', () => {
-                    clearCommittedSelectionIfTypingNew();
-                    _renderPrProductDropdown(picker, search.value.trim(), lineIndex);
-                });
-                search.addEventListener('focus', () => {
-                    // Always show full list on focus, even when a product is already selected.
-                    _renderPrProductDropdown(picker, '', lineIndex);
-                });
-                search.addEventListener('click', () => {
-                    // Clicking into the field should also reopen with the full catalog list.
-                    _renderPrProductDropdown(picker, '', lineIndex);
-                });
-                search.addEventListener('keydown', (e) => {
-                    if (e.key === 'Escape') _hidePrProductDropdown(dropdown, picker);
-                });
-                search.addEventListener('blur', () => {
-                    setTimeout(() => {
-                        _hidePrProductDropdown(dropdown, picker);
-                    }, 180);
-                });
-            });
-            if (!window._prProductPickerDocClick) {
-                window._prProductPickerDocClick = true;
-                document.addEventListener('click', (e) => {
-                    if (e.target.closest('.pr-product-picker') || e.target.closest('.pr-product-dropdown')) return;
-                    document.querySelectorAll('.pr-product-dropdown').forEach((d) => _hidePrProductDropdown(d, d._prPickerHost || null));
-                });
-                const reposition = () => {
-                    document.querySelectorAll('.pr-product-dropdown--fixed').forEach((dropdown) => {
-                        if (dropdown.style.display === 'none') return;
-                        const picker = dropdown._prPickerHost;
-                        const search = picker && picker.querySelector('.pr-product-search');
-                        if (search) _positionPrProductFloatingDropdown(search, dropdown);
-                    });
-                };
-                window.addEventListener('scroll', reposition, true);
-                window.addEventListener('resize', reposition);
-            }
         }
 
         function updatePurchaseRequestRowAmount(index) {
@@ -49315,13 +49320,7 @@
                         <td class="pr-code-cell">
                             ${isEditMode
                                 ? `<span class="pr-desc-readonly" title="${escapeHtml(item.itemCode || '')}">${escapeHtml(prCatalogProductDesc(product || { CODE: item.itemCode || '', DESCRIPTION: item.itemCode || '' }) || '-')}</span>`
-                                : `<div class="pr-product-picker" data-pr-index="${idx}">
-                                    <div class="pr-product-search-row">
-                                        <span class="pr-product-search-icon" aria-hidden="true">⌕</span>
-                                        <input type="text" class="pr-product-search" value="${escapeHtml(prCatalogProductDesc(product || { CODE: item.itemCode || '', DESCRIPTION: item.itemCode || '' }))}" placeholder="Type to filter..." autocomplete="off" />
-                                    </div>
-                                    <div class="pr-product-dropdown" role="listbox" style="display:none;"></div>
-                                </div>`}
+                                : `<input type="text" class="pr-catalog-product-input" data-pr-index="${idx}" value="${escapeHtml(prCatalogProductDesc(product || { CODE: item.itemCode || '', DESCRIPTION: item.itemCode || '' }))}" placeholder="Search or pick product…" autocomplete="off" spellcheck="false" />`}
                         </td>
 
                         <td class="pr-udf-readonly">${escapeHtml(prCatalogUdfValue(product, 'udf_thickness') || '-')}</td>
@@ -49498,7 +49497,7 @@
 
 
             recalcPurchaseRequestTotals();
-            initPrLineProductPickers();
+            initPrCatalogProductPickers();
             savePurchaseRequestDraftItems();
 
 
@@ -55103,7 +55102,12 @@
 
 
 
+                        supplierList = [];
                         console.warn('[Suppliers] Failed to load:', payload.error || payload);
+                        const hint = document.querySelector('.pr-supplier-invite-hint');
+                        if (hint) {
+                            hint.textContent = 'Supplier list could not be loaded. Check SQL API /supplier and refresh.';
+                        }
 
 
 
@@ -55224,6 +55228,8 @@
 
 
             if (!search || !dropdown) return;
+            if (search.dataset.prSupplierPickerBound === '1') return;
+            search.dataset.prSupplierPickerBound = '1';
 
 
 
@@ -56111,7 +56117,7 @@
 
 
 
-                    <td style="color:#555;">${s.email || '<span style="color:#bbb;">-</span>'}</td>
+                    <td class="pr-supplier-email-cell" title="${escapeHtml(s.email || '')}">${s.email ? escapeHtml(s.email) : '<span style="color:#bbb;">-</span>'}</td>
 
 
 

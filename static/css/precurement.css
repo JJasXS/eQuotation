@@ -1761,218 +1761,92 @@ body.procurement-warm-ui .stock-card-item-search-input:focus {
     width: 1%;
     max-width: 18rem;
     min-width: 11rem;
-    overflow: visible;
-    position: relative;
-    z-index: 1;
 }
 
-#panel-create .pr-line-items-table tbody tr:has(.pr-product-search:focus) {
-    position: relative;
-    z-index: 50;
-}
-
-#panel-create .pr-line-items-table .pr-product-picker {
-    position: relative;
-    width: 100%;
-    overflow: visible;
-}
-
-/* Description picker — same tokens as .pr-line-items-table input/select */
-#panel-create .pr-line-items-table .pr-product-search-row {
-    display: flex;
-    align-items: stretch;
-    max-width: 17rem;
-    border: 1px solid #c4c4c4;
-    border-radius: 2px;
-    background: #ffffff;
-    box-shadow: none;
-    transition: border-color 0.12s ease, box-shadow 0.12s ease;
-}
-
-#panel-create .pr-line-items-table .pr-product-search-row:focus-within {
-    border-color: #6eb5f0;
-    box-shadow: 0 0 0 2px rgba(110, 181, 240, 0.35);
-}
-
-#panel-create .pr-line-items-table .pr-product-search-icon {
-    flex: 0 0 auto;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.5rem;
-    color: #666666;
-    font-size: 12px;
-    pointer-events: none;
-    user-select: none;
-}
-
-#panel-create .pr-line-items-table .pr-product-search {
-    flex: 1 1 auto;
-    min-width: 0;
-    width: 100%;
-    max-width: none;
-    margin: 0;
-    padding: 4px 6px 4px 0;
-    border: none !important;
-    border-radius: 0;
-    background: transparent !important;
-    box-shadow: none !important;
-    outline: none;
-    font-size: 12px;
-    line-height: 1.35;
-    color: #222222;
-    box-sizing: border-box;
-    appearance: none;
-}
-
-#panel-create .pr-line-items-table .pr-product-search::placeholder {
-    color: #888888;
-    opacity: 1;
-}
-
-/* Dropdown is portaled to body — must match line-items table controls */
-.pr-product-dropdown {
-    margin: 0;
-    padding: 2px 0;
-    list-style: none;
-    max-height: 260px;
-    overflow-x: hidden;
-    overflow-y: auto;
-    background: #ffffff;
-    border: 1px solid #c4c4c4;
-    border-radius: 2px;
-    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.12);
-    scrollbar-width: thin;
-    scrollbar-color: #c4c4c4 #f3f3f3;
-}
-
-.pr-product-dropdown::-webkit-scrollbar {
-    width: 8px;
-}
-
-.pr-product-dropdown::-webkit-scrollbar-track {
-    background: #f3f3f3;
-}
-
-.pr-product-dropdown::-webkit-scrollbar-thumb {
-    background: #c4c4c4;
-    border-radius: 4px;
-}
-
-.pr-product-dropdown::-webkit-scrollbar-thumb:hover {
-    background: #a8a8a8;
-}
-
-.pr-product-dropdown.pr-product-dropdown--fixed {
-    right: auto;
-    padding: 2px 0;
-}
-
-.pr-product-dropdown-item {
+/* Description picker — same UX as create-quotation product search */
+.pr-catalog-product-picker {
+    position: fixed;
+    z-index: 10050;
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
-    width: 100%;
-    margin: 0;
-    padding: 6px 8px;
-    border: none;
-    border-bottom: 1px solid #e8e8e8;
-    border-radius: 0;
-    background: transparent;
-    text-align: left;
+    max-height: 300px;
+    background: #fff;
+    border: 1px solid #8fa8b8;
+    border-radius: 8px;
+    box-shadow: 0 12px 32px rgba(30, 80, 120, 0.22);
+    overflow: hidden;
+}
+
+.pr-catalog-product-picker[hidden] {
+    display: none !important;
+}
+
+.pr-catalog-product-picker-header {
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #5a7a94;
+    background: #e8f2f8;
+    border-bottom: 1px solid #c5dce9;
+}
+
+.pr-catalog-product-picker-search {
+    margin: 8px 10px 6px;
+    padding: 6px 10px;
+    border: 1px solid #b8cdd9;
+    border-radius: 6px;
     font: inherit;
-    font-size: 12px;
-    line-height: 1.35;
-    color: #222222;
-    cursor: pointer;
-    appearance: none;
-    -webkit-appearance: none;
-    box-sizing: border-box;
+    font-size: 13px;
+    color: #1e3a52;
 }
 
-.pr-product-dropdown-item:last-child {
-    border-bottom: none;
-}
-
-.pr-product-dropdown-item:hover,
-.pr-product-dropdown-item:focus-visible {
-    background: #f3f3f3;
-    outline: none;
-}
-
-.pr-product-dropdown-desc {
-    display: block;
-    width: 100%;
-    font-weight: 500;
-    color: #222222;
-    word-break: break-word;
-}
-
-.pr-product-row-main {
-    width: 100%;
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 8px;
-}
-
-.pr-product-row-desc {
+.pr-catalog-product-picker-list {
+    list-style: none;
+    margin: 0;
+    padding: 4px 0 8px;
+    overflow-y: auto;
     flex: 1 1 auto;
-    min-width: 0;
+    min-height: 0;
+}
+
+.pr-catalog-product-picker-option {
+    padding: 8px 12px;
+    font-size: 13px;
+    line-height: 1.35;
+    color: #1e3a52;
+    cursor: pointer;
+    border-bottom: 1px solid #eef4f8;
+}
+
+.pr-catalog-product-picker-option:hover,
+.pr-catalog-product-picker-option.is-current {
+    background: #dbeafe;
+}
+
+.pr-catalog-product-picker-option.is-current {
     font-weight: 600;
-    color: #1f2937;
 }
 
-.pr-product-row-code {
-    flex: 0 0 auto;
-    font-size: 10px;
-    color: #64748b;
-    max-width: 40%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.pr-product-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    width: 100%;
-}
-
-.pr-product-meta-pill {
-    display: inline-flex;
-    align-items: center;
-    padding: 1px 6px;
-    border-radius: 999px;
-    border: 1px solid #d7dee8;
-    background: #f8fafc;
-    color: #475569;
-    font-size: 10px;
-    line-height: 1.25;
-}
-
-.pr-product-dropdown-code {
-    display: inline-block;
-    max-width: 100%;
-    padding: 1px 6px;
-    border-radius: 2px;
-    background: #f3f3f3;
-    color: #444444;
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.pr-product-dropdown-empty {
-    padding: 8px 10px;
+.pr-catalog-product-picker-empty,
+.pr-catalog-product-picker-more {
+    padding: 10px 12px;
     font-size: 12px;
-    color: #666666;
-    text-align: center;
+    color: #5a7a94;
+    font-style: italic;
+}
+
+#panel-create .pr-line-items-table td.pr-catalog-product-cell {
+    position: relative;
+    min-width: 11rem;
+}
+
+#panel-create .pr-line-items-table .pr-catalog-product-input {
+    width: 100%;
+    max-width: 17rem;
+    box-sizing: border-box;
+    font-size: 12px;
 }
 
 #panel-create .pr-line-items-table .pr-desc-readonly {
@@ -4281,17 +4155,21 @@ body.procurement-warm-ui .procurement-panel > .panel-content {
     border-spacing: 0;
 }
 
-/* Invite suppliers: #, code, company, remove — no email column */
+/* Invite suppliers: #, code, company, email, remove */
 .pr-supplier-table--invite col.pr-sup-col-idx {
-    width: 8%;
+    width: 5%;
 }
 
 .pr-supplier-table--invite col.pr-sup-col-code {
-    width: 25%;
+    width: 16%;
 }
 
 .pr-supplier-table--invite col.pr-sup-col-name {
-    width: 59%;
+    width: 24%;
+}
+
+.pr-supplier-table--invite col.pr-sup-col-email {
+    width: 47%;
 }
 
 .pr-supplier-table--invite col.pr-sup-col-action {
@@ -4318,8 +4196,8 @@ body.procurement-warm-ui .procurement-panel > .panel-content {
     text-align: center;
 }
 
-.pr-supplier-table--invite th:nth-child(4),
-.pr-supplier-table--invite td:nth-child(4) {
+.pr-supplier-table--invite th:nth-child(5),
+.pr-supplier-table--invite td:nth-child(5) {
     text-align: center;
 }
 
@@ -4330,13 +4208,20 @@ body.procurement-warm-ui .procurement-panel > .panel-content {
     font-size: 10px;
     line-height: 1.5;
     vertical-align: middle;
-    word-wrap: break-word;
-    overflow-wrap: anywhere;
 }
 
 .pr-supplier-table--invite td:nth-child(2),
-.pr-supplier-table--invite td:nth-child(3) {
+.pr-supplier-table--invite td:nth-child(3),
+.pr-supplier-table--invite td:nth-child(4) {
     text-align: left;
+}
+
+.pr-supplier-table--invite td:nth-child(4) {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    word-wrap: normal;
+    overflow-wrap: normal;
 }
 
 .pr-supplier-table--invite td.pr-supplier-empty {
