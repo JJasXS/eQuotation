@@ -774,6 +774,161 @@ def _bid_hdr_row_to_dict(bid: tuple, lines: list[dict[str, Any]]) -> dict[str, A
     }
 
 
+def _parse_split_from_docno(description: Any) -> str:
+    import re
+
+    text = _clean_text(description)
+    if not text:
+        return ""
+    match = re.search(r"Split from\s+(PR-[\w-]+)", text, flags=re.IGNORECASE)
+    return _clean_text(match.group(1)) if match else ""
+
+
+def _ph_pq_dockey_by_docno(cur: Any, docno: str) -> int:
+    docno_clean = _clean_text(docno)
+    if not docno_clean:
+        return 0
+    cols = _get_table_columns(cur, "PH_PQ")
+    key_col = _pick_existing(cols, "DOCKEY", "PQKEY", "ID")
+    docno_col = _pick_existing(cols, "DOCNO", "REQUESTNO", "PRNO")
+    if not key_col or not docno_col:
+        return 0
+    cur.execute(
+        f"SELECT FIRST 1 {key_col} FROM PH_PQ WHERE {docno_col} = ?",
+        (docno_clean,),
+    )
+    row = cur.fetchone()
+    if not row or row[0] is None:
+        return 0
+    try:
+        return int(row[0])
+    except (TypeError, ValueError):
+        return 0
+
+
+def _ph_pq_detail_ids(cur: Any, request_dockey: int) -> list[int]:
+    if not request_dockey:
+        return []
+    if not _table_exists(cur, "PH_PQDTL"):
+        return []
+    cols = _get_table_columns(cur, "PH_PQDTL")
+    fk_col = _pick_existing(cols, "DOCKEY", "PQKEY", "REQUEST_ID", "HEADER_ID")
+    dtl_col = _pick_existing(cols, "DTLKEY", "PQDTLKEY", "ID")
+    if not fk_col or not dtl_col:
+        return []
+    cur.execute(
+        f"SELECT {dtl_col} FROM PH_PQDTL WHERE {fk_col} = ? ORDER BY {dtl_col}",
+        (int(request_dockey),),
+    )
+    out: list[int] = []
+    for row in cur.fetchall() or []:
+        if not row or row[0] is None:
+            continue
+        try:
+            out.append(int(row[0]))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def resolve_bidding_context(request_dockey: int) -> dict[str, Any]:
+    """
+    Bidding RFQ data lives on the original PR; split child PRs only own a subset of lines.
+    """
+    dockey = int(request_dockey or 0)
+    ctx: dict[str, Any] = {
+        "requestDockey": dockey,
+        "biddingSourceDockey": dockey,
+        "isSplitChild": False,
+        "splitFromDocno": "",
+        "splitFromDockey": 0,
+        "prDetailIds": [],
+        "awardedSupplierCode": "",
+        "docno": "",
+    }
+    if dockey <= 0:
+        return ctx
+
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        if not _table_exists(cur, "PH_PQ"):
+            return ctx
+        cols = _get_table_columns(cur, "PH_PQ")
+        key_col = _pick_existing(cols, "DOCKEY", "PQKEY", "ID")
+        docno_col = _pick_existing(cols, "DOCNO", "REQUESTNO", "PRNO")
+        code_col = _pick_existing(cols, "CODE", "SUPPLIERID")
+        desc_col = _pick_existing(cols, "DESCRIPTION", "JUSTIFICATION")
+        if not key_col:
+            return ctx
+        select_parts = [f"{key_col} AS DOCKEY"]
+        if docno_col:
+            select_parts.append(f"{docno_col} AS DOCNO")
+        if code_col:
+            select_parts.append(f"{code_col} AS CODE")
+        if desc_col:
+            select_parts.append(f"{desc_col} AS DESCR")
+        cur.execute(
+            f"SELECT {', '.join(select_parts)} FROM PH_PQ WHERE {key_col} = ?",
+            (dockey,),
+        )
+        row = cur.fetchone()
+        if row:
+            ctx["docno"] = _clean_text(row[1] if len(row) > 1 else "")
+            ctx["awardedSupplierCode"] = _clean_text(row[2] if len(row) > 2 else "")
+            split_from = _parse_split_from_docno(row[3] if len(row) > 3 else "")
+            if split_from:
+                parent_key = _ph_pq_dockey_by_docno(cur, split_from)
+                if parent_key > 0 and parent_key != dockey:
+                    ctx["isSplitChild"] = True
+                    ctx["splitFromDocno"] = split_from
+                    ctx["splitFromDockey"] = parent_key
+                    ctx["biddingSourceDockey"] = parent_key
+        ctx["prDetailIds"] = _ph_pq_detail_ids(cur, dockey)
+    finally:
+        con.close()
+    return ctx
+
+
+def list_bids_for_bidding_view(request_dockey: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """
+    Full supplier comparison from the RFQ source PR; bid cards only include lines on this PR.
+    """
+    ctx = resolve_bidding_context(request_dockey)
+    source_dockey = int(ctx.get("biddingSourceDockey") or request_dockey)
+    detail_set = {int(x) for x in (ctx.get("prDetailIds") or []) if int(x) > 0}
+    awarded_code = _clean_text(ctx.get("awardedSupplierCode")).upper()
+
+    raw_bids = list_bids_for_request(source_dockey)
+    display_bids: list[dict[str, Any]] = []
+    for bid in raw_bids:
+        if not isinstance(bid, dict):
+            continue
+        all_lines = bid.get("lines") if isinstance(bid.get("lines"), list) else []
+        on_pr_lines = [
+            ln
+            for ln in all_lines
+            if isinstance(ln, dict) and int(ln.get("detailId") or 0) in detail_set
+        ]
+        comparison_total = sum(float(_as_decimal(ln.get("amount"), "0")) for ln in all_lines if isinstance(ln, dict))
+        on_pr_total = sum(float(_as_decimal(ln.get("amount"), "0")) for ln in on_pr_lines)
+        supplier_code = _clean_text(bid.get("supplierCode"))
+        display_bids.append(
+            {
+                **bid,
+                "lines": on_pr_lines,
+                "comparisonLineCount": len(all_lines),
+                "comparisonTotalAmount": float(_money(_as_decimal(comparison_total, "0"))),
+                "onPrLineCount": len(on_pr_lines),
+                "onPrTotalAmount": float(_money(_as_decimal(on_pr_total, "0"))),
+                "isAwardedOnThisPr": bool(
+                    awarded_code and supplier_code.upper() == awarded_code
+                ),
+            }
+        )
+    return display_bids, ctx
+
+
 def list_bids_for_request(request_dockey: int) -> list[dict[str, Any]]:
     con = _connect_db()
     try:
@@ -1223,8 +1378,49 @@ def save_line_awards(
                 tuple(["AWARDED", now, request_dockey, *sorted(supplier_codes)]),
             )
 
+        split_result: dict[str, Any] | None = None
+        if len(supplier_codes) > 1:
+            try:
+                from utils.procurement_pr_split import (
+                    mixed_pr_split_enabled,
+                    split_purchase_request_for_mixed_awards,
+                )
+
+                if mixed_pr_split_enabled():
+                    split_result = split_purchase_request_for_mixed_awards(
+                        cur,
+                        request_dockey,
+                        normalized,
+                        bid_map,
+                        who,
+                    )
+            except Exception as split_exc:
+                con.rollback()
+                raise BiddingValidationError(f"Mixed-supplier PR split failed: {split_exc}") from split_exc
+
         con.commit()
-        if len(supplier_codes) == 1:
+
+        sql_sync: dict[str, Any] | None = None
+        if split_result and split_result.get("split"):
+            try:
+                from utils.procurement_purchase_request import set_purchase_request_header_supplier
+
+                set_purchase_request_header_supplier(
+                    int(split_result.get("existingPrDockey") or request_dockey),
+                    _clean_text(split_result.get("existingPrSupplierCode")),
+                    _clean_text(split_result.get("existingPrSupplierName")),
+                    actor=who,
+                )
+            except Exception as hdr_exc:
+                print(f"[PROCUREMENT BIDDING] PR header after split warning: {hdr_exc}", flush=True)
+            try:
+                from utils.procurement_pr_split import sync_split_prs_to_sql_api
+
+                sql_sync = sync_split_prs_to_sql_api(split_result, actor=who)
+            except Exception as sync_exc:
+                print(f"[PROCUREMENT BIDDING] PR split SQL API warning: {sync_exc}", flush=True)
+                sql_sync = {"synced": False, "error": str(sync_exc)}
+        elif len(supplier_codes) == 1:
             only_code = next(iter(supplier_codes))
             award_name = ""
             for _bid in bid_map.values():
@@ -1242,11 +1438,17 @@ def save_line_awards(
                 )
             except Exception as sync_exc:
                 print(f"[PROCUREMENT BIDDING] PR header supplier sync warning: {sync_exc}", flush=True)
-        return {
+
+        out: dict[str, Any] = {
             "requestDockey": int(request_dockey),
             "savedCount": saved,
             "supplierCount": len(supplier_codes),
         }
+        if split_result:
+            out["split"] = split_result
+            if sql_sync is not None:
+                out["sqlSync"] = sql_sync
+        return out
     except Exception:
         con.rollback()
         raise
@@ -1354,14 +1556,16 @@ def assert_pr_line_awards_editable(request_dockey: int, udf_status: Any = "") ->
 
 
 def get_transfer_gate_state(request_dockey: int) -> dict[str, Any]:
+    ctx = resolve_bidding_context(request_dockey)
+    source_dockey = int(ctx.get("biddingSourceDockey") or request_dockey)
     con = _connect_db()
     try:
         cur = con.cursor()
-        cur.execute("SELECT COUNT(*) FROM PR_BID_INVITE WHERE REQUEST_DOCKEY = ?", (request_dockey,))
+        cur.execute("SELECT COUNT(*) FROM PR_BID_INVITE WHERE REQUEST_DOCKEY = ?", (source_dockey,))
         invite_count_row = cur.fetchone()
         invite_count = int(invite_count_row[0] or 0) if invite_count_row else 0
 
-        cur.execute("SELECT COUNT(*) FROM PR_BID_HDR WHERE REQUEST_DOCKEY = ?", (request_dockey,))
+        cur.execute("SELECT COUNT(*) FROM PR_BID_HDR WHERE REQUEST_DOCKEY = ?", (source_dockey,))
         bid_count_row = cur.fetchone()
         bid_count = int(bid_count_row[0] or 0) if bid_count_row else 0
 
@@ -1378,6 +1582,13 @@ def get_transfer_gate_state(request_dockey: int) -> dict[str, Any]:
             "hasLineAwards": bool(line_awards),
             "prUdfStatus": pr_udf_status,
             "lineAwardsLocked": is_pr_line_awards_locked(pr_udf_status),
+            "biddingSourceDockey": source_dockey,
+            "isSplitChild": bool(ctx.get("isSplitChild")),
+            "splitFromDocno": _clean_text(ctx.get("splitFromDocno")),
+            "splitFromDockey": int(ctx.get("splitFromDockey") or 0),
+            "prDetailIds": ctx.get("prDetailIds") or [],
+            "awardedSupplierCode": _clean_text(ctx.get("awardedSupplierCode")),
+            "docno": _clean_text(ctx.get("docno")),
         }
     finally:
         con.close()

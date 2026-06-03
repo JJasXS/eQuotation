@@ -44,10 +44,10 @@ from utils.procurement_bidding import (
 from utils.procurement_purchase_request import _connect_db, create_purchase_request
 
 # Default suppliers that exist in your SQL API list (adjust if needed).
-WINNER_CODE = os.getenv("BIDDING_TEST_SUPPLIER", "400-J0001").strip()
-WINNER_NAME = os.getenv("BIDDING_TEST_SUPPLIER_NAME", "JASON CORP").strip()
-OTHER_CODE = os.getenv("BIDDING_TEST_SUPPLIER_B", "400-P0001").strip()
-OTHER_NAME = os.getenv("BIDDING_TEST_SUPPLIER_B_NAME", "PROACC").strip()
+WINNER_CODE = os.getenv("BIDDING_TEST_SUPPLIER", "400-U0001").strip()
+WINNER_NAME = os.getenv("BIDDING_TEST_SUPPLIER_NAME", "UNION ALUMINIUM (SUZHOU) CO, LTD").strip()
+OTHER_CODE = os.getenv("BIDDING_TEST_SUPPLIER_B", "400-J0001").strip()
+OTHER_NAME = os.getenv("BIDDING_TEST_SUPPLIER_B_NAME", "JASON CORP").strip()
 
 
 def _init_db() -> None:
@@ -64,36 +64,45 @@ def _init_db() -> None:
     )
 
 
-def _first_stock_line() -> dict:
+def _stock_lines(count: int = 1) -> list[dict]:
     con = get_db_connection()
     try:
         cur = con.cursor()
         cur.execute(
-            """
-            SELECT FIRST 1 TRIM(CODE), TRIM(DESCRIPTION)
+            f"""
+            SELECT FIRST {max(1, int(count))} TRIM(CODE), TRIM(DESCRIPTION)
             FROM ST_ITEM
             WHERE TRIM(COALESCE(CODE, '')) <> ''
             ORDER BY CODE
             """
         )
-        row = cur.fetchone()
-        if not row:
+        rows = cur.fetchall() or []
+        if not rows:
             raise RuntimeError("No ST_ITEM rows found — add a stock item first.")
-        code = str(row[0] or "").strip()
-        name = str(row[1] or code).strip() or code
-        return {
-            "itemCode": code,
-            "itemName": name,
-            "description": name,
-            "locationCode": "----",
-            "qtySqty": 1,
-            "qtySuomqty": 0,
-            "unitPrice": 10.0,
-            "tax": 0,
-            "deliveryDate": (date.today() + timedelta(days=14)).isoformat(),
-        }
+        out: list[dict] = []
+        for idx, row in enumerate(rows, start=1):
+            code = str(row[0] or "").strip()
+            name = str(row[1] or code).strip() or code
+            out.append(
+                {
+                    "itemCode": code,
+                    "itemName": name,
+                    "description": name,
+                    "locationCode": "----",
+                    "qtySqty": 1,
+                    "qtySuomqty": 0,
+                    "unitPrice": 10.0 + idx,
+                    "tax": 0,
+                    "deliveryDate": (date.today() + timedelta(days=14)).isoformat(),
+                }
+            )
+        return out
     finally:
         con.close()
+
+
+def _first_stock_line() -> dict:
+    return _stock_lines(1)[0]
 
 
 def _fetch_pr_details(request_dockey: int) -> list[dict]:
@@ -159,26 +168,47 @@ def main() -> int:
         action="store_true",
         help="Save item awards in this script (same as clicking Save Item Awards)",
     )
+    parser.add_argument(
+        "--split-test",
+        action="store_true",
+        help="Create PR with 2 lines + 2 suppliers for mixed award / 2-PR split test",
+    )
     args = parser.parse_args()
 
     _init_db()
     ensure_bidding_schema()
 
     today = date.today()
-    line = _first_stock_line()
+    lines = _stock_lines(2 if args.split_test else 1)
+
+    from utils.procurement_pr_split import _allocate_unique_request_number
+    from utils.procurement_purchase_request import _connect_db, _get_table_columns
+
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        header_cols = _get_table_columns(cur, "PH_PQ")
+        next_pr_no = _allocate_unique_request_number(
+            cur,
+            header_cols,
+            split_from_docno="PR-26060015",
+        )
+    finally:
+        con.close()
 
     payload = {
         "requestDate": today.isoformat(),
         "departmentId": "PROC",
         "requesterId": "award-test",
         "project": "----",
-        "description": "Award supplier sync test",
+        "description": "2-PR split test" if args.split_test else "Award supplier sync test",
         "status": "SUBMITTED",
+        "requestNumber": next_pr_no,
         "suppliers": [
             {"code": WINNER_CODE, "name": WINNER_NAME, "email": ""},
             {"code": OTHER_CODE, "name": OTHER_NAME, "email": ""},
         ],
-        "lineItems": [line],
+        "lineItems": lines,
     }
 
     created = create_purchase_request(payload, created_by="award-test-script")
@@ -253,11 +283,21 @@ def main() -> int:
     print(f"  Line detail ids: {[d['detailId'] for d in details]}")
     print("")
     print("Manual UI steps:")
-    print(f"  1. Open http://localhost:8880/admin/procurement/bidding")
-    print(f"  2. Select PR {request_no} (dockey {request_id})")
-    print(f"  3. Under supplier {WINNER_CODE}, tick every line checkbox")
-    print("  4. Click Save Item Awards")
-    print(f"  5. Check GET /eq-sql-api/purchaserequest/{request_id} — code should be {WINNER_CODE}")
+    print(f"  1. Restart eQuotation if you have not since the PR-split change")
+    print(f"  2. Open http://localhost:8880/admin/procurement/bidding")
+    print(f"  3. Select PR {request_no} (dockey {request_id})")
+    if args.split_test and len(details) >= 2:
+        d1, d2 = details[0]["detailId"], details[1]["detailId"]
+        print(f"  4. Tick line 1 ({d1}) under {WINNER_CODE}")
+        print(f"  5. Tick line 2 ({d2}) under {OTHER_CODE}")
+        print("  6. Click Save Item Awards")
+        print(f"     -> {request_no} stays for first supplier ticked (lowest line no): {WINNER_CODE}")
+        print(f"     -> next PR number for {OTHER_CODE} will be PR-26060017 (or next free after parent)")
+        print(f"  7. Check View e-PR: original {request_no} + the next created PR")
+    else:
+        print(f"  4. Under supplier {WINNER_CODE}, tick every line checkbox")
+        print("  5. Click Save Item Awards")
+        print(f"  6. Check GET /eq-sql-api/purchaserequest/{request_id} — code should be {WINNER_CODE}")
     print("")
 
     if args.auto_save_awards:

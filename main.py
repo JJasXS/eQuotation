@@ -71,6 +71,8 @@ from utils.procurement_bidding import (
     get_transfer_gate_state,
     is_pr_line_awards_locked,
     list_bids_for_request,
+    list_bids_for_bidding_view,
+    resolve_bidding_context,
     list_invited_suppliers_for_request,
     list_supplier_invitations,
     map_approved_bid_suppliers_by_request_ids,
@@ -6655,7 +6657,9 @@ def api_admin_create_bidding_invitations():
 def api_admin_list_request_invitations(request_id):
     """List invited suppliers for one purchase request."""
     try:
-        rows = _enrich_supplier_rows_company_names(list_invited_suppliers_for_request(int(request_id)))
+        ctx = resolve_bidding_context(int(request_id))
+        source_id = int(ctx.get('biddingSourceDockey') or request_id)
+        rows = _enrich_supplier_rows_company_names(list_invited_suppliers_for_request(source_id))
         return jsonify({'success': True, 'data': rows, 'count': len(rows)})
     except BiddingValidationError as exc:
         return jsonify({'success': False, 'error': str(exc)}), 400
@@ -7075,7 +7079,8 @@ def _enrich_bidding_gate_with_pr_udf(request_id: int, gate: dict) -> dict:
 def api_admin_list_request_bids(request_id):
     """List supplier bids and transfer gate state for one purchase request."""
     try:
-        bids = _enrich_supplier_rows_company_names(list_bids_for_request(request_id))
+        bids, _ctx = list_bids_for_bidding_view(request_id)
+        bids = _enrich_supplier_rows_company_names(bids)
         gate = _enrich_bidding_gate_with_pr_udf(request_id, get_transfer_gate_state(request_id))
         return jsonify({'success': True, 'data': bids, 'count': len(bids), 'gate': gate})
     except Exception as exc:

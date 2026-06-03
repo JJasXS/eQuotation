@@ -442,3 +442,110 @@ def sync_purchase_order_supplier_sql_api(
         "httpStatus": status,
         "includedLines": with_lines,
     }
+
+
+def _parsed_post_document(parsed: Any) -> dict[str, Any] | None:
+    if isinstance(parsed, dict) and isinstance(parsed.get("data"), list) and parsed["data"]:
+        first = parsed["data"][0]
+        return first if isinstance(first, dict) else None
+    if isinstance(parsed, dict) and parsed.get("dockey") is not None:
+        return parsed
+    return None
+
+
+def post_purchaserequest_sql_api(
+    payload: dict[str, Any],
+    *,
+    preferred_dockey: int = 0,
+) -> dict[str, Any]:
+    """POST ``/purchaserequest`` for a split child PR."""
+    settings = load_sql_accounting_api_settings()
+    if not settings.access_key or not settings.secret_key:
+        return {"skipped": True, "reason": "SQL API not configured"}
+
+    client = SqlAccountingApiClient(settings)
+    timeout = min(60.0, settings.timeout_seconds + 15.0)
+    base = _api_root_url("SQL_API_PURCHASE_REQUEST_PATH", "/purchaserequest")
+    body = dict(payload)
+    if preferred_dockey > 0 and "dockey" not in body:
+        body["dockey"] = int(preferred_dockey)
+
+    status, parsed, preview = client.post_json(base, body, timeout_seconds=timeout)
+    if status < 200 or status >= 300:
+        raise RuntimeError(f"SQL API POST purchaserequest returned HTTP {status}: {(preview or '')[:300]}")
+
+    doc = _parsed_post_document(parsed) or {}
+    return {
+        "synced": True,
+        "httpStatus": status,
+        "dockey": int(doc.get("dockey") or preferred_dockey or 0),
+        "docno": _clean_text(doc.get("docno") or body.get("docno")),
+    }
+
+
+def put_purchaserequest_lines_and_supplier_sql_api(
+    request_dockey: int,
+    supplier_code: str,
+    *,
+    request_number: str = "",
+    keep_dtlkeys: set[int] | None = None,
+) -> dict[str, Any]:
+    """PUT PR with only retained detail lines and awarded supplier header."""
+    code = _clean_text(supplier_code)
+    dockey = int(request_dockey or 0)
+    if not code or dockey <= 0:
+        return {"skipped": True, "reason": "missing supplier or request dockey"}
+
+    settings = load_sql_accounting_api_settings()
+    if not settings.access_key or not settings.secret_key:
+        return {"skipped": True, "reason": "SQL API not configured"}
+
+    supplier_row = fetch_supplier_row_by_code(code)
+    if not supplier_row:
+        return {"skipped": True, "reason": f"supplier {code!r} not found on SQL API"}
+
+    client = SqlAccountingApiClient(settings)
+    timeout = min(60.0, settings.timeout_seconds + 15.0)
+    base = _api_root_url("SQL_API_PURCHASE_REQUEST_PATH", "/purchaserequest")
+
+    existing = _get_document(
+        client,
+        base_path=base,
+        dockey=dockey,
+        docno=request_number,
+        timeout_seconds=timeout,
+    )
+    if not existing:
+        return {"skipped": True, "reason": "purchase request not found on SQL API"}
+
+    keep = keep_dtlkeys or set()
+    if keep:
+        lines = existing.get("sdsdocdetail") if isinstance(existing.get("sdsdocdetail"), list) else []
+        existing = {
+            **existing,
+            "sdsdocdetail": [
+                ln
+                for ln in lines
+                if isinstance(ln, dict) and int(ln.get("dtlkey") or 0) in keep
+            ],
+        }
+
+    put_dockey = int(existing.get("dockey") or dockey)
+    status, preview, with_lines = _put_supplier_with_retry(
+        client,
+        base_path=base,
+        existing=existing,
+        supplier_row=supplier_row,
+        timeout_seconds=timeout,
+        include_sdsbranch=False,
+    )
+    if status < 200 or status >= 300:
+        raise RuntimeError(f"SQL API PUT purchaserequest/{put_dockey} returned HTTP {status}: {preview}")
+    return {
+        "synced": True,
+        "dockey": put_dockey,
+        "supplierCode": code,
+        "httpStatus": status,
+        "includedLines": with_lines,
+        "lineCount": len(existing.get("sdsdocdetail") or []),
+    }

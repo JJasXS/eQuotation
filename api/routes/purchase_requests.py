@@ -442,6 +442,10 @@ def list_purchase_requests(
 
         where_sql = f" WHERE {' AND '.join(filters)}" if filters else ""
         order_col = docdate_col or key_col
+        # Tie-break same DOCDATE so newest DOCKEY (e.g. PR-26060019) is not buried under older rows.
+        order_sql = f"H.{order_col} DESC"
+        if key_col and key_col.upper() != (order_col or "").upper():
+            order_sql = f"{order_sql}, H.{key_col} DESC"
         run_count = bool(filters) or include_total
         perf["includeTotal"] = run_count
         perf["skippedFullTableCount"] = not bool(filters) and not include_total
@@ -458,12 +462,12 @@ def list_purchase_requests(
         t_data = time.perf_counter()
         if filters:
             cur.execute(
-                f"SELECT FIRST ? SKIP ? {', '.join(select_cols)} FROM PH_PQ H{where_sql} ORDER BY H.{order_col} DESC",
+                f"SELECT FIRST ? SKIP ? {', '.join(select_cols)} FROM PH_PQ H{where_sql} ORDER BY {order_sql}",
                 (limit, offset, *params),
             )
         else:
             cur.execute(
-                f"SELECT FIRST ? SKIP ? {', '.join(select_cols)} FROM PH_PQ H ORDER BY H.{order_col} DESC",
+                f"SELECT FIRST ? SKIP ? {', '.join(select_cols)} FROM PH_PQ H ORDER BY {order_sql}",
                 (limit, offset),
             )
         data_query_ms = (time.perf_counter() - t_data) * 1000

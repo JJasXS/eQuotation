@@ -16,7 +16,7 @@
 
     <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
 
-    <link rel="stylesheet" href="/static/css/adminBidding.css?v=20260515_icy">
+    <link rel="stylesheet" href="/static/css/adminBidding.css?v=20260603_split_bid">
 
     <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515_admin_blue">
 
@@ -187,6 +187,7 @@
         let supplierCache = [];
 
         let activePr = null;
+        let lastBiddingGate = {};
 
         let activeInvitations = [];
 
@@ -392,6 +393,7 @@
 
 
         function clearBiddingPanels() {
+            lastBiddingGate = {};
 
             const bidsEl = document.getElementById('bids-cards-wrap');
 
@@ -419,6 +421,24 @@
 
 
 
+        function buildPrSubtitleText() {
+            if (!activePr) {
+                return 'Select a purchase request to load bids.';
+            }
+            const udf = normalizePrUdfStatus(activePr.udfStatus);
+            const lockNote = isLineAwardsLocked()
+                ? ' · Item awards locked (Approved/Cancelled on View e-PR)'
+                : '';
+            const gate = lastBiddingGate || {};
+            let splitNote = '';
+            if (gate.isSplitChild && gate.splitFromDocno) {
+                splitNote = ` · Split from ${gate.splitFromDocno} · full RFQ comparison`;
+            }
+            const awarded = String(gate.awardedSupplierCode || '').trim();
+            const awardedNote = awarded ? ` · Awarded supplier on this PR: ${awarded}` : '';
+            return `PR ${activePr.requestNumber || activePr.id} - Doc: ${activePr.status || '-'} - Approval: ${udf || '-'}${splitNote}${awardedNote}${lockNote}`;
+        }
+
         function setSelectionUi() {
 
             document.getElementById('invite-btn').disabled = !activePr;
@@ -430,18 +450,7 @@
             const sub = document.getElementById('current-pr-subtitle');
 
             if (sub) {
-
-                if (!activePr) {
-                    sub.textContent = 'Select a purchase request to load bids.';
-                } else {
-                    const udf = normalizePrUdfStatus(activePr.udfStatus);
-                    const lockNote = isLineAwardsLocked()
-                        ? ' · Item awards locked (Approved/Cancelled on View e-PR)'
-                        : '';
-                    sub.textContent =
-                        `PR ${activePr.requestNumber || activePr.id} - Doc: ${activePr.status || '-'} - Approval: ${udf || '-'}${lockNote}`;
-                }
-
+                sub.textContent = buildPrSubtitleText();
             }
 
             if (!activePr) {
@@ -891,17 +900,41 @@
 
 
 
+            lastBiddingGate = gate;
+
+            const awardedOnPr = String(gate.awardedSupplierCode || '').trim().toUpperCase();
+            const isSplitChild = !!gate.isSplitChild;
+            const splitFromDocno = String(gate.splitFromDocno || '').trim();
+
             const supplierTotals = bids.map((bid) => {
 
-                const totalAmount = (bid.lines || []).reduce((sum, line) => sum + Number(line.amount || 0), 0);
+                const onPrLines = Array.isArray(bid.lines) ? bid.lines : [];
 
-                const lineCount = Array.isArray(bid.lines) ? bid.lines.length : 0;
+                const totalAmount = Number(
+
+                    bid.comparisonTotalAmount != null
+
+                        ? bid.comparisonTotalAmount
+
+                        : onPrLines.reduce((sum, line) => sum + Number(line.amount || 0), 0)
+
+                );
+
+                const lineCount = Number(
+
+                    bid.comparisonLineCount != null ? bid.comparisonLineCount : onPrLines.length
+
+                );
+
+                const onPrLineCount = Number(bid.onPrLineCount != null ? bid.onPrLineCount : onPrLines.length);
+
+                const supplierCode = String(bid.supplierCode || '').trim();
 
                 return {
 
                     bidId: Number(bid.bidId || 0),
 
-                    supplierCode: String(bid.supplierCode || '').trim(),
+                    supplierCode,
 
                     supplierName: supplierCompanyLabel(bid.supplierCode, bid.supplierDisplayName || bid.supplierName),
 
@@ -910,6 +943,12 @@
                     totalAmount,
 
                     lineCount,
+
+                    onPrLineCount,
+
+                    isAwardedOnThisPr: !!bid.isAwardedOnThisPr
+
+                        || (!!awardedOnPr && supplierCode.toUpperCase() === awardedOnPr),
 
                 };
 
@@ -923,41 +962,63 @@
 
 
 
+            const splitCompareNote = isSplitChild && splitFromDocno
+                ? `<div class="compare-note">Split PR: totals compare all suppliers from RFQ <strong>${esc(splitFromDocno)}</strong>. Bid cards below show only lines on this PR.</div>`
+                : '';
+
             const awardsLockNote = isLineAwardsLocked()
                 ? '<div class="compare-note compare-note--locked">Item awards are locked because this PR is <strong>Approved</strong> or <strong>Cancelled</strong> on View e-PR. Change status there first if you need to revise awards.</div>'
                 : '<div class="compare-note">Tick line checkboxes in Submitted bids, then click Save Item Awards. You can choose Item A from Supplier 1 and Item B from Supplier 2.</div>';
+
+            const linesHeader = isSplitChild ? 'RFQ lines' : 'Lines';
 
             const compareHtml = `
 
                 <div class="compare-card">
 
-                    <div class="compare-title">Totals by supplier</div>
+                    <div class="compare-title">Totals by supplier (full RFQ)</div>
+
+                    ${splitCompareNote}
 
                     ${awardsLockNote}
 
                     <table>
 
-                        <thead><tr><th>Supplier</th><th>Status</th><th>Lines</th><th>Total</th><th>Rank</th></tr></thead>
+                        <thead><tr><th>Supplier</th><th>Status</th><th>${linesHeader}</th><th>Total</th><th>Rank</th><th>This PR</th></tr></thead>
 
                         <tbody>
 
-                            ${rankedTotals.map((s, idx) => `
+                            ${rankedTotals.map((s, idx) => {
 
-                                <tr>
+                                const linesCell = isSplitChild
+                                    ? `${Number(s.onPrLineCount || 0)} on PR / ${Number(s.lineCount || 0)} RFQ`
+                                    : String(Number(s.lineCount || 0));
+
+                                const thisPrCell = s.isAwardedOnThisPr
+                                    ? '<span class="awarded-badge">Awarded</span>'
+                                    : '—';
+
+                                const rowClass = s.isAwardedOnThisPr ? 'compare-row-awarded' : '';
+
+                                return `
+
+                                <tr class="${rowClass}">
 
                                     <td>${esc(s.supplierCode)} — ${esc(s.supplierName)}</td>
 
                                     <td>${esc(s.status || '-')}</td>
 
-                                    <td>${Number(s.lineCount || 0)}</td>
+                                    <td>${esc(linesCell)}</td>
 
                                     <td class="${s.bidId === cheapestBidId ? 'best-cost' : ''}">${money(s.totalAmount)}</td>
 
                                     <td>${idx === 0 ? '<span class="best-cost">Lowest</span>' : '#' + (idx + 1)}</td>
 
+                                    <td>${thisPrCell}</td>
+
                                 </tr>
 
-                            `).join('')}
+                            `}).join('')}
 
                         </tbody>
 
@@ -979,7 +1040,16 @@
 
                 const newBadge = idx === 0 ? '<span class="new-badge">New</span>' : '';
 
-                const rows = (bid.lines || []).map((line) => `
+                const supplierCode = String(bid.supplierCode || '').trim();
+
+                const isAwarded = !!bid.isAwardedOnThisPr
+                    || (!!awardedOnPr && supplierCode.toUpperCase() === awardedOnPr);
+
+                const awardedBadge = isAwarded ? ' <span class="awarded-badge">Awarded on this PR</span>' : '';
+
+                const onPrLines = Array.isArray(bid.lines) ? bid.lines : [];
+
+                const rows = onPrLines.map((line) => `
 
                     <tr>
 
@@ -1013,21 +1083,31 @@
 
                 `).join('');
 
+                const emptyLinesMsg = isSplitChild
+                    ? 'No lines on this PR — see full RFQ totals in comparison'
+                    : 'No lines';
+
+                const rfqTotalNote = isSplitChild && bid.comparisonTotalAmount != null
+                    ? `<div class="muted">RFQ total for this supplier: ${money(Number(bid.comparisonTotalAmount || 0))} (${Number(bid.comparisonLineCount || 0)} line(s))</div>`
+                    : '';
+
 
 
                 return `
 
-                    <div class="bid-card">
+                    <div class="bid-card${isAwarded ? ' bid-card-awarded' : ''}">
 
                         <div class="toolbar">
 
-                            <strong>${esc(bid.supplierCode)} — ${esc(supplierCompanyLabel(bid.supplierCode, bid.supplierDisplayName || bid.supplierName))}${newBadge}</strong>
+                            <strong>${esc(bid.supplierCode)} — ${esc(supplierCompanyLabel(bid.supplierCode, bid.supplierDisplayName || bid.supplierName))}${newBadge}${awardedBadge}</strong>
 
                             <span class="status ${status}">${status || '-'}</span>
 
                         </div>
 
                         <div class="muted">Submitted by ${esc(bid.createdBy || '-')} | ${esc(bid.createdAt || '')}</div>
+
+                        ${rfqTotalNote}
 
                         <table class="bid-lines-table">
 
@@ -1042,7 +1122,7 @@
 
                             <thead><tr><th>Pick</th><th>Item</th><th>Qty</th><th>Unit Price</th><th>Amount</th><th>Lead</th></tr></thead>
 
-                            <tbody>${rows || '<tr><td colspan="6" class="muted">No lines</td></tr>'}</tbody>
+                            <tbody>${rows || `<tr><td colspan="6" class="muted">${emptyLinesMsg}</td></tr>`}</tbody>
 
                         </table>
 

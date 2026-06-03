@@ -143,7 +143,7 @@
 
 
     <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260604_tabs_size">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr67_load_more_footer_scroll">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr68_stable_split_height">
 
 
 
@@ -2577,7 +2577,7 @@
 
 
 
-                                                <button type="button" class="view-pr-refresh-btn view-pr-load-more-btn" id="view-pr-load-more-btn" onclick="loadMoreViewPurchaseRequests()">… more (+5)</button>
+                                                <button type="button" class="view-pr-refresh-btn view-pr-load-more-btn" id="view-pr-load-more-btn" onclick="loadMoreViewPurchaseRequests()">… more (+15)</button>
 
 
 
@@ -6965,7 +6965,7 @@
 
 
 
-        const VIEW_PR_LIST_PAGE_SIZE = 5;
+        const VIEW_PR_LIST_PAGE_SIZE = 15;
 
 
 
@@ -6977,7 +6977,7 @@
 
 
 
-        const VIEW_PR_LIST_CACHE_KEY = 'procurementViewPrFirstPageV2_page5';
+        const VIEW_PR_LIST_CACHE_KEY = 'procurementViewPrFirstPageV3_page15';
 
 
 
@@ -21590,6 +21590,32 @@
 
 
 
+        function getViewPrEmptyListMessage() {
+            const searchText = String(viewPrSearchText || '').trim();
+            const filters = viewStatusFilters instanceof Set ? viewStatusFilters : new Set(['PENDING']);
+            const active = VIEW_STATUS_FILTER_OPTIONS.filter((s) => filters.has(s));
+            if (active.length === 1) {
+                const label = VIEW_PR_TAB_LABELS[active[0]] || active[0];
+                let msg = `No purchase requests under "${label}"`;
+                if (searchText) {
+                    msg += ` matching "${searchText}"`;
+                }
+                return `${msg}.`;
+            }
+            if (active.length > 1) {
+                const quoted = active.map((s) => `"${VIEW_PR_TAB_LABELS[s] || s}"`).join(', ');
+                let msg = `No purchase requests under ${quoted}`;
+                if (searchText) {
+                    msg += ` matching "${searchText}"`;
+                }
+                return `${msg}.`;
+            }
+            if (searchText) {
+                return `No purchase requests matching "${searchText}".`;
+            }
+            return 'No purchase requests.';
+        }
+
         function renderViewPurchaseRequests(rows) {
 
 
@@ -21710,7 +21736,7 @@
 
 
 
-                    '<div class="view-pr-empty pr-view-empty--cards">No purchase requests match the current filters or search.</div>'
+                    `<div class="view-pr-empty pr-view-empty--cards">${escapeHtml(getViewPrEmptyListMessage())}</div>`
 
 
 
