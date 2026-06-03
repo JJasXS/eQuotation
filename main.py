@@ -5458,6 +5458,25 @@ def api_admin_next_purchase_request_number():
         return jsonify({'success': False, 'error': str(exc)}), 500
 
 
+def _sql_api_pr_requester_id(row: dict) -> str:
+    """Purchaser / staff code on the PR header — not the invited supplier list."""
+    if not isinstance(row, dict):
+        return ''
+    for key in (
+        'requesterid', 'requesterId', 'requester', 'REQUESTERID', 'REQUESTER',
+        'createdby', 'CREATEDBY', 'purchaser', 'PURCHASER',
+    ):
+        val = str(row.get(key) or '').strip()
+        if val and val not in ('----', '-'):
+            return val
+    code = str(row.get('code') or '').strip()
+    company = str(row.get('companyname') or '').strip()
+    # Multi-supplier RFQ: header often has purchaser in CODE with no company name.
+    if code and not company:
+        return code
+    return ''
+
+
 @app.route('/api/admin/procurement/purchase-requests', methods=['GET'])
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_list_purchase_requests():
@@ -5687,7 +5706,7 @@ def api_admin_list_purchase_requests():
                 'requestNumber': str(row.get('docno') or '').strip(),
                 'requestDate': row.get('docdate'),
                 'requiredDate': row.get('postdate'),
-                'requesterId': str(row.get('code') or row.get('companyname') or '').strip(),
+                'requesterId': _sql_api_pr_requester_id(row),
                 'departmentId': str(row.get('businessunit') or row.get('area') or '').strip(),
                 'costCenter': str(row.get('businessunit') or '').strip(),
                 'project': str(row.get('project') or '').strip() or '----',

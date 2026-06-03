@@ -19041,7 +19041,14 @@
 
 
 
-            const requesterDisplay = String(header.requesterId || header.requester || '').trim() || '-';
+            const supplierCodeList = suppliers
+                .map((s) => String(s.code || s.supplierCode || s.supplierId || '').trim())
+                .filter(Boolean);
+            const requesterDisplay = supplierCodeList.length
+                ? supplierCodeList.join(', ')
+                : (String(header._requesterSupplierCodes || header.supplierId || '').trim()
+                    || String(header.requesterId || header.requester || '').trim()
+                    || '-');
 
 
 
@@ -19188,13 +19195,6 @@
 
 
 
-                const email = String(supplier.email || supplier.udf_email || '').trim();
-
-
-
-
-
-
 
 
 
@@ -19260,7 +19260,6 @@
 
 
 
-                        ${email ? `<em>${escapeHtml(email)}</em>` : ''}
 
 
 
@@ -23564,28 +23563,20 @@
 
 
 
+                const supplierCodes = record._suppliers
+                    .map((s) => String(s.code || s.supplierCode || s.supplierId || '').trim())
+                    .filter(Boolean);
+                if (supplierCodes.length) {
+                    record._requesterSupplierCodes = supplierCodes.join(', ');
+                }
+
                 if (supplierNames.length) {
 
 
 
 
 
-
-
-
-
-
-
                     record.supplierName = supplierNames.join(', ');
-
-
-
-
-
-
-
-
-
 
 
                 }
