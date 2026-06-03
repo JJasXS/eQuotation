@@ -36,6 +36,30 @@ def _coerce_bool(value: Any) -> bool:
     return text in {"true", "1", "t", "y", "yes"}
 
 
+def _detail_is_transferable(source: dict[str, Any], *, override: bool | None = None) -> bool:
+    """Line may transfer when TRANSFERABLE is true (UI approval checkbox syncs this column)."""
+    if override is True:
+        return True
+    if override is False:
+        return False
+    return _coerce_bool(source.get("transferable")) or _coerce_bool(source.get("TRANSFERABLE"))
+
+
+def _transferable_override_map(transfer_lines: list[dict[str, Any]]) -> dict[int, bool]:
+    """Optional per-line transferable flags from the View PR transfer payload."""
+    out: dict[int, bool] = {}
+    for line in transfer_lines:
+        if not isinstance(line, dict) or "transferable" not in line:
+            continue
+        raw_detail_id = line.get("fromdtlkey", line.get("dtlkey", line.get("detailId")))
+        try:
+            detail_id = int(raw_detail_id)
+        except Exception:
+            continue
+        out[detail_id] = _coerce_bool(line.get("transferable"))
+    return out
+
+
 def _normalize_udf_status(value: Any) -> str:
     text = _clean_text(value).upper()
     if text == "ACTIVE":
@@ -250,6 +274,8 @@ def transfer_purchase_request_to_po(
             continue
         detail_map[detail_id] = row
 
+    transferable_overrides = _transferable_override_map(transfer_lines)
+
     normalized_transfers: list[dict[str, Any]] = []
     requested_detail_ids: list[int] = []
     for line in transfer_lines:
@@ -311,14 +337,14 @@ def transfer_purchase_request_to_po(
 
         detail_inserts: list[dict[str, Any]] = []
         for line_index, line in enumerate(normalized_transfers, start=1):
-            source = detail_map[line["detailId"]]
-            if not _coerce_bool(source.get("udf_pqapproved")):
+            detail_id = line["detailId"]
+            source = detail_map[detail_id]
+            if not _detail_is_transferable(
+                source,
+                override=transferable_overrides.get(detail_id),
+            ):
                 raise PurchaseOrderTransferValidationError(
-                    f"purchase request detail {line['detailId']} is not approved"
-                )
-            if not _coerce_bool(source.get("transferable", True)):
-                raise PurchaseOrderTransferValidationError(
-                    f"purchase request detail {line['detailId']} is not transferable"
+                    f"purchase request detail {detail_id} is not transferable"
                 )
 
             source_qty = _money(_as_decimal(source.get("qty"), "0"))

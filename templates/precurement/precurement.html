@@ -2213,276 +2213,21 @@
 
 
 
-                                <div class="quotation-page-header pr-view-page-header">
-
-
-
-
-
-
-
-
-
-
-
-                                    <div class="quotation-page-header-controls pr-view-header-row pr-view-header-row--modern">
-
-
-
-
-
-
-
-
-
-
-
-                                        <div class="pr-view-header-intro">
-
-
-
-
-
-
-
-
-
-
-
-                                            <h2 class="pr-view-page-title">Purchase Requests</h2>
-
-
-
-
-
-
-
-
-
-
-
-                                            <p class="pr-view-page-subtitle">Review and manage e-PR documents before transfer.</p>
-
-
-
-
-
-
-
-
-
-
-
+                                <div class="quotation-page-header pr-view-page-header pr-view-page-header--compact">
+                                    <div class="pr-view-toolbar">
+                                        <h2 class="pr-view-page-title">Purchase Requests</h2>
+                                        <nav class="eq-line-tabs pr-view-filter-tabs" id="view-pr-filter-tabs" role="tablist" aria-label="Filter by approval status">
+                                            <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="DRAFT" aria-selected="false" onclick="toggleViewStatusFilter('DRAFT')">Draft</button>
+                                            <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="APPROVED" aria-selected="false" onclick="toggleViewStatusFilter('APPROVED')">Approved</button>
+                                            <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab is-active" data-status="PENDING" aria-selected="true" onclick="toggleViewStatusFilter('PENDING')">Pending</button>
+                                            <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="CANCELLED" aria-selected="false" onclick="toggleViewStatusFilter('CANCELLED')">Cancelled</button>
+                                        </nav>
+                                        <div class="pr-view-toolbar-actions view-pr-actions-right view-pr-actions-right--toolbar">
+                                            <button type="button" class="view-pr-refresh-btn view-pr-refresh-btn--ghost" onclick="loadViewPurchaseRequests(true)">Refresh</button>
+                                            <button type="button" class="view-pr-refresh-btn view-pr-update-availability-btn" hidden aria-hidden="true" id="view-pr-update-btn" onclick="saveViewDetailApprovals()" disabled title="Check and update item availability before transferring this PR.">Update</button>
                                         </div>
-
-
-
-
-
-
-
-
-
-
-
-                                        <div class="view-pr-actions">
-
-
-
-
-
-
-
-
-
-
-
-                                            <div class="view-pr-actions-right view-pr-actions-right--toolbar">
-
-
-
-
-
-
-
-
-
-
-
-                                                <button type="button" class="view-pr-refresh-btn" onclick="loadViewPurchaseRequests(true)">Refresh</button>
-
-
-
-
-
-
-
-
-
-
-
-                                                <button
-
-
-
-
-
-
-
-
-
-
-
-                                                    type="button"
-
-
-
-
-
-
-
-
-
-
-
-                                                    class="view-pr-refresh-btn view-pr-update-availability-btn"
-                                                    hidden
-                                                    aria-hidden="true"
-
-
-
-
-
-
-
-
-
-
-
-                                                    id="view-pr-update-btn"
-
-
-
-
-
-
-
-
-
-
-
-                                                    onclick="saveViewDetailApprovals()"
-
-
-
-
-
-
-
-
-
-
-
-                                                    disabled
-
-
-
-
-
-
-
-
-
-
-
-                                                    title="Check and update item availability before transferring this PR."
-
-
-
-
-
-
-
-
-
-
-
-                                                >Update Item Availability</button>
-
-
-
-
-
-
-
-
-
-
-
-                                            </div>
-
-
-
-
-
-
-
-
-
-
-
-                                        </div>
-
-
-
-
-
-
-
-
-
-
-
                                     </div>
-
-
-
-
-
-
-
-
-
-
-
                                     <p id="view-pr-list-perf" class="view-pr-list-perf view-pr-list-perf--inline" aria-live="polite" hidden></p>
-
-
-
-
-
-
-
-
-
-
-
-                                    <nav class="eq-line-tabs pr-view-filter-tabs" id="view-pr-filter-tabs" role="tablist" aria-label="Filter by approval status">
-                                        <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="DRAFT" aria-selected="false" onclick="toggleViewStatusFilter('DRAFT')">Draft</button>
-                                        <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="APPROVED" aria-selected="false" onclick="toggleViewStatusFilter('APPROVED')">Approved</button>
-                                        <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab is-active" data-status="PENDING" aria-selected="true" onclick="toggleViewStatusFilter('PENDING')">Pending</button>
-                                        <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="CANCELLED" aria-selected="false" onclick="toggleViewStatusFilter('CANCELLED')">Cancelled</button>
-                                    </nav>
-
-
-
-
-
-
-
-
-
-
 
                                     <div id="view-pr-bulk-pending-bar" class="view-pr-bulk-pending-bar" hidden style="display:none !important;">
 
@@ -16117,7 +15862,7 @@
 
 
 
-                return 'Only rows with UDF_PQAPPROVED = true can be transferred.';
+                return 'Only rows marked transferable (approved) can be transferred.';
 
 
 

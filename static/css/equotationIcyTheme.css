@@ -918,7 +918,28 @@ body.equotation-icy-theme.procurement-warm-ui .view-pr-status.cancelled {
 body.equotation-icy-theme.procurement-warm-ui .pr-panel-view-quotation-like .quotation-page-header {
     background: linear-gradient(180deg, var(--ice-surface) 0%, var(--ice-surface-alt) 100%) !important;
     border-color: var(--ice-border) !important;
-    box-shadow: 0 1px 8px var(--ice-shadow) !important;
+    box-shadow: none !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-page-header--compact .pr-view-page-title {
+    color: var(--ice-heading) !important;
+    font-size: 0.95rem !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-page-header--compact .pr-view-filter-tabs.eq-line-tabs {
+    background: transparent !important;
+    border-bottom-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-page-header--compact .view-pr-refresh-btn--ghost {
+    border-color: var(--ice-border-soft) !important;
+    background: transparent !important;
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-page-header--compact .view-pr-refresh-btn--ghost:hover {
+    background: var(--ice-accent-soft) !important;
+    border-color: var(--ice-border) !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui .pr-panel-view-quotation-like .pr-view-page-title {

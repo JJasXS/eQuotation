@@ -76,9 +76,19 @@ body.procurement-warm-ui #panel-view .pr-view-filter-tabs.eq-line-tabs {
     background: var(--ice-surface-alt, #eef6fc);
 }
 
+body.procurement-warm-ui #panel-view .pr-view-page-header--compact .pr-view-filter-tabs.eq-line-tabs {
+    padding: 0 4px;
+    background: transparent;
+}
+
 body.procurement-warm-ui #panel-view .pr-view-filter-tabs .eq-line-tab {
     font-size: 12px;
     padding: 8px 14px;
+}
+
+body.procurement-warm-ui #panel-view .pr-view-page-header--compact .pr-view-filter-tabs .eq-line-tab {
+    font-size: 11px;
+    padding: 6px 10px;
 }
 
 /* Supplier bidding invitation filters */
