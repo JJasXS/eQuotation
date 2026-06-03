@@ -1,0 +1,77 @@
+/**
+ * Line tabs (tab bar / underline tabs) — horizontal nav with a bottom indicator on the active tab.
+ * Used for module switching and in-page filters (e.g. invitation status, PR approval status).
+ */
+.eq-line-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 0;
+    margin: 0 0 12px;
+    padding: 0 4px;
+    border-bottom: 1px solid var(--ice-border, #b8d4e8);
+    background: var(--ice-surface, #f7fbff);
+    list-style: none;
+}
+
+.eq-line-tab {
+    position: relative;
+    flex: 0 1 auto;
+    margin: 0;
+    padding: 10px 16px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 6px 6px 0 0;
+    background: transparent;
+    color: var(--ice-text-muted, #5a7a94);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.25;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+    transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.eq-line-tab:hover {
+    color: var(--ice-heading, #1a4d6e);
+    background: var(--ice-accent-soft, #e8f4fc);
+}
+
+.eq-line-tab:focus-visible {
+    outline: 2px solid var(--ice-accent, #3b8fc4);
+    outline-offset: 2px;
+}
+
+.eq-line-tab.is-active {
+    color: var(--ice-accent, #2563eb);
+    font-weight: 600;
+    background: #ede9fe;
+    border-bottom-color: var(--ice-accent, #3b8fc4);
+}
+
+/* Procurement warm theme */
+body.procurement-warm-ui .eq-line-tabs {
+    border-bottom-color: #dccfb8;
+    background: #faf6ee;
+}
+
+body.procurement-warm-ui .eq-line-tab {
+    color: #6b5a45;
+}
+
+body.procurement-warm-ui .eq-line-tab:hover {
+    color: #2a241b;
+    background: #fff8ec;
+}
+
+body.procurement-warm-ui .eq-line-tab.is-active {
+    color: #1a4a6b;
+    background: #e3eef8;
+    border-bottom-color: #4b6e9e;
+}
+
+.procurement-module-tabs {
+    margin-top: 4px;
+    margin-bottom: 16px;
+}

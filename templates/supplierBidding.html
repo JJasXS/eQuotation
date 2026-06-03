@@ -7,7 +7,8 @@
     <link rel="stylesheet" href="/static/css/hamburger_menu.css?v=20260515_sidebar">
     <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
     <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515_icy">
-    <link rel="stylesheet" href="/static/css/supplierBidding.css?v=20260515_bid_lines">
+    <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260603">
+    <link rel="stylesheet" href="/static/css/supplierBidding.css?v=20260603_col_narrow">
 </head>
 <body class="equotation-icy-theme supplier-bidding-page">
     <div class="container" style="min-height: 100vh;">
@@ -29,27 +30,28 @@
                         <div class="supplier-bidding-list-head">
                             <h2>My invitations</h2>
                             <p class="sb-muted">Select a request to view line items and enter your bid on the right.</p>
-                            <div class="sb-filters" id="sb-invite-filters" role="toolbar" aria-label="Filter by invitation status">
-                                <div class="sb-filters__chips">
-                                    <button type="button" class="sb-filter-btn is-active" data-sb-filter="OPEN" title="Open rounds / in progress">Open</button>
-                                    <button type="button" class="sb-filter-btn" data-sb-filter="SUBMITTED" title="Bid submitted, awaiting admin decision">Submitted</button>
-                                    <button type="button" class="sb-filter-btn" data-sb-filter="ACCEPTED" title="Bid approved by admin">Accepted</button>
-                                    <button type="button" class="sb-filter-btn" data-sb-filter="CLOSED" title="Invitation closed (no final bid outcome)">Closed</button>
-                                    <button type="button" class="sb-filter-btn" data-sb-filter="REJECTED" title="Bid not accepted">Rejected</button>
-                                </div>
-                            </div>
+                            <nav class="eq-line-tabs sb-invite-tabs" id="sb-invite-filters" role="tablist" aria-label="Filter by invitation status">
+                                <button type="button" role="tab" class="eq-line-tab is-active" data-sb-filter="OPEN" aria-selected="true" title="Open rounds / in progress">Open</button>
+                                <button type="button" role="tab" class="eq-line-tab" data-sb-filter="SUBMITTED" aria-selected="false" title="Bid submitted, awaiting admin decision">Submitted</button>
+                                <button type="button" role="tab" class="eq-line-tab" data-sb-filter="ACCEPTED" aria-selected="false" title="Bid approved by admin">Accepted</button>
+                                <button type="button" role="tab" class="eq-line-tab" data-sb-filter="CLOSED" aria-selected="false" title="Invitation closed (no final bid outcome)">Closed</button>
+                                <button type="button" role="tab" class="eq-line-tab" data-sb-filter="REJECTED" aria-selected="false" title="Bid not accepted">Rejected</button>
+                            </nav>
                         </div>
                         <div id="invites-list" class="sb-invites-list-scroll">
                             <table class="sb-invites-table" aria-label="Purchase requests">
+                                <colgroup>
+                                    <col class="sb-invites-col sb-invites-col--pr" />
+                                    <col class="sb-invites-col sb-invites-col--date" />
+                                </colgroup>
                                 <thead>
                                     <tr>
-                                        <th scope="col">PR</th>
-                                        <th scope="col">Req. delivery</th>
-                                        <th scope="col">Status</th>
+                                        <th class="sb-invites-th sb-invites-th--pr" scope="col">PR</th>
+                                        <th class="sb-invites-th sb-invites-th--date" scope="col">Req. delivery</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <tr><td colspan="3" class="sb-invites-empty">Loading invitations…</td></tr>
+                                    <tr><td colspan="2" class="sb-invites-empty">Loading invitations…</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -67,7 +69,8 @@
                             </div>
                             <div id="bid-summary-panel" class="bid-summary-panel" hidden></div>
                             <div class="table-wrap">
-                                <table class="bid-lines-table">
+                                <table class="bid-lines-table bid-lines-table--edit" id="bid-lines-table">
+                                    <colgroup id="bid-lines-cols"></colgroup>
                                     <thead id="bid-lines-thead"></thead>
                                     <tbody id="bid-lines-body"></tbody>
                                     <tfoot id="bid-lines-tfoot"></tfoot>
@@ -130,7 +133,7 @@
             const bar = document.getElementById('sb-invite-filters');
             if (bar) {
                 bar.addEventListener('click', (e) => {
-                    const btn = e.target.closest('button.sb-filter-btn');
+                    const btn = e.target.closest('button.eq-line-tab[data-sb-filter]');
                     if (!btn) return;
                     const f = (btn.getAttribute('data-sb-filter') || 'OPEN').toUpperCase();
                     if (f === 'OPEN' || f === 'SUBMITTED' || f === 'ACCEPTED' || f === 'CLOSED' || f === 'REJECTED') {
@@ -144,9 +147,11 @@
             currentInviteFilter = filter;
             const bar = document.getElementById('sb-invite-filters');
             if (bar) {
-                bar.querySelectorAll('button.sb-filter-btn').forEach((b) => {
+                bar.querySelectorAll('button.eq-line-tab[data-sb-filter]').forEach((b) => {
                     const bf = (b.getAttribute('data-sb-filter') || 'OPEN').toUpperCase();
-                    b.classList.toggle('is-active', bf === (filter || 'OPEN').toUpperCase());
+                    const on = bf === (filter || 'OPEN').toUpperCase();
+                    b.classList.toggle('is-active', on);
+                    b.setAttribute('aria-selected', on ? 'true' : 'false');
                 });
             }
             renderInvitations();
@@ -174,7 +179,7 @@
             if (normalized === 'SUBMITTED') return 'status-submitted';
             if (normalized === 'RESPONDED') return 'status-submitted';
             if (normalized === 'AWARDED' || normalized === 'APPROVED' || normalized === 'ACCEPTED' || normalized.startsWith('APPROV')) {
-                return 'status-awarded';
+                return 'status-accepted';
             }
             if (normalized === 'CLOSED') return 'status-closed';
             return 'status-responded';
@@ -275,7 +280,7 @@
             if (!Array.isArray(all) || !all.length) {
                 list.classList.remove('sb-list--loading');
                 list.innerHTML =
-                    '<table class="sb-invites-table" aria-label="Purchase requests"><thead><tr><th scope="col">PR</th><th scope="col">Req. delivery</th><th scope="col">Status</th></tr></thead><tbody><tr><td colspan="3" class="sb-invites-empty">No invitations available.</td></tr></tbody></table>';
+                    '<table class="sb-invites-table" aria-label="Purchase requests"><thead><tr><th scope="col">PR</th><th scope="col">Req. delivery</th></tr></thead><tbody><tr><td colspan="2" class="sb-invites-empty">No invitations available.</td></tr></tbody></table>';
                 return;
             }
             const filterKey = (currentInviteFilter || 'OPEN').toString().toUpperCase();
@@ -283,7 +288,7 @@
             if (!rows.length) {
                 list.classList.remove('sb-list--loading');
                 list.innerHTML =
-                    `<table class="sb-invites-table" aria-label="Purchase requests"><thead><tr><th scope="col">PR</th><th scope="col">Req. delivery</th><th scope="col">Status</th></tr></thead><tbody><tr><td colspan="3" class="sb-invites-empty">No invitations match <strong>${escapeHtml(filterKey)}</strong>. Try another status filter.</td></tr></tbody></table>`;
+                    `<table class="sb-invites-table" aria-label="Purchase requests"><thead><tr><th scope="col">PR</th><th scope="col">Req. delivery</th></tr></thead><tbody><tr><td colspan="2" class="sb-invites-empty">No invitations match <strong>${escapeHtml(filterKey)}</strong>. Try another status filter.</td></tr></tbody></table>`;
                 clearWorkbenchIfHiddenByFilter();
                 return;
             }
@@ -301,11 +306,16 @@
                     const rdoc = Number(row.requestDockey);
                     const sel = activeRid != null && rdoc === activeRid;
                     const prLabel = escapeHtml(row.requestNumber || 'PR-' + row.requestDockey);
+                    const rowTone =
+                        bidStatusLabel === 'ACCEPTED'
+                            ? ' sb-invite-row--accepted'
+                            : bidStatusLabel === 'REJECTED'
+                              ? ' sb-invite-row--rejected'
+                              : '';
                     return `
-                    <tr class="sb-invite-row${sel ? ' is-selected' : ''}" data-request-id="${rdoc}" data-invite-closed="${inviteClosed ? '1' : '0'}" role="button" tabindex="0" onclick="sbOpenInviteRow(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();sbOpenInviteRow(this);}">
+                    <tr class="sb-invite-row${rowTone}${sel ? ' is-selected' : ''}" data-request-id="${rdoc}" data-invite-closed="${inviteClosed ? '1' : '0'}" role="button" tabindex="0" onclick="sbOpenInviteRow(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();sbOpenInviteRow(this);}">
                         <td class="sb-invite-row__pr">${prLabel}</td>
                         <td class="sb-invite-row__date">${escapeHtml(reqDel)}</td>
-                        <td class="sb-invite-row__status"><span class="status-chip ${chipClass(bidStatusLabel)}">${escapeHtml(bidStatusLabel)}</span></td>
                     </tr>`;
                 })
                 .join('');
@@ -314,13 +324,11 @@
                     <colgroup>
                         <col class="sb-invites-col sb-invites-col--pr" />
                         <col class="sb-invites-col sb-invites-col--date" />
-                        <col class="sb-invites-col sb-invites-col--status" />
                     </colgroup>
                     <thead>
                         <tr>
                             <th class="sb-invites-th sb-invites-th--pr" scope="col">PR</th>
                             <th class="sb-invites-th sb-invites-th--date" scope="col">Req. delivery</th>
-                            <th class="sb-invites-th sb-invites-th--status" scope="col">Status</th>
                         </tr>
                     </thead>
                     <tbody>${bodyRows}</tbody>
@@ -332,14 +340,14 @@
             if (!list) return;
             list.classList.add('sb-list--loading');
             list.innerHTML =
-                '<table class="sb-invites-table" aria-label="Purchase requests"><thead><tr><th scope="col">PR</th><th scope="col">Req. delivery</th><th scope="col">Status</th></tr></thead><tbody><tr><td colspan="3" class="sb-invites-empty">Loading invitations…</td></tr></tbody></table>';
+                '<table class="sb-invites-table" aria-label="Purchase requests"><thead><tr><th scope="col">PR</th><th scope="col">Req. delivery</th></tr></thead><tbody><tr><td colspan="2" class="sb-invites-empty">Loading invitations…</td></tr></tbody></table>';
 
             const res = await fetch('/api/procurement/bidding/my-invitations');
             const body = await res.json();
             if (!res.ok || !body.success) {
                 invitationsAllRows = [];
                 list.classList.remove('sb-list--loading');
-                list.innerHTML = `<table class="sb-invites-table" aria-label="Purchase requests"><thead><tr><th scope="col">PR</th><th scope="col">Req. delivery</th><th scope="col">Status</th></tr></thead><tbody><tr><td colspan="3" class="sb-invites-empty sb-invites-empty--error">${escapeHtml(body.error || 'Failed to load invitations')}</td></tr></tbody></table>`;
+                list.innerHTML = `<table class="sb-invites-table" aria-label="Purchase requests"><thead><tr><th scope="col">PR</th><th scope="col">Req. delivery</th></tr></thead><tbody><tr><td colspan="2" class="sb-invites-empty sb-invites-empty--error">${escapeHtml(body.error || 'Failed to load invitations')}</td></tr></tbody></table>`;
                 return;
             }
             invitationsAllRows = body.data || [];
@@ -350,6 +358,37 @@
             const rid = Number(requestId);
             if (!rid || !Array.isArray(invitationsAllRows)) return null;
             return invitationsAllRows.find((r) => Number(r.requestDockey) === rid) || null;
+        }
+
+        function awardedDetailIdSet(body) {
+            const ids = body && Array.isArray(body.awardedDetailIds) ? body.awardedDetailIds : [];
+            return new Set(
+                ids.map((x) => Number(x)).filter((n) => !Number.isNaN(n) && n > 0)
+            );
+        }
+
+        /** Green = admin accepted this line; red = bid line not selected (partial award). */
+        function bidLineDecisionRowClass(body, mb, detailId, hasBidLine) {
+            if (!mb || !hasBidLine) return '';
+            const st = String(mb.status || '').toUpperCase();
+            const awarded = awardedDetailIdSet(body);
+            if (body && body.hasLineAwards) {
+                return awarded.has(detailId)
+                    ? ' bid-line-row--accepted'
+                    : ' bid-line-row--not-accepted';
+            }
+            if (st === 'REJECTED' || st.startsWith('REJECT')) {
+                return ' bid-line-row--not-accepted';
+            }
+            if (
+                st === 'APPROVED'
+                || st === 'AWARDED'
+                || st === 'ACCEPTED'
+                || st.startsWith('APPROV')
+            ) {
+                return ' bid-line-row--accepted';
+            }
+            return '';
         }
 
         function bidLineMap(myBid) {
@@ -424,12 +463,11 @@
 
         function formatReadOnlyBidFields(bl) {
             if (!hasSavedBidLine(bl)) {
-                return { dq: '—', dup: '—', tax: '—', amt: '—', ld: '—', rm: '—' };
+                return { dq: '—', dup: '—', amt: '—', ld: '—', rm: '—' };
             }
             return {
                 dq: Number(bl.quantity != null ? bl.quantity : 0).toFixed(2),
                 dup: Number(bl.unitPrice != null ? bl.unitPrice : 0).toFixed(2),
-                tax: Number(bl.tax != null ? bl.tax : 0).toFixed(2),
                 amt: Number(bl.amount != null ? bl.amount : 0).toFixed(2),
                 ld: String(bl.leadDays != null ? bl.leadDays : 0),
                 rm: escapeHtml(String(bl.remarks || '').trim()) || '—',
@@ -576,6 +614,8 @@
             let readHint = 'Fill in your quote and submit to admin for review.';
             if (readOnly && stUpper === 'REJECTED') {
                 readHint = 'Your full submitted bid is below (read-only). Admin decision note is shown above.';
+            } else if (readOnly && stUpper === 'APPROVED' && body.hasLineAwards) {
+                readHint = 'Green rows were accepted by admin; red rows were not selected.';
             } else if (readOnly && stUpper === 'APPROVED') {
                 readHint = 'Your accepted bid is below (read-only).';
             } else if (readOnly && inviteClosed && !mb) {
@@ -588,29 +628,45 @@
 
             const lineRows = buildSupplierBidLineRows(body.details || [], mb);
 
+            const bidTable = document.getElementById('bid-lines-table');
+            const bidCols = document.getElementById('bid-lines-cols');
             const thead = document.getElementById('bid-lines-thead');
+            if (bidTable) {
+                bidTable.classList.toggle('bid-lines-table--readonly', readOnly);
+                bidTable.classList.toggle('bid-lines-table--edit', !readOnly);
+            }
+            if (bidCols) {
+                if (readOnly) {
+                    bidCols.innerHTML =
+                        '<col class="bid-col bid-col--item" /><col class="bid-col bid-col--date" /><col class="bid-col bid-col--req-qty" /><col class="bid-col bid-col--su-qty" /><col class="bid-col bid-col--bid-qty" /><col class="bid-col bid-col--price" /><col class="bid-col bid-col--amount" /><col class="bid-col bid-col--lead" /><col class="bid-col bid-col--remarks" />';
+                } else {
+                    bidCols.innerHTML =
+                        '<col class="bid-col bid-col--item" /><col class="bid-col bid-col--date" /><col class="bid-col bid-col--req-qty" /><col class="bid-col bid-col--su-qty" /><col class="bid-col bid-col--bid-qty" /><col class="bid-col bid-col--price" /><col class="bid-col bid-col--lead" /><col class="bid-col bid-col--remarks" />';
+                }
+            }
             if (readOnly) {
-                thead.innerHTML = '<tr><th>Item</th><th>Delivery Date</th><th>Requested Qty</th><th>S/U Qty</th><th>Bid Qty</th><th>Bid Unit Price</th><th>Tax</th><th>Amount</th><th>Lead Days</th><th>Remarks</th></tr>';
+                thead.innerHTML = '<tr><th class="bid-th bid-th--item">Item</th><th class="bid-th bid-th--date">Delivery Date</th><th class="bid-th bid-th--qty">Requested Qty</th><th class="bid-th bid-th--qty">S/U Qty</th><th class="bid-th bid-th--qty">Bid Qty</th><th class="bid-th bid-th--price">Bid Unit Price</th><th class="bid-th bid-th--amount">Amount</th><th class="bid-th bid-th--lead">Lead Days</th><th class="bid-th bid-th--remarks">Remarks</th></tr>';
             } else {
-                thead.innerHTML = '<tr><th>Item</th><th>Delivery Date</th><th>Requested Qty</th><th>S/U Qty</th><th>Bid Qty</th><th>Bid Unit Price</th><th>Lead Days</th><th>Remarks</th></tr>';
+                thead.innerHTML = '<tr><th class="bid-th bid-th--item">Item</th><th class="bid-th bid-th--date">Delivery Date</th><th class="bid-th bid-th--qty">Requested Qty</th><th class="bid-th bid-th--qty">S/U Qty</th><th class="bid-th bid-th--qty">Bid Qty</th><th class="bid-th bid-th--price">Bid Unit Price</th><th class="bid-th bid-th--lead">Lead Days</th><th class="bid-th bid-th--remarks">Remarks</th></tr>';
             }
 
             const rows = lineRows.map(({ pr: line, bl }) => {
                 const lid = Number(line.id);
                 const blRow = bl || {};
+                const hasBidLine = hasSavedBidLine(bl);
+                const rowTone = readOnly ? bidLineDecisionRowClass(body, mb, lid, hasBidLine) : '';
                 const suomDisp = Number(line.suomQty != null ? line.suomQty : line.suomqty || 0).toFixed(2);
 
                 if (readOnly) {
                     const bid = formatReadOnlyBidFields(bl);
                     return `
-                        <tr data-detail-id="${lid}">
+                        <tr class="bid-line-row${rowTone}" data-detail-id="${lid}">
                             <td>${escapeHtml(line.itemCode)} - ${escapeHtml(line.itemName || line.description)}</td>
                             <td class="bid-readonly-cell">${escapeHtml(formatDateText(line.deliveryDate))}</td>
                             <td class="bid-readonly-cell">${line.quantity != null ? Number(line.quantity || 0).toFixed(2) : '—'}</td>
                             <td class="bid-readonly-cell">${suomDisp}</td>
                             <td class="bid-readonly-cell">${bid.dq}</td>
                             <td class="bid-readonly-cell">${bid.dup}</td>
-                            <td class="bid-readonly-cell">${bid.tax}</td>
                             <td class="bid-readonly-cell">${bid.amt}</td>
                             <td class="bid-readonly-cell">${bid.ld}</td>
                             <td class="bid-readonly-cell">${bid.rm}</td>
@@ -621,8 +677,6 @@
                 const dup = (blRow.unitPrice != null && blRow.unitPrice !== '')
                     ? Number(blRow.unitPrice).toFixed(2)
                     : Number(0).toFixed(2);
-                const tax = Number(blRow.tax != null ? blRow.tax : 0).toFixed(2);
-                const amt = Number(blRow.amount != null ? blRow.amount : 0).toFixed(2);
                 const ld = Number(blRow.leadDays != null ? blRow.leadDays : 0);
                 const rm = String(blRow.remarks || '').trim();
 
@@ -643,7 +697,7 @@
                     </tr>`;
             }).join('');
 
-            const colEmpty = readOnly ? 10 : 8;
+            const colEmpty = readOnly ? 9 : 8;
             const emptyMsg =
                 mb && Array.isArray(mb.lines) && mb.lines.length
                     ? 'Purchase request lines could not be loaded; bid line data may be incomplete.'

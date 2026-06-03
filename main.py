@@ -64,6 +64,7 @@ from utils.procurement_bidding import (
     _normalize_supplier_rows,
     approve_bid,
     create_bid_invitations,
+    get_line_awards_for_request,
     get_supplier_bid_snapshot,
     get_transfer_gate_state,
     list_bids_for_request,
@@ -6806,8 +6807,25 @@ def api_supplier_bidding_request_details():
         required_for_pr = pq_meta.get('requiredDeliveryDate') or api_required or header_delivery_fallback
 
         my_bid = None
+        has_line_awards = False
+        awarded_detail_ids: list[int] = []
         if request_dockey_int:
             my_bid = get_supplier_bid_snapshot(request_dockey_int, supplier_session_code)
+            line_awards = get_line_awards_for_request(request_dockey_int)
+            has_line_awards = bool(line_awards)
+            supplier_upper = supplier_session_code.upper()
+            for award in line_awards:
+                if not isinstance(award, dict):
+                    continue
+                if str(award.get('supplierCode') or '').strip().upper() != supplier_upper:
+                    continue
+                try:
+                    detail_id = int(award.get('detailId') or 0)
+                except Exception:
+                    continue
+                if detail_id > 0:
+                    awarded_detail_ids.append(detail_id)
+            awarded_detail_ids = sorted(set(awarded_detail_ids))
 
         return jsonify({
             'success': True,
@@ -6819,6 +6837,8 @@ def api_supplier_bidding_request_details():
             'requiredDeliveryDate': required_for_pr,
             'documentDate': pq_meta.get('documentDate'),
             'myBid': my_bid,
+            'hasLineAwards': has_line_awards,
+            'awardedDetailIds': awarded_detail_ids,
         })
     except requests.exceptions.Timeout:
         return jsonify({'success': False, 'error': 'Purchase request lookup timed out'}), 504

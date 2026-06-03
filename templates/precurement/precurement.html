@@ -142,6 +142,7 @@
 
 
 
+    <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260603">
     <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr67_load_more_footer_scroll">
 
 
@@ -359,6 +360,12 @@
 
 
             {% include 'components/app_page_header.html' %}
+
+            <nav class="eq-line-tabs procurement-module-tabs" role="tablist" aria-label="Purchase modules">
+                <button type="button" role="tab" id="tab-report" class="eq-line-tab" data-tab="report" aria-selected="false" onclick="showTab('report')">Dashboard</button>
+                <button type="button" role="tab" id="tab-view" class="eq-line-tab" data-tab="view" aria-selected="false" onclick="showTab('view')">View e-PR</button>
+                <button type="button" role="tab" id="tab-create" class="eq-line-tab" data-tab="create" aria-selected="false" onclick="showTab('create')">Create e-PR</button>
+            </nav>
 
 
 
@@ -2460,67 +2467,12 @@
 
 
 
-                                    <div class="approvals-tabs quotation-page-header-tabs pr-view-filter-tabs" id="view-pr-filter-tabs" role="group" aria-label="Filter by approval status">
-
-
-
-
-
-
-
-
-
-
-
-                                        <button type="button" class="approval-tab view-pr-filter-tab" data-status="DRAFT" onclick="toggleViewStatusFilter('DRAFT')">Draft</button>
-
-
-
-
-
-
-
-
-
-
-
-                                        <button type="button" class="approval-tab view-pr-filter-tab" data-status="APPROVED" onclick="toggleViewStatusFilter('APPROVED')">Approved</button>
-
-
-
-
-
-
-
-
-
-
-
-                                        <button type="button" class="approval-tab view-pr-filter-tab is-active" data-status="PENDING" onclick="toggleViewStatusFilter('PENDING')">Pending</button>
-
-
-
-
-
-
-
-
-
-
-
-                                        <button type="button" class="approval-tab view-pr-filter-tab" data-status="CANCELLED" onclick="toggleViewStatusFilter('CANCELLED')">Cancelled</button>
-
-
-
-
-
-
-
-
-
-
-
-                                    </div>
+                                    <nav class="eq-line-tabs pr-view-filter-tabs" id="view-pr-filter-tabs" role="tablist" aria-label="Filter by approval status">
+                                        <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="DRAFT" aria-selected="false" onclick="toggleViewStatusFilter('DRAFT')">Draft</button>
+                                        <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="APPROVED" aria-selected="false" onclick="toggleViewStatusFilter('APPROVED')">Approved</button>
+                                        <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab is-active" data-status="PENDING" aria-selected="true" onclick="toggleViewStatusFilter('PENDING')">Pending</button>
+                                        <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="CANCELLED" aria-selected="false" onclick="toggleViewStatusFilter('CANCELLED')">Cancelled</button>
+                                    </nav>
 
 
 
@@ -7977,7 +7929,8 @@
 
 
 
-                    tabButton.classList.toggle('active', name === selected);
+                    tabButton.classList.toggle('is-active', name === selected);
+                    tabButton.setAttribute('aria-selected', name === selected ? 'true' : 'false');
 
 
 
@@ -13645,6 +13598,7 @@
 
 
                 tab.classList.toggle('is-active', on);
+                tab.setAttribute('aria-selected', on ? 'true' : 'false');
 
 
 

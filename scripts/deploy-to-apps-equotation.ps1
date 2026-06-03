@@ -18,7 +18,10 @@ $files = @(
     'utils\procurement_purchase_request.py',
     'utils\stock_items_catalog.py',
     'templates\precurement\precurement.html',
-    'static\css\precurement.css'
+    'templates\supplierBidding.html',
+    'static\css\eq-line-tabs.css',
+    'static\css\precurement.css',
+    'static\css\supplierBidding.css'
 )
 
 foreach ($rel in $files) {
