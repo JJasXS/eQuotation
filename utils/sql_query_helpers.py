@@ -143,11 +143,12 @@ def get_st_item_udf_stdprice(cur: Any, item_code: str) -> float | None:
 
 
 def get_st_item_quotation_display_fields(cur: Any, item_code: str) -> dict[str, str]:
-    """ST_ITEM UDF_MOQ, UDF_DLEADTIME, UDF_BUNDLE for create-quotation line (read-only); missing columns yield empty."""
-    out: dict[str, str] = {"udfMoq": "", "udfDleadtime": "", "udfBundle": ""}
+    """All ST_ITEM ``UDF_*`` columns for quotation lines (camelCase keys for the UI)."""
+    from utils.stock_items_catalog import _udf_camel_case
+
     code = _clean_str(item_code)
     if not code:
-        return out
+        return {}
     cur.execute(
         """
         SELECT TRIM(RF.RDB$FIELD_NAME)
@@ -155,31 +156,27 @@ def get_st_item_quotation_display_fields(cur: Any, item_code: str) -> dict[str, 
         WHERE RF.RDB$RELATION_NAME = 'ST_ITEM'
         """
     )
-    existing = {_clean_str(row[0]).upper() for row in (cur.fetchall() or []) if row and row[0]}
-    col_map = [
-        ("UDF_MOQ", "udfMoq"),
-        ("UDF_DLEADTIME", "udfDleadtime"),
-        ("UDF_BUNDLE", "udfBundle"),
-        ("UDF_THICKNESS", "udfThickness"),
-        ("UDF_WIDTH", "udfWidth"),
-        ("UDF_LENGTH", "udfLength"),
-    ]
-    selected = [(c, key) for c, key in col_map if c.upper() in existing]
-    if not selected:
-        return out
-    sql_cols = ", ".join(c for c, _ in selected)
+    existing = sorted(
+        {_clean_str(row[0]).upper() for row in (cur.fetchall() or []) if row and row[0]}
+    )
+    udf_cols = [c for c in existing if c.startswith("UDF_")]
+    if not udf_cols:
+        return {}
+    sql_cols = ", ".join(udf_cols)
     cur.execute(f"SELECT {sql_cols} FROM ST_ITEM WHERE CODE = ?", (code,))
     row = cur.fetchone()
     if not row:
-        return out
-    for idx, (_, key) in enumerate(selected):
+        return {}
+    out: dict[str, str] = {}
+    for idx, col in enumerate(udf_cols):
         val = row[idx]
+        js_key = _udf_camel_case(col)
         if val is None:
-            out[key] = ""
+            out[js_key] = ""
         elif isinstance(val, str):
-            out[key] = val.strip()
+            out[js_key] = val.strip()
         else:
-            out[key] = str(val).strip()
+            out[js_key] = str(val).strip()
     return out
 
 

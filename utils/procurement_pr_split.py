@@ -142,11 +142,15 @@ def _allocate_unique_request_number(
 
 
 def _supplier_name_for_code(bid_map: dict[int, dict[str, Any]], supplier_code: str) -> str:
+    from utils.sql_api_supplier import resolve_supplier_company_name
+
     code = _clean_text(supplier_code)
+    stored = ""
     for bid in bid_map.values():
         if _clean_text(bid.get("supplierCode")) == code:
-            return _clean_text(bid.get("supplierName")) or code
-    return code
+            stored = _clean_text(bid.get("supplierName"))
+            break
+    return resolve_supplier_company_name(code, stored)
 
 
 def apply_ph_pq_supplier_header(
@@ -159,18 +163,21 @@ def apply_ph_pq_supplier_header(
 ) -> None:
     """Set awarded supplier master on PH_PQ (same transaction as split)."""
     from utils.procurement_pr_sql_api import ph_pq_header_updates_from_sql_supplier
-    from utils.sql_api_supplier import fetch_supplier_row_by_code
+    from utils.sql_api_supplier import fetch_supplier_row_by_code, looks_like_email, resolve_supplier_company_name
 
     code = _clean_text(supplier_code)
     if not code:
         return
 
     sql_row = fetch_supplier_row_by_code(code)
+    resolved_name = resolve_supplier_company_name(code, supplier_name)
     if sql_row:
         updates = ph_pq_header_updates_from_sql_supplier(sql_row)
-        name = _clean_text(updates.get("COMPANYNAME")) or supplier_name or code
+        name = _clean_text(updates.get("COMPANYNAME")) or resolved_name
+        if looks_like_email(name):
+            name = resolved_name
     else:
-        name = _clean_text(supplier_name) or code
+        name = resolved_name
         updates = {
             "CODE": code,
             "COMPANYNAME": name,
@@ -497,11 +504,7 @@ def split_purchase_request_for_mixed_awards(
         detail_ids = groups.get(supplier_code) or []
         if not detail_ids:
             continue
-        supplier_name = ""
-        for _bid in bid_map.values():
-            if _clean_text(_bid.get("supplierCode")) == supplier_code:
-                supplier_name = _clean_text(_bid.get("supplierName"))
-                break
+        supplier_name = _supplier_name_for_code(bid_map, supplier_code)
 
         new_docno = _allocate_unique_request_number(
             cur, header_cols, split_from_docno=split_from_docno
@@ -523,6 +526,7 @@ def split_purchase_request_for_mixed_awards(
             detail_ids=detail_ids,
         )
         _recalc_header_amounts(cur, new_dockey, header_cols)
+        apply_ph_pq_supplier_header(cur, new_dockey, supplier_code, supplier_name, actor=actor)
         created.append(
             {
                 "dockey": new_dockey,
@@ -563,6 +567,7 @@ def sync_split_prs_to_sql_api(split_result: dict[str, Any], *, actor: str = "adm
         post_purchaserequest_sql_api,
         put_purchaserequest_lines_and_supplier_sql_api,
     )
+    from utils.sql_api_supplier import resolve_supplier_company_name
 
     if not split_result.get("split"):
         return {"skipped": True}
@@ -642,7 +647,10 @@ def sync_split_prs_to_sql_api(split_result: dict[str, Any], *, actor: str = "adm
                     "description": _clean_text(src.get("DESCRIPTION")),
                     "status": "SUBMITTED",
                     "supplierId": child_code,
-                    "supplierName": _clean_text(child.get("supplierName")) or child_code,
+                    "supplierName": resolve_supplier_company_name(
+                        child_code,
+                        _clean_text(child.get("supplierName")),
+                    ),
                     "lineItems": line_items,
                     "totalAmount": sum(float(i.get("amount") or 0) for i in line_items),
                 },

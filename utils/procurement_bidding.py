@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -20,6 +20,30 @@ def _connect_db():
 
 def _utc_now() -> datetime:
     return datetime.utcnow().replace(microsecond=0)
+
+
+def format_display_date(value: Any) -> str | None:
+    """Format a date/timestamp for supplier UI (DD-MM-YYYY)."""
+    import re
+
+    if value is None:
+        return None
+    if isinstance(value, (datetime, date)):
+        return value.strftime("%d-%m-%Y")
+    raw = _clean_text(str(value))
+    if not raw:
+        return None
+    head = raw.split("T")[0].split(" ")[0].strip()
+    iso = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", head)
+    if iso:
+        return f"{iso.group(3)}-{iso.group(2)}-{iso.group(1)}"
+    dmy = re.match(r"^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$", head)
+    if dmy:
+        return f"{int(dmy.group(1)):02d}-{int(dmy.group(2)):02d}-{dmy.group(3)}"
+    ymd = re.match(r"^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$", head)
+    if ymd:
+        return f"{int(ymd.group(3)):02d}-{int(ymd.group(2)):02d}-{ymd.group(1)}"
+    return head or raw
 
 
 def _table_exists(cur: Any, table_name: str) -> bool:   
@@ -178,6 +202,38 @@ def ensure_bidding_schema() -> None:
         if not _generator_exists(cur, "GEN_PR_BID_LINE_AWARD_ID"):
             cur.execute("CREATE GENERATOR GEN_PR_BID_LINE_AWARD_ID")
 
+        if not _table_exists(cur, "PR_BID_LOG"):
+            cur.execute(
+                """
+                CREATE TABLE PR_BID_LOG (
+                    LOG_ID INTEGER NOT NULL,
+                    BID_ID INTEGER NOT NULL,
+                    BID_DTL_ID INTEGER,
+                    REQUEST_DOCKEY INTEGER NOT NULL,
+                    REQUEST_NO VARCHAR(60),
+                    SUPPLIER_CODE VARCHAR(30),
+                    SOURCE_DTLKEY INTEGER NOT NULL,
+                    ITEMCODE VARCHAR(60),
+                    DESCRIPTION VARCHAR(255),
+                    BID_QTY NUMERIC(18, 4),
+                    BID_UNITPRICE NUMERIC(18, 4),
+                    BID_TAXAMT NUMERIC(18, 4),
+                    BID_AMOUNT NUMERIC(18, 4),
+                    LEAD_DAYS INTEGER,
+                    REMARKS VARCHAR(255),
+                    DECISION VARCHAR(20),
+                    ON_CURRENT_PR SMALLINT,
+                    STATUS_NOTE VARCHAR(255),
+                    EVENT_TYPE VARCHAR(30),
+                    RECORDED_AT TIMESTAMP,
+                    RECORDED_BY VARCHAR(120),
+                    PRIMARY KEY (LOG_ID)
+                )
+                """
+            )
+        if not _generator_exists(cur, "GEN_PR_BID_LOG_ID"):
+            cur.execute("CREATE GENERATOR GEN_PR_BID_LOG_ID")
+
         if not _index_exists(cur, "IX_PR_BID_INVITE_REQ_SUP"):
             cur.execute("CREATE INDEX IX_PR_BID_INVITE_REQ_SUP ON PR_BID_INVITE (REQUEST_DOCKEY, SUPPLIER_CODE)")
         if not _index_exists(cur, "IX_PR_BID_HDR_REQ"):
@@ -188,6 +244,12 @@ def ensure_bidding_schema() -> None:
             cur.execute("CREATE UNIQUE INDEX IX_PR_BID_AWARD_REQ_DTL ON PR_BID_LINE_AWARD (REQUEST_DOCKEY, DETAIL_ID)")
         if not _index_exists(cur, "IX_PR_BID_AWARD_REQ"):
             cur.execute("CREATE INDEX IX_PR_BID_AWARD_REQ ON PR_BID_LINE_AWARD (REQUEST_DOCKEY)")
+        if not _index_exists(cur, "IX_PR_BID_LOG_BID"):
+            cur.execute("CREATE INDEX IX_PR_BID_LOG_BID ON PR_BID_LOG (BID_ID)")
+        if not _index_exists(cur, "IX_PR_BID_LOG_REQ_SUP"):
+            cur.execute(
+                "CREATE INDEX IX_PR_BID_LOG_REQ_SUP ON PR_BID_LOG (REQUEST_DOCKEY, SUPPLIER_CODE)"
+            )
 
         if _table_exists(cur, "PR_BID_HDR"):
             cols = _pr_bid_hdr_columns(cur)
@@ -206,13 +268,15 @@ def _normalize_supplier_rows(suppliers: list[dict[str, Any]]) -> list[dict[str, 
         if not isinstance(row, dict):
             continue
         code = _clean_text(row.get("code") or row.get("supplierCode") or row.get("supplierId"))
-        name = _clean_text(row.get("companyname") or row.get("companyName") or row.get("name"))
+        raw_name = _clean_text(row.get("companyname") or row.get("companyName") or row.get("name"))
         if not code:
             continue
         if code in seen:
             continue
         seen.add(code)
-        normalized.append({"code": code, "name": name})
+        from utils.sql_api_supplier import resolve_supplier_company_name
+
+        normalized.append({"code": code, "name": resolve_supplier_company_name(code, raw_name)})
     if not normalized:
         raise BiddingValidationError("at least one supplier with a valid code is required")
     return normalized
@@ -309,7 +373,7 @@ def _fetch_pr_delivery_dates_by_dockey(dockeys: list[int]) -> dict[int, str | No
         placeholders = ", ".join(["?"] * len(uniq))
         cur.execute(
             f"SELECT {key_col}, {date_col} FROM PH_PQ WHERE {key_col} IN ({placeholders})",
-            uniq,
+            tuple(uniq),
         )
         out: dict[int, str | None] = {}
         for row in cur.fetchall() or []:
@@ -322,10 +386,8 @@ def _fetch_pr_delivery_dates_by_dockey(dockeys: list[int]) -> dict[int, str | No
             val = row[1]
             if val is None:
                 out[key] = None
-            elif hasattr(val, "isoformat"):
-                out[key] = val.isoformat()
             else:
-                out[key] = str(val).strip() or None
+                out[key] = format_display_date(val)
         return out
     finally:
         con.close()
@@ -359,6 +421,38 @@ def supplier_has_active_bid_invitation(request_dockey: int, supplier_code: str) 
         con.close()
 
 
+def _fetch_bid_amount_stats_by_bid_ids(bid_ids: list[int]) -> dict[int, dict[str, Any]]:
+    """Per-bid line count and total from PR_BID_DTL (row fetch, no SQL aggregates)."""
+    ids = sorted({int(x) for x in bid_ids if x})
+    if not ids:
+        return {}
+
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        out: dict[int, dict[str, Any]] = {}
+        for bid_id in ids:
+            cur.execute(
+                """
+                SELECT BID_AMOUNT
+                FROM PR_BID_DTL
+                WHERE BID_ID = ?
+                """,
+                (int(bid_id),),
+            )
+            rows = cur.fetchall() or []
+            if not rows:
+                continue
+            total = sum(_as_decimal(row[0], "0") for row in rows)
+            out[int(bid_id)] = {
+                "bidTotalAmount": float(_money(total)),
+                "bidLineCount": len(rows),
+            }
+        return out
+    finally:
+        con.close()
+
+
 def list_supplier_invitations(supplier_code: str) -> list[dict[str, Any]]:
     code = _clean_text(supplier_code)
     if not code:
@@ -378,7 +472,9 @@ def list_supplier_invitations(supplier_code: str) -> list[dict[str, Any]]:
                 i.STATUS,
                 i.CREATED_AT,
                 h.BID_ID,
-                h.STATUS
+                h.STATUS AS BID_HDR_STATUS,
+                h.CREATED_AT AS BID_CREATED_AT,
+                h.APPROVED_AT AS BID_APPROVED_AT
             FROM PR_BID_INVITE i
             LEFT JOIN PR_BID_HDR h
               ON h.REQUEST_DOCKEY = i.REQUEST_DOCKEY
@@ -389,8 +485,19 @@ def list_supplier_invitations(supplier_code: str) -> list[dict[str, Any]]:
             (code,),
         )
         rows = cur.fetchall() or []
+        bid_stats_map: dict[int, dict[str, Any]] = {}
+        bid_ids_for_total = [int(row[7]) for row in rows if row and row[7] is not None]
+        if bid_ids_for_total:
+            try:
+                bid_stats_map = _fetch_bid_amount_stats_by_bid_ids(bid_ids_for_total)
+            except Exception as exc:
+                print(f"[SUPPLIER BIDDING INVITES] bid total fetch error: {exc}", flush=True)
         result: list[dict[str, Any]] = []
         for row in rows:
+            bid_id = int(row[7]) if row[7] is not None else None
+            bid_stats = bid_stats_map.get(bid_id) if bid_id is not None else None
+            bid_total_amount = bid_stats.get("bidTotalAmount") if bid_stats else None
+            bid_line_count = bid_stats.get("bidLineCount") if bid_stats else None
             result.append(
                 {
                     "inviteId": int(row[0]),
@@ -399,12 +506,23 @@ def list_supplier_invitations(supplier_code: str) -> list[dict[str, Any]]:
                     "supplierCode": _clean_text(row[3]),
                     "supplierName": _clean_text(row[4]),
                     "inviteStatus": _clean_text(row[5]) or "OPEN",
-                    "inviteAt": row[6].isoformat() if row[6] else None,
-                    "bidId": int(row[7]) if row[7] is not None else None,
+                    "inviteAt": format_display_date(row[6]),
+                    "bidId": bid_id,
                     "bidStatus": _clean_text(row[8]),
+                    "bidCreatedAt": format_display_date(row[9]) if len(row) > 9 else None,
+                    "approvedAt": format_display_date(row[10]) if len(row) > 10 else None,
+                    "bidTotalAmount": bid_total_amount,
+                    "bidLineCount": bid_line_count,
                 }
             )
-        delivery_map = _fetch_pr_delivery_dates_by_dockey([int(r["requestDockey"]) for r in result])
+        delivery_map: dict[int, str | None] = {}
+        if result:
+            try:
+                delivery_map = _fetch_pr_delivery_dates_by_dockey(
+                    [int(r["requestDockey"]) for r in result]
+                )
+            except Exception as exc:
+                print(f"[SUPPLIER BIDDING INVITES] delivery date fetch error: {exc}", flush=True)
         for r in result:
             dk = int(r.get("requestDockey") or 0)
             r["requestDeliveryDate"] = delivery_map.get(dk)
@@ -458,7 +576,7 @@ def list_invited_suppliers_for_request(request_dockey: int) -> list[dict[str, An
                     "supplierCode": _clean_text(row[3]),
                     "supplierName": _clean_text(row[4]),
                     "inviteStatus": _clean_text(row[5]) or "OPEN",
-                    "inviteAt": row[6].isoformat() if row[6] else None,
+                    "inviteAt": format_display_date(row[6]),
                     "updatedAt": row[7].isoformat() if row[7] else None,
                     "bidId": int(row[8]) if row[8] is not None else None,
                     "bidStatus": _clean_text(row[9]),
@@ -524,6 +642,10 @@ def submit_supplier_bid(
     code = _clean_text(supplier_code)
     if not code:
         raise BiddingValidationError("supplierCode is required")
+
+    from utils.sql_api_supplier import resolve_supplier_company_name
+
+    supplier_name = resolve_supplier_company_name(code, supplier_name)
 
     lines = _normalize_bid_lines(bid_lines)
     now = _utc_now()
@@ -696,6 +818,126 @@ def _fetch_pr_detail_item_map(cur: Any, request_dockey: int) -> dict[int, dict[s
     return out
 
 
+def _merged_pr_detail_item_map(cur: Any, *request_dockey_ids: int) -> dict[int, dict[str, str]]:
+    """Merge PH_PQDTL item maps (parent + split child PRs share SOURCE_DTLKEY ids)."""
+    merged: dict[int, dict[str, str]] = {}
+    for raw_id in request_dockey_ids:
+        try:
+            dockey = int(raw_id or 0)
+        except (TypeError, ValueError):
+            continue
+        if dockey <= 0:
+            continue
+        chunk = _fetch_pr_detail_item_map(cur, dockey)
+        if chunk:
+            merged.update(chunk)
+    return merged
+
+
+def _find_split_child_dockey_ids(cur: Any, parent_dockey: int, parent_docno: str) -> list[int]:
+    """Child PR dockeys created by mixed-supplier split from one RFQ parent."""
+    if not parent_dockey or not _table_exists(cur, "PH_PQ"):
+        return []
+    cols = _get_table_columns(cur, "PH_PQ")
+    key_col = _pick_existing(cols, "DOCKEY", "PQKEY", "ID")
+    desc_col = _pick_existing(cols, "DESCRIPTION", "JUSTIFICATION")
+    if not key_col or not desc_col:
+        return []
+    needle = _clean_text(parent_docno)
+    if not needle:
+        return []
+    pattern = f"Split from {needle}"
+    cur.execute(
+        f"""
+        SELECT {key_col}
+        FROM PH_PQ
+        WHERE {desc_col} CONTAINING ?
+          AND {key_col} <> ?
+        """,
+        (pattern, int(parent_dockey)),
+    )
+    out: list[int] = []
+    for row in cur.fetchall() or []:
+        if not row or row[0] is None:
+            continue
+        try:
+            dk = int(row[0])
+        except (TypeError, ValueError):
+            continue
+        if dk > 0 and dk not in out:
+            out.append(dk)
+    return out
+
+
+def _fetch_pr_detail_rows_by_dtlkeys(cur: Any, detail_ids: list[int]) -> dict[int, dict[str, Any]]:
+    """Lookup PH_PQDTL rows by line id (works after split moves lines to child PRs)."""
+    cleaned = sorted({int(x) for x in detail_ids if int(x) > 0})
+    if not cleaned or not _table_exists(cur, "PH_PQDTL"):
+        return {}
+    cols = _get_table_columns(cur, "PH_PQDTL")
+    dtl_col = _pick_existing(cols, "DTLKEY", "PQDTLKEY", "ID")
+    item_col = _pick_existing(cols, "ITEMCODE", "ITEM_CODE")
+    desc_col = _pick_existing(
+        cols,
+        "DESCRIPTION3",
+        "DESCRIPTION2",
+        "DESCRIPTION",
+        "ITEMNAME",
+    )
+    qty_col = _pick_existing(cols, "QTY", "QUANTITY")
+    sq_col = _pick_existing(cols, "SQTY")
+    su_col = _pick_existing(cols, "SUOMQTY")
+    del_col = _pick_existing(cols, "DELIVERYDATE", "DELIVERY_DATE")
+    if not dtl_col:
+        return {}
+    placeholders = ", ".join(["?"] * len(cleaned))
+    select_parts = [f"{dtl_col} AS DTLKEY"]
+    select_parts.append(f"{item_col} AS ITEMCODE" if item_col else "CAST(NULL AS VARCHAR(60)) AS ITEMCODE")
+    select_parts.append(f"{desc_col} AS DESCR" if desc_col else "CAST(NULL AS VARCHAR(255)) AS DESCR")
+    select_parts.append(f"{qty_col} AS QTY" if qty_col else "CAST(NULL AS DOUBLE PRECISION) AS QTY")
+    select_parts.append(f"{sq_col} AS SQTY" if sq_col else "CAST(NULL AS DOUBLE PRECISION) AS SQTY")
+    select_parts.append(f"{su_col} AS SUOMQTY" if su_col else "CAST(NULL AS DOUBLE PRECISION) AS SUOMQTY")
+    select_parts.append(f"{del_col} AS DELIVERYDATE" if del_col else "CAST(NULL AS TIMESTAMP) AS DELIVERYDATE")
+    cur.execute(
+        f"SELECT {', '.join(select_parts)} FROM PH_PQDTL WHERE {dtl_col} IN ({placeholders})",
+        tuple(cleaned),
+    )
+    out: dict[int, dict[str, Any]] = {}
+    for row in cur.fetchall() or []:
+        if not row:
+            continue
+        try:
+            key = int(row[0])
+        except (TypeError, ValueError):
+            continue
+        delivery = row[6] if len(row) > 6 else None
+        out[key] = {
+            "itemCode": _clean_text(row[1] if len(row) > 1 else ""),
+            "description": _clean_text(row[2] if len(row) > 2 else ""),
+            "quantity": float(_as_decimal(row[3], "0")) if len(row) > 3 else 0,
+            "sqty": float(_as_decimal(row[4], "0")) if len(row) > 4 else 0,
+            "suomQty": float(_as_decimal(row[5], "0")) if len(row) > 5 else 0,
+            "deliveryDate": format_display_date(delivery),
+        }
+    return out
+
+
+def _re_enrich_bids_from_pr_details(
+    cur: Any,
+    bids: list[dict[str, Any]],
+    *request_dockey_ids: int,
+) -> None:
+    detail_map = _merged_pr_detail_item_map(cur, *request_dockey_ids)
+    if not detail_map:
+        return
+    for bid in bids:
+        if not isinstance(bid, dict):
+            continue
+        lines = bid.get("lines")
+        if isinstance(lines, list):
+            _enrich_bid_lines_from_pr_details(cur, 0, lines, detail_map)
+
+
 def _enrich_bid_lines_from_pr_details(
     cur: Any,
     request_dockey: int,
@@ -766,9 +1008,9 @@ def _bid_hdr_row_to_dict(bid: tuple, lines: list[dict[str, Any]]) -> dict[str, A
         "status": _clean_text(bid[5]),
         "remarks": _clean_text(bid[6]),
         "createdBy": _clean_text(bid[7]),
-        "createdAt": bid[8].isoformat() if bid[8] else None,
+        "createdAt": format_display_date(bid[8]),
         "approvedBy": _clean_text(bid[9]),
-        "approvedAt": bid[10].isoformat() if bid[10] else None,
+        "approvedAt": format_display_date(bid[10]),
         "udfReason": udf_reason,
         "lines": lines,
     }
@@ -900,6 +1142,14 @@ def list_bids_for_bidding_view(request_dockey: int) -> tuple[list[dict[str, Any]
     awarded_code = _clean_text(ctx.get("awardedSupplierCode")).upper()
 
     raw_bids = list_bids_for_request(source_dockey)
+    # Split child PRs move awarded lines off the RFQ parent; merge maps so item labels resolve.
+    if ctx.get("isSplitChild") and int(request_dockey) != source_dockey:
+        con = _connect_db()
+        try:
+            cur = con.cursor()
+            _re_enrich_bids_from_pr_details(cur, raw_bids, source_dockey, int(request_dockey))
+        finally:
+            con.close()
     display_bids: list[dict[str, Any]] = []
     for bid in raw_bids:
         if not isinstance(bid, dict):
@@ -967,6 +1217,9 @@ def get_supplier_bid_snapshot(request_dockey: int, supplier_code: str) -> dict[s
     if not code:
         return None
 
+    ctx = resolve_bidding_context(request_dockey)
+    source_dockey = int(ctx.get("biddingSourceDockey") or request_dockey)
+
     con = _connect_db()
     try:
         cur = con.cursor()
@@ -981,13 +1234,34 @@ def get_supplier_bid_snapshot(request_dockey: int, supplier_code: str) -> dict[s
             WHERE REQUEST_DOCKEY = ? AND SUPPLIER_CODE = ?
             ORDER BY BID_ID DESC
             """,
-            (request_dockey, code),
+            (source_dockey, code),
         )
         bid = cur.fetchone()
         if not bid:
             return None
         bid_id = int(bid[0])
         lines = _bid_hdr_row_to_lines(cur, bid_id)
+        detail_ids = [
+            int(ln.get("detailId") or 0)
+            for ln in lines
+            if isinstance(ln, dict) and int(ln.get("detailId") or 0) > 0
+        ]
+        pr_rows = _fetch_pr_detail_rows_by_dtlkeys(cur, detail_ids)
+        for line in lines:
+            if not isinstance(line, dict):
+                continue
+            did = int(line.get("detailId") or 0)
+            pr = pr_rows.get(did) or {}
+            if not _clean_text(line.get("itemCode")):
+                line["itemCode"] = pr.get("itemCode") or ""
+            if not _clean_text(line.get("description")):
+                line["description"] = pr.get("description") or ""
+        _re_enrich_bids_from_pr_details(
+            cur,
+            [{"lines": lines}],
+            source_dockey,
+            int(request_dockey),
+        )
         return _bid_hdr_row_to_dict(bid, lines)
     finally:
         con.close()
@@ -1555,6 +1829,9 @@ def save_line_awards(
                 if _clean_text(_bid.get("supplierCode")) == only_code:
                     award_name = _clean_text(_bid.get("supplierName"))
                     break
+            from utils.sql_api_supplier import resolve_supplier_company_name
+
+            award_name = resolve_supplier_company_name(only_code, award_name)
             try:
                 from utils.procurement_purchase_request import set_purchase_request_header_supplier
 
@@ -1638,6 +1915,224 @@ def get_line_awards_for_request(request_dockey: int) -> list[dict[str, Any]]:
                 "leadDays": int(row[13]) if row[13] is not None else 0,
             })
         return out
+    finally:
+        con.close()
+
+
+def get_merged_line_awards_for_request(request_dockey: int) -> list[dict[str, Any]]:
+    """Line awards for one PR view, including split child + RFQ parent rows."""
+    ctx = resolve_bidding_context(request_dockey)
+    source_dockey = int(ctx.get("biddingSourceDockey") or request_dockey)
+    dockeys: list[int] = []
+    for raw in (int(request_dockey), source_dockey):
+        if raw > 0 and raw not in dockeys:
+            dockeys.append(raw)
+
+    parent_docno = _clean_text(ctx.get("docno")) or _clean_text(ctx.get("splitFromDocno"))
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        if source_dockey > 0 and parent_docno:
+            for child_dk in _find_split_child_dockey_ids(cur, source_dockey, parent_docno):
+                if child_dk not in dockeys:
+                    dockeys.append(child_dk)
+    finally:
+        con.close()
+
+    merged: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for dk in dockeys:
+        for award in get_line_awards_for_request(dk):
+            if not isinstance(award, dict):
+                continue
+            try:
+                detail_id = int(award.get("detailId") or 0)
+            except (TypeError, ValueError):
+                continue
+            if detail_id <= 0 or detail_id in seen:
+                continue
+            seen.add(detail_id)
+            merged.append(award)
+    return merged
+
+
+def get_supplier_bidding_award_state(
+    request_dockey: int,
+    supplier_code: str,
+    my_bid: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Award ids and flags for supplier bidding UI row colours.
+
+    Partial (per-line green/red) only when multiple suppliers won lines or this
+    supplier won a subset of their bid lines. Full approval colours all lines green.
+    """
+    code = _clean_text(supplier_code).upper()
+    ctx = resolve_bidding_context(request_dockey)
+    detail_set = {int(x) for x in (ctx.get("prDetailIds") or []) if int(x) > 0}
+    all_awards = get_merged_line_awards_for_request(request_dockey)
+
+    supplier_awards = [
+        a
+        for a in all_awards
+        if _clean_text(a.get("supplierCode")).upper() == code
+    ]
+    awarded_ids_all = sorted(
+        {
+            int(a.get("detailId") or 0)
+            for a in supplier_awards
+            if int(a.get("detailId") or 0) > 0
+        }
+    )
+    awarded_ids = (
+        [detail_id for detail_id in awarded_ids_all if detail_id in detail_set]
+        if detail_set
+        else awarded_ids_all
+    )
+
+    bid_detail_ids: set[int] = set()
+    if isinstance(my_bid, dict) and isinstance(my_bid.get("lines"), list):
+        for line in my_bid["lines"]:
+            if not isinstance(line, dict):
+                continue
+            try:
+                detail_id = int(line.get("detailId") or 0)
+            except (TypeError, ValueError):
+                continue
+            if detail_id > 0:
+                bid_detail_ids.add(detail_id)
+
+    supplier_codes = {
+        _clean_text(a.get("supplierCode")).upper()
+        for a in all_awards
+        if _clean_text(a.get("supplierCode"))
+    }
+    has_line_awards = bool(all_awards)
+    has_partial_line_awards = False
+    if has_line_awards:
+        if len(supplier_codes) > 1:
+            has_partial_line_awards = True
+        elif bid_detail_ids and awarded_ids_all:
+            has_partial_line_awards = set(awarded_ids_all) != bid_detail_ids
+        elif awarded_ids_all and not bid_detail_ids:
+            has_partial_line_awards = True
+
+    return {
+        "awardedDetailIds": awarded_ids,
+        "hasLineAwards": has_line_awards,
+        "hasPartialLineAwards": has_partial_line_awards,
+    }
+
+
+def build_supplier_bid_log(request_dockey: int, supplier_code: str) -> list[dict[str, Any]]:
+    """
+    Full submitted bid lines for supplier read-only view (bid log).
+
+    Preserves every line from the original RFQ bid with item labels and
+    accepted / not accepted colouring after admin item awards or split.
+    """
+    code = _clean_text(supplier_code).upper()
+    if not code or not request_dockey:
+        return []
+
+    ctx = resolve_bidding_context(request_dockey)
+    source_dockey = int(ctx.get("biddingSourceDockey") or request_dockey)
+    detail_set = {int(x) for x in (ctx.get("prDetailIds") or []) if int(x) > 0}
+
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        _ensure_pr_bid_hdr_udf_reason(con)
+        cur = con.cursor()
+        cur.execute(
+            """
+            SELECT FIRST 1 BID_ID, REQUEST_DOCKEY, REQUEST_NO, SUPPLIER_CODE, SUPPLIER_NAME,
+                   STATUS, REMARKS, CREATED_BY, CREATED_AT, APPROVED_BY, APPROVED_AT,
+                   UDF_REASON
+            FROM PR_BID_HDR
+            WHERE REQUEST_DOCKEY = ? AND SUPPLIER_CODE = ?
+            ORDER BY BID_ID DESC
+            """,
+            (source_dockey, code),
+        )
+        bid = cur.fetchone()
+        if not bid:
+            return []
+
+        bid_id = int(bid[0])
+        bid_status = _clean_text(bid[5]).upper()
+        lines = _bid_hdr_row_to_lines(cur, bid_id)
+        detail_ids = [
+            int(ln.get("detailId") or 0)
+            for ln in lines
+            if isinstance(ln, dict) and int(ln.get("detailId") or 0) > 0
+        ]
+        pr_rows = _fetch_pr_detail_rows_by_dtlkeys(cur, detail_ids)
+        for line in lines:
+            if not isinstance(line, dict):
+                continue
+            did = int(line.get("detailId") or 0)
+            pr = pr_rows.get(did) or {}
+            if not _clean_text(line.get("itemCode")):
+                line["itemCode"] = pr.get("itemCode") or ""
+            if not _clean_text(line.get("description")):
+                line["description"] = pr.get("description") or ""
+
+        all_awards = get_merged_line_awards_for_request(request_dockey)
+        awarded_to_supplier = {
+            int(a.get("detailId") or 0)
+            for a in all_awards
+            if _clean_text(a.get("supplierCode")).upper() == code
+            and int(a.get("detailId") or 0) > 0
+        }
+        has_line_awards = bool(all_awards)
+
+        log: list[dict[str, Any]] = []
+        for line in lines:
+            if not isinstance(line, dict):
+                continue
+            did = int(line.get("detailId") or 0)
+            pr = pr_rows.get(did) or {}
+            if has_line_awards:
+                decision = "accepted" if did in awarded_to_supplier else "not_accepted"
+            elif bid_status in {"APPROVED", "AWARDED", "ACCEPTED"} or bid_status.startswith("APPROV"):
+                decision = "accepted"
+            elif bid_status.startswith("REJECT"):
+                decision = "not_accepted"
+            else:
+                decision = "pending"
+
+            on_current = did in detail_set if detail_set else True
+            status_note = ""
+            if not on_current and decision == "accepted":
+                status_note = "Awarded on a split purchase request"
+            elif not on_current:
+                status_note = "Line moved to another purchase request"
+
+            item_code = _clean_text(line.get("itemCode")) or _clean_text(pr.get("itemCode"))
+            description = _clean_text(line.get("description")) or _clean_text(pr.get("description"))
+            req_qty = pr.get("quantity")
+            suom_qty = pr.get("suomQty")
+            log.append(
+                {
+                    "detailId": did,
+                    "itemCode": item_code,
+                    "description": description,
+                    "quantity": float(_as_decimal(line.get("quantity"), "0")),
+                    "unitPrice": float(_as_decimal(line.get("unitPrice"), "0")),
+                    "tax": float(_as_decimal(line.get("tax"), "0")),
+                    "amount": float(_as_decimal(line.get("amount"), "0")),
+                    "leadDays": int(_as_decimal(line.get("leadDays"), "0")),
+                    "remarks": _clean_text(line.get("remarks")),
+                    "requestedQty": req_qty,
+                    "suomQty": suom_qty,
+                    "deliveryDate": format_display_date(pr.get("deliveryDate")),
+                    "decision": decision,
+                    "onCurrentPr": on_current,
+                    "statusNote": status_note,
+                }
+            )
+        return log
     finally:
         con.close()
 

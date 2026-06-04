@@ -8,6 +8,7 @@ Priority (no duplicate sources in one response):
 from __future__ import annotations
 
 import os
+import re
 from typing import Any
 
 from api.clients import SqlAccountingApiClient, SqlAccountingApiError
@@ -73,6 +74,11 @@ def _normalize_sql_api_stock_row(raw: dict[str, Any]) -> dict[str, Any]:
         "UDF_THICKNESS": pick("UDF_THICKNESS", "udf_thickness"),
         "UDF_WIDTH": pick("UDF_WIDTH", "udf_width"),
         "UDF_LENGTH": pick("UDF_LENGTH", "udf_length"),
+        "UDF_MTYPE": pick("UDF_MTYPE", "udf_mtype"),
+        "UDF_DS": pick("UDF_DS", "udf_ds"),
+        "UDF_DP": pick("UDF_DP", "udf_dp"),
+        "UDF_2UOM": pick("UDF_2UOM", "udf_2uom"),
+        "UDF_FORMULA": pick("UDF_FORMULA", "udf_formula"),
     }
     # Carry through every stock-item UDF from SQL API (display layer picks what to show).
     for key, val in raw.items():
@@ -133,6 +139,57 @@ def _parse_stock_list_json(parsed: Any) -> list[dict[str, Any]]:
         if isinstance(row, dict):
             out.append(_normalize_sql_api_stock_row(row))
     return out
+
+
+def _parse_stock_detail_json(parsed: Any) -> dict[str, Any] | None:
+    """Normalize GET /stockitem/{code} body to one catalog row."""
+    if isinstance(parsed, dict):
+        data = parsed.get("data")
+        if isinstance(data, dict):
+            return _normalize_sql_api_stock_row(data)
+        if isinstance(data, list) and data and isinstance(data[0], dict):
+            return _normalize_sql_api_stock_row(data[0])
+        if parsed.get("code") or parsed.get("CODE"):
+            return _normalize_sql_api_stock_row(parsed)
+    if isinstance(parsed, list) and parsed and isinstance(parsed[0], dict):
+        return _normalize_sql_api_stock_row(parsed[0])
+    return None
+
+
+def fetch_stock_item_sql_api_by_code(code: str) -> dict[str, Any] | None:
+    """
+    Load one stock item from SQL Accounting GET ``/stockitem/{code}``.
+
+    The list endpoint often omits UDFs; detail GET supplies ``udf_mtype`` for quotation lines.
+    """
+    item_code = str(code or "").strip()
+    if not item_code:
+        return None
+    settings = load_sql_accounting_api_settings()
+    if settings.dry_run or not settings.access_key or not settings.secret_key:
+        return None
+    path = (settings.stock_item_list_path or "").strip()
+    if not path:
+        return None
+    client = SqlAccountingApiClient(settings)
+    try:
+        status, parsed, raw = client.get_json(
+            settings.resolved_stock_item_detail_url(item_code),
+            timeout_seconds=float(
+                os.getenv("SQL_API_STOCK_ITEM_TIMEOUT_SECONDS") or settings.timeout_seconds
+            ),
+        )
+    except SqlAccountingApiError as exc:
+        print(f"[stock_items_catalog] SQL API stock detail failed for {item_code!r}: {exc}", flush=True)
+        return None
+    if status >= 400:
+        snippet = (raw or "")[:300].replace("\n", " ")
+        print(
+            f"[stock_items_catalog] SQL API stock detail HTTP {status} for {item_code!r}: {snippet}",
+            flush=True,
+        )
+        return None
+    return _parse_stock_detail_json(parsed)
 
 
 def _try_fetch_stock_items_sql_api() -> list[dict[str, Any]] | None:
@@ -217,6 +274,182 @@ def _catalog_field_str(item: dict[str, Any], *keys: str) -> str:
     return ""
 
 
+def _udf_camel_case(key: str) -> str:
+    """``udf_ds`` / ``UDF_DS`` → ``udfDs`` for JSON APIs consumed by the browser."""
+    k = str(key).strip().lower()
+    if not k.startswith("udf_"):
+        return k
+    parts = k.split("_")
+    if len(parts) < 2:
+        return k
+    return parts[0] + "".join(p.capitalize() for p in parts[1:])
+
+
+def _normalize_udf_api_key(key: str) -> str:
+    """Normalize ``udfDs`` / ``UDF_DS`` / ``udf_ds`` → ``udf_ds`` for SQL Accounting payloads."""
+    k = str(key).strip()
+    if not k:
+        return ""
+    if k.lower().startswith("udf_"):
+        return k.lower()
+    if k.startswith("udf") and len(k) > 3:
+        tail = k[3:]
+        if tail and tail[0].isupper():
+            snake = re.sub(r"(?<!^)(?=[A-Z])", "_", tail).lower()
+            return f"udf_{snake}" if snake else k.lower()
+    return k.lower()
+
+
+def stock_item_udf_fields_from_row(item: dict[str, Any] | None) -> dict[str, Any]:
+    """All ``udf_*`` scalars from a catalog / ST_ITEM row (any key casing)."""
+    if not isinstance(item, dict):
+        return {}
+    out: dict[str, Any] = {}
+    for key, val in item.items():
+        norm = _normalize_udf_api_key(str(key))
+        if not norm.startswith("udf_"):
+            continue
+        if val is None:
+            continue
+        if isinstance(val, bool):
+            out[norm] = val
+        elif isinstance(val, (int, float)):
+            out[norm] = val
+        else:
+            s = str(val).strip()
+            if s != "":
+                out[norm] = s
+    return out
+
+
+def stock_item_udf_fields_for_js(item: dict[str, Any] | None) -> dict[str, str]:
+    """CamelCase UDF map for pricing API / create-quotation JS."""
+    raw = stock_item_udf_fields_from_row(item)
+    out: dict[str, str] = {}
+    for key, val in raw.items():
+        if val is None:
+            continue
+        out[_udf_camel_case(key)] = str(val).strip() if not isinstance(val, str) else val.strip()
+    return out
+
+
+def stock_item_udf_fields_for_api(item: dict[str, Any] | None) -> dict[str, Any]:
+    """Lowercase ``udf_*`` map for SQL Accounting document line POST bodies."""
+    return dict(stock_item_udf_fields_from_row(item))
+
+
+def _firebird_stock_row_for_code(item_code: str) -> dict[str, Any]:
+    """Load ST_ITEM row (all UDF_* columns) when SQL API catalog row is missing fields."""
+    code = str(item_code or "").strip()
+    if not code:
+        return {}
+    try:
+        from utils.db_utils import get_db_connection
+        from utils.sql_query_helpers import fetch_stock_items
+
+        con = get_db_connection()
+        cur = con.cursor()
+        rows = fetch_stock_items(cur)
+        cur.close()
+        con.close()
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            row_code = str(row.get("CODE") or "").strip()
+            if row_code.upper() == code.upper():
+                return row
+    except Exception:
+        pass
+    return {}
+
+
+def _resolve_catalog_stock_for_line(item: dict[str, Any]) -> dict[str, Any]:
+    """SQL API catalog first, then description/code match, then Firebird ST_ITEM."""
+    code = str(
+        item.get("itemCode") or item.get("itemcode") or item.get("code") or ""
+    ).strip()
+    desc = str(item.get("product") or item.get("description") or "").strip()
+    stock: dict[str, Any] = {}
+    for blob_key in ("stockDetail", "stockApi", "stockCatalog", "catalogRow"):
+        blob = item.get(blob_key)
+        if isinstance(blob, dict):
+            stock.update(blob)
+    if not stock:
+        hit = find_catalog_stock_item_prefer_sql_api(code=code, description=desc)
+        if isinstance(hit, dict):
+            stock = hit
+    if not stock and (code or desc):
+        hit = find_catalog_stock_item(code=code, description=desc)
+        if isinstance(hit, dict):
+            stock = hit
+    if code and not _catalog_field_str(stock, "UDF_MTYPE", "udf_mtype"):
+        detail = fetch_stock_item_sql_api_by_code(code)
+        if detail:
+            stock = {**detail, **stock}
+    if not _catalog_field_str(stock, "UDF_MTYPE", "udf_mtype") and code:
+        fb = _firebird_stock_row_for_code(code)
+        if fb:
+            stock = {**fb, **stock}
+    return stock
+
+
+def enrich_quotation_submit_line_item(item: dict[str, Any]) -> dict[str, Any]:
+    """
+    Attach catalog stock row + lowercase ``udf_*`` keys on a create-quotation line dict.
+
+    Call after ``itemCode`` / product description are known so ``udf_mtype`` is copied from
+    ST_ITEM / SQL API stockitem onto the line sent to ``/salesquotation``.
+    """
+    if not isinstance(item, dict):
+        return item
+    code = str(
+        item.get("itemCode") or item.get("itemcode") or item.get("code") or ""
+    ).strip()
+    desc = str(item.get("product") or "").strip()
+    stock = _resolve_catalog_stock_for_line(item)
+    if stock:
+        item["stockDetail"] = {**stock, **(item.get("stockDetail") or {})}
+    for udf_key, udf_val in merge_item_and_stock_udf_fields_for_api(item, stock).items():
+        if udf_val is None:
+            continue
+        item[udf_key] = udf_val
+    for camel_key, camel_val in stock_item_udf_fields_for_js(stock).items():
+        if camel_val is None or str(camel_val).strip() == "":
+            continue
+        if not str(item.get(camel_key) or "").strip():
+            item[camel_key] = camel_val
+    mtype = _catalog_field_str(stock, "UDF_MTYPE", "udf_mtype") or _catalog_field_str(
+        item, "UDF_MTYPE", "udf_mtype"
+    )
+    if mtype:
+        item["udf_mtype"] = mtype
+        item["udfMtype"] = mtype
+        item["UDF_MTYPE"] = mtype
+    if code:
+        item["itemCode"] = code
+    elif stock:
+        sc = str(stock.get("CODE") or stock.get("code") or "").strip()
+        if sc:
+            item["itemCode"] = sc
+    return item
+
+
+def merge_item_and_stock_udf_fields_for_api(
+    item: dict[str, Any],
+    stock: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Line request fields override catalog / ST_ITEM master UDFs."""
+    out = stock_item_udf_fields_for_api(stock)
+    for key, val in (item or {}).items():
+        norm = _normalize_udf_api_key(str(key))
+        if not norm.startswith("udf_"):
+            continue
+        if val is None:
+            continue
+        out[norm] = val
+    return out
+
+
 def stock_item_dimension_display_fields(item: dict[str, Any] | None) -> dict[str, str]:
     """Thickness / width / length for create-quotation panel (from stockitem API / ST_ITEM)."""
     if not isinstance(item, dict):
@@ -240,12 +473,16 @@ def stock_item_catalog_display_fields(item: dict[str, Any] | None) -> dict[str, 
             "udfLength": "",
         }
     dims = stock_item_dimension_display_fields(item)
-    return {
+    base = {
         "udfMoq": _catalog_field_str(item, "UDF_MOQ", "udf_moq"),
         "udfDleadtime": _catalog_field_str(item, "UDF_DLEADTIME", "udf_dleadtime"),
         "udfBundle": _catalog_field_str(item, "UDF_BUNDLE", "udf_bundle"),
         **dims,
     }
+    for camel, val in stock_item_udf_fields_for_js(item).items():
+        if camel not in base or not str(base.get(camel) or "").strip():
+            base[camel] = val
+    return base
 
 
 def _merge_catalog_over_local(

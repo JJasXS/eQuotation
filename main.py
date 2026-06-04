@@ -67,6 +67,9 @@ from utils.procurement_bidding import (
     create_bid_invitations,
     get_line_awards_for_request,
     get_pr_udf_status_local,
+    build_supplier_bid_log,
+    format_display_date,
+    get_supplier_bidding_award_state,
     get_supplier_bid_snapshot,
     get_transfer_gate_state,
     is_pr_line_awards_locked,
@@ -252,11 +255,14 @@ def _safe_float(value, default=0.0):
 def _quotation_line_item_fields_for_select(dtl_columns: set) -> list:
     """SL_QTDTL columns returned for quotation line APIs."""
     item_fields = ['DTLKEY', 'DOCKEY', 'SEQ', 'ITEMCODE', 'DESCRIPTION', 'QTY', 'UNITPRICE', 'DISC', 'AMOUNT']
+    for opt in ('SQTY', 'SUOMQTY', 'RATE', 'UOM', 'SUOM'):
+        if opt in dtl_columns and opt not in item_fields:
+            item_fields.append(opt)
     if 'UDF_STDPRICE' in dtl_columns:
         item_fields.append('UDF_STDPRICE')
     if 'DELIVERYDATE' in dtl_columns:
         item_fields.append('DELIVERYDATE')
-    for opt in ('UDF_THICKNESS', 'UDF_WIDTH', 'UDF_LENGTH'):
+    for opt in ('UDF_THICKNESS', 'UDF_WIDTH', 'UDF_LENGTH', 'UDF_MTYPE'):
         if opt in dtl_columns:
             item_fields.append(opt)
     return item_fields
@@ -270,28 +276,30 @@ def _quotation_line_item_from_row(row_map: dict, *, cur) -> dict:
         'ITEMCODE': row_map.get('ITEMCODE'),
         'DESCRIPTION': row_map.get('DESCRIPTION'),
         'QTY': _safe_float(row_map.get('QTY')),
+        'SQTY': _safe_float(row_map.get('SQTY')),
+        'SUOMQTY': _safe_float(row_map.get('SUOMQTY')),
         'UNITPRICE': _safe_float(row_map.get('UNITPRICE')),
         'DISC': _safe_float(row_map.get('DISC')),
         'AMOUNT': _safe_float(row_map.get('AMOUNT')),
         'UDF_STDPRICE': _safe_float(row_map.get('UDF_STDPRICE')),
         'DELIVERYDATE': str(row_map.get('DELIVERYDATE')) if row_map.get('DELIVERYDATE') is not None else None,
     }
-    for db_col, js_key in (
-        ('UDF_THICKNESS', 'udfThickness'),
-        ('UDF_WIDTH', 'udfWidth'),
-        ('UDF_LENGTH', 'udfLength'),
-    ):
-        if db_col in row_map and row_map.get(db_col) is not None:
-            item[js_key] = str(row_map.get(db_col)).strip()
+    from utils.stock_items_catalog import _udf_camel_case
+
+    for col, val in row_map.items():
+        col_s = str(col)
+        if not col_s.upper().startswith('UDF_') or val is None:
+            continue
+        item[_udf_camel_case(col_s)] = str(val).strip() if not isinstance(val, str) else val.strip()
 
     try:
         from utils.sql_query_helpers import get_st_item_quotation_display_fields
 
         code = str(item.get('ITEMCODE') or '').strip()
         extras = get_st_item_quotation_display_fields(cur, code)
-        for key in ('udfThickness', 'udfWidth', 'udfLength', 'udfMoq', 'udfDleadtime', 'udfBundle'):
-            if not str(item.get(key) or '').strip() and extras.get(key):
-                item[key] = extras[key]
+        for key, val in extras.items():
+            if not str(item.get(key) or '').strip() and str(val or '').strip():
+                item[key] = val
     except Exception:
         pass
     return item
@@ -6815,6 +6823,23 @@ def api_supplier_bidding_request_details():
                 return jsonify({'success': False, 'error': 'Purchase request not found'}), 404
             return jsonify({'success': False, 'error': f'SQL API returned {last_status} while loading purchase request'}), 502
 
+        try:
+            request_dockey_int = int(request_header.get('dockey'))
+        except Exception:
+            request_dockey_int = 0
+
+        local_pr = _resolve_local_purchase_request_header(
+            str(request_dockey_int or raw_request_id or ''),
+            str(request_header.get('docno') or request_no or '').strip(),
+        )
+        if local_pr and local_pr.get('sdsdocdetail'):
+            request_header['dockey'] = local_pr.get('dockey') or request_header.get('dockey')
+            request_header['sdsdocdetail'] = local_pr.get('sdsdocdetail')
+            try:
+                request_dockey_int = int(request_header.get('dockey') or request_dockey_int)
+            except Exception:
+                pass
+
         details = []
         header_delivery_fallback = (
             request_header.get('postdate')
@@ -6828,9 +6853,12 @@ def api_supplier_bidding_request_details():
         except Exception:
             request_dockey_int = 0
 
-        if not request_dockey_int or not supplier_has_active_bid_invitation(
-            request_dockey_int, supplier_session_code
-        ):
+        bidding_ctx = resolve_bidding_context(request_dockey_int)
+        source_dockey_int = int(bidding_ctx.get('biddingSourceDockey') or request_dockey_int)
+        invite_ok = supplier_has_active_bid_invitation(request_dockey_int, supplier_session_code)
+        if not invite_ok and source_dockey_int != request_dockey_int:
+            invite_ok = supplier_has_active_bid_invitation(source_dockey_int, supplier_session_code)
+        if not request_dockey_int or not invite_ok:
             return jsonify({'success': False, 'error': 'Forbidden'}), 403
 
         pq_meta = _lookup_ph_pq_header_delivery(request_dockey_int)
@@ -6889,7 +6917,7 @@ def api_supplier_bidding_request_details():
                 'itemName': str(row.get('itemname') or row.get('itemName') or row.get('description2') or row.get('description') or '').strip(),
                 'description': str(row.get('description3') or row.get('description') or '').strip(),
                 'locationCode': str(row.get('location') or row.get('locationCode') or '').strip(),
-                'deliveryDate': resolved_delivery,
+                'deliveryDate': format_display_date(resolved_delivery),
                 'quantity': float(row.get('qty') or row.get('quantity') or 0),
                 'sqty': float(qty_sq_line),
                 'suomQty': float(qty_su_line),
@@ -6907,24 +6935,20 @@ def api_supplier_bidding_request_details():
 
         my_bid = None
         has_line_awards = False
+        has_partial_line_awards = False
         awarded_detail_ids: list[int] = []
+        bid_log: list[dict] = []
         if request_dockey_int:
             my_bid = get_supplier_bid_snapshot(request_dockey_int, supplier_session_code)
-            line_awards = get_line_awards_for_request(request_dockey_int)
-            has_line_awards = bool(line_awards)
-            supplier_upper = supplier_session_code.upper()
-            for award in line_awards:
-                if not isinstance(award, dict):
-                    continue
-                if str(award.get('supplierCode') or '').strip().upper() != supplier_upper:
-                    continue
-                try:
-                    detail_id = int(award.get('detailId') or 0)
-                except Exception:
-                    continue
-                if detail_id > 0:
-                    awarded_detail_ids.append(detail_id)
-            awarded_detail_ids = sorted(set(awarded_detail_ids))
+            bid_log = build_supplier_bid_log(request_dockey_int, supplier_session_code)
+            award_state = get_supplier_bidding_award_state(
+                request_dockey_int,
+                supplier_session_code,
+                my_bid,
+            )
+            has_line_awards = bool(award_state.get('hasLineAwards'))
+            has_partial_line_awards = bool(award_state.get('hasPartialLineAwards'))
+            awarded_detail_ids = list(award_state.get('awardedDetailIds') or [])
 
         return jsonify({
             'success': True,
@@ -6933,10 +6957,12 @@ def api_supplier_bidding_request_details():
             'supplierCode': str(request_header.get('code') or '').strip(),
             'details': details,
             'count': len(details),
-            'requiredDeliveryDate': required_for_pr,
+            'requiredDeliveryDate': format_display_date(required_for_pr),
             'documentDate': pq_meta.get('documentDate'),
             'myBid': my_bid,
+            'bidLog': bid_log,
             'hasLineAwards': has_line_awards,
+            'hasPartialLineAwards': has_partial_line_awards,
             'awardedDetailIds': awarded_detail_ids,
         })
     except requests.exceptions.Timeout:
@@ -6963,6 +6989,9 @@ def api_supplier_submit_bid():
 
     supplier_code = (session.get('supplier_code') or session.get('customer_code') or '').strip()
     supplier_name = str(payload.get('supplierName') or session.get('user_email') or '').strip()
+    from utils.sql_api_supplier import resolve_supplier_company_name
+
+    supplier_name = resolve_supplier_company_name(supplier_code, supplier_name)
     actor = (session.get('user_email') or supplier_code or 'supplier').strip()
 
     if not raw_request_id and not request_no:
@@ -7017,18 +7046,16 @@ def _looks_like_email(value) -> bool:
 
 def _resolve_supplier_company_display(code: str, stored_name: str, master: dict) -> str:
     """Prefer SQL API company name when bid/invite row stored an email in SUPPLIER_NAME."""
-    code_u = str(code or '').strip().upper()
+    from utils.sql_api_supplier import resolve_supplier_company_name
+
+    code_u = str(code or '').strip()
     stored = str(stored_name or '').strip()
-    company = ''
     if code_u and isinstance(master, dict):
-        hit = master.get(code_u)
+        hit = master.get(code_u.upper())
         if isinstance(hit, dict):
-            company = str(hit.get('companyname') or hit.get('companyName') or '').strip()
-    if company and (_looks_like_email(stored) or not stored):
-        return company
-    if stored and not _looks_like_email(stored):
-        return stored
-    return company or stored or code_u
+            api_name = str(hit.get('companyname') or hit.get('companyName') or '').strip()
+            return resolve_supplier_company_name(code_u, stored or api_name)
+    return resolve_supplier_company_name(code_u, stored)
 
 
 def _enrich_supplier_rows_company_names(rows: list) -> list:
@@ -7368,14 +7395,7 @@ def api_get_product_price():
         local_st_item_price = price_item.get('UDF_STDPRICE', None)
         no_match_message = None
 
-        st_item_extras = {
-            'udfMoq': '',
-            'udfDleadtime': '',
-            'udfBundle': '',
-            'udfThickness': '',
-            'udfWidth': '',
-            'udfLength': '',
-        }
+        st_item_extras: dict[str, str] = {}
 
         st_item_udf_stdprice = None
         if local_st_item_price is not None:
@@ -7409,6 +7429,7 @@ def api_get_product_price():
                     _merge_catalog_over_local,
                     find_catalog_stock_item_prefer_sql_api,
                     stock_item_catalog_display_fields,
+                    stock_item_udf_fields_for_js,
                 )
 
                 catalog_row = find_catalog_stock_item_prefer_sql_api(
@@ -7416,8 +7437,25 @@ def api_get_product_price():
                     description=description,
                     cached_items=_fetch_stock_items_cached(),
                 )
+                code_for_detail = item_code or str(
+                    (catalog_row or {}).get("CODE") or (catalog_row or {}).get("code") or ""
+                ).strip()
+                if code_for_detail and not str(
+                    (catalog_row or {}).get("UDF_MTYPE")
+                    or (catalog_row or {}).get("udf_mtype")
+                    or ""
+                ).strip():
+                    from utils.stock_items_catalog import fetch_stock_item_sql_api_by_code
+
+                    detail_row = fetch_stock_item_sql_api_by_code(code_for_detail)
+                    if detail_row:
+                        catalog_row = {**detail_row, **(catalog_row or {})}
                 catalog_fields = stock_item_catalog_display_fields(catalog_row)
                 st_item_extras = _merge_catalog_over_local(catalog_fields, local_fb_extras)
+                if catalog_row:
+                    for k, v in stock_item_udf_fields_for_js(catalog_row).items():
+                        if k not in st_item_extras or not str(st_item_extras.get(k) or "").strip():
+                            st_item_extras[k] = v
                 if catalog_row and st_item_udf_stdprice is None:
                     raw_std = catalog_row.get('UDF_STDPRICE')
                     if raw_std is not None and str(raw_std).strip() != '':
@@ -7451,12 +7489,8 @@ def api_get_product_price():
                     'message': pricing_result.get('Message'),
                     'itemCode': item_code,
                     'matchType': match_type,
-                    'udfMoq': st_item_extras.get('udfMoq', ''),
-                    'udfDleadtime': st_item_extras.get('udfDleadtime', ''),
-                    'udfBundle': st_item_extras.get('udfBundle', ''),
-                    'udfThickness': st_item_extras.get('udfThickness', ''),
-                    'udfWidth': st_item_extras.get('udfWidth', ''),
-                    'udfLength': st_item_extras.get('udfLength', ''),
+                    'stockUdfs': dict(st_item_extras),
+                    **st_item_extras,
                 })
             except Exception as pricing_error:
                 print(f"[PRICING WARNING] Falling back to stock price for {item_code}: {pricing_error}", flush=True)
@@ -7478,12 +7512,8 @@ def api_get_product_price():
             'suggestedReason': no_match_message or 'No prioritized price found for current customer/item',
             'itemCode': item_code,
             'matchType': match_type,
-            'udfMoq': st_item_extras.get('udfMoq', ''),
-            'udfDleadtime': st_item_extras.get('udfDleadtime', ''),
-            'udfBundle': st_item_extras.get('udfBundle', ''),
-            'udfThickness': st_item_extras.get('udfThickness', ''),
-            'udfWidth': st_item_extras.get('udfWidth', ''),
-            'udfLength': st_item_extras.get('udfLength', ''),
+            'stockUdfs': dict(st_item_extras),
+            **st_item_extras,
         })
 
     try:
@@ -8044,23 +8074,25 @@ def api_get_draft_quotation_details():
                 con.close()
                 return jsonify({'success': False, 'error': 'Draft not found'}), 404
         cur.execute(
-            'SELECT DTLKEY, SEQ, ITEMCODE, DESCRIPTION, QTY, UNITPRICE, DISC, AMOUNT, UDF_STDPRICE, DELIVERYDATE FROM SL_QTDTLDRAFT WHERE DOCKEY = ? ORDER BY SEQ',
+            '''
+            SELECT TRIM(RF.RDB$FIELD_NAME)
+            FROM RDB$RELATION_FIELDS RF
+            WHERE TRIM(RF.RDB$RELATION_NAME) = 'SL_QTDTLDRAFT'
+            '''
+        )
+        dtl_columns = {str(r[0]).strip() for r in (cur.fetchall() or []) if r and r[0]}
+        item_fields = _quotation_line_item_fields_for_select(dtl_columns)
+        cur.execute(
+            f"SELECT {', '.join(item_fields)} FROM SL_QTDTLDRAFT WHERE DOCKEY = ? ORDER BY SEQ",
             (int(dockey),),
         )
-        item_rows = cur.fetchall()
+        item_rows = cur.fetchall() or []
+        items = []
+        for row in item_rows:
+            row_map = {item_fields[idx]: row[idx] for idx in range(len(item_fields))}
+            items.append(_quotation_line_item_from_row(row_map, cur=cur))
         cur.close()
         con.close()
-        items = []
-        for r in item_rows:
-            items.append({
-                'DTLKEY': r[0], 'SEQ': r[1], 'ITEMCODE': r[2], 'DESCRIPTION': r[3],
-                'QTY': float(r[4]) if r[4] is not None else 0,
-                'UNITPRICE': float(r[5]) if r[5] is not None else 0,
-                'DISC': str(r[6]) if r[6] is not None else '0',
-                'AMOUNT': float(r[7]) if r[7] is not None else 0,
-                'UDF_STDPRICE': float(r[8]) if r[8] is not None else 0,
-                'DELIVERYDATE': str(r[9]) if r[9] is not None else None,
-            })
         data = {
             'DOCKEY': int(hdr[0]), 'DOCNO': hdr[1],
             'DOCDATE': str(hdr[2]) if hdr[2] is not None else None,

@@ -350,10 +350,16 @@ function buildQuotationPayload() {
         // SQL Accounting /salesquotation expects ST_ITEM.CODE on lines; description-only rows can be very slow upstream.
         let itemCode = '';
         if (source === 'catalog') {
-            itemCode = resolveCatalogItemCodeFromDescription(product) || '';
+            itemCode = String(item.dataset.itemCode || '').trim()
+                || resolveCatalogItemCodeFromDescription(product)
+                || '';
         }
 
         if (product && qty > 0 && price >= 0) {
+            const catalogProduct =
+                findCatalogProductByCode(itemCode)
+                || findCatalogProductByDescription(product);
+            const lineUdfs = readLineStockUdfs(item);
             const line = {
                 product,
                 source,
@@ -366,6 +372,17 @@ function buildQuotationPayload() {
                 udfWidth: readQuotationLineField(item, '.item-udf-width'),
                 udfLength: readQuotationLineField(item, '.item-udf-length'),
             };
+            if (catalogProduct) {
+                line.stockDetail = catalogProduct;
+            }
+            const udfMerged = {
+                ...allStockUdfsFromObject(catalogProduct || {}),
+                ...allStockUdfsFromObject(readLineStockUdfs(item)),
+            };
+            Object.assign(line, udfMerged);
+            Object.keys(udfMerged).forEach((k) => {
+                line[udfCamelFromSnake(k)] = udfMerged[k];
+            });
             const dtlkeyRaw = item.dataset.dtlkey;
             if (dtlkeyRaw && String(dtlkeyRaw).trim() !== '') {
                 const dtlkey = parseInt(dtlkeyRaw, 10);
@@ -916,6 +933,16 @@ function onQuotationLineCellBlur(cell) {
         return;
     }
     if (cell.classList.contains('item-qty') || cell.classList.contains('item-discount')) {
+        if (cell.classList.contains('item-qty')) {
+            const productName = readQuotationLineField(row, '.item-product') || '';
+            const code = String(row.dataset.itemCode || '').trim();
+            const catalogProduct =
+                (code ? findCatalogProductByCode(code) : null)
+                || findCatalogProductByDescription(productName);
+            if (catalogProduct) {
+                applyQuotationLineStItemExtrasFromProduct(row, catalogProduct);
+            }
+        }
         calculateQuotationTotal();
     }
 }
@@ -1060,10 +1087,7 @@ function initQuotationLineTableEvents() {
         if (!el || !table.contains(el)) {
             return;
         }
-        if (el.matches(
-            '.item-product, .item-product-custom, .item-qty, .item-discount, .item-delivery-date, '
-            + '.item-udf-thickness, .item-udf-width, .item-udf-length'
-        )) {
+        if (el.matches('.item-product, .item-product-custom, .item-qty, .item-discount, .item-delivery-date')) {
             onQuotationLineCellBlur(el);
         }
     });
@@ -1160,6 +1184,7 @@ function applyQuotationLineStItemExtras(row, data) {
         ['.item-udf-length', 'udfLength'],
     ];
     fields.forEach(([sel, key]) => writeQuotationLineField(row, sel, pick(key)));
+    persistLineStockUdfs(row, allStockUdfsFromObject(src));
 }
 
 function applyQuotationLineStItemExtrasFromProduct(row, product) {
@@ -1170,14 +1195,25 @@ function applyQuotationLineStItemExtrasFromProduct(row, product) {
         clearQuotationLineStItemExtras(row);
         return;
     }
-    applyQuotationLineStItemExtras(row, {
-        udfMoq: stockItemUdfDisplayValue(product, 'UDF_MOQ', 'udf_moq'),
-        udfDleadtime: stockItemUdfDisplayValue(product, 'UDF_DLEADTIME', 'udf_dleadtime'),
-        udfBundle: stockItemUdfDisplayValue(product, 'UDF_BUNDLE', 'udf_bundle'),
-        udfThickness: stockItemUdfDisplayValue(product, 'UDF_THICKNESS', 'udf_thickness'),
-        udfWidth: stockItemUdfDisplayValue(product, 'UDF_WIDTH', 'udf_width'),
-        udfLength: stockItemUdfDisplayValue(product, 'UDF_LENGTH', 'udf_length'),
+    const udfPayload = { ...allStockUdfsFromObject(product) };
+    [
+        ['udf_moq', 'UDF_MOQ', 'udf_moq', 'udfMoq'],
+        ['udf_dleadtime', 'UDF_DLEADTIME', 'udf_dleadtime', 'udfDleadtime'],
+        ['udf_bundle', 'UDF_BUNDLE', 'udf_bundle', 'udfBundle'],
+        ['udf_thickness', 'UDF_THICKNESS', 'udf_thickness', 'udfThickness'],
+        ['udf_width', 'UDF_WIDTH', 'udf_width', 'udfWidth'],
+        ['udf_length', 'UDF_LENGTH', 'udf_length', 'udfLength'],
+    ].forEach(([snake, upper, lower, camel]) => {
+        const v = stockItemUdfDisplayValue(product, upper, lower, camel);
+        if (v) {
+            udfPayload[snake] = v;
+        }
     });
+    applyQuotationLineStItemExtras(row, udfPayload);
+    const code = String(product.CODE ?? product.code ?? '').trim();
+    if (code) {
+        row.dataset.itemCode = code;
+    }
 }
 
 function stockItemUdfDisplayValue(product, ...keys) {
@@ -1198,6 +1234,88 @@ function stockItemUdfDisplayValue(product, ...keys) {
         }
     }
     return '';
+}
+
+/** Collect every udf_* / udf* field from pricing API or catalog row (lowercase keys). */
+function allStockUdfsFromObject(obj) {
+    const out = {};
+    if (!obj || typeof obj !== 'object') {
+        return out;
+    }
+    const lower = {};
+    Object.keys(obj).forEach((k) => {
+        lower[String(k).toLowerCase()] = k;
+    });
+    Object.keys(obj).forEach((k) => {
+        const kl = String(k).toLowerCase();
+        if (!kl.startsWith('udf')) {
+            return;
+        }
+        const v = obj[k];
+        if (v == null || String(v).trim() === '') {
+            return;
+        }
+        let norm = kl;
+        if (kl.startsWith('udf_')) {
+            norm = kl;
+        } else if (kl.length > 3) {
+            const tail = k.slice(3);
+            norm = 'udf_' + tail.replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
+        }
+        out[norm] = String(v).trim();
+    });
+    if (obj.stockUdfs && typeof obj.stockUdfs === 'object') {
+        Object.assign(out, allStockUdfsFromObject(obj.stockUdfs));
+    }
+    return out;
+}
+
+function persistLineStockUdfs(row, udfMap) {
+    if (!row) {
+        return;
+    }
+    const map = udfMap || {};
+    if (Object.keys(map).length) {
+        row.dataset.stockUdfs = JSON.stringify(map);
+    } else {
+        delete row.dataset.stockUdfs;
+    }
+}
+
+function readLineStockUdfs(row) {
+    if (!row || !row.dataset.stockUdfs) {
+        return {};
+    }
+    try {
+        const parsed = JSON.parse(row.dataset.stockUdfs);
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (e) {
+        return {};
+    }
+}
+
+function udfCamelFromSnake(key) {
+    const k = String(key || '').toLowerCase();
+    if (!k.startsWith('udf_')) {
+        return k;
+    }
+    const parts = k.split('_');
+    return parts[0] + parts.slice(1).map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join('');
+}
+
+function findCatalogProductByCode(itemCode) {
+    const code = String(itemCode || '').trim();
+    if (!code || !availableProducts.length) {
+        return null;
+    }
+    const norm = (s) => String(s || '').trim().replace(/\s+/g, ' ');
+    const codeNorm = norm(code);
+    return (
+        availableProducts.find((p) => {
+            const c = norm(p.CODE ?? p.code ?? '');
+            return c && c.toUpperCase() === codeNorm.toUpperCase();
+        }) || null
+    );
 }
 
 function findCatalogProductByDescription(description) {
@@ -1347,14 +1465,7 @@ async function fetchProductPrice(input) {
                 calculateQuotationTotal();
             }
             if (row && inQuotationTable) {
-                applyQuotationLineStItemExtras(row, {
-                    udfMoq: data.udfMoq,
-                    udfDleadtime: data.udfDleadtime,
-                    udfBundle: data.udfBundle,
-                    udfThickness: data.udfThickness,
-                    udfWidth: data.udfWidth,
-                    udfLength: data.udfLength,
-                });
+                applyQuotationLineStItemExtras(row, data.stockUdfs || data);
             }
         } else if (row && inQuotationTable) {
             clearQuotationLineStItemExtras(row);

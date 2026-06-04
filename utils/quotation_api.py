@@ -1052,15 +1052,10 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
     def_proj = _default_quotation_line_project()
     def_irbm = _default_quotation_line_irbm()
     tenant_default_uom = ""
-    for idx, item in enumerate(data.get("items") or [], start=1):
-        qty = _as_decimal(item.get("qty") or 0)
-        unit_price = _as_decimal(item.get("price") or 0)
-        discount = _as_decimal(item.get("discount") or 0)
-        gross = qty * unit_price
-        line_amount = gross - discount
-        if line_amount < Decimal("0.00"):
-            line_amount = Decimal("0.00")
-        total_doc_amt += line_amount
+    for idx, raw_item in enumerate(data.get("items") or [], start=1):
+        if not isinstance(raw_item, dict):
+            continue
+        item = dict(raw_item)
 
         delivery_date = str(item.get("deliveryDate") or "").strip() or doc_date
         product_desc = str(item.get("product") or "").strip()
@@ -1078,6 +1073,41 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
         if not item_code and fallback_code:
             item_code = fallback_code
         item_code = _normalize_item_code(item_code)
+        if item_code:
+            item["itemCode"] = item_code
+
+        try:
+            from utils.stock_items_catalog import enrich_quotation_submit_line_item
+
+            item = enrich_quotation_submit_line_item(item)
+        except Exception:
+            pass
+
+        stock_master: dict = {}
+        for blob_key in ("stockDetail", "stockApi", "stockCatalog", "catalogRow"):
+            blob = item.get(blob_key)
+            if isinstance(blob, dict):
+                stock_master.update(blob)
+        if not stock_master and (item_code or product_desc):
+            try:
+                from utils.stock_items_catalog import find_catalog_stock_item_prefer_sql_api
+
+                hit = find_catalog_stock_item_prefer_sql_api(
+                    code=item_code, description=product_desc
+                )
+                if isinstance(hit, dict):
+                    stock_master = hit
+            except Exception:
+                pass
+
+        qty = _as_decimal(item.get("qty") or 0)
+        unit_price = _as_decimal(item.get("price") or 0)
+        discount = _as_decimal(item.get("discount") or 0)
+        gross = qty * unit_price
+        line_amount = gross - discount
+        if line_amount < Decimal("0.00"):
+            line_amount = Decimal("0.00")
+        total_doc_amt += line_amount
 
         try:
             dtlkey_val = int(item.get("dtlkey") or item.get("DTLKEY") or 0)
@@ -1124,7 +1154,6 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
                 "uom": line_uom,
                 "rate": "1",
                 "sqty": _fmt_money(qty),
-                "suomqty": _fmt_money(qty),
                 "unitprice": _fmt_money(unit_price),
                 "deliverydate": delivery_date,
                 "disc": disc_display,
@@ -1153,9 +1182,10 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
                 "changed": True,
         }
         for api_key, item_keys in (
-            ("udf_thickness", ("udfThickness", "udf_thickness")),
-            ("udf_width", ("udfWidth", "udf_width")),
-            ("udf_length", ("udfLength", "udf_length")),
+            ("udf_thickness", ("udfThickness", "udf_thickness", "UDF_THICKNESS")),
+            ("udf_width", ("udfWidth", "udf_width", "UDF_WIDTH")),
+            ("udf_length", ("udfLength", "udf_length", "UDF_LENGTH")),
+            ("udf_mtype", ("udfMtype", "udf_mtype", "UDF_MTYPE")),
         ):
             dim_val = ""
             for ik in item_keys:
@@ -1164,6 +1194,32 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
                     break
             if dim_val:
                 row[api_key] = dim_val
+
+        try:
+            from utils.stock_items_catalog import merge_item_and_stock_udf_fields_for_api
+
+            for udf_key, udf_val in merge_item_and_stock_udf_fields_for_api(item, stock_master).items():
+                if udf_val is None:
+                    continue
+                s = str(udf_val).strip() if not isinstance(udf_val, str) else udf_val.strip()
+                if s == "" and udf_val is not True and udf_val is not False:
+                    continue
+                row[udf_key] = udf_val
+        except Exception:
+            pass
+
+        mtype_final = str(
+            row.get("udf_mtype")
+            or item.get("udf_mtype")
+            or item.get("udfMtype")
+            or item.get("UDF_MTYPE")
+            or stock_master.get("udf_mtype")
+            or stock_master.get("UDF_MTYPE")
+            or ""
+        ).strip()
+        if mtype_final:
+            row["udf_mtype"] = mtype_final
+
         detail_rows.append(row)
 
     # SQL Accounting /salesquotation usually requires a valid ST_ITEM.CODE per line; empty codes often yield HTTP 500 "Operation aborted".
@@ -1445,9 +1501,11 @@ def create_or_update_quotation(base_api_url, customer_code, data):
             "yes",
             "on",
         ):
+            line0 = (payload.get("sdsdocdetail") or [{}])[0]
             print(
                 f"[quotation_api] salesquotation header currencycode={payload.get('currencycode')!r} "
-                f"customer_code={customer_code!r} docno={doc_no!r}",
+                f"customer_code={customer_code!r} docno={doc_no!r} "
+                f"line0 itemcode={line0.get('itemcode')!r} udf_mtype={line0.get('udf_mtype')!r}",
                 flush=True,
             )
 

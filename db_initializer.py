@@ -1846,6 +1846,56 @@ def _ensure_sl_qt_draft_tables(conn):
     )
 
 
+def _ensure_ph_po_udf_postatus_column(conn):
+    """Ensure PH_PO.UDF_POSTATUS for ApprovalPO purchase-order approval tabs."""
+    if not _relation_exists(conn, "PH_PO"):
+        print("[DB INIT] PH_PO not found; UDF_POSTATUS ensure skipped")
+        return False
+
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT f.RDB$FIELD_NAME
+            FROM RDB$RELATION_FIELDS f
+            WHERE f.RDB$RELATION_NAME = 'PH_PO' AND f.RDB$FIELD_NAME = 'UDF_POSTATUS'
+            """
+        )
+        if cur.fetchone():
+            print("[DB INIT] UDF_POSTATUS column already exists in PH_PO")
+            return True
+
+        conn.commit()
+        cur.execute("ALTER TABLE PH_PO ADD UDF_POSTATUS VARCHAR(40)")
+        conn.commit()
+        print("[DB INIT] UDF_POSTATUS column added to PH_PO")
+
+        try:
+            cur.execute(
+                """
+                UPDATE PH_PO
+                SET UDF_POSTATUS = 'PENDING'
+                WHERE UDF_POSTATUS IS NULL
+                   OR TRIM(COALESCE(UDF_POSTATUS, '')) = ''
+                """
+            )
+            conn.commit()
+            print("[DB INIT] PH_PO.UDF_POSTATUS backfilled to PENDING where blank")
+        except Exception as backfill_exc:
+            print(f"[DB INIT WARNING] PH_PO UDF_POSTATUS backfill skipped: {backfill_exc}")
+
+        return True
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "already exists" in error_msg or "duplicate" in error_msg:
+            print("[DB INIT] UDF_POSTATUS column already exists in PH_PO")
+            return True
+        print(f"[DB INIT WARNING] Could not add UDF_POSTATUS to PH_PO: {e}")
+        return False
+    finally:
+        cur.close()
+
+
 def _ensure_ph_pq_status_trigger(conn):
     """Trigger on PH_PQ that enforces UDF_PQAPPROVED based on UDF_STATUS.
 
@@ -1960,7 +2010,7 @@ def _ensure_ph_pqdtl_defaults_trigger(conn):
 
 
 def _ensure_procurement_bidding_tables(conn):
-    """Create bidding tables (invite/header/detail/line-award) and related objects if missing."""
+    """Create bidding tables (invite/header/detail/line-award/bid-log) and related objects if missing."""
     _execute_ddl(
         conn,
         """
@@ -2068,6 +2118,43 @@ def _ensure_procurement_bidding_tables(conn):
     )
     _execute_ddl(
         conn,
+        """
+        CREATE TABLE PR_BID_LOG (
+            LOG_ID INTEGER NOT NULL,
+            BID_ID INTEGER NOT NULL,
+            BID_DTL_ID INTEGER,
+            REQUEST_DOCKEY INTEGER NOT NULL,
+            REQUEST_NO VARCHAR(60),
+            SUPPLIER_CODE VARCHAR(30),
+            SOURCE_DTLKEY INTEGER NOT NULL,
+            ITEMCODE VARCHAR(60),
+            DESCRIPTION VARCHAR(255),
+            BID_QTY NUMERIC(18, 4),
+            BID_UNITPRICE NUMERIC(18, 4),
+            BID_TAXAMT NUMERIC(18, 4),
+            BID_AMOUNT NUMERIC(18, 4),
+            LEAD_DAYS INTEGER,
+            REMARKS VARCHAR(255),
+            DECISION VARCHAR(20),
+            ON_CURRENT_PR SMALLINT,
+            STATUS_NOTE VARCHAR(255),
+            EVENT_TYPE VARCHAR(30),
+            RECORDED_AT TIMESTAMP,
+            RECORDED_BY VARCHAR(120),
+            PRIMARY KEY (LOG_ID)
+        )
+        """,
+        success_message='[DB INIT] PR_BID_LOG table created.',
+        ignore_if_contains=['already exists', 'name in use', 'table unknown']
+    )
+    _execute_ddl(
+        conn,
+        'CREATE GENERATOR GEN_PR_BID_LOG_ID',
+        success_message='[DB INIT] GEN_PR_BID_LOG_ID generator created.',
+        ignore_if_contains=['already exists', 'name in use']
+    )
+    _execute_ddl(
+        conn,
         'CREATE INDEX IX_PR_BID_INVITE_REQ_SUP ON PR_BID_INVITE (REQUEST_DOCKEY, SUPPLIER_CODE)',
         success_message='[DB INIT] IX_PR_BID_INVITE_REQ_SUP index created.',
         ignore_if_contains=['already exists', 'name in use']
@@ -2094,6 +2181,18 @@ def _ensure_procurement_bidding_tables(conn):
         conn,
         'CREATE INDEX IX_PR_BID_AWARD_REQ ON PR_BID_LINE_AWARD (REQUEST_DOCKEY)',
         success_message='[DB INIT] IX_PR_BID_AWARD_REQ index created.',
+        ignore_if_contains=['already exists', 'name in use']
+    )
+    _execute_ddl(
+        conn,
+        'CREATE INDEX IX_PR_BID_LOG_BID ON PR_BID_LOG (BID_ID)',
+        success_message='[DB INIT] IX_PR_BID_LOG_BID index created.',
+        ignore_if_contains=['already exists', 'name in use']
+    )
+    _execute_ddl(
+        conn,
+        'CREATE INDEX IX_PR_BID_LOG_REQ_SUP ON PR_BID_LOG (REQUEST_DOCKEY, SUPPLIER_CODE)',
+        success_message='[DB INIT] IX_PR_BID_LOG_REQ_SUP index created.',
         ignore_if_contains=['already exists', 'name in use']
     )
     _execute_ddl(
@@ -2322,6 +2421,9 @@ def initialize_database(db_path, db_user, db_password):
         _ensure_pricing_priority_rule_table(conn)
         _ensure_pricing_priority_rule_context_column(conn)
         _seed_pricing_priority_rules(conn)
+
+        # ApprovalPO: PO header approval status (PENDING / APPROVED / CANCELLED / REJECTED)
+        _ensure_ph_po_udf_postatus_column(conn)
 
         # Ensure PH_PQ status/approval triggers exist
         _ensure_ph_pq_status_trigger(conn)

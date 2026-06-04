@@ -226,6 +226,33 @@ def _supplier_clean(value: Any) -> str:
     return str(value).strip()
 
 
+def looks_like_email(value: Any) -> bool:
+    text = _supplier_clean(value)
+    if not text or "@" not in text:
+        return False
+    local, _, domain = text.partition("@")
+    return bool(local.strip()) and "." in domain
+
+
+def resolve_supplier_company_name(supplier_code: str, stored_name: str = "") -> str:
+    """Prefer SQL API company name; never use an email address as PH_PQ / PR company name."""
+    code = _supplier_clean(supplier_code)
+    stored = _supplier_clean(stored_name)
+    company = ""
+    if code:
+        row = fetch_supplier_row_by_code(code)
+        if isinstance(row, dict):
+            raw = _supplier_clean(
+                row.get("companyname") or row.get("companyName") or row.get("COMPANYNAME")
+            )
+            if raw and not looks_like_email(raw):
+                company = raw
+    if company and (looks_like_email(stored) or not stored):
+        return company
+    if stored and not looks_like_email(stored):
+        return stored
+    return company or code or stored
+
 def supplier_billing_branch(supplier_row: dict[str, Any]) -> dict[str, Any]:
     """Prefer BILLING branch from SQL API ``sdsbranch`` array."""
     if not isinstance(supplier_row, dict):
@@ -262,6 +289,8 @@ def supplier_master_document_fields(supplier_row: dict[str, Any]) -> dict[str, A
     company = _supplier_clean(
         supplier_row.get("companyname") or supplier_row.get("companyName") or supplier_row.get("COMPANYNAME")
     )
+    if looks_like_email(company):
+        company = ""
     credit = _supplier_clean(supplier_row.get("creditterm") or supplier_row.get("creditTerm"))
     cc = _format_currency_display_value(
         supplier_row.get("currencycode") or supplier_row.get("currencyCode")

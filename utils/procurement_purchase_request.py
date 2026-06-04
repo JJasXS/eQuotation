@@ -998,18 +998,21 @@ def set_purchase_request_header_supplier(
     code = _normalize_supplier_id_for_header(supplier_code)
     if not code:
         return None
-    fallback_name = _clean_text(supplier_name) or code
 
     from utils.procurement_pr_sql_api import (
         ph_pq_header_updates_from_sql_supplier,
         resolve_pr_currency_code,
     )
-    from utils.sql_api_supplier import fetch_supplier_row_by_code
+    from utils.sql_api_supplier import fetch_supplier_row_by_code, looks_like_email, resolve_supplier_company_name
+
+    fallback_name = resolve_supplier_company_name(code, supplier_name)
 
     sql_row = fetch_supplier_row_by_code(code)
     if sql_row:
         updates = ph_pq_header_updates_from_sql_supplier(sql_row)
         name = _clean_text(updates.get("COMPANYNAME")) or fallback_name
+        if looks_like_email(name):
+            name = fallback_name
         currency = _clean_text(updates.get("CURRENCYCODE") or updates.get("CURRENCY")) or "----"
     else:
         name = fallback_name

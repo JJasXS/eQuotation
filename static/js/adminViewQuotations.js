@@ -76,6 +76,34 @@ let adminDateTo = '';
 /** First page shows 5 rows; each "more" adds 10 */
 let listVisibleLimit = { drafts: 5, pending: 5, reviewed: 5, cancelled: 5 };
 
+function lineSqty(item) {
+    const sq = Number(item.SQTY || 0);
+    if (sq > 0) {
+        return sq;
+    }
+    return Number(item.QTY || 0);
+}
+
+function lineSuomQty(item) {
+    return Number(item.SUOMQTY || 0);
+}
+
+function formatQtyCell(value) {
+    const n = Number(value || 0);
+    return n > 0 ? n.toFixed(2) : '—';
+}
+
+function lineItemAmount(item) {
+    const sqty = lineSqty(item);
+    const suomQty = lineSuomQty(item);
+    const qtyForAmount = sqty > 0 ? sqty : suomQty > 0 ? suomQty : Number(item.QTY || 0);
+    const discNum = Number(item.DISC || 0);
+    if (Number(item.AMOUNT) > 0) {
+        return Number(item.AMOUNT);
+    }
+    return Math.max(0, qtyForAmount * Number(item.UNITPRICE || 0) - discNum);
+}
+
 function isCustomerMyQuotationsPage() {
     try {
         return document.body && document.body.getAttribute('data-quotations-list-source') === 'mine';
@@ -954,17 +982,19 @@ async function renderQuotationDetail(currentList, options = {}) {
         }
 
         let itemsHtml = '<table class="quotation-items-table">';
-        itemsHtml += '<colgroup><col style="width:36%" /><col style="width:16%" /><col style="width:14%" /><col style="width:16%" /><col style="width:18%" /></colgroup>';
+        itemsHtml += '<colgroup><col style="width:30%" /><col style="width:12%" /><col style="width:10%" /><col style="width:10%" /><col style="width:12%" /><col style="width:16%" /></colgroup>';
         itemsHtml += '<thead><tr>';
-        itemsHtml += '<th scope="col">Item</th><th scope="col">Price</th><th scope="col">Qty</th><th scope="col">Discount</th><th scope="col">Subtotal</th>';
+        itemsHtml += '<th scope="col">Item</th><th scope="col">Price</th><th scope="col">Qty</th><th scope="col">S/U Qty</th><th scope="col">Discount</th><th scope="col">Subtotal</th>';
         itemsHtml += '</tr></thead><tbody>';
         let total = 0;
         items.forEach((item) => {
-            const qty = Number(item.QTY || 0).toFixed(2);
+            const sqty = lineSqty(item);
+            const suomQty = lineSuomQty(item);
+            const qtyDisplay = formatQtyCell(sqty);
+            const suomDisplay = formatQtyCell(suomQty);
             const price = Number(item.UNITPRICE || 0).toFixed(2);
             const discount = Number(item.DISC || 0).toFixed(2);
-            const discNum = Number(item.DISC || 0);
-            const amountRow = Math.max(0, Number(item.QTY || 0) * Number(item.UNITPRICE || 0) - discNum).toFixed(2);
+            const amountRow = lineItemAmount(item).toFixed(2);
             total += parseFloat(amountRow);
             // SL_QTDTL.ITEMCODE can be NULL when the line is description-only; JSON null must not render as the string "null".
             const itemCode = item.ITEMCODE != null ? String(item.ITEMCODE).trim() : '';
@@ -980,10 +1010,10 @@ async function renderQuotationDetail(currentList, options = {}) {
                 : '<td><span style="color: var(--ice-text-muted, #5a7a94);">—</span></td>';
             itemsHtml += '<tr>';
             itemsHtml += itemCell;
-            itemsHtml += `<td>RM ${price}</td><td>${qty}</td><td>RM ${discount}</td><td style="font-weight: 600;">RM ${amountRow}</td>`;
+            itemsHtml += `<td>RM ${price}</td><td>${qtyDisplay}</td><td>${suomDisplay}</td><td>RM ${discount}</td><td style="font-weight: 600;">RM ${amountRow}</td>`;
             itemsHtml += '</tr>';
         });
-        itemsHtml += `<tr class="quotation-items-total"><td colspan="4">TOTAL</td><td>RM ${total.toFixed(2)}</td></tr>`;
+        itemsHtml += `<tr class="quotation-items-total"><td colspan="5">TOTAL</td><td>RM ${total.toFixed(2)}</td></tr>`;
         itemsHtml += '</tbody></table>';
         detailContainer.innerHTML = itemsHtml;
     } catch (error) {

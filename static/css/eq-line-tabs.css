@@ -93,8 +93,8 @@ body.procurement-warm-ui #panel-view .pr-view-page-header--compact .pr-view-filt
     padding: 9px 16px;
 }
 
-/* Supplier bidding invitation filters */
-.sb-invite-tabs.eq-line-tabs {
+/* Supplier bidding invitation filters — vertical sidebar in list pane */
+.sb-invite-tabs.eq-line-tabs:not(.sb-invite-tabs--side) {
     border-top: 1px solid var(--ice-border-soft, #c5dce9);
     border-radius: 0;
 }

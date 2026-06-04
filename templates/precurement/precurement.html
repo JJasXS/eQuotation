@@ -7470,6 +7470,42 @@
 
 
 
+        function readViewStatusFromUrl() {
+            try {
+                const raw = new URLSearchParams(window.location.search || '').get('status');
+                const s = String(raw || '').trim().toUpperCase();
+                return VIEW_STATUS_FILTER_OPTIONS.includes(s) ? s : null;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function syncViewStatusToUrl() {
+            try {
+                const url = new URL(window.location.href);
+                const tab = String(url.searchParams.get('tab') || '').toLowerCase();
+                if (tab !== 'view') {
+                    return;
+                }
+                const active = viewStatusFilters instanceof Set ? [...viewStatusFilters][0] : null;
+                if (active && VIEW_STATUS_FILTER_OPTIONS.includes(active)) {
+                    url.searchParams.set('status', active.toLowerCase());
+                } else {
+                    url.searchParams.delete('status');
+                }
+                history.replaceState({}, '', url);
+            } catch (e) { /* ignore */ }
+        }
+
+        function applyViewStatusFromUrl() {
+            const fromUrl = readViewStatusFromUrl();
+            if (!fromUrl) {
+                return;
+            }
+            viewStatusFilters = new Set([fromUrl]);
+            syncViewStatusFilterTabClasses();
+        }
+
         function setProcurementUrlTab(tabName) {
 
 
@@ -8000,65 +8036,19 @@
 
 
             if (selected === 'create') {
-
-
-
-
-
-
-
-
-
-
-
                 if (!Array.isArray(window.purchaseRequestItems) || !window.purchaseRequestItems.length) {
-
-
-
-
-
-
-
-
-
-
-
                     initPurchaseRequestForm();
-
-
-
-
-
-
-
-
-
-
-
                 }
-
-
-
-
-
-
-
-
-
-
-
+                if (Array.isArray(window.purchaseRequestItems)) {
+                    window.purchaseRequestItems.forEach((it) => {
+                        cachePrLineUdfWtp(it, null);
+                        if (resolvePrLineUdfWeight(it) != null && Number(it.qtySqty || 0) > 0) {
+                            applyPrLineSuomFromSqtyUdfWeight(it);
+                            syncPrLineQuantityDerived(it);
+                        }
+                    });
+                }
                 renderPurchaseRequestLineItems();
-
-
-
-
-
-
-
-
-
-
-
             }
 
 
@@ -9179,101 +9169,48 @@
 
 
         /** SUOMQTY = SQTY × UDF_WTP when the item has a positive WTP in ST_ITEM. */
+        function cachePrLineUdfWtp(item, product) {
+            if (!item) return null;
+            const src = product || findPrProductByCode(item.itemCode);
+            const w = prItemUdfWeight(src);
+            if (w != null) item.udfWtp = w;
+            return w;
+        }
 
-
-
-
-
-
-
-
-
-
+        function resolvePrLineUdfWeight(item) {
+            if (!item) return null;
+            if (item.udfWtp != null && item.udfWtp !== '') {
+                const n = Number(String(item.udfWtp).replace(/,/g, '').trim());
+                if (Number.isFinite(n) && n > 0) return n;
+            }
+            return cachePrLineUdfWtp(item, null);
+        }
 
         function applyPrLineSuomFromSqtyUdfWeight(item) {
-
-
-
-
-
-
-
-
-
-
-
             if (!item) return;
-
-
-
-
-
-
-
-
-
-
-
-            const w = prItemUdfWeight(findPrProductByCode(item.itemCode));
-
-
-
-
-
-
-
-
-
-
-
+            const w = resolvePrLineUdfWeight(item);
             if (w == null) return;
-
-
-
-
-
-
-
-
-
-
-
             const qs = Number(item.qtySqty || 0);
+            item.qtySuomqty = Math.round(qs * w * 10000) / 10000;
+        }
 
-
-
-
-
-
-
-
-
-
-
-            const su = qs * w;
-
-
-
-
-
-
-
-
-
-
-
-            item.qtySuomqty = Math.round(su * 10000) / 10000;
-
-
-
-
-
-
-
-
-
-
-
+        function refreshPrLineSuomQtyDisplay(index, item, sqInputEl) {
+            if (!item) return;
+            applyPrLineSuomFromSqtyUdfWeight(item);
+            syncPrLineQuantityDerived(item);
+            const row = document.querySelector(`#pr-line-items-body tr[data-pr-index="${index}"]`);
+            const w = resolvePrLineUdfWeight(item);
+            if (!row || w == null) return;
+            const suEl = row.querySelector('[data-pr-field="qtySuomqty"]');
+            setTimeout(() => {
+                const active = sqInputEl && document.body && document.body.contains(sqInputEl) ? sqInputEl : null;
+                if (suEl && suEl.tagName === 'SPAN') {
+                    suEl.textContent = formatStockCardNumber(Number(item.qtySuomqty || 0));
+                }
+                if (active && typeof active.focus === 'function') {
+                    try { active.focus({ preventScroll: true }); } catch (_) { active.focus(); }
+                }
+            }, 0);
         }
 
 
@@ -13547,6 +13484,54 @@
 
 
 
+            syncViewStatusToUrl();
+
+
+
+
+
+
+
+
+
+
+
+            if (viewSelectedHeaderId != null) {
+
+
+
+
+
+
+
+
+
+
+
+                refreshSelectedViewPurchaseRequestDetail(true);
+
+
+
+
+
+
+
+
+
+
+
+            }
+
+
+
+
+
+
+
+
+
+
+
         }
 
 
@@ -16511,6 +16496,18 @@
 
 
 
+                invalidateViewDetailCache(headerId);
+
+
+
+
+
+
+
+
+
+
+
                 loadViewPurchaseRequests(true);
 
 
@@ -18291,6 +18288,171 @@
 
 
 
+                (() => {
+
+
+
+
+
+
+
+
+
+
+                    const affectedIds = new Set([
+
+
+
+
+
+
+
+
+
+
+                        ...Array.from(viewApprovalPendingChanges.values()).map((change) => Number(change.requestId || 0)),
+
+
+
+
+
+
+
+
+
+
+                        ...Array.from(viewHeaderStatusPendingChanges.values()).map((change) => Number(change.requestId || 0)),
+
+
+
+
+
+
+
+
+
+
+                    ]);
+
+
+
+
+
+
+
+
+
+
+                    affectedIds.forEach((id) => {
+
+
+
+
+
+
+
+
+
+
+                        if (!id) return;
+
+
+
+
+
+
+
+
+
+
+                        const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === id);
+
+
+
+
+
+
+
+
+
+
+                        if (header && Array.isArray(header.details)) {
+
+
+
+
+
+
+
+
+
+
+                            syncViewDetailCacheFromRecord(header);
+
+
+
+
+
+
+
+
+
+
+                        } else {
+
+
+
+
+
+
+
+
+
+
+                            invalidateViewDetailCache(id);
+
+
+
+
+
+
+
+
+
+
+                        }
+
+
+
+
+
+
+
+
+
+
+                    });
+
+
+
+
+
+
+
+
+
+
+                })();
+
+
+
+
+
+
+
+
+
+
                 viewApprovalPendingChanges.clear();
 
 
@@ -18342,6 +18504,7 @@
 
 
                 await loadViewPurchaseRequests(true);
+                await refreshSelectedViewPurchaseRequestDetail(true);
                 if (headerStatusSaveFailed) {
                     alert(`Line approvals saved, but header status update failed: ${headerStatusError || 'SQL API returned an error.'}`);
                 }
@@ -22852,7 +23015,7 @@
 
 
 
-            if ((!Array.isArray(record.details) || !record.details.length) && cached && (Date.now() - cached.at <= VIEW_DETAIL_CACHE_TTL_MS)) {
+            if ((!Array.isArray(record.details) || !record.details.length) && shouldUseViewDetailCache(record, cached)) {
 
 
 
@@ -23691,6 +23854,84 @@
                 });
         }
 
+        function shouldUseViewDetailCache(header, cached) {
+            if (!cached || Date.now() - Number(cached.at || 0) > VIEW_DETAIL_CACHE_TTL_MS) {
+                return false;
+            }
+            const details = Array.isArray(cached.details) ? cached.details : [];
+            if (!details.length) {
+                return false;
+            }
+            const headerStatus = normalizeUdfStatus(header?._originalUdfStatus || header?.udfStatus);
+            if (headerStatus === 'APPROVED') {
+                const hasTransferableLine = details.some((detail) => isDetailChecked(detail));
+                if (!hasTransferableLine) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        function invalidateViewDetailCache(headerId) {
+            const id = Number(headerId || 0);
+            if (!id) {
+                return;
+            }
+            viewDetailCache.delete(id);
+            try {
+                const controller = viewDetailFetchControllers.get(id);
+                if (controller) {
+                    controller.abort();
+                }
+            } catch (e) { /* no-op */ }
+            viewDetailFetchControllers.delete(id);
+            viewDetailFetchPromises.delete(id);
+            viewDetailFetchStartedAtMs.delete(id);
+            const record = viewPurchaseRequests.find((row) => Number(row.id || 0) === id);
+            if (record) {
+                record.details = null;
+                record._detailError = '';
+            }
+        }
+
+        function syncViewDetailCacheFromRecord(record) {
+            const id = Number(record?.id || 0);
+            if (!id || !Array.isArray(record.details)) {
+                return;
+            }
+            viewDetailCache.set(id, {
+                at: Date.now(),
+                details: record.details,
+                totalAmount: record.totalAmount,
+                suppliers: record._suppliers,
+            });
+        }
+
+        function refreshSelectedViewPurchaseRequestDetail(forceRefresh) {
+            const selectedId = viewSelectedHeaderId != null ? Number(viewSelectedHeaderId) : 0;
+            if (!selectedId) {
+                return Promise.resolve();
+            }
+            const record = viewPurchaseRequests.find((row) => Number(row.id || 0) === selectedId);
+            if (!record) {
+                return Promise.resolve();
+            }
+            if (forceRefresh) {
+                invalidateViewDetailCache(selectedId);
+            }
+            viewLoadingDetailIds.add(selectedId);
+            renderFilteredViewPurchaseRequests();
+            return fetchViewPurchaseRequestDetail(record, Boolean(forceRefresh))
+                .catch((error) => {
+                    console.warn('[View PR] Failed to refresh selected detail:', error);
+                    record._detailError = error && error.message ? String(error.message) : 'Failed to load detail rows';
+                })
+                .finally(() => {
+                    viewLoadingDetailIds.delete(selectedId);
+                    renderFilteredViewPurchaseRequests();
+                });
+        }
+
         function fetchViewPurchaseRequestDetail(record, forceRefresh) {
 
 
@@ -23775,7 +24016,7 @@
 
 
 
-            if (!forceRefresh && cached && (Date.now() - cached.at <= VIEW_DETAIL_CACHE_TTL_MS)) {
+            if (!forceRefresh && shouldUseViewDetailCache(record, cached)) {
 
 
 
@@ -25469,18 +25710,6 @@
 
 
             viewSelectedHeaderId = null;
-
-
-
-
-
-
-
-
-
-
-
-            viewStatusFilters = new Set(['PENDING']);
 
 
 
@@ -32950,54 +33179,10 @@
 
 
 
-                const w = prItemUdfWeight(typeof findPrProductByCode === 'function' ? findPrProductByCode(code) : null);
-
-
-
-
-
-
-
-
-
-
-
-                if (w != null && Number(o.qtySqty || 0) > 0 && Number(o.qtySuomqty || 0) === 0) {
-
-
-
-
-
-
-
-
-
-
-
-                    o.qtySuomqty = Math.round(Number(o.qtySqty) * w * 10000) / 10000;
-
-
-
-
-
-
-
-
-
-
-
+                cachePrLineUdfWtp(o, product);
+                if (resolvePrLineUdfWeight(o) != null && Number(o.qtySqty || 0) > 0) {
+                    applyPrLineSuomFromSqtyUdfWeight(o);
                     syncPrLineQuantityDerived(o);
-
-
-
-
-
-
-
-
-
-
-
                 }
 
 
@@ -45575,42 +45760,10 @@
 
 
 
+            const codeUpper = code.toUpperCase();
             return prCatalogProducts.find((p) => {
-
-
-
-
-
-
-
-
-
-
-
                 const c = String((p && (p.CODE != null ? p.CODE : p.code)) || '').trim();
-
-
-
-
-
-
-
-
-
-
-
-                return c === code;
-
-
-
-
-
-
-
-
-
-
-
+                return c.toUpperCase() === codeUpper;
             }) || null;
 
 
@@ -47630,41 +47783,8 @@
 
 
             ensurePrLineUom(item, product);
-
-
-
-
-
-
-
-
-
-
-
             prefetchPrProductUoms(code);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+            cachePrLineUdfWtp(item, product);
             applyPrLineSuomFromSqtyUdfWeight(item);
 
 
@@ -47810,78 +47930,12 @@
 
 
                         window.purchaseRequestItems.forEach((it) => {
-
-
-
-
-
-
-
-
-
-
-
-                            const w = prItemUdfWeight(findPrProductByCode(it.itemCode));
-
-
-
-
-
-
-
-
-
-
-
-                            if (w != null && Number(it.qtySqty || 0) > 0 && Number(it.qtySuomqty || 0) === 0) {
-
-
-
-
-
-
-
-
-
-
-
-                                applyPrLineSuomFromSqtyUdfWeight(it);
-
-
-
-
-
-
-
-
-
-
-
-                                syncPrLineQuantityDerived(it);
-
-
-
-
-
-
-
-
-
-
-
-                            }
-
-
-
-
-
-
-
-
-
-
-
-                        });
+                        cachePrLineUdfWtp(it, null);
+                        if (resolvePrLineUdfWeight(it) != null && Number(it.qtySqty || 0) > 0) {
+                            applyPrLineSuomFromSqtyUdfWeight(it);
+                            syncPrLineQuantityDerived(it);
+                        }
+                    });
 
 
 
@@ -49311,197 +49365,17 @@
 
 
                 if (key === 'qtySqty' || key === 'qtySuomqty') {
-
-
-
-
-
-
-
-
-
-
-
                     const item = window.purchaseRequestItems[index];
-
-
-
-
-
-
-
-
-
-
-
                     if (key === 'qtySqty') {
-
-
-
-
-
-
-
-
-
-
-
-                        applyPrLineSuomFromSqtyUdfWeight(item);
-
-
-
-
-
-
-
-
-
-
-
+                        const row = document.querySelector(`#pr-line-items-body tr[data-pr-index="${index}"]`);
+                        const sqInputEl = row ? row.querySelector('[data-pr-field="qtySqty"]') : null;
+                        refreshPrLineSuomQtyDisplay(index, item, sqInputEl);
+                    } else {
+                        syncPrLineQuantityDerived(item);
                     }
-
-
-
-
-
-
-
-
-
-
-
-                    syncPrLineQuantityDerived(item);
-
-
-
-
-
-
-
-
-
-
-
-                    const row = document.querySelector(`#pr-line-items-body tr[data-pr-index="${index}"]`);
-
-
-
-
-
-
-
-
-
-
-
-                    if (row && key === 'qtySqty' && prItemUdfWeight(findPrProductByCode(item.itemCode)) != null) {
-
-
-
-
-
-
-
-
-
-
-
-                        const suEl = row.querySelector('[data-pr-field="qtySuomqty"]');
-
-
-
-
-
-
-
-
-
-
-
-                        if (suEl && suEl.tagName === 'SPAN') {
-
-
-
-
-
-
-
-
-
-
-
-                            suEl.textContent = formatStockCardNumber(Number(item.qtySuomqty || 0));
-
-
-
-
-
-
-
-
-
-
-
-                        }
-
-
-
-
-
-
-
-
-
-
-
-                    }
-
-
-
-
-
-
-
-
-
-
-
                     updatePurchaseRequestRowAmount(index);
-
-
-
-
-
-
-
-
-
-
-
                     recalcPurchaseRequestTotals();
-
-
-
-
-
-
-
-
-
-
-
                     return;
-
-
-
-
-
-
-
-
-
-
-
                 }
 
 
@@ -56927,6 +56801,18 @@
 
 
                     const tab = String(params.get('tab') || 'report').trim();
+
+
+
+
+
+
+
+
+
+
+
+                    applyViewStatusFromUrl();
 
 
 

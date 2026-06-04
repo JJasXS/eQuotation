@@ -192,6 +192,23 @@ function parseDisc(item) {
     return Number.isFinite(n) ? n : 0;
 }
 
+function lineSqty(item) {
+    const sq = Number(item.SQTY || 0);
+    if (sq > 0) {
+        return sq;
+    }
+    return Number(item.QTY || 0);
+}
+
+function lineSuomQty(item) {
+    return Number(item.SUOMQTY || 0);
+}
+
+function formatQtyCell(value) {
+    const n = Number(value || 0);
+    return n > 0 ? n.toFixed(2) : '—';
+}
+
 function renderLineItemsBlock(items) {
     if (!items || items.length === 0) {
         return '<p class="view-qt-detail-error">No line items.</p>';
@@ -199,10 +216,14 @@ function renderLineItemsBlock(items) {
     let total = 0;
     let rows = '';
     items.forEach((item) => {
-        const qty = Number(item.QTY || 0);
+        const sqty = lineSqty(item);
+        const suomQty = lineSuomQty(item);
+        const qtyForAmount = sqty > 0 ? sqty : suomQty > 0 ? suomQty : Number(item.QTY || 0);
         const price = Number(item.UNITPRICE || 0);
         const disc = parseDisc(item);
-        const amount = Math.max(0, qty * price - disc);
+        const amount = Number(item.AMOUNT) > 0
+            ? Number(item.AMOUNT)
+            : Math.max(0, qtyForAmount * price - disc);
         total += amount;
         const code = escapeHtml(item.ITEMCODE || '');
         const desc = escapeHtml(item.DESCRIPTION || '');
@@ -212,7 +233,8 @@ function renderLineItemsBlock(items) {
         rows += '<tr>';
         rows += `<td><div>${code}</div><span class="view-qt-line-desc">${desc}</span>${deliv}</td>`;
         rows += `<td class="num">${price.toFixed(2)}</td>`;
-        rows += `<td class="num">${qty.toFixed(2)}</td>`;
+        rows += `<td class="num">${formatQtyCell(sqty)}</td>`;
+        rows += `<td class="num">${formatQtyCell(suomQty)}</td>`;
         rows += `<td class="num">${disc.toFixed(2)}</td>`;
         rows += `<td class="num">${amount.toFixed(2)}</td>`;
         rows += '</tr>';
@@ -228,6 +250,7 @@ function renderLineItemsBlock(items) {
                             <th>Item</th>
                             <th class="num">Price</th>
                             <th class="num">Qty</th>
+                            <th class="num">S/U Qty</th>
                             <th class="num">Discount</th>
                             <th class="num">Subtotal</th>
                         </tr>

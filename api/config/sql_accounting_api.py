@@ -80,6 +80,17 @@ class SqlAccountingApiSettings:
             path = "/" + path
         return f"{scheme}://{host}{quote(path, safe='/:?&=%*')}"
 
+    def resolved_stock_item_detail_url(self, code: str) -> str:
+        """Full URL for one stock item GET (``/stockitem/{code}`` — includes line UDFs such as ``udf_mtype``)."""
+        scheme = "https" if self.use_tls else "http"
+        host = self.host.strip().rstrip("/")
+        base_path = (self.stock_item_list_path or "/stockitem").strip().rstrip("/")
+        if not base_path.startswith("/"):
+            base_path = "/" + base_path
+        item_code = str(code or "").strip()
+        path = f"{base_path}/{quote(item_code, safe='')}"
+        return f"{scheme}://{host}{quote(path, safe='/:?&=%*')}"
+
     def resolved_quotation_create_url(self) -> str:
         """Full URL for sales quotation create POST."""
         scheme = "https" if self.use_tls else "http"
