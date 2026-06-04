@@ -30,8 +30,51 @@ PRICING_PRIORITY_RULE_PURCHASING_DEFAULTS = [
 PRICING_PRIORITY_RULE_DEFAULTS = PRICING_PRIORITY_RULE_SALES_DEFAULTS
 
 
+def _generator_exists(conn, generator_name):
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT COUNT(*) FROM RDB$GENERATORS WHERE RDB$GENERATOR_NAME = ?",
+            (generator_name.upper(),),
+        )
+        row = cur.fetchone()
+        return bool(row and int(row[0] or 0) > 0)
+    finally:
+        cur.close()
+
+
+def _parse_create_generator_name(sql):
+    sql_stripped = (sql or "").strip()
+    if not sql_stripped.upper().startswith("CREATE GENERATOR"):
+        return None
+    parts = sql_stripped.split()
+    if len(parts) >= 3:
+        return parts[2].strip().rstrip(";")
+    return None
+
+
+def _is_benign_generator_create_error(error_text):
+    error_text = (error_text or "").lower()
+    return any(
+        token in error_text
+        for token in (
+            "already exists",
+            "name in use",
+            "create sequence",
+            "create generator",
+            "336068862",
+            "unsuccessful metadata update",
+        )
+    )
+
+
 def _execute_ddl(conn, sql, success_message=None, ignore_if_contains=None):
     ignore_if_contains = ignore_if_contains or []
+    generator_name = _parse_create_generator_name(sql)
+    if generator_name and _generator_exists(conn, generator_name):
+        print(f"[DB INIT] {generator_name} generator already exists.")
+        return
+
     cur = conn.cursor()
     try:
         cur.execute(sql)
@@ -41,6 +84,11 @@ def _execute_ddl(conn, sql, success_message=None, ignore_if_contains=None):
     except Exception as e:
         error_text = str(e).lower()
         if any(token.lower() in error_text for token in ignore_if_contains):
+            return
+        if generator_name and _is_benign_generator_create_error(error_text):
+            print(
+                f"[DB INIT] {generator_name} generator already exists or could not be created (skipped)."
+            )
             return
         print(f"[DB INIT ERROR] {e}")
     finally:

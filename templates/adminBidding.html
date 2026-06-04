@@ -193,6 +193,9 @@
 
         let seenPrIds = new Set();
 
+        /** Per PR: highest bidId the user has already viewed (only newer bids show "New"). */
+        let seenLatestBidIdByPr = new Map();
+
         let currentBidLineAwards = new Map();
 
         let lineAwardsLocked = false;
@@ -873,6 +876,10 @@
 
 
 
+            const prId = Number(activePr?.id || 0);
+            const latestBidId = Number(bids[0]?.bidId || 0);
+            const lastSeenLatestBidId = Number(seenLatestBidIdByPr.get(prId) || 0);
+
             const gate = body.gate || {};
 
             lineAwardsLocked = !!gate.lineAwardsLocked;
@@ -1034,11 +1041,15 @@
 
 
 
-            const bidsHtml = bids.map((bid, idx) => {
+            const bidsHtml = bids.map((bid) => {
 
                 const status = esc(bid.status || '');
 
-                const newBadge = idx === 0 ? '<span class="new-badge">New</span>' : '';
+                const bidIdNum = Number(bid.bidId || 0);
+                const isLatestBid = bidIdNum > 0 && bidIdNum === latestBidId;
+                const newBadge = (isLatestBid && latestBidId > lastSeenLatestBidId)
+                    ? '<span class="new-badge">New</span>'
+                    : '';
 
                 const supplierCode = String(bid.supplierCode || '').trim();
 
@@ -1135,6 +1146,10 @@
 
 
             if (bidsWrap) bidsWrap.innerHTML = bidsHtml;
+
+            if (prId > 0 && latestBidId > 0) {
+                seenLatestBidIdByPr.set(prId, latestBidId);
+            }
 
             setSelectionUi();
 
