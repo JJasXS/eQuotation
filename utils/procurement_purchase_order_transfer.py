@@ -36,13 +36,25 @@ def _coerce_bool(value: Any) -> bool:
     return text in {"true", "1", "t", "y", "yes"}
 
 
-def _detail_is_transferable(source: dict[str, Any], *, override: bool | None = None) -> bool:
+def _detail_is_transferable(
+    source: dict[str, Any],
+    *,
+    override: bool | None = None,
+    header_udf_status: str | None = None,
+) -> bool:
     """Line may transfer when TRANSFERABLE is true (UI approval checkbox syncs this column)."""
     if override is True:
         return True
     if override is False:
         return False
-    return _coerce_bool(source.get("transferable")) or _coerce_bool(source.get("TRANSFERABLE"))
+    if _coerce_bool(source.get("transferable")) or _coerce_bool(source.get("TRANSFERABLE")):
+        return True
+    if _normalize_udf_status(header_udf_status) == "APPROVED":
+        for key in ("udf_pqapproved", "udfPqApproved", "UDF_PQAPPROVED"):
+            if key in source and source.get(key) is not None and not _coerce_bool(source.get(key)):
+                return False
+        return True
+    return False
 
 
 def _transferable_override_map(transfer_lines: list[dict[str, Any]]) -> dict[int, bool]:
@@ -342,6 +354,7 @@ def transfer_purchase_request_to_po(
             if not _detail_is_transferable(
                 source,
                 override=transferable_overrides.get(detail_id),
+                header_udf_status=_normalize_udf_status(purchase_request.get("udf_status")),
             ):
                 raise PurchaseOrderTransferValidationError(
                     f"purchase request detail {detail_id} is not transferable"

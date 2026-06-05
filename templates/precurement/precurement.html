@@ -7480,7 +7480,30 @@
             }
         }
 
+        function readViewPrUrlParams() {
+            try {
+                const params = new URLSearchParams(window.location.search || '');
+                const idRaw = params.get('id') || params.get('prId') || params.get('request_id') || '';
+                const id = Number(idRaw) || 0;
+                const docno = String(
+                    params.get('docno') || params.get('pr') || params.get('requestNumber') || ''
+                ).trim();
+                const status = String(params.get('status') || '').trim().toUpperCase();
+                return {
+                    id: id > 0 ? id : 0,
+                    docno,
+                    status: VIEW_STATUS_FILTER_OPTIONS.includes(status) ? status : null,
+                };
+            } catch (e) {
+                return { id: 0, docno: '', status: null };
+            }
+        }
+
         function syncViewStatusToUrl() {
+            syncViewPrToUrl();
+        }
+
+        function syncViewPrToUrl() {
             try {
                 const url = new URL(window.location.href);
                 const tab = String(url.searchParams.get('tab') || '').toLowerCase();
@@ -7493,8 +7516,120 @@
                 } else {
                     url.searchParams.delete('status');
                 }
-                history.replaceState({}, '', url);
+                const selectedId = viewSelectedHeaderId != null ? Number(viewSelectedHeaderId) : 0;
+                const record = selectedId > 0
+                    ? (viewPurchaseRequests || []).find((row) => Number(row.id || 0) === selectedId)
+                    : null;
+                if (record && selectedId > 0) {
+                    url.searchParams.set('id', String(selectedId));
+                    const docno = String(record.requestNumber || '').trim();
+                    if (docno) {
+                        url.searchParams.set('docno', docno);
+                    } else {
+                        url.searchParams.delete('docno');
+                    }
+                } else {
+                    url.searchParams.delete('id');
+                    url.searchParams.delete('docno');
+                }
+                history.replaceState({ viewPrId: selectedId > 0 ? selectedId : null }, '', url);
             } catch (e) { /* ignore */ }
+        }
+
+        function findViewPrRowFromUrlParams() {
+            const { id, docno } = readViewPrUrlParams();
+            if (!(id > 0) && !docno) return null;
+            const rows = viewPurchaseRequests || [];
+            if (id > 0) {
+                const byId = rows.find((row) => Number(row.id || 0) === id);
+                if (byId) return byId;
+            }
+            if (docno) {
+                const key = docno.toUpperCase();
+                return rows.find(
+                    (row) => String(row.requestNumber || '').trim().toUpperCase() === key
+                ) || null;
+            }
+            return null;
+        }
+
+        function selectViewPrFromUrlIfPresent(options) {
+            const opts = options || {};
+            const row = findViewPrRowFromUrlParams();
+            if (!row) return false;
+            const rowId = Number(row.id || 0);
+            if (!rowId) return false;
+            if (viewSelectedHeaderId != null && Number(viewSelectedHeaderId) === rowId && !opts.force) {
+                syncViewPrToUrl();
+                return true;
+            }
+            selectViewPurchaseRequest(rowId, { fromUrl: true });
+            syncViewPrToUrl();
+            return true;
+        }
+
+
+        function viewPrHeadersMarkedApprovedForSave() {
+            const ids = new Set();
+            viewHeaderStatusPendingChanges.forEach((change) => {
+                if (normalizeUdfStatus(change.udfStatus) === 'APPROVED') {
+                    const rid = Number(change.requestId || 0);
+                    if (rid > 0) {
+                        ids.add(rid);
+                    }
+                }
+            });
+            return ids;
+        }
+
+        function activateViewPrApprovedTabAfterSave(approvedHeaderIds) {
+            const ids = approvedHeaderIds instanceof Set ? approvedHeaderIds : new Set();
+            if (!ids.size) {
+                const selectedId = viewSelectedHeaderId != null ? Number(viewSelectedHeaderId) : 0;
+                if (selectedId > 0) {
+                    const header = (viewPurchaseRequests || []).find((row) => Number(row.id || 0) === selectedId);
+                    if (header && normalizeUdfStatus(header._originalUdfStatus || header.udfStatus) === 'APPROVED') {
+                        ids.add(selectedId);
+                    }
+                }
+            }
+            if (!ids.size) {
+                return false;
+            }
+            viewStatusFilters = new Set(['APPROVED']);
+            syncViewStatusFilterTabClasses();
+            syncViewPrToUrl();
+            return true;
+        }
+
+        async function finalizeViewPrAfterApprovalSave(selectedHeaderId) {
+            const keepId = Number(selectedHeaderId || viewSelectedHeaderId || 0);
+            await loadViewPurchaseRequests(true);
+            if (keepId > 0) {
+                viewSelectedHeaderId = keepId;
+                const record = (viewPurchaseRequests || []).find((row) => Number(row.id || 0) === keepId);
+                if (record) {
+                    record.udfStatus = 'APPROVED';
+                    record._originalUdfStatus = 'APPROVED';
+                    delete record._pendingUdfStatus;
+                    invalidateViewDetailCache(keepId);
+                    viewLoadingDetailIds.add(keepId);
+                    renderFilteredViewPurchaseRequests();
+                    try {
+                        await fetchViewPurchaseRequestDetail(record, true);
+                    } catch (error) {
+                        console.warn('[View PR] Failed to refresh detail after approval:', error);
+                    }
+                    viewLoadingDetailIds.delete(keepId);
+                    syncViewPrToUrl();
+                    renderFilteredViewPurchaseRequests();
+                    return;
+                }
+            }
+            if (!selectViewPrFromUrlIfPresent()) {
+                syncViewPrToUrl();
+            }
+            renderFilteredViewPurchaseRequests();
         }
 
         function applyViewStatusFromUrl() {
@@ -18395,94 +18530,21 @@
 
 
 
+                    const approvedIdsForCache = viewPrHeadersMarkedApprovedForSave();
                     affectedIds.forEach((id) => {
-
-
-
-
-
-
-
-
-
-
                         if (!id) return;
-
-
-
-
-
-
-
-
-
-
                         const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === id);
-
-
-
-
-
-
-
-
-
-
-                        if (header && Array.isArray(header.details)) {
-
-
-
-
-
-
-
-
-
-
-                            syncViewDetailCacheFromRecord(header);
-
-
-
-
-
-
-
-
-
-
-                        } else {
-
-
-
-
-
-
-
-
-
-
+                        const headerApproved = approvedIdsForCache.has(id)
+                            || (header && normalizeUdfStatus(header._originalUdfStatus || header.udfStatus) === 'APPROVED');
+                        if (headerApproved) {
                             invalidateViewDetailCache(id);
-
-
-
-
-
-
-
-
-
-
+                            return;
                         }
-
-
-
-
-
-
-
-
-
-
+                        if (header && Array.isArray(header.details)) {
+                            syncViewDetailCacheFromRecord(header);
+                        } else {
+                            invalidateViewDetailCache(id);
+                        }
                     });
 
 
@@ -18505,6 +18567,31 @@
 
 
 
+                const keepSelectedId = viewSelectedHeaderId != null ? Number(viewSelectedHeaderId) : 0;
+
+
+
+
+
+
+
+
+
+
+
+                const approvedHeaderIdsForRefresh = viewPrHeadersMarkedApprovedForSave();
+
+
+
+
+
+
+
+
+
+
+
+
                 viewApprovalPendingChanges.clear();
 
 
@@ -18517,9 +18604,33 @@
 
 
 
+
                 if (!headerStatusSaveFailed) {
+
+
+
+
+
+
+
+
+
+
+
                     viewHeaderStatusPendingChanges.clear();
+
+
+
+
+
+
+
+
+
+
+
                 }
+
 
 
 
@@ -18543,6 +18654,7 @@
 
 
 
+
                 updateViewApprovalButtonState();
 
 
@@ -18555,8 +18667,20 @@
 
 
 
-                await loadViewPurchaseRequests(true);
-                await refreshSelectedViewPurchaseRequestDetail(true);
+
+                activateViewPrApprovedTabAfterSave(approvedHeaderIdsForRefresh);
+
+
+
+
+
+
+
+
+
+
+
+                await finalizeViewPrAfterApprovalSave(keepSelectedId);
                 if (headerStatusSaveFailed) {
                     alert(`Line approvals saved, but header status update failed: ${headerStatusError || 'SQL API returned an error.'}`);
                 }
@@ -22839,7 +22963,8 @@
 
 
 
-        function selectViewPurchaseRequest(headerId) {
+        function selectViewPurchaseRequest(headerId, options) {
+            const opts = options || {};
 
 
 
@@ -22984,16 +23109,9 @@
 
 
                 renderFilteredViewPurchaseRequests();
-
-
-
-
-
-
-
-
-
-
+                if (!opts.fromUrl) {
+                    syncViewPrToUrl();
+                }
 
                 return;
 
@@ -23164,16 +23282,9 @@
 
 
                 renderFilteredViewPurchaseRequests();
-
-
-
-
-
-
-
-
-
-
+                if (!opts.fromUrl) {
+                    syncViewPrToUrl();
+                }
 
                 return;
 
@@ -23224,28 +23335,9 @@
 
 
             renderFilteredViewPurchaseRequests();
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+            if (!opts.fromUrl) {
+                syncViewPrToUrl();
+            }
 
             fetchViewPurchaseRequestDetail(record)
 
@@ -23382,6 +23474,24 @@
 
 
 
+        function narrowViewPrSuppliersForApproved(header, suppliers) {
+            const rows = Array.isArray(suppliers) ? suppliers : [];
+            if (!rows.length) return rows;
+            const udf = normalizeUdfStatus(header?._originalUdfStatus || header?.udfStatus);
+            if (udf !== 'APPROVED') return rows;
+            const awardedCodes = String(header?.supplierId || '')
+                .split(',')
+                .map((s) => s.trim())
+                .filter((c) => c && c !== '----' && c !== '-');
+            if (!awardedCodes.length) return rows;
+            const wanted = new Set(awardedCodes.map((c) => c.toUpperCase()));
+            const matched = rows.filter((s) => {
+                const code = String(s.code || s.supplierCode || s.supplierId || '').trim().toUpperCase();
+                return code && wanted.has(code);
+            });
+            return matched.length ? matched : rows;
+        }
+
         function hydrateViewPurchaseRequestDetails(record, payload) {
 
 
@@ -23408,6 +23518,8 @@
 
 
             record._suppliers = Array.isArray(payload.suppliers) ? payload.suppliers : [];
+
+            record._suppliers = narrowViewPrSuppliersForApproved(record, record._suppliers);
 
 
 
@@ -26135,16 +26247,7 @@
 
 
             renderFilteredViewPurchaseRequests();
-
-
-
-
-
-
-
-
-
-
+            selectViewPrFromUrlIfPresent();
 
             syncViewPrLoadMoreUi();
 
@@ -32518,10 +32621,13 @@
         function isDetailChecked(detail) {
             if (!detail || typeof detail !== 'object') return false;
             if (Object.prototype.hasOwnProperty.call(detail, 'transferable')) {
-                return toApprovalBool(detail.transferable);
+                if (toApprovalBool(detail.transferable)) return true;
             }
             if (Object.prototype.hasOwnProperty.call(detail, 'TRANSFERABLE')) {
-                return toApprovalBool(detail.TRANSFERABLE);
+                if (toApprovalBool(detail.TRANSFERABLE)) return true;
+            }
+            if (Object.prototype.hasOwnProperty.call(detail, 'udfPqApproved')) {
+                return toApprovalBool(detail.udfPqApproved);
             }
             return false;
         }

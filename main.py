@@ -71,6 +71,7 @@ from utils.procurement_bidding import (
     format_display_date,
     get_supplier_bidding_award_state,
     get_supplier_bid_snapshot,
+    apply_transferable_flags_for_approved_pr,
     get_transfer_gate_state,
     is_pr_line_awards_locked,
     list_bids_for_request,
@@ -79,6 +80,7 @@ from utils.procurement_bidding import (
     list_invited_suppliers_for_request,
     list_supplier_invitations,
     map_approved_bid_suppliers_by_request_ids,
+    list_awarded_suppliers_for_request,
     map_awarded_suppliers_by_request_ids,
     normalize_pr_udf_status,
     reject_bid,
@@ -4894,6 +4896,25 @@ def _save_selected_suppliers(request_dockey, request_no, raw_suppliers, actor):
             con.close()
 
 
+def _enrich_supplier_display_rows(rows: list[dict]) -> list[dict]:
+    """Resolve company name / email from supplier master for display rows."""
+    if not rows:
+        return []
+    codes = [str(row.get('code') or '').strip() for row in rows if str(row.get('code') or '').strip()]
+    master = _fetch_supplier_master_from_sql_api(codes) if codes else {}
+    for row in rows:
+        hit = master.get(str(row.get('code') or '').strip().upper())
+        if not isinstance(hit, dict):
+            continue
+        company_name = str(hit.get('companyname') or '').strip()
+        api_email = str(hit.get('udf_email') or '').strip()
+        if company_name:
+            row['name'] = company_name
+        if api_email and not str(row.get('email') or '').strip():
+            row['email'] = api_email
+    return rows
+
+
 def _list_selected_suppliers(request_dockey):
     try:
         request_id = int(request_dockey)
@@ -4928,19 +4949,7 @@ def _list_selected_suppliers(request_dockey):
                 'name': str((row[1] if len(row) > 1 else '') or '').strip(),
                 'email': str((row[2] if len(row) > 2 else '') or '').strip(),
             })
-        codes = [row.get('code') or '' for row in result]
-        master = _fetch_supplier_master_from_sql_api(codes)
-        for row in result:
-            hit = master.get(str(row.get('code') or '').strip().upper())
-            if not isinstance(hit, dict):
-                continue
-            company_name = str(hit.get('companyname') or '').strip()
-            api_email = str(hit.get('udf_email') or '').strip()
-            if company_name:
-                row['name'] = company_name
-            if api_email and not str(row.get('email') or '').strip():
-                row['email'] = api_email
-        return result
+        return _enrich_supplier_display_rows(result)
     except Exception as exc:
         print(f"[PROCUREMENT SELECTED SUPPLIERS] list warning: {exc}", flush=True)
         return []
@@ -4949,6 +4958,19 @@ def _list_selected_suppliers(request_dockey):
             cur.close()
         if con:
             con.close()
+
+
+def _list_detail_suppliers_for_request(request_dockey):
+    """View e-PR detail: show awarded vendor(s) when set; else RFQ invite list."""
+    try:
+        request_id = int(request_dockey)
+    except Exception:
+        return _list_selected_suppliers(request_dockey)
+
+    awarded = list_awarded_suppliers_for_request(request_id)
+    if awarded:
+        return _enrich_supplier_display_rows(awarded)
+    return _list_selected_suppliers(request_id)
 
 
 @app.route('/api/admin/procurement/purchase-requests', methods=['POST'])
@@ -5037,11 +5059,11 @@ def _fetch_supplier_master_from_sql_api(codes: list[str]) -> dict[str, dict[str,
         supplier_primary_email_from_sql_api_row,
     )
 
+    all_rows: list = []
     try:
         all_rows = _fetch_all_suppliers_from_sql_api()
     except Exception as exc:
         print(f"[PROCUREMENT LIST PR] SQL API supplier master lookup warning: {exc}", flush=True)
-        return {}
 
     out: dict[str, dict[str, str]] = {}
     for row in all_rows or []:
@@ -5061,7 +5083,29 @@ def _fetch_supplier_master_from_sql_api(codes: list[str]) -> dict[str, dict[str,
             'emails': emails,
         }
         if len(out) == len(wanted):
-            break
+            return out
+
+    missing = wanted - set(out.keys())
+    if missing:
+        try:
+            for row in _fetch_all_suppliers_from_firebird() or []:
+                if not isinstance(row, dict):
+                    continue
+                code = str(row.get('code') or '').strip()
+                if not code:
+                    continue
+                key_u = code.upper()
+                if key_u not in missing:
+                    continue
+                out[key_u] = {
+                    'companyname': str(row.get('companyname') or '').strip(),
+                    'udf_email': '',
+                    'emails': [],
+                }
+                if len(out) == len(wanted):
+                    break
+        except Exception as exc:
+            print(f"[PROCUREMENT LIST PR] Firebird supplier master lookup warning: {exc}", flush=True)
     return out
 
 
@@ -5567,6 +5611,65 @@ def api_admin_next_purchase_request_number():
         return jsonify({'success': False, 'error': str(exc)}), 500
 
 
+def _is_placeholder_supplier_code(code: str) -> bool:
+    c = str(code or '').strip()
+    return not c or c in ('----', '-', '—')
+
+
+def _split_supplier_codes_field(value: str) -> list[str]:
+    return [
+        part.strip()
+        for part in str(value or '').split(',')
+        if part.strip() and not _is_placeholder_supplier_code(part.strip())
+    ]
+
+
+def _enrich_pr_list_supplier_display(
+    records: list,
+    *,
+    master: dict[str, dict[str, str]] | None = None,
+) -> None:
+    """Purchase request list: show SQL API company names, not bare supplier codes (batch lookup only)."""
+    codes: set[str] = set()
+    for rec in records:
+        if not isinstance(rec, dict):
+            continue
+        for code in _split_supplier_codes_field(rec.get('supplierId')):
+            codes.add(code)
+
+    if master is None:
+        master = _fetch_supplier_master_from_sql_api(list(codes)) if codes else {}
+
+    for rec in records:
+        if not isinstance(rec, dict):
+            continue
+        code_parts = _split_supplier_codes_field(rec.get('supplierId'))
+        stored = str(rec.get('supplierName') or '').strip()
+        if not code_parts:
+            if stored and not _is_placeholder_supplier_code(stored):
+                rec['supplierName'] = stored
+            else:
+                rec['supplierName'] = ''
+            continue
+        display_names: list[str] = []
+        for code in code_parts:
+            name = _resolve_supplier_company_display(code, stored, master)
+            if (not name or name.upper() == code.upper()) and isinstance(master, dict):
+                hit = master.get(code.upper())
+                if isinstance(hit, dict):
+                    cn = str(hit.get('companyname') or hit.get('companyName') or '').strip()
+                    if cn and cn.upper() != code.upper():
+                        name = cn
+            if name and name.upper() != code.upper():
+                display_names.append(name)
+        if display_names:
+            rec['supplierName'] = ', '.join(display_names)
+        elif stored and stored.upper() not in {c.upper() for c in code_parts}:
+            rec['supplierName'] = stored
+        else:
+            rec['supplierName'] = ''
+
+
 def _sql_api_pr_requester_id(row: dict) -> str:
     """Purchaser / staff code on the PR header — not the invited supplier list."""
     if not isinstance(row, dict):
@@ -5810,6 +5913,13 @@ def api_admin_list_purchase_requests():
 
             qty_summary = balance_qty_map.get(row_id, {})
 
+            header_code = str(row.get('code') or '').strip()
+            header_company = str(row.get('companyname') or row.get('companyName') or '').strip()
+            if _is_placeholder_supplier_code(header_code):
+                header_code = ''
+            if header_company and header_company.upper() == header_code.upper():
+                header_company = ''
+
             records.append({
                 'id': row_id,
                 'requestNumber': str(row.get('docno') or '').strip(),
@@ -5819,8 +5929,8 @@ def api_admin_list_purchase_requests():
                 'departmentId': str(row.get('businessunit') or row.get('area') or '').strip(),
                 'costCenter': str(row.get('businessunit') or '').strip(),
                 'project': str(row.get('project') or '').strip() or '----',
-                'supplierId': '',
-                'supplierName': '',
+                'supplierId': header_code,
+                'supplierName': header_company,
                 'supplierEmail': '',
                 'currency': str(row.get('currencycode') or '').strip(),
                 'description': str(row.get('description') or '').strip(),
@@ -5861,8 +5971,15 @@ def api_admin_list_purchase_requests():
                         'awardedSupplierName': '',
                     })
                 continue
-            rec['supplierId'] = str(hit.get('supplierCode') or '').strip()
-            rec['supplierName'] = str(hit.get('supplierName') or '').strip()
+            header_company = str(rec.get('supplierName') or '').strip()
+            new_code = str(hit.get('supplierCode') or '').strip()
+            new_name = str(hit.get('supplierName') or '').strip()
+            if new_code:
+                rec['supplierId'] = new_code
+            if new_name and new_name.upper() != new_code.upper():
+                rec['supplierName'] = new_name
+            elif header_company and header_company.upper() != new_code.upper():
+                rec['supplierName'] = header_company
             if debug_suppliers:
                 debug_supplier_rows.append({
                     'requestId': key,
@@ -5895,49 +6012,24 @@ def api_admin_list_purchase_requests():
                     rec['supplierId'] = code
                 if name and not rec.get('supplierName'):
                     rec['supplierName'] = name
-                elif code and not rec.get('supplierName'):
-                    rec['supplierName'] = code
 
-            try:
-                supplier_codes = list(
-                    {str(r.get('supplierId') or '').strip() for r in records if str(r.get('supplierId') or '').strip()}
-                )
-                api_master = _fetch_supplier_master_from_sql_api(supplier_codes)
-                for rec in records:
-                    cid = str(rec.get('supplierId') or '').strip()
-                    if not cid:
+        try:
+            supplier_codes: set[str] = set()
+            for rec in records:
+                for code in _split_supplier_codes_field(rec.get('supplierId')):
+                    supplier_codes.add(code)
+            api_master = _fetch_supplier_master_from_sql_api(list(supplier_codes)) if supplier_codes else {}
+            for rec in records:
+                for code in _split_supplier_codes_field(rec.get('supplierId')):
+                    master_row = api_master.get(code.upper())
+                    if not isinstance(master_row, dict):
                         continue
-                    master = api_master.get(cid.upper())
-                    if isinstance(master, dict):
-                        cn = str(master.get('companyname') or '').strip()
-                        em = str(master.get('udf_email') or '').strip()
-                        if cn:
-                            rec['supplierName'] = cn
-                        if em and not str(rec.get('supplierEmail') or '').strip():
-                            rec['supplierEmail'] = em
-            except Exception as em_exc:
-                print(f"[PROCUREMENT LIST PR] supplier master/email enrichment warning: {em_exc}", flush=True)
-
-        if fast_mode:
-            try:
-                supplier_codes = list(
-                    {str(r.get('supplierId') or '').strip() for r in records if str(r.get('supplierId') or '').strip()}
-                )
-                api_master = _fetch_supplier_master_from_sql_api(supplier_codes)
-                for rec in records:
-                    cid = str(rec.get('supplierId') or '').strip()
-                    if not cid:
-                        continue
-                    master = api_master.get(cid.upper())
-                    if isinstance(master, dict):
-                        company_name = str(master.get('companyname') or '').strip()
-                        api_email = str(master.get('udf_email') or '').strip()
-                        if company_name:
-                            rec['supplierName'] = company_name
-                        if api_email and not str(rec.get('supplierEmail') or '').strip():
-                            rec['supplierEmail'] = api_email
-            except Exception as em_exc:
-                print(f"[PROCUREMENT LIST PR] supplier master/email enrichment warning: {em_exc}", flush=True)
+                    api_email = str(master_row.get('udf_email') or '').strip()
+                    if api_email and not str(rec.get('supplierEmail') or '').strip():
+                        rec['supplierEmail'] = api_email
+            _enrich_pr_list_supplier_display(records, master=api_master)
+        except Exception as em_exc:
+            print(f"[PROCUREMENT LIST PR] supplier master/display enrichment warning: {em_exc}", flush=True)
 
         if debug_suppliers:
             try:
@@ -6280,6 +6372,7 @@ def api_admin_purchase_request_details_fallback():
             resolved_request_id = int(raw_request_id) if raw_request_id.isdigit() else None
 
         gate_ms = 0.0
+        gate = None
         if resolved_request_id and details:
             try:
                 gate_started = time.perf_counter()
@@ -6338,6 +6431,19 @@ def api_admin_purchase_request_details_fallback():
                 print(f"[PROCUREMENT PR DETAIL] warning: failed to apply awarded pricing: {exc}", flush=True)
             finally:
                 gate_ms = round((time.perf_counter() - gate_started) * 1000, 1)
+
+        if resolved_request_id and details:
+            try:
+                apply_transferable_flags_for_approved_pr(
+                    resolved_request_id,
+                    details,
+                    gate=gate,
+                )
+            except Exception as exc:
+                print(
+                    f"[PROCUREMENT PR DETAIL] warning: failed to apply approved transferable flags: {exc}",
+                    flush=True,
+                )
 
         total_amount = 0.0
         for row in details:
@@ -6399,7 +6505,7 @@ def api_admin_purchase_request_details_fallback():
                 continue
             PURCHASE_REQUEST_DETAIL_ENDPOINT_HINT = url
 
-            selected_suppliers = _list_selected_suppliers(extracted.get('id'))
+            selected_suppliers = _list_detail_suppliers_for_request(extracted.get('id'))
             total_ms = round((time.perf_counter() - started_total) * 1000, 1)
             upstream_ms = round((time.perf_counter() - upstream_started) * 1000, 1)
             detail_count = len(extracted.get('details') or [])

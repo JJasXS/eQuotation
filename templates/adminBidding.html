@@ -16,7 +16,7 @@
 
     <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
 
-    <link rel="stylesheet" href="/static/css/adminBidding.css?v=20260603_split_bid">
+    <link rel="stylesheet" href="/static/css/adminBidding.css?v=20260604_bidding_url">
 
     <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515_admin_blue">
 
@@ -58,7 +58,7 @@
 
                             <label class="muted">Status</label>
 
-                            <select id="pr-status-filter" onchange="renderRequests()">
+                            <select id="pr-status-filter" onchange="onPrStatusFilterChange()">
 
                                 <option value="ALL">ALL</option>
 
@@ -202,6 +202,103 @@
 
 
 
+        const BIDDING_STATUS_FILTERS = ['ALL', 'APPROVED', 'PENDING', 'CANCELLED'];
+
+        function readBiddingUrlParams() {
+            try {
+                const params = new URLSearchParams(window.location.search || '');
+                const idRaw = params.get('id') || params.get('prId') || '';
+                const id = Number(idRaw) || 0;
+                const docno = String(
+                    params.get('docno') || params.get('pr') || params.get('requestNumber') || ''
+                ).trim();
+                const status = String(params.get('status') || '').trim().toUpperCase();
+                return {
+                    id: id > 0 ? id : 0,
+                    docno,
+                    status: BIDDING_STATUS_FILTERS.includes(status) ? status : '',
+                };
+            } catch (e) {
+                return { id: 0, docno: '', status: '' };
+            }
+        }
+
+        function syncBiddingPrToUrl() {
+            try {
+                const url = new URL(window.location.href);
+                const filter = document.getElementById('pr-status-filter')?.value || 'ALL';
+                if (filter && filter !== 'ALL') {
+                    url.searchParams.set('status', filter.toLowerCase());
+                } else {
+                    url.searchParams.delete('status');
+                }
+                if (activePr && Number(activePr.id) > 0) {
+                    url.searchParams.set('id', String(activePr.id));
+                    const docno = String(activePr.requestNumber || '').trim();
+                    if (docno) {
+                        url.searchParams.set('docno', docno);
+                    } else {
+                        url.searchParams.delete('docno');
+                    }
+                } else {
+                    url.searchParams.delete('id');
+                    url.searchParams.delete('docno');
+                }
+                history.replaceState(
+                    { biddingPrId: activePr ? Number(activePr.id) : null },
+                    '',
+                    url
+                );
+            } catch (e) { /* ignore */ }
+        }
+
+        function applyBiddingStatusFromUrl() {
+            const { status } = readBiddingUrlParams();
+            const sel = document.getElementById('pr-status-filter');
+            if (!sel || !status) return;
+            sel.value = status;
+        }
+
+        function findPrRowFromUrlParams() {
+            const { id, docno } = readBiddingUrlParams();
+            if (!(id > 0) && !docno) return null;
+            if (id > 0) {
+                const byId = requestsCache.find((r) => Number(r.id) === id);
+                if (byId) return byId;
+            }
+            if (docno) {
+                const key = docno.toUpperCase();
+                return requestsCache.find(
+                    (r) => String(r.requestNumber || '').trim().toUpperCase() === key
+                ) || null;
+            }
+            return null;
+        }
+
+        function selectPrFromUrlIfPresent(options) {
+            const opts = options || {};
+            const row = findPrRowFromUrlParams();
+            if (!row) return false;
+            if (activePr && Number(activePr.id) === Number(row.id) && !opts.force) {
+                syncBiddingPrToUrl();
+                return true;
+            }
+            selectPr(
+                Number(row.id),
+                String(row.requestNumber || ''),
+                String(row.status || ''),
+                String(row.supplierName || ''),
+                { fromUrl: true }
+            );
+            syncBiddingPrToUrl();
+            return true;
+        }
+
+        function onPrStatusFilterChange() {
+            renderRequests();
+            syncBiddingPrToUrl();
+        }
+
         function normalizePrUdfStatus(value) {
             const s = String(value || '').trim().toUpperCase();
             if (s === 'ACTIVE') return 'APPROVED';
@@ -255,6 +352,36 @@
                 return `${code} — ${desc}`;
             }
             return code || desc || (line.detailId ? `Line #${line.detailId}` : '—');
+        }
+
+        function prListSupplierLabel(row) {
+            const stored = String(row.supplierName || '').trim();
+            const codes = String(row.supplierId || '')
+                .split(',')
+                .map((s) => s.trim())
+                .filter((c) => c && c !== '----' && c !== '-');
+            if (!codes.length) {
+                if (stored && !looksLikeEmail(stored)) return stored;
+                return '-';
+            }
+            if (codes.length === 1 && stored && stored.toUpperCase() !== codes[0].toUpperCase() && !looksLikeEmail(stored)) {
+                return stored;
+            }
+            const names = codes.map((code) => {
+                const cached = (supplierCache || []).find(
+                    (p) => String(p.code || '').trim().toUpperCase() === code.toUpperCase()
+                );
+                const cn = cached
+                    ? String(cached.companyname || cached.companyName || '').trim()
+                    : '';
+                if (cn) return cn;
+                const stored = String(row.supplierName || '').trim();
+                if (stored && stored.toUpperCase() !== code.toUpperCase() && !looksLikeEmail(stored)) {
+                    return stored;
+                }
+                return '';
+            }).filter(Boolean);
+            return names.length ? names.join(', ') : '-';
         }
 
         function supplierCompanyLabel(code, storedName) {
@@ -323,6 +450,22 @@
 
             renderRequests();
 
+            if (!supplierCache.length) {
+                fetch('/api/admin/procurement/suppliers')
+                    .then((supRes) => supRes.json())
+                    .then((supBody) => {
+                        if (supBody && supBody.success && Array.isArray(supBody.data)) {
+                            supplierCache = supBody.data;
+                            renderRequests();
+                        }
+                    })
+                    .catch(() => { /* API supplierName already applied server-side */ });
+            }
+
+            if (!selectPrFromUrlIfPresent()) {
+                syncBiddingPrToUrl();
+            }
+
             msg('Purchase requests loaded.');
 
         }
@@ -336,11 +479,13 @@
             const list = document.getElementById('pr-list');
 
             const rows = requestsCache.filter((row) => {
-
                 if (filter === 'ALL') return true;
-
-                return String(row.status || '').toUpperCase() === filter;
-
+                const docStatus = String(row.status || '').toUpperCase();
+                const udf = normalizePrUdfStatus(row.udfStatus);
+                if (filter === 'APPROVED') return udf === 'APPROVED';
+                if (filter === 'PENDING') return udf === 'PENDING' || docStatus === 'SUBMITTED';
+                if (filter === 'CANCELLED') return udf === 'CANCELLED';
+                return docStatus === filter;
             }).sort((a, b) => {
 
                 const da = Date.parse(a?.requestDate || '') || 0;
@@ -383,7 +528,7 @@
 
                         <div class="muted">Status: ${esc(row.status || '-')}</div>
 
-                        <div class="muted">Supplier: ${esc(row.supplierName || '-')}</div>
+                        <div class="muted">Supplier: ${esc(prListSupplierLabel(row))}</div>
 
                     </div>
 
@@ -594,7 +739,8 @@
 
 
 
-        function selectPr(id, requestNumber, status, supplierName) {
+        function selectPr(id, requestNumber, status, supplierName, options) {
+            const opts = options || {};
 
             const row = requestsCache.find((r) => Number(r.id) === Number(id));
 
@@ -613,6 +759,10 @@
             renderRequests();
 
             setSelectionUi();
+
+            if (!opts.fromUrl) {
+                syncBiddingPrToUrl();
+            }
 
             msg('Selected PR ' + (requestNumber || id));
 
@@ -1278,6 +1428,21 @@
 
 
         setSelectionUi();
+
+        applyBiddingStatusFromUrl();
+
+        window.addEventListener('popstate', () => {
+            applyBiddingStatusFromUrl();
+            renderRequests();
+            const row = findPrRowFromUrlParams();
+            if (row) {
+                selectPrFromUrlIfPresent({ force: true });
+            } else {
+                activePr = null;
+                setSelectionUi();
+                syncBiddingPrToUrl();
+            }
+        });
 
         loadRequests();
 

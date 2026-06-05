@@ -337,6 +337,7 @@ def _create_split_pr_header(
         "COMPANYNAME": supplier_name or supplier_code,
         "SUPPLIERID": supplier_code,
         "DESCRIPTION": note[:500] if note else DEFAULT_PR_HEADER_DESCRIPTION,
+        "DOCREF1": split_from_docno[:160] if split_from_docno else None,
         "CREATEDBY": who,
         "CREATED_AT": now_iso,
         "UPDATEDBY": who,

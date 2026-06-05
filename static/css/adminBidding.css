@@ -179,6 +179,13 @@ body.admin-bidding-page {
     flex-shrink: 0;
 }
 
+.bidding-url-params {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 10px;
+    border-bottom: none;
+    padding-top: 0;
+}
+
 .bidding-col-body {
     padding: 8px 9px;
     flex: 1;
