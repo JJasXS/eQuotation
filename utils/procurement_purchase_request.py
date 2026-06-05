@@ -23,6 +23,12 @@ def _clean_text(value: Any) -> str:
     return str(value).strip()
 
 
+def _normalize_pr_header_description_field(value: Any) -> str:
+    from utils.procurement_pr_descriptions import normalize_pr_header_description
+
+    return normalize_pr_header_description(_clean_text(value))
+
+
 def _as_decimal(value: Any, default: str = "0") -> Decimal:
     try:
         return Decimal(str(value if value is not None else default))
@@ -191,6 +197,23 @@ def parse_line_qty_sq_su(item: dict[str, Any]) -> tuple[float, float, float, str
         stored_basis = "SQTY"
 
     return qty_sq, qty_su, float(pricing), stored_basis
+
+
+def _apply_pqdtl_line_udf_columns(
+    detail_values: dict[str, Any],
+    detail_cols: set[str],
+    item: dict[str, Any],
+) -> None:
+    """Copy stock / line UDF_* scalars onto PH_PQDTL (SQL Accounting detail columns)."""
+    from utils.stock_items_catalog import merge_item_and_stock_udf_fields_for_api
+
+    stock = item.get("stockDetail") if isinstance(item.get("stockDetail"), dict) else {}
+    for udf_key, val in merge_item_and_stock_udf_fields_for_api(item, stock).items():
+        if val is None:
+            continue
+        col = str(udf_key).upper()
+        if col in detail_cols:
+            detail_values[col] = val
 
 
 def _apply_pqdtl_sqty_suom_columns(
@@ -549,8 +572,9 @@ def _normalize_sql_api_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "currency": currency,
         "requestDate": request_date.isoformat(),
         "requiredDate": required_date.isoformat(),
-        "description": _clean_text(payload.get("description")),
-        "justification": _clean_text(payload.get("justification")) or _clean_text(payload.get("description")),
+        "description": _normalize_pr_header_description_field(payload.get("description")),
+        "justification": _clean_text(payload.get("justification"))
+        or _normalize_pr_header_description_field(payload.get("description")),
         "deliveryLocation": _clean_text(payload.get("daddress1") or payload.get("address1")),
         "notes": _clean_text(payload.get("note")),
         "subtotalAmount": float(_money(subtotal)),
@@ -624,6 +648,10 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
             errors.append(f"lineItems[{idx}] must be an object")
             continue
 
+        from utils.stock_items_catalog import enrich_pr_submit_line_item
+
+        item = enrich_pr_submit_line_item(dict(item))
+
         item_code = _clean_text(item.get("itemCode"))
         location_code = _clean_text(item.get("locationCode") or item.get("location") or item.get("loc"))
         item_name = _clean_text(item.get("itemName"))
@@ -683,6 +711,14 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
         stock_detail = item.get("stockDetail") or item.get("stockApi")
         if isinstance(stock_detail, dict):
             norm_line["stockDetail"] = dict(stock_detail)
+        from utils.stock_items_catalog import merge_item_and_stock_udf_fields_for_api
+
+        for udf_key, udf_val in merge_item_and_stock_udf_fields_for_api(
+            item,
+            stock_detail if isinstance(stock_detail, dict) else {},
+        ).items():
+            if udf_val is not None:
+                norm_line[udf_key] = udf_val
         normalized_items.append(norm_line)
 
     computed_total = _money(subtotal + total_tax)
@@ -719,7 +755,7 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
         "currency": currency,
         "requestDate": request_date.isoformat() if request_date else request_date_raw,
         "requiredDate": required_date.isoformat() if required_date else required_date_raw,
-        "description": _clean_text(payload.get("description")),
+        "description": _normalize_pr_header_description_field(payload.get("description")),
         "justification": _clean_text(payload.get("justification")),
         "deliveryLocation": _clean_text(payload.get("deliveryLocation")),
         "notes": _clean_text(payload.get("notes")),
@@ -931,6 +967,7 @@ def create_purchase_request(
                 qty_sq=float(item.get("qtySqty") if item.get("qtySqty") is not None else 0),
                 qty_su=float(item.get("qtySuomqty") if item.get("qtySuomqty") is not None else 0),
             )
+            _apply_pqdtl_line_udf_columns(detail_values, detail_cols, item)
             _insert_dynamic(cur, "PH_PQDTL", detail_values, detail_cols)
 
         if status == "SUBMITTED":
@@ -942,6 +979,29 @@ def create_purchase_request(
                 }
             )
             upstream_status, upstream_reference = _forward_to_upstream(upstream_payload, auth_header)
+
+            try:
+                from utils.procurement_sql_api_sync import sync_purchase_request_lines_sql_api_on_submit
+
+                sql_line_sync = sync_purchase_request_lines_sql_api_on_submit(
+                    int(header_id),
+                    request_number,
+                    {
+                        **validated,
+                        "requestNumber": request_number,
+                        "status": status,
+                    },
+                )
+                if sql_line_sync.get("synced"):
+                    print(
+                        f"[PROCUREMENT] SQL API PR line UDF sync dockey={header_id} docno={request_number}",
+                        flush=True,
+                    )
+            except Exception as sync_exc:
+                print(
+                    f"[PROCUREMENT] SQL API PR line UDF sync warning dockey={header_id}: {sync_exc}",
+                    flush=True,
+                )
 
             status_col = _pick_existing(header_cols, "STATUS")
             upstream_status_col = _pick_existing(header_cols, "UPSTREAM_STATUS")

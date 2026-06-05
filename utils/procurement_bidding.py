@@ -772,6 +772,8 @@ def submit_supplier_bid(
 
 def _fetch_pr_detail_item_map(cur: Any, request_dockey: int) -> dict[int, dict[str, str]]:
     """Map PH_PQDTL line id -> item code / description for bid line display."""
+    from utils.procurement_pr_descriptions import resolve_pr_line_description
+
     if not request_dockey:
         return {}
     if not _table_exists(cur, "PH_PQDTL"):
@@ -811,9 +813,11 @@ def _fetch_pr_detail_item_map(cur: Any, request_dockey: int) -> dict[int, dict[s
             key = int(row[0])
         except Exception:
             continue
+        code = _clean_text(row[1] if len(row) > 1 else "")
+        stored = _clean_text(row[2] if len(row) > 2 else "")
         out[key] = {
-            "itemCode": _clean_text(row[1] if len(row) > 1 else ""),
-            "description": _clean_text(row[2] if len(row) > 2 else ""),
+            "itemCode": code,
+            "description": resolve_pr_line_description(code, stored),
         }
     return out
 

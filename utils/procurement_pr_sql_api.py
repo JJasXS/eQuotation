@@ -25,6 +25,12 @@ def _as_decimal(value: Any, default: str = "0") -> Decimal:
 def _money(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
+
+def _normalize_pr_header_description_for_api(value: Any) -> str:
+    from utils.procurement_pr_descriptions import normalize_pr_header_description
+
+    return normalize_pr_header_description(_clean_text(value))
+
 _PR_LINE_UDF_KEYS = (
     "udf_stdprice",
     "udf_dleadtime",
@@ -232,14 +238,20 @@ def build_sdsdocdetail_line(
     header_project: str,
     default_delivery: date | None,
 ) -> dict[str, Any]:
+    if isinstance(item, dict):
+        from utils.stock_items_catalog import enrich_pr_submit_line_item
+
+        item = enrich_pr_submit_line_item(dict(item))
     stock = _pick_stock_detail(item)
     item_code = _clean_text(item.get("itemCode") or item.get("itemcode") or stock.get("code") or stock.get("CODE"))
     location = _clean_text(item.get("locationCode") or item.get("location") or stock.get("location")) or "----"
     line_project = _clean_text(item.get("project")) or header_project or "----"
-    description = (
-        _clean_text(item.get("description") or item.get("itemName"))
-        or _clean_text(stock.get("description") or stock.get("DESCRIPTION"))
-        or item_code
+    from utils.procurement_pr_descriptions import resolve_pr_line_description
+
+    description = resolve_pr_line_description(
+        item_code,
+        _clean_text(item.get("description") or item.get("itemName")),
+        catalog_description=_clean_text(stock.get("description") or stock.get("DESCRIPTION")),
     )
 
     from utils.procurement_purchase_request import parse_line_qty_sq_su
@@ -328,7 +340,7 @@ def build_purchaserequest_upstream_payload(validated: dict[str, Any], *, request
         "currencycode": currency_code,
         "currencyrate": "1",
         "shipper": "----",
-        "description": _clean_text(validated.get("description")),
+        "description": _normalize_pr_header_description_for_api(validated.get("description")),
         "status": status_num,
         "docamt": total,
         "note": _clean_text(validated.get("notes")),

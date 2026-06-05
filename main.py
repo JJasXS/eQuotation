@@ -6064,12 +6064,22 @@ def api_admin_purchase_request_details(request_id):
                     basis = 'SQTY'
                 else:
                     basis = 'SUOMQTY'
+            from utils.procurement_pr_descriptions import resolve_pr_line_description
+
+            item_code = str(row.get('itemcode') or '').strip()
+            catalog_name = str(row.get('itemname') or row.get('description2') or '').strip()
+            stored_desc = str(row.get('description3') or row.get('description') or '').strip()
+            resolved_desc = resolve_pr_line_description(
+                item_code,
+                stored_desc,
+                catalog_description=catalog_name,
+            )
             details.append({
                 'id': row.get('dtlkey'),
                 'seq': row.get('seq') if row.get('seq') is not None else idx,
-                'itemCode': str(row.get('itemcode') or '').strip(),
-                'itemName': str(row.get('itemname') or row.get('description2') or row.get('description') or '').strip(),
-                'description': str(row.get('description3') or row.get('description') or '').strip(),
+                'itemCode': item_code,
+                'itemName': catalog_name or resolved_desc,
+                'description': resolved_desc,
                 'locationCode': str(row.get('location') or '').strip(),
                 'quantity': _num(row.get('qty')),
                 'unitPrice': _num(row.get('unitprice')),
@@ -6231,12 +6241,22 @@ def api_admin_purchase_request_details_fallback():
                     basis = 'SQTY'
                 else:
                     basis = 'SUOMQTY'
+            from utils.procurement_pr_descriptions import resolve_pr_line_description
+
+            item_code_fb = str(row.get('itemcode') or '').strip()
+            catalog_name_fb = str(row.get('itemname') or row.get('description2') or '').strip()
+            stored_desc_fb = str(row.get('description3') or row.get('description') or '').strip()
+            resolved_desc_fb = resolve_pr_line_description(
+                item_code_fb,
+                stored_desc_fb,
+                catalog_description=catalog_name_fb,
+            )
             details.append({
                 'id': detail_id,
                 'seq': row.get('seq') if row.get('seq') is not None else idx,
-                'itemCode': str(row.get('itemcode') or '').strip(),
-                'itemName': str(row.get('itemname') or row.get('description2') or row.get('description') or '').strip(),
-                'description': str(row.get('description3') or row.get('description') or '').strip(),
+                'itemCode': item_code_fb,
+                'itemName': catalog_name_fb or resolved_desc_fb,
+                'description': resolved_desc_fb,
                 'project': str(row.get('project') or '').strip() or '----',
                 'locationCode': str(row.get('location') or '').strip(),
                 'quantity': quantity,
@@ -6554,12 +6574,17 @@ def _resolve_local_purchase_request_header(raw_request_id, request_no):
         mapped_details = []
         for idx, row in enumerate(detail_rows, start=1):
             detail = {detail_cols[i]: row[i] for i in range(min(len(detail_cols), len(row)))}
+            from utils.procurement_pr_descriptions import resolve_pr_line_description
+
+            item_code_loc = str(detail.get('itemcode') or '').strip()
+            stored_desc_loc = str(detail.get('description3') or detail.get('description') or '').strip()
+            resolved_desc_loc = resolve_pr_line_description(item_code_loc, stored_desc_loc)
             mapped_details.append({
                 'id': detail.get('dtlkey') or detail.get('pqdtlkey') or detail.get('id') or idx,
                 'seq': detail.get('seq') or detail.get('lineno') or detail.get('line_no') or idx,
-                'itemCode': str(detail.get('itemcode') or '').strip(),
-                'itemName': str(detail.get('itemname') or detail.get('description2') or detail.get('description') or '').strip(),
-                'description': str(detail.get('description3') or detail.get('description') or '').strip(),
+                'itemCode': item_code_loc,
+                'itemName': str(detail.get('itemname') or detail.get('description2') or resolved_desc_loc or '').strip(),
+                'description': resolved_desc_loc,
                 'locationCode': str(detail.get('location') or detail.get('loc') or detail.get('stocklocation') or detail.get('storelocation') or '').strip(),
                 'deliverydate': detail.get('deliverydate') or detail.get('delivery_date'),
                 'quantity': float(detail.get('qty') or detail.get('quantity') or 0),
@@ -6913,12 +6938,22 @@ def api_supplier_bidding_request_details():
             }
             qty_sq_line, qty_su_line, _pricing_line, stock_uom_line = parse_line_qty_sq_su(parse_src)
 
+            from utils.procurement_pr_descriptions import resolve_pr_line_description
+
+            item_code_po = str(row.get('itemcode') or row.get('itemCode') or '').strip()
+            catalog_name_po = str(row.get('itemname') or row.get('itemName') or row.get('description2') or '').strip()
+            stored_desc_po = str(row.get('description3') or row.get('description') or '').strip()
+            resolved_desc_po = resolve_pr_line_description(
+                item_code_po,
+                stored_desc_po,
+                catalog_description=catalog_name_po,
+            )
             details.append({
                 'id': row.get('dtlkey') or row.get('id'),
                 'seq': row.get('seq') if row.get('seq') is not None else idx,
-                'itemCode': str(row.get('itemcode') or row.get('itemCode') or '').strip(),
-                'itemName': str(row.get('itemname') or row.get('itemName') or row.get('description2') or row.get('description') or '').strip(),
-                'description': str(row.get('description3') or row.get('description') or '').strip(),
+                'itemCode': item_code_po,
+                'itemName': catalog_name_po or resolved_desc_po,
+                'description': resolved_desc_po,
                 'locationCode': str(row.get('location') or row.get('locationCode') or '').strip(),
                 'deliveryDate': format_display_date(resolved_delivery),
                 'quantity': float(row.get('qty') or row.get('quantity') or 0),

@@ -309,14 +309,18 @@ def _create_split_pr_header(
         ["GEN_PH_PQ_ID", "GEN_PH_PQ_DOCKEY", "GEN_PH_PQ", "SEQ_PH_PQ_DOCKEY"],
     )
 
+    from utils.procurement_pr_descriptions import (
+        DEFAULT_PR_HEADER_DESCRIPTION,
+        normalize_pr_header_description,
+        persist_normalized_pr_header_description,
+    )
+
     now_iso = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
     who = _clean_text(actor) or "admin"
-    note = _clean_text(source.get("DESCRIPTION") or source.get("JUSTIFICATION") or "")
     split_note = f"Split from {split_from_docno} — supplier {supplier_code}"
-    if note:
-        note = f"{note} | {split_note}"
-    else:
-        note = split_note
+    note = normalize_pr_header_description(
+        source.get("DESCRIPTION") or source.get("JUSTIFICATION") or DEFAULT_PR_HEADER_DESCRIPTION
+    )
 
     status_raw = source.get("STATUS")
     status_col = _pick_existing(header_cols, "STATUS")
@@ -332,7 +336,7 @@ def _create_split_pr_header(
         "CODE": supplier_code,
         "COMPANYNAME": supplier_name or supplier_code,
         "SUPPLIERID": supplier_code,
-        "DESCRIPTION": note[:500] if note else split_note,
+        "DESCRIPTION": note[:500] if note else DEFAULT_PR_HEADER_DESCRIPTION,
         "CREATEDBY": who,
         "CREATED_AT": now_iso,
         "UPDATEDBY": who,
@@ -367,6 +371,7 @@ def _create_split_pr_header(
                 header_values[col] = source[col]
 
     _insert_dynamic(cur, "PH_PQ", header_values, header_cols)
+    persist_normalized_pr_header_description(cur, int(new_id), note)
     return int(new_id), docno
 
 
@@ -450,26 +455,36 @@ def _detail_rows_for_sql_post(cur: Any, request_dockey: int, detail_ids: list[in
         """,
         tuple([int(request_dockey), *detail_ids]),
     )
+    from utils.procurement_pr_descriptions import lookup_st_item_descriptions, resolve_pr_line_description
+
+    fetched = cur.fetchall() or []
+    codes = [_clean_text(row[1]) for row in fetched if row and _clean_text(row[1])]
+    catalog_by_code = lookup_st_item_descriptions(cur, codes)
     items: list[dict[str, Any]] = []
-    for row in cur.fetchall() or []:
+    for row in fetched:
         if not row:
             continue
         qty = float(_as_decimal(row[3], "0"))
         price = float(_as_decimal(row[4], "0"))
         tax = float(_as_decimal(row[5], "0"))
-        items.append(
-            {
-                "itemCode": _clean_text(row[1]),
-                "itemName": _clean_text(row[2]) or _clean_text(row[1]),
-                "description": _clean_text(row[2]) or _clean_text(row[1]),
-                "locationCode": _clean_text(row[6]) or "----",
-                "quantity": qty,
-                "unitPrice": price,
-                "tax": tax,
-                "amount": float(_money(_as_decimal(qty) * _as_decimal(price) + _as_decimal(tax))),
-                "deliveryDate": row[7].isoformat() if hasattr(row[7], "isoformat") else _clean_text(row[7]),
-            }
-        )
+        code = _clean_text(row[1])
+        stored_desc = _clean_text(row[2])
+        catalog_desc = catalog_by_code.get(code) if code else ""
+        resolved_desc = resolve_pr_line_description(code, stored_desc, catalog_description=catalog_desc)
+        line = {
+            "itemCode": code,
+            "itemName": resolved_desc or code,
+            "description": resolved_desc or code,
+            "locationCode": _clean_text(row[6]) or "----",
+            "quantity": qty,
+            "unitPrice": price,
+            "tax": tax,
+            "amount": float(_money(_as_decimal(qty) * _as_decimal(price) + _as_decimal(tax))),
+            "deliveryDate": row[7].isoformat() if hasattr(row[7], "isoformat") else _clean_text(row[7]),
+        }
+        from utils.stock_items_catalog import enrich_pr_submit_line_item
+
+        items.append(enrich_pr_submit_line_item(line))
     return items
 
 
@@ -545,6 +560,20 @@ def split_purchase_request_for_mixed_awards(
         _supplier_name_for_code(bid_map, existing_pr_supplier),
         actor=actor,
     )
+
+    from utils.procurement_pr_descriptions import (
+        persist_normalized_pr_header_description,
+        refresh_placeholder_line_descriptions,
+    )
+
+    persist_normalized_pr_header_description(cur, request_dockey)
+    refresh_placeholder_line_descriptions(cur, request_dockey)
+    for child in created:
+        refresh_placeholder_line_descriptions(
+            cur,
+            int(child.get("dockey") or 0),
+            [int(x) for x in (child.get("detailIds") or [])],
+        )
 
     return {
         "split": True,
@@ -638,13 +667,15 @@ def sync_split_prs_to_sql_api(split_result: dict[str, Any], *, actor: str = "adm
             else:
                 req_date = _clean_text(req_date)[:10] or date.today().isoformat()
 
+            from utils.procurement_pr_descriptions import normalize_pr_header_description
+
             payload = build_purchaserequest_upstream_payload(
                 {
                     "requestNumber": child_docno,
                     "requestDate": str(req_date),
                     "departmentId": _clean_text(src.get("DEPARTMENTID")) or "PROC",
                     "project": _clean_text(src.get("PROJECT")) or "----",
-                    "description": _clean_text(src.get("DESCRIPTION")),
+                    "description": normalize_pr_header_description(src.get("DESCRIPTION")),
                     "status": "SUBMITTED",
                     "supplierId": child_code,
                     "supplierName": resolve_supplier_company_name(

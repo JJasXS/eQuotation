@@ -9168,6 +9168,58 @@
 
 
 
+        const PR_LINE_STOCK_UDF_KEYS = [
+            'udf_thickness', 'udf_width', 'udf_length', 'udf_dp', 'udf_dfp',
+            'udf_wtp', 'udf_2uom', 'udf_formula', 'udf_costkg', 'udf_mtype',
+            'udf_stdprice', 'udf_dleadtime', 'udf_moq', 'udf_bundle',
+        ];
+
+        function prCatalogUdfScalar(product, key) {
+            const v = prCatalogScalar(product, key, key.toUpperCase());
+            if (v == null || v === '') return null;
+            if (String(v).trim() === '0') return null;
+            return v;
+        }
+
+        /** Copy ST_ITEM / catalog UDFs onto a PR line for display + SQL API submit. */
+        function mergePrLineCatalogUdfs(item, product) {
+            if (!item) return item;
+            const src = product || (typeof findPrProductByCode === 'function' ? findPrProductByCode(item.itemCode) : null);
+            if (!src || typeof src !== 'object') return item;
+            const detail = { ...(item.stockDetail || {}) };
+            PR_LINE_STOCK_UDF_KEYS.forEach((key) => {
+                const v = prCatalogUdfScalar(src, key);
+                if (v == null) return;
+                item[key] = v;
+                detail[key] = v;
+                detail[key.toUpperCase()] = v;
+            });
+            Object.keys(src).forEach((k) => {
+                const kl = String(k).toLowerCase();
+                if (!kl.startsWith('udf_')) return;
+                const v = src[k];
+                if (v == null || String(v).trim() === '') return;
+                item[kl] = v;
+                detail[kl] = v;
+            });
+            item.stockDetail = { ...src, ...detail };
+            return item;
+        }
+
+        function prLineStockFieldsForPayload(item) {
+            const out = {};
+            if (!item || typeof item !== 'object') return out;
+            PR_LINE_STOCK_UDF_KEYS.forEach((key) => {
+                const v = item[key];
+                if (v == null || String(v).trim() === '') return;
+                out[key] = v;
+            });
+            if (item.stockDetail && typeof item.stockDetail === 'object') {
+                out.stockDetail = item.stockDetail;
+            }
+            return out;
+        }
+
         /** SUOMQTY = SQTY × UDF_WTP when the item has a positive WTP in ST_ITEM. */
         function cachePrLineUdfWtp(item, product) {
             if (!item) return null;
@@ -29334,7 +29386,11 @@
 
 
 
-                    description: String(d.description || ''),
+                    description: resolvePrLineDescription({
+                        itemCode: String(d.itemCode || ''),
+                        itemName: String(d.itemName || ''),
+                        description: String(d.description || ''),
+                    }),
 
 
 
@@ -33047,7 +33103,7 @@
 
 
 
-                    description: `Auto-selected from Overall Report${locationText}`,
+                    description: itemName,
 
 
 
@@ -33180,6 +33236,7 @@
 
 
                 cachePrLineUdfWtp(o, product);
+                mergePrLineCatalogUdfs(o, product);
                 if (resolvePrLineUdfWeight(o) != null && Number(o.qtySqty || 0) > 0) {
                     applyPrLineSuomFromSqtyUdfWeight(o);
                     syncPrLineQuantityDerived(o);
@@ -47614,6 +47671,30 @@
 
 
 
+        function isPlaceholderPrLineDescription(value) {
+            const text = String(value || '').trim();
+            return /^Auto-selected from Overall Report/i.test(text);
+        }
+
+        function resolvePrLineDescription(item) {
+            if (!item || typeof item !== 'object') {
+                return '';
+            }
+            const code = String(item.itemCode || '').trim();
+            const product = code && typeof findPrProductByCode === 'function' ? findPrProductByCode(code) : null;
+            const catalogDesc = product
+                ? String((product.DESCRIPTION != null ? product.DESCRIPTION : product.description) || '').trim()
+                : '';
+            const stored = String(item.description || item.itemName || '').trim();
+            if (catalogDesc && (!stored || isPlaceholderPrLineDescription(stored))) {
+                return catalogDesc;
+            }
+            if (stored && !isPlaceholderPrLineDescription(stored)) {
+                return stored;
+            }
+            return catalogDesc || code || stored;
+        }
+
         function onPurchaseRequestProductChange(index, itemCode) {
 
 
@@ -47785,6 +47866,7 @@
             ensurePrLineUom(item, product);
             prefetchPrProductUoms(code);
             cachePrLineUdfWtp(item, product);
+            mergePrLineCatalogUdfs(item, product);
             applyPrLineSuomFromSqtyUdfWeight(item);
 
 
@@ -47930,6 +48012,7 @@
 
 
                         window.purchaseRequestItems.forEach((it) => {
+                        mergePrLineCatalogUdfs(it, null);
                         cachePrLineUdfWtp(it, null);
                         if (resolvePrLineUdfWeight(it) != null && Number(it.qtySqty || 0) > 0) {
                             applyPrLineSuomFromSqtyUdfWeight(it);
@@ -48763,7 +48846,9 @@
 
 
 
-                    if (!String(item.description || '').trim()) item.description = dn;
+                    if (!String(item.description || '').trim() || isPlaceholderPrLineDescription(item.description)) {
+                        item.description = dn;
+                    }
 
 
 
@@ -48788,6 +48873,7 @@
 
 
                 ensurePrLineUom(item, product);
+                mergePrLineCatalogUdfs(item, product);
 
 
 
@@ -50357,7 +50443,7 @@
 
 
 
-                    description: String(item.description || '').trim(),
+                    description: resolvePrLineDescription(item),
 
 
 
@@ -50490,6 +50576,7 @@
 
 
                     stockQtyUom: deriveStockQtyUomForPayload(item),
+                    ...prLineStockFieldsForPayload(item),
 
 
 
@@ -50642,7 +50729,7 @@
 
 
 
-                description: '',
+                description: 'Purchase Request',
 
 
 
@@ -51182,7 +51269,7 @@
 
 
 
-                    description: String(item.description || '').trim(),
+                    description: resolvePrLineDescription(item),
 
 
 
@@ -51291,6 +51378,7 @@
 
 
                     stockQtyUom: deriveStockQtyUomForPayload(item),
+                    ...prLineStockFieldsForPayload(item),
 
 
 

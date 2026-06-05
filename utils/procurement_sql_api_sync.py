@@ -547,14 +547,102 @@ def _local_pqdtl_pricing_by_dtlkey(
         con.close()
 
 
+def _overlay_pr_line_udfs_from_enriched(
+    existing_lines: list[dict[str, Any]],
+    enriched_lines: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Merge ``udf_*`` from freshly built lines onto SQL API GET rows (preserve dtlkey)."""
+    by_seq: dict[int, dict[str, Any]] = {}
+    for idx, row in enumerate(enriched_lines or [], start=1):
+        if not isinstance(row, dict):
+            continue
+        try:
+            seq = int(row.get("seq") or idx)
+        except (TypeError, ValueError):
+            seq = idx
+        by_seq[seq] = row
+
+    merged: list[dict[str, Any]] = []
+    for ln in existing_lines or []:
+        if not isinstance(ln, dict):
+            continue
+        try:
+            seq = int(ln.get("seq") or 0)
+        except (TypeError, ValueError):
+            seq = 0
+        src = by_seq.get(seq) or {}
+        patched = dict(ln)
+        for key, val in src.items():
+            if not str(key).lower().startswith("udf_"):
+                continue
+            if val is None:
+                continue
+            if isinstance(val, str) and not _clean_text(val):
+                continue
+            patched[key] = val
+        merged.append(patched)
+    return merged
+
+
+def _local_pqdtl_udfs_by_dtlkey(
+    request_dockey: int,
+    keep_dtlkeys: set[int],
+) -> dict[int, dict[str, Any]]:
+    """Read PH_PQDTL ``UDF_*`` columns for SQL API PUT overlay."""
+    if not keep_dtlkeys:
+        return {}
+    from utils.db_utils import get_db_connection
+    from utils.procurement_purchase_request import _get_table_columns, _pick_existing
+
+    con = get_db_connection()
+    try:
+        cur = con.cursor()
+        detail_cols = _get_table_columns(cur, "PH_PQDTL")
+        fk_col = _pick_existing(detail_cols, "DOCKEY", "PQKEY", "REQUEST_ID", "HEADER_ID")
+        dtl_col = _pick_existing(detail_cols, "DTLKEY", "PQDTLKEY", "ID")
+        udf_cols = sorted(c for c in detail_cols if str(c).upper().startswith("UDF_"))
+        if not fk_col or not dtl_col or not udf_cols:
+            return {}
+
+        placeholders = ", ".join(["?"] * len(keep_dtlkeys))
+        select_cols = ", ".join([dtl_col, *udf_cols])
+        cur.execute(
+            f"""
+            SELECT {select_cols}
+            FROM PH_PQDTL
+            WHERE {fk_col} = ? AND {dtl_col} IN ({placeholders})
+            """,
+            tuple([int(request_dockey), *sorted(keep_dtlkeys)]),
+        )
+        out: dict[int, dict[str, Any]] = {}
+        for row in cur.fetchall() or []:
+            if not row:
+                continue
+            dtlkey = int(row[0])
+            fields: dict[str, Any] = {}
+            for idx, col in enumerate(udf_cols, start=1):
+                val = row[idx]
+                if val is None:
+                    continue
+                if isinstance(val, str) and not _clean_text(val):
+                    continue
+                fields[str(col).lower()] = val
+            if fields:
+                out[dtlkey] = fields
+        return out
+    finally:
+        con.close()
+
+
 def _merge_local_pqdtl_prices_into_document(
     document: dict[str, Any],
     request_dockey: int,
     keep_dtlkeys: set[int],
 ) -> dict[str, Any]:
-    """Overlay Firebird PH_PQDTL pricing onto SQL API sdsdocdetail before PUT."""
+    """Overlay Firebird PH_PQDTL pricing + UDFs onto SQL API sdsdocdetail before PUT."""
     pricing = _local_pqdtl_pricing_by_dtlkey(request_dockey, keep_dtlkeys)
-    if not pricing:
+    udfs = _local_pqdtl_udfs_by_dtlkey(request_dockey, keep_dtlkeys)
+    if not pricing and not udfs:
         return document
     lines = document.get("sdsdocdetail") if isinstance(document.get("sdsdocdetail"), list) else []
     merged: list[dict[str, Any]] = []
@@ -567,18 +655,118 @@ def _merge_local_pqdtl_prices_into_document(
             merged.append(ln)
             continue
         hit = pricing.get(dtlkey)
-        if not hit:
+        udf_hit = udfs.get(dtlkey) or {}
+        if not hit and not udf_hit:
             merged.append(ln)
             continue
         patched = dict(ln)
-        patched["unitprice"] = hit["unitprice"]
-        if "tax" in patched or hit.get("tax"):
-            patched["tax"] = hit["tax"]
-        if "taxamt" in patched:
-            patched["taxamt"] = hit["tax"]
-        patched["amount"] = hit["amount"]
+        if hit:
+            patched["unitprice"] = hit["unitprice"]
+            if "tax" in patched or hit.get("tax"):
+                patched["tax"] = hit["tax"]
+            if "taxamt" in patched:
+                patched["taxamt"] = hit["tax"]
+            patched["amount"] = hit["amount"]
+        for key, val in udf_hit.items():
+            patched[key] = val
         merged.append(patched)
     return {**document, "sdsdocdetail": merged}
+
+
+def sync_purchase_request_lines_sql_api_on_submit(
+    request_dockey: int,
+    request_number: str,
+    validated: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    After e-PR create/submit, push stock UDFs onto SQL Accounting ``/purchaserequest`` lines.
+
+    Uses enriched ``sdsdocdetail`` from the validated payload; POST when the document is
+    missing on SQL API, otherwise PUT with UDF overlay on existing detail rows.
+    """
+    dockey = int(request_dockey or 0)
+    docno = _clean_text(request_number)
+    if dockey <= 0 and not docno:
+        return {"skipped": True, "reason": "missing dockey/docno"}
+
+    settings = load_sql_accounting_api_settings()
+    if not settings.access_key or not settings.secret_key:
+        return {"skipped": True, "reason": "SQL API not configured"}
+
+    from utils.procurement_pr_sql_api import build_purchaserequest_upstream_payload
+
+    payload = build_purchaserequest_upstream_payload(
+        validated,
+        request_number=docno or _clean_text(validated.get("requestNumber")),
+    )
+    enriched_lines = payload.get("sdsdocdetail") if isinstance(payload.get("sdsdocdetail"), list) else []
+
+    client = SqlAccountingApiClient(settings)
+    timeout = min(60.0, settings.timeout_seconds + 15.0)
+    base = _api_root_url("SQL_API_PURCHASE_REQUEST_PATH", "/purchaserequest")
+
+    existing = _get_document(
+        client,
+        base_path=base,
+        dockey=dockey,
+        docno=docno,
+        timeout_seconds=timeout,
+    )
+
+    if not existing:
+        body = dict(payload)
+        if dockey > 0 and "dockey" not in body:
+            body["dockey"] = dockey
+        status, _parsed, preview = client.post_json(base, body, timeout_seconds=timeout)
+        if status < 200 or status >= 300:
+            raise RuntimeError(f"SQL API POST purchaserequest returned HTTP {status}: {(preview or '')[:300]}")
+        return {"synced": True, "mode": "post", "httpStatus": status, "dockey": dockey, "docno": docno}
+
+    put_dockey = int(existing.get("dockey") or dockey)
+    existing_lines = existing.get("sdsdocdetail") if isinstance(existing.get("sdsdocdetail"), list) else []
+    merged_lines = _overlay_pr_line_udfs_from_enriched(existing_lines, enriched_lines)
+    doc_for_put = {**existing, "sdsdocdetail": merged_lines, "changed": False, "dockey": put_dockey}
+    allowed = _PUT_HEADER_KEYS | frozenset({"sdsdocdetail"})
+    put_body = {k: v for k, v in doc_for_put.items() if k in allowed or k == "changed"}
+    put_body["sdsdocdetail"] = _strip_readonly_nested_fields(merged_lines)
+    if docno and not put_body.get("docno"):
+        put_body["docno"] = docno
+
+    status, preview = _put_document(
+        client,
+        base_path=base,
+        dockey=put_dockey,
+        payload=put_body,
+        timeout_seconds=timeout,
+    )
+    if status < 200 or status >= 300:
+        hdr_only = {k: v for k, v in put_body.items() if k != "sdsdocdetail"}
+        status, preview = _put_document(
+            client,
+            base_path=base,
+            dockey=put_dockey,
+            payload=hdr_only,
+            timeout_seconds=timeout,
+        )
+        if status < 200 or status >= 300:
+            raise RuntimeError(f"SQL API PUT purchaserequest/{put_dockey} returned HTTP {status}: {preview}")
+        return {
+            "synced": True,
+            "mode": "put_header_only",
+            "httpStatus": status,
+            "dockey": put_dockey,
+            "docno": docno,
+            "warning": "line UDF PUT rejected; header-only retry succeeded",
+        }
+
+    return {
+        "synced": True,
+        "mode": "put_lines",
+        "httpStatus": status,
+        "dockey": put_dockey,
+        "docno": docno,
+        "lineCount": len(merged_lines),
+    }
 
 
 def put_purchaserequest_lines_and_supplier_sql_api(

@@ -277,6 +277,8 @@ def _fetch_detail_rows(cur: Any, dockey: int, detail_cols: set[str]) -> list[dic
                 # Fall back silently — descriptions are nice-to-have, not critical.
                 item_name_by_code = {}
 
+    from utils.procurement_pr_descriptions import resolve_pr_line_description
+
     details: list[dict[str, Any]] = []
     for idx, r in enumerate(rows, start=1):
         item_code = _to_text(r[3])
@@ -291,6 +293,12 @@ def _fetch_detail_rows(cur: Any, dockey: int, detail_cols: set[str]) -> list[dic
         else:
             stock_basis = "SUOMQTY"
 
+        stored_desc = _to_text(r[5])
+        resolved_desc = resolve_pr_line_description(
+            item_code,
+            stored_desc,
+            catalog_description=st_item_name,
+        )
         details.append(
             {
                 "dtlkey": r[0],
@@ -298,10 +306,10 @@ def _fetch_detail_rows(cur: Any, dockey: int, detail_cols: set[str]) -> list[dic
                 "seq": r[2] if r[2] is not None else idx,
                 "itemcode": item_code,
                 "location": _to_text(r[4]) or "----",
-                "description": _to_text(r[5]),
-                "description2": _to_text(r[6]) or st_item_name,
+                "description": resolved_desc,
+                "description2": _to_text(r[6]) or st_item_name or resolved_desc,
                 "description3": _to_text(r[7]),
-                "itemname": st_item_name or _to_text(r[6]) or _to_text(r[5]),
+                "itemname": st_item_name or resolved_desc or _to_text(r[6]) or stored_desc,
                 "qty": str(_to_number(r[8])),
                 "unitprice": str(detail_unit_price),
                 "taxamt": str(_to_number(r[10])),

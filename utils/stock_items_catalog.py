@@ -272,6 +272,30 @@ def catalog_row_needs_sql_api_detail(row: dict[str, Any] | None) -> bool:
     return False
 
 
+_PR_CATALOG_DETAIL_UDF_KEYS = (
+    "udf_thickness",
+    "udf_width",
+    "udf_length",
+    "udf_dp",
+    "udf_dfp",
+    "udf_wtp",
+    "udf_formula",
+    "udf_costkg",
+    "udf_mtype",
+    "udf_2uom",
+)
+
+
+def catalog_row_needs_pr_stock_detail(row: dict[str, Any] | None) -> bool:
+    """Purchase-request lines need dimensional / pricing UDFs from stockitem detail GET."""
+    if not isinstance(row, dict):
+        return True
+    for key in _PR_CATALOG_DETAIL_UDF_KEYS:
+        if not _catalog_field_str(row, key.upper(), key):
+            return True
+    return False
+
+
 def _catalog_field_str(item: dict[str, Any], *keys: str) -> str:
     """Read a scalar catalog field; preserves ``0`` (do not treat as empty)."""
     lower = {str(k).lower(): v for k, v in item.items()}
@@ -374,12 +398,18 @@ def _firebird_stock_row_for_code(item_code: str) -> dict[str, Any]:
     return {}
 
 
-def _resolve_catalog_stock_for_line(item: dict[str, Any]) -> dict[str, Any]:
+def _resolve_catalog_stock_for_line(
+    item: dict[str, Any],
+    *,
+    needs_sql_api_detail: Any | None = None,
+) -> dict[str, Any]:
     """SQL API catalog first, then description/code match, then Firebird ST_ITEM."""
     code = str(
         item.get("itemCode") or item.get("itemcode") or item.get("code") or ""
     ).strip()
-    desc = str(item.get("product") or item.get("description") or "").strip()
+    desc = str(
+        item.get("product") or item.get("description") or item.get("itemName") or ""
+    ).strip()
     stock: dict[str, Any] = {}
     for blob_key in ("stockDetail", "stockApi", "stockCatalog", "catalogRow"):
         blob = item.get(blob_key)
@@ -393,7 +423,8 @@ def _resolve_catalog_stock_for_line(item: dict[str, Any]) -> dict[str, Any]:
         hit = find_catalog_stock_item(code=code, description=desc)
         if isinstance(hit, dict):
             stock = hit
-    if code and catalog_row_needs_sql_api_detail(stock):
+    detail_check = needs_sql_api_detail or catalog_row_needs_sql_api_detail
+    if code and detail_check(stock):
         detail = fetch_stock_item_sql_api_by_code(code)
         if detail:
             stock = {**detail, **stock}
@@ -404,20 +435,8 @@ def _resolve_catalog_stock_for_line(item: dict[str, Any]) -> dict[str, Any]:
     return stock
 
 
-def enrich_quotation_submit_line_item(item: dict[str, Any]) -> dict[str, Any]:
-    """
-    Attach catalog stock row + lowercase ``udf_*`` keys on a create-quotation line dict.
-
-    Call after ``itemCode`` / product description are known so ``udf_mtype`` is copied from
-    ST_ITEM / SQL API stockitem onto the line sent to ``/salesquotation``.
-    """
-    if not isinstance(item, dict):
-        return item
-    code = str(
-        item.get("itemCode") or item.get("itemcode") or item.get("code") or ""
-    ).strip()
-    desc = str(item.get("product") or "").strip()
-    stock = _resolve_catalog_stock_for_line(item)
+def _attach_catalog_stock_to_line_item(item: dict[str, Any], stock: dict[str, Any]) -> dict[str, Any]:
+    """Merge catalog / ST_ITEM UDFs onto a document line dict (mutates ``item``)."""
     if stock:
         item["stockDetail"] = {**stock, **(item.get("stockDetail") or {})}
     for udf_key, udf_val in merge_item_and_stock_udf_fields_for_api(item, stock).items():
@@ -436,6 +455,7 @@ def enrich_quotation_submit_line_item(item: dict[str, Any]) -> dict[str, Any]:
         item["udf_mtype"] = mtype
         item["udfMtype"] = mtype
         item["UDF_MTYPE"] = mtype
+    code = str(item.get("itemCode") or item.get("itemcode") or item.get("code") or "").strip()
     if code:
         item["itemCode"] = code
     elif stock:
@@ -443,6 +463,30 @@ def enrich_quotation_submit_line_item(item: dict[str, Any]) -> dict[str, Any]:
         if sc:
             item["itemCode"] = sc
     return item
+
+
+def enrich_quotation_submit_line_item(item: dict[str, Any]) -> dict[str, Any]:
+    """
+    Attach catalog stock row + lowercase ``udf_*`` keys on a create-quotation line dict.
+
+    Call after ``itemCode`` / product description are known so ``udf_mtype`` is copied from
+    ST_ITEM / SQL API stockitem onto the line sent to ``/salesquotation``.
+    """
+    if not isinstance(item, dict):
+        return item
+    stock = _resolve_catalog_stock_for_line(item)
+    return _attach_catalog_stock_to_line_item(item, stock)
+
+
+def enrich_pr_submit_line_item(item: dict[str, Any]) -> dict[str, Any]:
+    """
+    Attach stock catalog UDFs (thickness, width, length, density, formula, mtype, etc.)
+    onto a purchase-request line before SQL API ``/purchaserequest`` sync.
+    """
+    if not isinstance(item, dict):
+        return item
+    stock = _resolve_catalog_stock_for_line(item, needs_sql_api_detail=catalog_row_needs_pr_stock_detail)
+    return _attach_catalog_stock_to_line_item(item, stock)
 
 
 def merge_item_and_stock_udf_fields_for_api(
