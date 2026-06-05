@@ -4,7 +4,7 @@ import json
 import os
 import re
 from datetime import date, datetime, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import random
 
 import requests
@@ -547,6 +547,36 @@ def _as_decimal(value, default="0.00"):
 
 def _fmt_money(value: Decimal) -> str:
     return f"{value.quantize(Decimal('0.01'))}"
+
+
+def _fmt_suomqty(value: Decimal) -> str:
+    """Format S/U Qty for SQL API (typically 3 dp, e.g. ``1.968``, ``0.82``)."""
+    q = value.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+    s = f"{q:.3f}".rstrip("0").rstrip(".")
+    return s or "0"
+
+
+def _resolve_line_suomqty(item: dict, stock_master: dict | None) -> Decimal | None:
+    """Line ``suomqty`` / ``udf_wts`` from request or dimension formula (ZF/004-style)."""
+    for key in ("suomqty", "SUOMQTY", "udf_wts", "udfWts", "UDF_WTS"):
+        raw = item.get(key)
+        if raw is None or str(raw).strip() == "":
+            continue
+        try:
+            val = _as_decimal(str(raw).replace(",", "").strip(), "0")
+        except Exception:
+            continue
+        if val > 0:
+            return val
+    try:
+        from utils.quotation_line_qty import resolve_udf_wts_strict
+
+        computed = resolve_udf_wts_strict(item, stock_master)
+        if computed is not None and computed > 0:
+            return computed
+    except Exception:
+        pass
+    return None
 
 
 def _format_qt_docno(sequence: int) -> str:
@@ -1182,9 +1212,6 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
                 "changed": True,
         }
         for api_key, item_keys in (
-            ("udf_thickness", ("udfThickness", "udf_thickness", "UDF_THICKNESS")),
-            ("udf_width", ("udfWidth", "udf_width", "UDF_WIDTH")),
-            ("udf_length", ("udfLength", "udf_length", "UDF_LENGTH")),
             ("udf_mtype", ("udfMtype", "udf_mtype", "UDF_MTYPE")),
         ):
             dim_val = ""
@@ -1208,6 +1235,21 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
         except Exception:
             pass
 
+        for api_key, item_keys in (
+            ("udf_thickness", ("udfThickness", "udf_thickness", "UDF_THICKNESS")),
+            ("udf_width", ("udfWidth", "udf_width", "UDF_WIDTH")),
+            ("udf_length", ("udfLength", "udf_length", "UDF_LENGTH")),
+        ):
+            dim_val = ""
+            for ik in item_keys:
+                dim_val = str(item.get(ik) or "").strip()
+                if dim_val:
+                    break
+            if dim_val:
+                row[api_key] = dim_val
+            elif api_key in row:
+                del row[api_key]
+
         mtype_final = str(
             row.get("udf_mtype")
             or item.get("udf_mtype")
@@ -1219,6 +1261,12 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
         ).strip()
         if mtype_final:
             row["udf_mtype"] = mtype_final
+
+        suom = _resolve_line_suomqty(item, stock_master)
+        if suom is not None and suom > 0:
+            suom_s = _fmt_suomqty(suom)
+            row["suomqty"] = suom_s
+            row["udf_wts"] = suom_s
 
         detail_rows.append(row)
 

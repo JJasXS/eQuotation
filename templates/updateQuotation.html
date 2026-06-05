@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
     <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515">
     <link rel="stylesheet" href="/static/css/createQuotationLight.css?v=20260529_customer_4rows">
-    <link rel="stylesheet" href="/static/css/createQuotationLinesTable.css?v=20260529_dim_compact">
+    <link rel="stylesheet" href="/static/css/createQuotationLinesTable.css?v=20260604_dim_edit">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 </head>
 <body class="equotation-icy-theme create-quotation-page update-quotation-page">
@@ -93,6 +93,7 @@
                                                 <th>Width</th>
                                                 <th>Length</th>
                                                 <th>Qty</th>
+                                                <th class="col-udf-wts" title="S/U Qty (KG): qty × thick × width × length × UDF_DS ÷ 1,000,000">S/U Qty</th>
                                                 <th>Discount</th>
                                                 <th>Ref. price</th>
                                                 <th>Unit price</th>
@@ -102,7 +103,7 @@
                                         </thead>
                                         <tbody id="quotation-line-items">
                                             <tr class="quotation-line-row">
-                                                <td colspan="14" style="text-align:center;">Loading items…</td>
+                                                <td colspan="15" style="text-align:center;">Loading items…</td>
                                             </tr>
                                         </tbody>
                                     </table>
@@ -132,6 +133,6 @@
     <datalist id="product-list"></datalist>
 
     <script src="/static/js/hamburger_menu.js"></script>
-    <script src="/static/js/orderQuotation.js?v=20260604_udf_mtype3"></script>
+    <script src="/static/js/orderQuotation.js?v=20260604_suomqty_submit"></script>
 </body>
 </html>

@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515">
     <link rel="stylesheet" href="/static/css/quotationChatPopup.css?v=20260515_greeting_bubble">
     <link rel="stylesheet" href="/static/css/createQuotationLight.css?v=20260529_customer_4rows">
-    <link rel="stylesheet" href="/static/css/createQuotationLinesTable.css?v=20260529_dim_compact">
+    <link rel="stylesheet" href="/static/css/createQuotationLinesTable.css?v=20260604_dim_edit">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <style id="cq-lines-critical">
         /* Inline fallback: quotation lines table must stay visible even if cached CSS hides the grid */
@@ -142,6 +142,7 @@
                                         <th>Width</th>
                                         <th>Length</th>
                                         <th>Qty</th>
+                                        <th class="col-udf-wts" title="S/U Qty (KG): qty × thick × width × length × UDF_DS ÷ 1,000,000">S/U Qty</th>
                                         <th>Discount</th>
                                         <th>Ref. price</th>
                                         <th>Unit price</th>
@@ -160,6 +161,7 @@
                                         <td><input type="text" class="item-udf-width" placeholder="Width" value="" autocomplete="off" inputmode="decimal"></td>
                                         <td><input type="text" class="item-udf-length" placeholder="Length" value="" autocomplete="off" inputmode="decimal"></td>
                                         <td><input type="number" class="item-qty" min="0" step="any" value="1"></td>
+                                        <td class="item-udf-wts" title="udf_wts (SQL Accounting S/U Qty)">—</td>
                                         <td><input type="number" class="item-discount" min="0" step="any" value="0"></td>
                                         <td class="item-suggested-price">—</td>
                                         <td class="item-price">—</td>
@@ -190,7 +192,7 @@
                                         var loose = section.querySelector('table.quotation-lines-table');
                                         if (loose) wrap.appendChild(loose);
                                         else {
-                                            wrap.innerHTML = '<table class="quotation-lines-table" border="1" cellpadding="4" cellspacing="0"><thead><tr><th>Source</th><th>Product</th><th>MOQ</th><th>Lead</th><th>Bundle</th><th>Thick</th><th>Width</th><th>Length</th><th>Qty</th><th>Discount</th><th>Ref. price</th><th>Unit price</th><th>Delivery</th><th></th></tr></thead><tbody id="quotation-line-items"></tbody></table>';
+                                            wrap.innerHTML = '<table class="quotation-lines-table" border="1" cellpadding="4" cellspacing="0"><thead><tr><th>Source</th><th>Product</th><th>MOQ</th><th>Lead</th><th>Bundle</th><th>Thick</th><th>Width</th><th>Length</th><th>Qty</th><th class="col-udf-wts" title="udf_wts — SQL Accounting S/U Qty">S/U Qty</th><th>Discount</th><th>Ref. price</th><th>Unit price</th><th>Delivery</th><th></th></tr></thead><tbody id="quotation-line-items"></tbody></table>';
                                             table = wrap.querySelector('table.quotation-lines-table');
                                         }
                                     }
@@ -198,7 +200,7 @@
                                     if (tbody && !tbody.querySelector('tr.quotation-line-row')) {
                                         var tr = document.createElement('tr');
                                         tr.className = 'quotation-line-row';
-                                        tr.innerHTML = '<td class="item-source" data-source="catalog">From catalog</td><td class="cq-product-cell"><input type="text" class="item-product" placeholder="Search or pick product…" value="" autocomplete="off" spellcheck="false"></td><td class="item-udf-moq">—</td><td class="item-udf-dleadtime">—</td><td class="item-udf-bundle">—</td><td><input type="text" class="item-udf-thickness" placeholder="Thick" value="" autocomplete="off" inputmode="decimal"></td><td><input type="text" class="item-udf-width" placeholder="Width" value="" autocomplete="off" inputmode="decimal"></td><td><input type="text" class="item-udf-length" placeholder="Length" value="" autocomplete="off" inputmode="decimal"></td><td><input type="number" class="item-qty" min="0" step="any" value="1"></td><td><input type="number" class="item-discount" min="0" step="any" value="0"></td><td class="item-suggested-price">—</td><td class="item-price">—</td><td><input type="date" class="item-delivery-date" value=""></td><td class="item-remove">Remove</td>';
+                                        tr.innerHTML = '<td class="item-source" data-source="catalog">From catalog</td><td class="cq-product-cell"><input type="text" class="item-product" placeholder="Search or pick product…" value="" autocomplete="off" spellcheck="false"></td><td class="item-udf-moq">—</td><td class="item-udf-dleadtime">—</td><td class="item-udf-bundle">—</td><td><input type="text" class="item-udf-thickness" placeholder="Thick" value="" autocomplete="off" inputmode="decimal"></td><td><input type="text" class="item-udf-width" placeholder="Width" value="" autocomplete="off" inputmode="decimal"></td><td><input type="text" class="item-udf-length" placeholder="Length" value="" autocomplete="off" inputmode="decimal"></td><td><input type="number" class="item-qty" min="0" step="any" value="1"></td><td class="item-udf-wts" title="udf_wts (SQL Accounting S/U Qty)">—</td><td><input type="number" class="item-discount" min="0" step="any" value="0"></td><td class="item-suggested-price">—</td><td class="item-price">—</td><td><input type="date" class="item-delivery-date" value=""></td><td class="item-remove">Remove</td>';
                                         tbody.appendChild(tr);
                                     }
                                 }
@@ -261,7 +263,7 @@
     </datalist>
     
     <script src="/static/js/hamburger_menu.js"></script>
-    <script src="/static/js/orderQuotation.js?v=20260604_udf_mtype3"></script>
+    <script src="/static/js/orderQuotation.js?v=20260604_suomqty_submit"></script>
     <script src="/static/js/quotationChatPopup.js?v=20260515_bubble_1_5s"></script>
     <script>
         // Set today's date as default for all delivery date inputs on load

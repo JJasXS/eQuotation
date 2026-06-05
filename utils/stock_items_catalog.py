@@ -261,6 +261,17 @@ def find_catalog_stock_item(
     return None
 
 
+def catalog_row_needs_sql_api_detail(row: dict[str, Any] | None) -> bool:
+    """List GET often omits weight UDFs; detail GET supplies ``udf_ds`` / ``udf_mtype``."""
+    if not isinstance(row, dict):
+        return True
+    if not _catalog_field_str(row, "UDF_DS", "udf_ds"):
+        return True
+    if not _catalog_field_str(row, "UDF_MTYPE", "udf_mtype"):
+        return True
+    return False
+
+
 def _catalog_field_str(item: dict[str, Any], *keys: str) -> str:
     """Read a scalar catalog field; preserves ``0`` (do not treat as empty)."""
     lower = {str(k).lower(): v for k, v in item.items()}
@@ -382,7 +393,7 @@ def _resolve_catalog_stock_for_line(item: dict[str, Any]) -> dict[str, Any]:
         hit = find_catalog_stock_item(code=code, description=desc)
         if isinstance(hit, dict):
             stock = hit
-    if code and not _catalog_field_str(stock, "UDF_MTYPE", "udf_mtype"):
+    if code and catalog_row_needs_sql_api_detail(stock):
         detail = fetch_stock_item_sql_api_by_code(code)
         if detail:
             stock = {**detail, **stock}

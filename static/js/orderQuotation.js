@@ -359,7 +359,7 @@ function buildQuotationPayload() {
             const catalogProduct =
                 findCatalogProductByCode(itemCode)
                 || findCatalogProductByDescription(product);
-            const lineUdfs = readLineStockUdfs(item);
+            const lineDims = quotationLineDimensionsFromRow(item);
             const line = {
                 product,
                 source,
@@ -368,9 +368,7 @@ function buildQuotationPayload() {
                 price,
                 discount,
                 deliveryDate,
-                udfThickness: readQuotationLineField(item, '.item-udf-thickness'),
-                udfWidth: readQuotationLineField(item, '.item-udf-width'),
-                udfLength: readQuotationLineField(item, '.item-udf-length'),
+                ...lineDims,
             };
             if (catalogProduct) {
                 line.stockDetail = catalogProduct;
@@ -379,10 +377,20 @@ function buildQuotationPayload() {
                 ...allStockUdfsFromObject(catalogProduct || {}),
                 ...allStockUdfsFromObject(readLineStockUdfs(item)),
             };
+            delete udfMerged.udf_thickness;
+            delete udfMerged.udf_width;
+            delete udfMerged.udf_length;
             Object.assign(line, udfMerged);
             Object.keys(udfMerged).forEach((k) => {
                 line[udfCamelFromSnake(k)] = udfMerged[k];
             });
+            applyQuotationLineDimensionsToPayload(line, lineDims);
+            const suomQty = readQuotationLineSuomQty(item);
+            if (suomQty) {
+                line.suomqty = suomQty;
+                line.udf_wts = suomQty;
+                line.udfWts = suomQty;
+            }
             const dtlkeyRaw = item.dataset.dtlkey;
             if (dtlkeyRaw && String(dtlkeyRaw).trim() !== '') {
                 const dtlkey = parseInt(dtlkeyRaw, 10);
@@ -489,6 +497,13 @@ async function appendQuotationLineFromApiItem(container, item) {
         await fetchProductPrice(productField);
     }
     applyQuotationLineDimensionOverrides(row, savedDims);
+    applyQuotationLineSuomQtyPreview(row);
+    const wtsVal = item.SUOMQTY ?? item.udfWts ?? item.udf_wts;
+    const wtsCell = row.querySelector('.item-udf-wts');
+    const wtsShown = wtsCell ? String(wtsCell.textContent || '').trim() : '';
+    if (wtsVal != null && String(wtsVal).trim() !== '' && (!wtsShown || wtsShown === '—')) {
+        writeQuotationLineUdfWts(row, wtsVal);
+    }
     return row;
 }
 
@@ -852,6 +867,41 @@ function formatQuotationCellDisplay(value, useDash = true) {
     return String(value).trim();
 }
 
+function quotationLineDimensionsFromRow(row) {
+    const udfThickness = readQuotationLineField(row, '.item-udf-thickness');
+    const udfWidth = readQuotationLineField(row, '.item-udf-width');
+    const udfLength = readQuotationLineField(row, '.item-udf-length');
+    return { udfThickness, udfWidth, udfLength };
+}
+
+/** Line T/W/L inputs override catalog UDFs on submit (see buildQuotationPayload). */
+function applyQuotationLineDimensionsToPayload(line, dims) {
+    if (!line || !dims) {
+        return;
+    }
+    const t = String(dims.udfThickness ?? '').trim();
+    const w = String(dims.udfWidth ?? '').trim();
+    const l = String(dims.udfLength ?? '').trim();
+    line.udfThickness = t;
+    line.udfWidth = w;
+    line.udfLength = l;
+    if (t) {
+        line.udf_thickness = t;
+    } else {
+        delete line.udf_thickness;
+    }
+    if (w) {
+        line.udf_width = w;
+    } else {
+        delete line.udf_width;
+    }
+    if (l) {
+        line.udf_length = l;
+    } else {
+        delete line.udf_length;
+    }
+}
+
 function readQuotationLineField(row, selector) {
     const el = row ? row.querySelector(selector) : null;
     if (!el) {
@@ -862,6 +912,16 @@ function readQuotationLineField(row, selector) {
         ? String(el.value || '').trim()
         : String(el.textContent || '').trim();
     return raw === '—' ? '' : raw;
+}
+
+function writeQuotationLineFieldIfEmpty(row, selector, value) {
+    if (!row || value == null || String(value).trim() === '') {
+        return;
+    }
+    if (readQuotationLineField(row, selector)) {
+        return;
+    }
+    writeQuotationLineField(row, selector, value);
 }
 
 function writeQuotationLineField(row, selector, value) {
@@ -932,17 +992,13 @@ function onQuotationLineCellBlur(cell) {
         fetchProductPrice(cell);
         return;
     }
+    if (cell.classList.contains('item-qty')
+        || cell.classList.contains('item-udf-thickness')
+        || cell.classList.contains('item-udf-width')
+        || cell.classList.contains('item-udf-length')) {
+        scheduleRefreshQuotationLineUdfWts(row);
+    }
     if (cell.classList.contains('item-qty') || cell.classList.contains('item-discount')) {
-        if (cell.classList.contains('item-qty')) {
-            const productName = readQuotationLineField(row, '.item-product') || '';
-            const code = String(row.dataset.itemCode || '').trim();
-            const catalogProduct =
-                (code ? findCatalogProductByCode(code) : null)
-                || findCatalogProductByDescription(productName);
-            if (catalogProduct) {
-                applyQuotationLineStItemExtrasFromProduct(row, catalogProduct);
-            }
-        }
         calculateQuotationTotal();
     }
 }
@@ -952,6 +1008,178 @@ function escapeQuotationHtml(value) {
         .replace(/&/g, '&amp;')
         .replace(/"/g, '&quot;')
         .replace(/</g, '&lt;');
+}
+
+/** SQL Accounting ZF/004-style divisor (mm³ × g/cm³ → kg). */
+const QUOTATION_SUOMQTY_DFS_DEFAULT = 1000000;
+
+/**
+ * suomqty / udf_wts (KG) = qty × thick_mm × width_mm × length_mm × udf_ds ÷ udf_dfs
+ * Same as SQL Accounting sales quotation lines (e.g. QT-43143).
+ */
+function calcQuotationSuomQtyKg(qty, thicknessMm, widthMm, lengthMm, densityGcm3, dfsDivisor) {
+    const q = parseFloat(String(qty).replace(/,/g, ''));
+    const t = parseFloat(String(thicknessMm).replace(/,/g, ''));
+    const w = parseFloat(String(widthMm).replace(/,/g, ''));
+    const l = parseFloat(String(lengthMm).replace(/,/g, ''));
+    const ds = parseFloat(String(densityGcm3).replace(/,/g, ''));
+    const dfs = parseFloat(String(dfsDivisor).replace(/,/g, ''));
+    if (![q, t, w, l, ds].every((n) => Number.isFinite(n) && n > 0)) {
+        return null;
+    }
+    const div = Number.isFinite(dfs) && dfs > 0 ? dfs : QUOTATION_SUOMQTY_DFS_DEFAULT;
+    return Math.round((q * t * w * l * ds / div) * 1000) / 1000;
+}
+
+function pickLineStockUdfScalar(row, ...keys) {
+    if (!row || !keys.length) {
+        return null;
+    }
+    const tryKeys = (obj) => {
+        if (!obj || typeof obj !== 'object') {
+            return null;
+        }
+        const lower = {};
+        Object.keys(obj).forEach((k) => {
+            lower[String(k).toLowerCase()] = obj[k];
+        });
+        for (const key of keys) {
+            let v = obj[key];
+            if (v == null) {
+                v = lower[String(key).toLowerCase()];
+            }
+            if (v == null || String(v).trim() === '') {
+                continue;
+            }
+            const n = parseFloat(String(v).replace(/,/g, ''));
+            if (Number.isFinite(n) && n > 0) {
+                return n;
+            }
+        }
+        return null;
+    };
+    const fromRow = tryKeys(readLineStockUdfs(row));
+    if (fromRow != null) {
+        return fromRow;
+    }
+    const code = String(row.dataset.itemCode || '').trim();
+    if (code) {
+        const hit = tryKeys(findCatalogProductByCode(code));
+        if (hit != null) {
+            return hit;
+        }
+    }
+    const desc = readQuotationLineField(row, '.item-product')
+        || readQuotationLineField(row, '.item-product-custom')
+        || '';
+    if (desc) {
+        const hit = tryKeys(findCatalogProductByDescription(desc));
+        if (hit != null) {
+            return hit;
+        }
+    }
+    return null;
+}
+
+/** Apply suomqty formula on the row (create/update quotation S/U Qty column). */
+function applyQuotationLineSuomQtyPreview(row) {
+    if (!row) {
+        return;
+    }
+    const qty = readQuotationLineNumber(row, '.item-qty');
+    const t = readQuotationLineField(row, '.item-udf-thickness');
+    const w = readQuotationLineField(row, '.item-udf-width');
+    const l = readQuotationLineField(row, '.item-udf-length');
+    const ds = pickLineStockUdfScalar(row, 'udf_ds', 'udfDs', 'UDF_DS');
+    const dfs = pickLineStockUdfScalar(row, 'udf_dfs', 'udfDfs', 'UDF_DFS')
+        || QUOTATION_SUOMQTY_DFS_DEFAULT;
+    const kg = ds == null ? null : calcQuotationSuomQtyKg(qty, t, w, l, ds, dfs);
+    writeQuotationLineUdfWts(row, kg == null ? '' : kg);
+    const udfs = readLineStockUdfs(row);
+    if (kg != null && kg > 0) {
+        udfs.udf_wts = String(kg);
+        udfs.udfWts = String(kg);
+    } else {
+        delete udfs.udf_wts;
+        delete udfs.udfWts;
+    }
+    persistLineStockUdfs(row, udfs);
+}
+
+function formatUdfWtsDisplay(value) {
+    const n = parseFloat(String(value == null ? '' : value).replace(/,/g, ''));
+    if (!Number.isFinite(n) || n <= 0) {
+        return '—';
+    }
+    // Match SQL Accounting suomqty / udf_wts (typically 3 dp, e.g. 1.968, 0.82).
+    const s = n.toFixed(3).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+    return s;
+}
+
+function readQuotationLineSuomQty(row) {
+    const cell = row ? row.querySelector('.item-udf-wts') : null;
+    const raw = cell ? String(cell.textContent || '').trim() : '';
+    if (!raw || raw === '—') {
+        return '';
+    }
+    const formatted = formatUdfWtsDisplay(raw);
+    return formatted === '—' ? '' : formatted;
+}
+
+function writeQuotationLineUdfWts(row, value) {
+    if (!row) {
+        return;
+    }
+    const cell = row.querySelector('.item-udf-wts');
+    if (!cell) {
+        return;
+    }
+    cell.textContent = formatUdfWtsDisplay(value);
+}
+
+function buildProductPriceQueryParams(row) {
+    const product = readQuotationLineField(row, '.item-product')
+        || readQuotationLineField(row, '.item-product-custom')
+        || '';
+    const params = new URLSearchParams();
+    if (product) {
+        params.set('description', product);
+    }
+    const qty = readQuotationLineNumber(row, '.item-qty');
+    if (qty > 0) {
+        params.set('qty', String(qty));
+    }
+    const t = readQuotationLineField(row, '.item-udf-thickness');
+    const w = readQuotationLineField(row, '.item-udf-width');
+    const l = readQuotationLineField(row, '.item-udf-length');
+    if (t) {
+        params.set('udfThickness', t);
+    }
+    if (w) {
+        params.set('udfWidth', w);
+    }
+    if (l) {
+        params.set('udfLength', l);
+    }
+    const code = String(row?.dataset?.itemCode || '').trim();
+    if (code) {
+        params.set('itemCode', code);
+    }
+    return params;
+}
+
+let udfWtsRefreshTimer = null;
+
+function refreshQuotationLineUdfWts(row) {
+    applyQuotationLineSuomQtyPreview(row);
+}
+
+function scheduleRefreshQuotationLineUdfWts(row) {
+    if (!row) {
+        return;
+    }
+    clearTimeout(udfWtsRefreshTimer);
+    udfWtsRefreshTimer = setTimeout(() => applyQuotationLineSuomQtyPreview(row), 120);
 }
 
 function quotationLineStItemExtraCellsHtml(options = {}) {
@@ -991,6 +1219,7 @@ function buildQuotationLineRowInnerHtml(options = {}) {
             length: options.length,
         })}
         <td><input type="number" class="item-qty" min="0" step="any" value="${qty}"></td>
+        <td class="item-udf-wts" title="udf_wts (SQL Accounting S/U Qty)">${formatUdfWtsDisplay(options.udfWts)}</td>
         <td><input type="number" class="item-discount" min="0" step="any" value="${disc}"></td>
         <td class="item-suggested-price">${refDisplay}</td>
         <td class="item-price">${unitDisplay}</td>
@@ -1087,8 +1316,23 @@ function initQuotationLineTableEvents() {
         if (!el || !table.contains(el)) {
             return;
         }
-        if (el.matches('.item-product, .item-product-custom, .item-qty, .item-discount, .item-delivery-date')) {
+        if (el.matches(
+            '.item-product, .item-product-custom, .item-qty, .item-discount, .item-delivery-date,'
+            + ' .item-udf-thickness, .item-udf-width, .item-udf-length'
+        )) {
             onQuotationLineCellBlur(el);
+        }
+    });
+    table.addEventListener('input', (e) => {
+        const el = e.target;
+        if (!el || !table.contains(el)) {
+            return;
+        }
+        if (el.matches('.item-qty, .item-udf-thickness, .item-udf-width, .item-udf-length')) {
+            const row = getQuotationLineRowFrom(el);
+            if (row) {
+                scheduleRefreshQuotationLineUdfWts(row);
+            }
         }
     });
     table.addEventListener(
@@ -1098,7 +1342,10 @@ function initQuotationLineTableEvents() {
             if (!el || !table.contains(el)) {
                 return;
             }
-            if (el.matches('.item-product, .item-product-custom, .item-qty, .item-discount')) {
+            if (el.matches(
+                '.item-product, .item-product-custom, .item-qty, .item-discount,'
+                + ' .item-udf-thickness, .item-udf-width, .item-udf-length'
+            )) {
                 onQuotationLineCellBlur(el);
             }
         },
@@ -1161,30 +1408,50 @@ function clearQuotationLineStItemExtras(row) {
         '.item-udf-width',
         '.item-udf-length',
     ].forEach((sel) => writeQuotationLineField(row, sel, ''));
+    writeQuotationLineUdfWts(row, '');
+}
+
+function quotationPriceResponseStockBlob(data) {
+    if (!data || typeof data !== 'object') {
+        return {};
+    }
+    // ``stockUdfs: {}`` is truthy — never use ``data.stockUdfs || data`` alone.
+    const udfMap = {
+        ...allStockUdfsFromObject(data),
+        ...allStockUdfsFromObject(data.stockUdfs),
+    };
+    return { ...data, ...udfMap, stockUdfs: { ...udfMap } };
 }
 
 function applyQuotationLineStItemExtras(row, data) {
     if (!row) {
         return;
     }
-    const src = data || {};
-    const pick = (key) => {
-        const v = src[key];
-        if (v == null) {
-            return '';
-        }
-        return String(v).trim();
-    };
+    const src = quotationPriceResponseStockBlob(data);
     const fields = [
-        ['.item-udf-moq', 'udfMoq'],
-        ['.item-udf-dleadtime', 'udfDleadtime'],
-        ['.item-udf-bundle', 'udfBundle'],
-        ['.item-udf-thickness', 'udfThickness'],
-        ['.item-udf-width', 'udfWidth'],
-        ['.item-udf-length', 'udfLength'],
+        ['.item-udf-moq', 'udfMoq', 'UDF_MOQ', 'udf_moq', false],
+        ['.item-udf-dleadtime', 'udfDleadtime', 'UDF_DLEADTIME', 'udf_dleadtime', false],
+        ['.item-udf-bundle', 'udfBundle', 'UDF_BUNDLE', 'udf_bundle', false],
+        ['.item-udf-thickness', 'udfThickness', 'UDF_THICKNESS', 'udf_thickness', true],
+        ['.item-udf-width', 'udfWidth', 'UDF_WIDTH', 'udf_width', true],
+        ['.item-udf-length', 'udfLength', 'UDF_LENGTH', 'udf_length', true],
     ];
-    fields.forEach(([sel, key]) => writeQuotationLineField(row, sel, pick(key)));
-    persistLineStockUdfs(row, allStockUdfsFromObject(src));
+    fields.forEach(([sel, ...keys]) => {
+        const onlyIfEmpty = keys[keys.length - 1] === true;
+        const keyList = onlyIfEmpty ? keys.slice(0, -1) : keys;
+        const val = stockItemUdfDisplayValue(src, ...keyList);
+        if (onlyIfEmpty) {
+            writeQuotationLineFieldIfEmpty(row, sel, val);
+        } else {
+            writeQuotationLineField(row, sel, val);
+        }
+    });
+    persistLineStockUdfs(row, {
+        ...readLineStockUdfs(row),
+        ...allStockUdfsFromObject(src),
+        ...allStockUdfsFromObject(src.stockUdfs),
+    });
+    applyQuotationLineSuomQtyPreview(row);
 }
 
 function applyQuotationLineStItemExtrasFromProduct(row, product) {
@@ -1210,10 +1477,21 @@ function applyQuotationLineStItemExtrasFromProduct(row, product) {
         }
     });
     applyQuotationLineStItemExtras(row, udfPayload);
+    [
+        ['.item-udf-thickness', 'udf_thickness', 'UDF_THICKNESS', 'udfThickness'],
+        ['.item-udf-width', 'udf_width', 'UDF_WIDTH', 'udfWidth'],
+        ['.item-udf-length', 'udf_length', 'UDF_LENGTH', 'udfLength'],
+    ].forEach(([sel, ...keys]) => {
+        const v = stockItemUdfDisplayValue(product, ...keys);
+        if (v) {
+            writeQuotationLineField(row, sel, v);
+        }
+    });
     const code = String(product.CODE ?? product.code ?? '').trim();
     if (code) {
         row.dataset.itemCode = code;
     }
+    applyQuotationLineSuomQtyPreview(row);
 }
 
 function stockItemUdfDisplayValue(product, ...keys) {
@@ -1421,7 +1699,13 @@ async function fetchProductPrice(input) {
     }
     
     try {
-        const response = await fetch(`/api/get_product_price?description=${encodeURIComponent(productName)}`);
+        const priceParams = inQuotationTable && row
+            ? buildProductPriceQueryParams(row)
+            : new URLSearchParams({ description: productName });
+        if (!priceParams.get('description')) {
+            priceParams.set('description', productName);
+        }
+        const response = await fetch(`/api/get_product_price?${priceParams.toString()}`);
         const data = await response.json();
 
         if (data.success && data.price !== undefined && data.price !== null) {
@@ -1465,7 +1749,22 @@ async function fetchProductPrice(input) {
                 calculateQuotationTotal();
             }
             if (row && inQuotationTable) {
-                applyQuotationLineStItemExtras(row, data.stockUdfs || data);
+                const savedDims = {
+                    t: readQuotationLineField(row, '.item-udf-thickness'),
+                    w: readQuotationLineField(row, '.item-udf-width'),
+                    l: readQuotationLineField(row, '.item-udf-length'),
+                };
+                applyQuotationLineStItemExtras(row, data);
+                if (savedDims.t) {
+                    writeQuotationLineField(row, '.item-udf-thickness', savedDims.t);
+                }
+                if (savedDims.w) {
+                    writeQuotationLineField(row, '.item-udf-width', savedDims.w);
+                }
+                if (savedDims.l) {
+                    writeQuotationLineField(row, '.item-udf-length', savedDims.l);
+                }
+                applyQuotationLineSuomQtyPreview(row);
             }
         } else if (row && inQuotationTable) {
             clearQuotationLineStItemExtras(row);

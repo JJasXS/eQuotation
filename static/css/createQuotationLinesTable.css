@@ -64,11 +64,16 @@ body.create-quotation-page #quotation-form table.quotation-lines-table td.item-p
 body.create-quotation-page #quotation-form table.quotation-lines-table td.item-udf-moq,
 body.create-quotation-page #quotation-form table.quotation-lines-table td.item-udf-dleadtime,
 body.create-quotation-page #quotation-form table.quotation-lines-table td.item-udf-bundle,
-body.create-quotation-page #quotation-form table.quotation-lines-table td.item-udf-moq,
-body.create-quotation-page #quotation-form table.quotation-lines-table td.item-udf-dleadtime,
-body.create-quotation-page #quotation-form table.quotation-lines-table td.item-udf-bundle {
+body.create-quotation-page #quotation-form table.quotation-lines-table td.item-udf-wts,
+body.create-quotation-page #quotation-form table.quotation-lines-table th.col-udf-wts {
     text-align: center;
     white-space: nowrap;
+}
+
+body.create-quotation-page #quotation-form table.quotation-lines-table td.item-udf-wts {
+    min-width: 3.5rem;
+    font-variant-numeric: tabular-nums;
+    color: #1e3a52;
 }
 
 /* Thick / Width / Length — compact centred inputs under centred headers */
@@ -78,7 +83,7 @@ body.create-quotation-page table.quotation-lines-table th:nth-child(8),
 body.create-quotation-page table.quotation-lines-table td:nth-child(6),
 body.create-quotation-page table.quotation-lines-table td:nth-child(7),
 body.create-quotation-page table.quotation-lines-table td:nth-child(8) {
-    width: 1%;
+    min-width: 4.5rem;
     white-space: nowrap;
     text-align: center;
     vertical-align: middle;
@@ -114,22 +119,28 @@ body.create-quotation-page table.quotation-lines-table input.item-udf-thickness,
 body.create-quotation-page table.quotation-lines-table input.item-udf-width,
 body.create-quotation-page table.quotation-lines-table input.item-udf-length {
     display: block;
-    width: 3.25rem;
-    min-width: 2.75rem;
-    max-width: 3.5rem;
+    width: 5rem;
+    min-width: 4.25rem;
+    max-width: 7rem;
     margin-left: auto;
     margin-right: auto;
-    padding: 3px 4px;
+    padding: 4px 6px;
     text-align: center;
-    font-size: 12px;
+    font-size: 13px;
     box-sizing: border-box;
+    pointer-events: auto;
+    position: relative;
+    z-index: 2;
+    background: #fff;
 }
 
-/* Qty & Discount — narrow columns (values are usually short) */
+/* Qty, S/U Qty (udf_wts), Discount — narrow columns */
 body.create-quotation-page #quotation-form table.quotation-lines-table th:nth-child(9),
 body.create-quotation-page #quotation-form table.quotation-lines-table td:nth-child(9),
 body.create-quotation-page #quotation-form table.quotation-lines-table th:nth-child(10),
-body.create-quotation-page #quotation-form table.quotation-lines-table td:nth-child(10) {
+body.create-quotation-page #quotation-form table.quotation-lines-table td:nth-child(10),
+body.create-quotation-page #quotation-form table.quotation-lines-table th:nth-child(11),
+body.create-quotation-page #quotation-form table.quotation-lines-table td:nth-child(11) {
     width: 1%;
     white-space: nowrap;
     text-align: center;

@@ -258,6 +258,8 @@ def _quotation_line_item_fields_for_select(dtl_columns: set) -> list:
     for opt in ('SQTY', 'SUOMQTY', 'RATE', 'UOM', 'SUOM'):
         if opt in dtl_columns and opt not in item_fields:
             item_fields.append(opt)
+    if 'UDF_WTS' in dtl_columns and 'UDF_WTS' not in item_fields:
+        item_fields.append('UDF_WTS')
     if 'UDF_STDPRICE' in dtl_columns:
         item_fields.append('UDF_STDPRICE')
     if 'DELIVERYDATE' in dtl_columns:
@@ -278,6 +280,7 @@ def _quotation_line_item_from_row(row_map: dict, *, cur) -> dict:
         'QTY': _safe_float(row_map.get('QTY')),
         'SQTY': _safe_float(row_map.get('SQTY')),
         'SUOMQTY': _safe_float(row_map.get('SUOMQTY')),
+        'udfWts': _safe_float(row_map.get('UDF_WTS') or row_map.get('SUOMQTY')),
         'UNITPRICE': _safe_float(row_map.get('UNITPRICE')),
         'DISC': _safe_float(row_map.get('DISC')),
         'AMOUNT': _safe_float(row_map.get('AMOUNT')),
@@ -7359,6 +7362,61 @@ def api_admin_update_purchase_request_status(request_number):
         return jsonify({'success': False, 'error': str(exc)}), 500
 
 
+def _quotation_udf_wts_preview_from_request(
+    catalog_row: dict | None,
+    *,
+    item_code: str = "",
+) -> float | None:
+    """Compute preview udf_wts when create-quotation sends qty + dimensions on get_product_price."""
+    from utils.quotation_line_qty import preview_udf_wts_for_quotation_line
+
+    has_line = any(
+        str(request.args.get(k) or "").strip()
+        for k in (
+            "qty",
+            "udfThickness",
+            "udf_thickness",
+            "udfWidth",
+            "udf_width",
+            "udfLength",
+            "udf_length",
+        )
+    )
+    if not has_line and not catalog_row:
+        return None
+    line_item: dict[str, Any] = {
+        "qty": request.args.get("qty") or "1",
+        "itemCode": (request.args.get("itemCode") or request.args.get("itemcode") or item_code or "").strip(),
+        "udfThickness": request.args.get("udfThickness") or request.args.get("udf_thickness") or "",
+        "udfWidth": request.args.get("udfWidth") or request.args.get("udf_width") or "",
+        "udfLength": request.args.get("udfLength") or request.args.get("udf_length") or "",
+    }
+    stock = dict(catalog_row) if isinstance(catalog_row, dict) else {}
+    if item_code and not stock.get("CODE"):
+        stock["CODE"] = item_code
+    try:
+        return preview_udf_wts_for_quotation_line(line_item, stock)
+    except Exception as exc:
+        print(f"[PRICING WARNING] udf_wts preview failed: {exc}", flush=True)
+        return None
+
+
+def _attach_udf_wts_preview(payload: dict[str, Any], wts: float | None) -> dict[str, Any]:
+    if wts is None or wts <= 0:
+        return payload
+    s = f"{wts:.4f}".rstrip("0").rstrip(".")
+    payload["udfWts"] = s
+    payload["udf_wts"] = s
+    payload["suomqty"] = s
+    su = payload.get("stockUdfs")
+    if isinstance(su, dict):
+        su = dict(su)
+        su["udfWts"] = s
+        su["udf_wts"] = s
+        payload["stockUdfs"] = su
+    return payload
+
+
 @app.route('/api/get_product_price')
 @api_login_required(unauth_message='Unauthorized')
 def api_get_product_price():
@@ -7388,6 +7446,8 @@ def api_get_product_price():
                     cur.close()
                 if con:
                     con.close()
+
+    catalog_row_for_preview: dict | None = None
 
     def build_price_response(price_item, match_type):
         fallback_price = float(price_item.get('STOCKVALUE', 0) or 0)
@@ -7423,6 +7483,7 @@ def api_get_product_price():
                     con.close()
 
         # SQL API stockitem list first; Firebird ST_ITEM only fills gaps.
+        nonlocal catalog_row_for_preview
         if item_code or description:
             try:
                 from utils.stock_items_catalog import (
@@ -7440,13 +7501,12 @@ def api_get_product_price():
                 code_for_detail = item_code or str(
                     (catalog_row or {}).get("CODE") or (catalog_row or {}).get("code") or ""
                 ).strip()
-                if code_for_detail and not str(
-                    (catalog_row or {}).get("UDF_MTYPE")
-                    or (catalog_row or {}).get("udf_mtype")
-                    or ""
-                ).strip():
-                    from utils.stock_items_catalog import fetch_stock_item_sql_api_by_code
+                from utils.stock_items_catalog import (
+                    catalog_row_needs_sql_api_detail,
+                    fetch_stock_item_sql_api_by_code,
+                )
 
+                if code_for_detail and catalog_row_needs_sql_api_detail(catalog_row):
                     detail_row = fetch_stock_item_sql_api_by_code(code_for_detail)
                     if detail_row:
                         catalog_row = {**detail_row, **(catalog_row or {})}
@@ -7463,6 +7523,7 @@ def api_get_product_price():
                             st_item_udf_stdprice = float(str(raw_std).replace(',', '').strip())
                         except (TypeError, ValueError):
                             pass
+                catalog_row_for_preview = catalog_row if isinstance(catalog_row, dict) else None
             except Exception as catalog_err:
                 print(
                     f"[PRICING WARNING] SQL API catalog lookup failed for {item_code!r}: {catalog_err}",
@@ -7477,7 +7538,10 @@ def api_get_product_price():
                 pricing_result = get_selling_price(customer_code, item_code)
                 selected_price = float(pricing_result.get('SelectedPrice') or 0)
                 # Honor priority engine result even when 0 (no rules enabled, no match, or rule yields zero).
-                return jsonify({
+                wts_preview = _quotation_udf_wts_preview_from_request(
+                    catalog_row_for_preview, item_code=item_code
+                )
+                return jsonify(_attach_udf_wts_preview({
                     'success': True,
                     'price': selected_price,
                     'stItemPrice': st_item_udf_stdprice if st_item_udf_stdprice is not None else 0,
@@ -7491,7 +7555,7 @@ def api_get_product_price():
                     'matchType': match_type,
                     'stockUdfs': dict(st_item_extras),
                     **st_item_extras,
-                })
+                }, wts_preview))
             except Exception as pricing_error:
                 print(f"[PRICING WARNING] Falling back to stock price for {item_code}: {pricing_error}", flush=True)
                 no_match_message = f'Pricing rule evaluation failed: {pricing_error}'
@@ -7499,7 +7563,10 @@ def api_get_product_price():
         if st_item_udf_stdprice is not None and st_item_udf_stdprice > 0:
             fallback_price = st_item_udf_stdprice
 
-        return jsonify({
+        wts_preview = _quotation_udf_wts_preview_from_request(
+            catalog_row_for_preview, item_code=item_code
+        )
+        return jsonify(_attach_udf_wts_preview({
             'success': True,
             'price': fallback_price,
             'stItemPrice': st_item_udf_stdprice if st_item_udf_stdprice is not None else 0,
@@ -7514,7 +7581,7 @@ def api_get_product_price():
             'matchType': match_type,
             'stockUdfs': dict(st_item_extras),
             **st_item_extras,
-        })
+        }, wts_preview))
 
     try:
         # First preference: resolve directly from ST_ITEM (dropdown source) and use UDF_STDPRICE.
