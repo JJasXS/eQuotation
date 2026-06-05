@@ -143,7 +143,7 @@
 
 
     <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260604_tabs_size">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=viewpr68_stable_split_height">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=20260603_report_cutoff_caption">
 
 
 
@@ -557,7 +557,7 @@
 
 
 
-                                                        <span class="location-filter-label">Selected Locations</span>
+                                                        <span class="location-filter-label">Selected</span>
 
 
 
@@ -605,7 +605,7 @@
 
 
 
-                                                        <span class="location-filter-label">Add Location</span>
+                                                        <span class="location-filter-label">Add</span>
 
 
 
@@ -725,31 +725,7 @@
 
 
 
-                                                        <div class="location-filter-row">
-
-
-
-
-
-
-
-
-
-
-
-                                                            <button type="button" class="view-pr-refresh-btn stock-report-advanced-btn" id="stock-report-advanced-toggle" aria-expanded="false" aria-controls="stock-report-advanced-settings" onclick="toggleStockReportAdvancedSettings()">Report qty &amp; layout…</button>
-
-
-
-
-
-
-
-
-
-
-
-                                                        </div>
+                                                        
 
 
 
@@ -773,7 +749,7 @@
 
 
 
-                                                    <div id="stock-report-advanced-settings" class="stock-report-advanced-settings stock-report-advanced-settings--collapsed" aria-hidden="true">
+                                                    <div id="stock-report-advanced-settings" class="stock-report-advanced-settings" aria-hidden="false">
 
 
 
@@ -894,198 +870,7 @@
 
 
                                                         </div>
-
-
-
-
-
-
-
-
-
-
-
-                                                        <div id="stock-report-orientation-group" class="stock-report-settings-group">
-
-
-
-
-
-
-
-
-
-
-
-                                                            <div class="location-filter-row location-filter-row--stack">
-
-
-
-
-
-
-
-
-
-
-
-                                                                <span class="location-filter-label">Orientation</span>
-
-
-
-
-
-
-
-
-
-
-
-                                                                <div class="stock-dashboard-layout-toggle" role="group" aria-label="Dashboard layout">
-
-
-
-
-
-
-
-
-
-
-
-                                                                    <label class="stock-dashboard-layout-toggle__opt">
-
-
-
-
-
-
-
-
-
-
-
-                                                                        <input type="radio" name="stock-dashboard-layout" value="vertical" checked onchange="onStockDashboardLayoutChange(this)" />
-
-
-
-
-
-
-
-
-
-
-
-                                                                        Vertical
-
-
-
-
-
-
-
-
-
-
-
-                                                                    </label>
-
-
-
-
-
-
-
-
-
-
-
-                                                                    <label class="stock-dashboard-layout-toggle__opt">
-
-
-
-
-
-
-
-
-
-
-
-                                                                        <input type="radio" name="stock-dashboard-layout" value="split" onchange="onStockDashboardLayoutChange(this)" />
-
-
-
-
-
-
-
-
-
-
-
-                                                                        Split
-
-
-
-
-
-
-
-
-
-
-
-                                                                    </label>
-
-
-
-
-
-
-
-
-
-
-
-                                                                </div>
-
-
-
-
-
-
-
-
-
-
-
-                                                            </div>
-
-
-
-
-
-
-
-
-
-
-
                                                         </div>
-
-
-
-
-
-
-
-
-
-
-
-                                                    </div>
 
 
 
@@ -1110,329 +895,19 @@
 
 
                                                 <div class="stock-dashboard-cutoff-strip">
-
-
-
-
-
-
-
-
-
-
-
                                                     <div class="stock-dashboard-cutoff-strip__left">
-
-
-
-
-
-
-
-
-
-
-
-                                                        <div class="location-filter-main">
-
-
-
-
-
-
-
-
-
-
-
-                                                            <div class="location-filter-row location-filter-row--actions">
-
-
-
-
-
-
-
-
-
-
-
+                                                        <div class="location-filter-main stock-dashboard-cutoff-strip__main">
                                                                 <label class="pr-field location-filter-date-field">
-
-
-
-
-
-
-
-
-
-
-
-                                                                    <span>Last Cutoff Date</span>
-
-
-
-
-
-
-
-
-
-
-
-                                                                    <input type="date" id="stock-card-from-date" />
-
-
-
-
-
-
-
-
-
-
-
+                                                                    <span class="location-filter-label">Cutoff date</span>
+                                                                    <input type="date" id="stock-card-from-date" aria-label="Cutoff date" title="Cutoff date" />
                                                                 </label>
-
-
-
-
-
-
-
-
-
-
-
-                                                                <div class="location-filter-actions location-filter-actions--with-search">
-
-
-
-
-
-
-
-
-
-
-
-                                                                    <div class="stock-card-item-search-wrap">
-
-
-
-
-
-
-
-
-
-
-
-                                                                        <label class="stock-card-item-search-label" for="stock-card-item-search">Item code</label>
-
-
-
-
-
-
-
-
-
-
-
-                                                                        <input
-
-
-
-
-
-
-
-
-
-
-
-                                                                            type="search"
-
-
-
-
-
-
-
-
-
-
-
-                                                                            id="stock-card-item-search"
-
-
-
-
-
-
-
-
-
-
-
-                                                                            class="stock-card-item-search-input view-pr-search-input"
-
-
-
-
-
-
-
-
-
-
-
-                                                                            placeholder="Filter Item Code..."
-
-
-
-
-
-
-
-
-
-
-
-                                                                            autocomplete="off"
-
-
-
-
-
-
-
-
-
-
-
-                                                                            oninput="onStockCardItemSearchInput(this.value)"
-
-
-
-
-
-
-
-
-
-
-
-                                                                        />
-
-
-
-
-
-
-
-
-
-
-
-                                                                    </div>
-
-
-
-
-
-
-
-
-
-
-
+                                                                <div class="stock-dashboard-cutoff-strip__date-actions">
                                                                     <button type="button" class="view-pr-refresh-btn" onclick="applyStockCardDateFilter()">Apply Cutoff</button>
-
-
-
-
-
-
-
-
-
-
-
                                                                     <button type="button" class="view-pr-refresh-btn" onclick="clearStockCardDateFilter()">Clear Cutoff</button>
-
-
-
-
-
-
-
-
-
-
-
                                                                     <button type="button" class="location-buy-btn" onclick="goToCreateProcurement()">New e-Purchase Request</button>
-
-
-
-
-
-
-
-
-
-
-
                                                                 </div>
-
-
-
-
-
-
-
-
-
-
-
-                                                            </div>
-
-
-
-
-
-
-
-
-
-
-
                                                         </div>
-
-
-
-
-
-
-
-
-
-
-
                                                     </div>
-
-
-
-
-
-
-
-
-
-
-
                                                 </div>
 
 
@@ -1447,27 +922,21 @@
 
                                             </div>
 
-
-
-
-
-
-
-
-
-
-
                                         </div>
 
-
-
-
-
-
-
-
-
-
+                                            <div class="stock-report-item-search-row">
+                                                <div class="stock-card-item-search-wrap">
+                                                    <label class="stock-card-item-search-label" for="stock-card-item-search">Item code</label>
+                                                    <input
+                                                        type="search"
+                                                        id="stock-card-item-search"
+                                                        class="stock-card-item-search-input view-pr-search-input"
+                                                        placeholder="Filter Item Code..."
+                                                        autocomplete="off"
+                                                        oninput="onStockCardItemSearchInput(this.value)"
+                                                    />
+                                                </div>
+                                            </div>
 
                                         <div class="stock-card-table-wrap" id="stock-card-table-wrap">
 
@@ -2223,7 +1692,7 @@
                                             <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="CANCELLED" aria-selected="false" onclick="toggleViewStatusFilter('CANCELLED')">Cancelled</button>
                                         </nav>
                                         <div class="pr-view-toolbar-actions view-pr-actions-right view-pr-actions-right--toolbar">
-                                            <button type="button" class="view-pr-refresh-btn view-pr-refresh-btn--ghost" onclick="loadViewPurchaseRequests(true)">Refresh</button>
+                                            <button type="button" class="view-pr-refresh-btn view-pr-refresh-btn--ghost" onclick="loadViewPurchaseRequests(true, { bustCache: true })">Refresh</button>
                                             <button type="button" class="view-pr-refresh-btn view-pr-update-availability-btn" hidden aria-hidden="true" id="view-pr-update-btn" onclick="saveViewDetailApprovals()" disabled title="Check and update item availability before transferring this PR.">Update</button>
                                         </div>
                                     </div>
@@ -7604,7 +7073,6 @@
 
         async function finalizeViewPrAfterApprovalSave(selectedHeaderId) {
             const keepId = Number(selectedHeaderId || viewSelectedHeaderId || 0);
-            await loadViewPurchaseRequests(true);
             if (keepId > 0) {
                 viewSelectedHeaderId = keepId;
                 const record = (viewPurchaseRequests || []).find((row) => Number(row.id || 0) === keepId);
@@ -7623,9 +7091,11 @@
                     viewLoadingDetailIds.delete(keepId);
                     syncViewPrToUrl();
                     renderFilteredViewPurchaseRequests();
+                    loadViewPurchaseRequests(false, { background: true });
                     return;
                 }
             }
+            await loadViewPurchaseRequests(false, { background: true });
             if (!selectViewPrFromUrlIfPresent()) {
                 syncViewPrToUrl();
             }
@@ -24699,6 +24169,8 @@
 
             const sup = Number(p.supplierMs);
 
+            const supEnrich = Number(p.supplierEnrichMs);
+
 
 
 
@@ -25058,6 +24530,10 @@
 
 
                 parts.push(`supplier map ${sup} ms`);
+            }
+
+            if (Number.isFinite(supEnrich) && supEnrich > 0.05) {
+                parts.push(`supplier enrich ${supEnrich} ms`);
 
 
 
@@ -27257,7 +26733,8 @@
 
 
 
-        function loadViewPurchaseRequests(forceReload) {
+        function loadViewPurchaseRequests(forceReload, options) {
+            const loadOpts = options || {};
 
 
 
@@ -27269,7 +26746,7 @@
 
 
 
-            if (viewPurchaseRequestsLoaded && !forceReload) {
+            if (viewPurchaseRequestsLoaded && !forceReload && !loadOpts.background) {
 
 
 
@@ -27341,7 +26818,9 @@
 
 
 
-            const paintedFromCache = !forceReload && paintCachedViewPrListForInstantLoad();
+            const hasExistingList = viewPurchaseRequestsLoaded && (viewPurchaseRequests || []).length > 0;
+            const paintedFromCache = (!forceReload && paintCachedViewPrListForInstantLoad())
+                || (hasExistingList && (loadOpts.background || forceReload));
 
 
 
@@ -27497,7 +26976,7 @@
 
 
 
-            const cacheBust = forceReload ? '&no_cache=1' : '';
+            const cacheBust = loadOpts.bustCache ? '&no_cache=1' : '';
 
 
 
@@ -32279,7 +31758,7 @@
 
 
 
-                availableList.innerHTML = '<span class="location-empty">All locations selected.</span>';
+                availableList.innerHTML = '<span class="location-empty">All selected</span>';
 
 
 

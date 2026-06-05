@@ -198,7 +198,7 @@ PURCHASE_REQUEST_LIST_ENDPOINT_HINT = None
 PURCHASE_REQUEST_DETAIL_ENDPOINT_HINT = None
 PURCHASE_REQUEST_LIST_CACHE = {}
 PURCHASE_REQUEST_LIST_CACHE_LOCK = threading.Lock()
-PURCHASE_REQUEST_LIST_CACHE_TTL_SEC = 15.0
+PURCHASE_REQUEST_LIST_CACHE_TTL_SEC = 60.0
 ADMIN_DASHBOARD_API_CACHE = {}
 ADMIN_DASHBOARD_API_CACHE_LOCK = threading.Lock()
 ADMIN_DASHBOARD_API_CACHE_TTL_SEC = 300.0
@@ -5045,19 +5045,50 @@ def api_admin_create_purchase_request():
 
 
 def _fetch_supplier_master_from_sql_api(codes: list[str]) -> dict[str, dict[str, str]]:
-    """Map supplier CODE (upper) -> companyname, udf_email using the cached supplier list.
+    """Map supplier CODE (upper) -> companyname, udf_email.
 
-    Previously walked /supplier paginated on every call. Now a single dict lookup
-    over the TTL-cached list shared with /api/admin/procurement/suppliers.
+    List-sized batches use per-code SQL API lookup first so a cold supplier catalog
+    cache does not paginate the entire /supplier table on every PR list load.
     """
     wanted = {str(c).strip().upper() for c in codes if str(c).strip()}
     if not wanted:
         return {}
 
     from utils.sql_api_supplier import (
+        fetch_supplier_row_by_code,
         supplier_emails_from_sql_api_row,
         supplier_primary_email_from_sql_api_row,
     )
+
+    def _master_from_row(row: dict) -> dict[str, str]:
+        emails = supplier_emails_from_sql_api_row(row)
+        return {
+            'companyname': str(row.get('companyname') or row.get('companyName') or '').strip(),
+            'udf_email': supplier_primary_email_from_sql_api_row(row),
+            'emails': emails,
+        }
+
+    out: dict[str, dict[str, str]] = {}
+    missing = set(wanted)
+
+    if len(wanted) <= 32:
+        for code_u in sorted(wanted):
+            try:
+                row = fetch_supplier_row_by_code(code_u)
+            except Exception as exc:
+                print(f"[PROCUREMENT LIST PR] supplier code lookup warning ({code_u}): {exc}", flush=True)
+                row = None
+            if not isinstance(row, dict):
+                continue
+            code = str(row.get('code') or code_u).strip()
+            if not code:
+                continue
+            key_u = code.upper()
+            if key_u in missing:
+                out[key_u] = _master_from_row(row)
+                missing.discard(key_u)
+        if not missing:
+            return out
 
     all_rows: list = []
     try:
@@ -5065,7 +5096,6 @@ def _fetch_supplier_master_from_sql_api(codes: list[str]) -> dict[str, dict[str,
     except Exception as exc:
         print(f"[PROCUREMENT LIST PR] SQL API supplier master lookup warning: {exc}", flush=True)
 
-    out: dict[str, dict[str, str]] = {}
     for row in all_rows or []:
         if not isinstance(row, dict):
             continue
@@ -5073,16 +5103,11 @@ def _fetch_supplier_master_from_sql_api(codes: list[str]) -> dict[str, dict[str,
         if not code:
             continue
         key_u = code.upper()
-        if key_u not in wanted:
+        if key_u not in missing:
             continue
-
-        emails = supplier_emails_from_sql_api_row(row)
-        out[key_u] = {
-            'companyname': str(row.get('companyname') or row.get('companyName') or '').strip(),
-            'udf_email': supplier_primary_email_from_sql_api_row(row),
-            'emails': emails,
-        }
-        if len(out) == len(wanted):
+        out[key_u] = _master_from_row(row)
+        missing.discard(key_u)
+        if not missing:
             return out
 
     missing = wanted - set(out.keys())
@@ -6013,21 +6038,31 @@ def api_admin_list_purchase_requests():
                 if name and not rec.get('supplierName'):
                     rec['supplierName'] = name
 
+        enrich_ms = 0.0
         try:
             supplier_codes: set[str] = set()
+            needs_name_enrich = False
             for rec in records:
                 for code in _split_supplier_codes_field(rec.get('supplierId')):
                     supplier_codes.add(code)
-            api_master = _fetch_supplier_master_from_sql_api(list(supplier_codes)) if supplier_codes else {}
-            for rec in records:
-                for code in _split_supplier_codes_field(rec.get('supplierId')):
-                    master_row = api_master.get(code.upper())
-                    if not isinstance(master_row, dict):
-                        continue
-                    api_email = str(master_row.get('udf_email') or '').strip()
-                    if api_email and not str(rec.get('supplierEmail') or '').strip():
-                        rec['supplierEmail'] = api_email
-            _enrich_pr_list_supplier_display(records, master=api_master)
+                name = str(rec.get('supplierName') or '').strip()
+                code = str(rec.get('supplierId') or '').strip()
+                if code and (not name or name.upper() == code.upper()):
+                    needs_name_enrich = True
+            enrich_started = time.perf_counter()
+            api_master = {}
+            if supplier_codes and (needs_name_enrich or not fast_mode):
+                api_master = _fetch_supplier_master_from_sql_api(list(supplier_codes))
+                for rec in records:
+                    for code in _split_supplier_codes_field(rec.get('supplierId')):
+                        master_row = api_master.get(code.upper())
+                        if not isinstance(master_row, dict):
+                            continue
+                        api_email = str(master_row.get('udf_email') or '').strip()
+                        if api_email and not str(rec.get('supplierEmail') or '').strip():
+                            rec['supplierEmail'] = api_email
+                _enrich_pr_list_supplier_display(records, master=api_master)
+            enrich_ms = round((time.perf_counter() - enrich_started) * 1000, 1)
         except Exception as em_exc:
             print(f"[PROCUREMENT LIST PR] supplier master/display enrichment warning: {em_exc}", flush=True)
 
@@ -6042,7 +6077,7 @@ def api_admin_list_purchase_requests():
         print(
             f"[PROCUREMENT LIST PR PERF] total_ms={total_ms} upstream_ms={upstream_ms} "
             f"sql_api_data_ms={sql_api_perf.get('dataQueryMs')} sql_api_count_ms={sql_api_perf.get('countQueryMs')} "
-            f"qty_ms={qty_ms} supplier_ms={supplier_ms} map_ms={records_map_ms} "
+            f"qty_ms={qty_ms} supplier_ms={supplier_ms} enrich_ms={enrich_ms} map_ms={records_map_ms} "
             f"rows={len(records)} fast_mode={int(fast_mode)} include_qty={int(should_load_qty)}",
             flush=True
         )
@@ -6059,6 +6094,7 @@ def api_admin_list_purchase_requests():
                 'upstreamMs': upstream_ms,
                 'qtyMs': qty_ms,
                 'supplierMs': supplier_ms,
+                'supplierEnrichMs': enrich_ms,
                 'includeQty': bool(should_load_qty),
                 'fastMode': bool(fast_mode),
                 'rowCount': len(records),

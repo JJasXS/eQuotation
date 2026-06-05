@@ -460,7 +460,7 @@ body.procurement-hide-pr-approval-edits .view-pr-approved-cell input[type="check
 }
 
 .stock-report-advanced-btn {
-    align-self: flex-start;
+    display: none;
 }
 
 .stock-report-advanced-settings {
@@ -471,17 +471,14 @@ body.procurement-hide-pr-approval-edits .view-pr-approved-cell input[type="check
 }
 
 .stock-report-advanced-settings--collapsed {
-    display: none;
+    display: flex;
 }
 
 .stock-report-settings-group {
     min-width: 0;
 }
 
-/* Orientation (Vertical / Split) controls hidden; layout stays vertical (see precurement.html init). */
-#stock-report-orientation-group {
-    display: none !important;
-}
+/* Report qty & layout controls stay visible on Dashboard (no collapse). */
 
 .location-filter-actions {
     display: flex;
@@ -1173,15 +1170,41 @@ body.procurement-warm-ui .stock-card-item-search-input:focus {
     .location-filter-shell--below-cutoff .location-filter-locations {
         grid-column: 1;
         grid-row: 1;
-        grid-template-columns: 1fr;
+        flex-direction: column;
+        align-items: stretch;
         border-top: none;
         padding-top: 0;
     }
 
-    .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip {
-        padding: 10px 0 0 0;
+    .location-filter-shell--below-cutoff .location-filter-locations__main {
+        width: 100%;
+        max-width: none;
+        min-width: 0;
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .location-filter-shell--below-cutoff .location-filter-locations__settings {
+        flex-direction: column;
+        padding-left: 0;
         border-left: none;
-        border-top: 1px solid #343b46;
+        border-top: none;
+        width: 100%;
+    }
+
+    .location-filter-shell--below-cutoff .stock-column-filter-panel .location-filter-row--stack,
+    .location-filter-shell--below-cutoff .stock-report-settings-group .location-filter-row--stack {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip {
+        width: 100%;
+        min-width: 0;
+        margin-left: 0;
+        padding: 0;
+        border-left: none;
+        border-top: none;
     }
 
     .location-filter-shell--below-cutoff .report-summary-cards {
@@ -1560,32 +1583,254 @@ body.procurement-warm-ui .stock-card-item-search-input:focus {
     margin-top: 0;
 }
 
-/* Shell below cutoff: locations + summary only (single column) */
+/* Shell below cutoff: toolbar only (item search is a separate row below) */
 .location-filter-shell.location-filter-shell--below-cutoff {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto;
+    grid-template-rows: auto;
 }
 
 .location-filter-shell--below-cutoff .location-filter-locations {
     grid-column: 1;
     grid-row: 1;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(210px, 24%) minmax(280px, 32%);
-    gap: 12px;
-    align-items: stretch;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 8px 14px;
+    width: 100%;
+    box-sizing: border-box;
     margin-left: 0;
+    padding: 10px 12px;
+    border-left: none;
+}
+
+.location-filter-shell--below-cutoff .location-filter-locations__main {
+    flex: 0 1 auto;
+    min-width: 0;
+    width: auto;
+    max-width: none;
+    display: flex;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 6px;
+}
+
+.location-filter-shell--below-cutoff .location-filter-locations__main .location-filter-row--stack {
+    flex-direction: column;
+    align-items: stretch;
+    flex-wrap: nowrap;
+    gap: 4px;
+}
+
+.location-filter-shell--below-cutoff .location-filter-locations__main .location-filter-row--stack .location-pill-list {
+    width: 100%;
+}
+
+.location-filter-shell--below-cutoff .location-filter-locations__main .location-filter-label {
+    min-width: 0;
+    padding-top: 0;
+    font-size: 11px;
+    line-height: 1.2;
+}
+
+.location-filter-shell--below-cutoff .location-filter-locations__main .location-pill-list {
+    gap: 5px;
+}
+
+.location-filter-shell--below-cutoff .location-filter-locations__main .location-pill,
+.location-filter-shell--below-cutoff .location-filter-locations__main .location-add-btn {
+    padding: 3px 8px;
+    font-size: 10px;
+}
+
+.location-filter-shell--below-cutoff .location-filter-locations__main .location-pill {
+    gap: 6px;
+}
+
+.location-filter-shell--below-cutoff .location-filter-locations__main .location-empty {
+    font-size: 10px;
+    line-height: 1.25;
+    color: #9ba7b6;
+}
+
+.location-filter-shell--below-cutoff .location-filter-locations__settings {
+    flex: 1 1 360px;
+    min-width: 0;
+    width: auto;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    align-content: center;
+    gap: 8px 14px;
     padding-left: 0;
     border-left: none;
 }
 
+.location-filter-shell--below-cutoff .stock-column-filter-panel {
+    flex: 1 1 280px;
+    width: auto;
+    min-width: 0;
+}
+
+.location-filter-shell--below-cutoff .stock-column-filter-panel .location-filter-row--stack,
+.location-filter-shell--below-cutoff .stock-report-settings-group .location-filter-row--stack {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+}
+
+.location-filter-shell--below-cutoff .stock-column-filter-chips {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+#stock-report-orientation-group {
+    display: none !important;
+}
+
+.location-filter-shell--below-cutoff .stock-report-advanced-settings {
+    flex: 0 1 auto;
+    width: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    padding-top: 0;
+    min-width: 0;
+}
+
+.location-filter-shell--below-cutoff .stock-report-settings-group {
+    flex: 0 1 auto;
+    width: auto;
+    min-width: 0;
+}
+
+.location-filter-shell--below-cutoff .stock-card-uom-toggle,
+.location-filter-shell--below-cutoff .stock-dashboard-layout-toggle {
+    flex: 0 1 auto;
+    min-width: 0;
+}
+
 .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip {
+    flex: 1 1 280px;
+    min-width: 0;
+    width: auto;
+    max-width: none;
+    margin-left: auto;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px 10px;
     margin-bottom: 0;
-    padding: 0 0 0 12px;
+    padding: 0;
     background: transparent;
     border: none;
-    border-left: 1px solid #4a5568;
     border-radius: 0;
     box-shadow: none;
+    box-sizing: border-box;
+}
+
+.location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip__main {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px 10px;
+    width: 100%;
+}
+
+.location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip__date-actions {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 6px 8px;
+    flex: 0 0 auto;
+}
+
+.location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip .location-filter-date-field {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    max-width: none;
+    width: auto;
+    flex: 0 0 auto;
+}
+
+.location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip .location-filter-date-field .location-filter-label {
+    min-width: 0;
+    padding-top: 0;
+    white-space: nowrap;
+}
+
+.location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip .location-filter-date-field span {
+    display: inline;
+}
+
+.location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip .location-filter-date-field input {
+    width: 132px;
+    min-width: 132px;
+    flex: 0 0 auto;
+}
+
+.location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip__date-actions .view-pr-refresh-btn,
+.location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip__date-actions .location-buy-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.stock-report-item-search-row {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    margin: 0 0 10px;
+    padding: 10px 12px;
+    background: #1f2533;
+    border: 1px solid #343b46;
+    border-radius: 12px;
+    box-sizing: border-box;
+}
+
+.stock-report-item-search-row .stock-card-item-search-wrap {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+}
+
+.stock-report-item-search-row .stock-card-item-search-label {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.stock-report-item-search-row .stock-card-item-search-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: none;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+body.procurement-warm-ui .stock-report-item-search-row {
+    background: #fffef9;
+    border: 1px solid #dccfb8;
+    border-radius: 12px;
+    box-shadow: 0 2px 14px rgba(42, 36, 27, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+body.procurement-warm-ui .stock-report-item-search-row .stock-card-item-search-label {
+    color: #6b6254;
 }
 
 .location-filter-shell--below-cutoff .report-summary-cards {
@@ -3266,9 +3511,21 @@ body.procurement-warm-ui .location-filter-locations {
 
 body.procurement-warm-ui .location-filter-shell--below-cutoff .location-filter-locations {
     margin-left: 0;
-    padding-left: 12px;
+    padding: 10px 12px;
     border-left: none;
     border-radius: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    width: 100%;
+}
+
+body.procurement-warm-ui .location-filter-shell--below-cutoff .location-filter-locations__settings {
+    padding-left: 0;
+    border-left: none;
+}
+
+body.procurement-warm-ui .location-filter-shell--below-cutoff .location-filter-locations__main .location-empty {
+    color: #8a8174;
 }
 
 body.procurement-warm-ui .location-filter-locations__settings {
@@ -3282,8 +3539,9 @@ body.procurement-warm-ui .stock-column-filter-chip {
 body.procurement-warm-ui .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip {
     background: transparent;
     border: none;
-    border-left: 1px solid #ddd8cc;
     box-shadow: none;
+    border-radius: 0;
+    padding: 0;
 }
 
 body.procurement-warm-ui .stock-dashboard-cutoff-strip {
@@ -3309,31 +3567,48 @@ body.procurement-warm-ui .stock-dashboard-layout-toggle__opt {
 
 @media (max-width: 900px) {
     .location-filter-shell--below-cutoff .location-filter-locations {
-        grid-template-columns: 1fr;
+        flex-direction: column;
+        align-items: stretch;
     }
 
-    .location-filter-locations__settings {
-        padding: 10px 0 0 0;
-        border-left: none;
-        border-top: 1px solid #343b46;
+    .location-filter-shell--below-cutoff .location-filter-locations__main {
+        width: 100%;
+        max-width: none;
+        min-width: 0;
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .location-filter-shell--below-cutoff .location-filter-locations__settings {
+        width: 100%;
+        flex-direction: column;
+        align-items: stretch;
     }
 
     .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip {
+        width: 100%;
+        min-width: 0;
+        margin-left: 0;
+        justify-content: flex-start;
+    }
+
+    .location-filter-locations__settings {
+        flex-direction: column;
+    }
+
+    .location-filter-shell--below-cutoff .stock-column-filter-panel .location-filter-row--stack,
+    .location-filter-shell--below-cutoff .stock-report-settings-group .location-filter-row--stack {
         flex-direction: column;
         align-items: stretch;
-        padding: 10px 0 0 0;
-        border-left: none;
-        border-top: 1px solid #343b46;
     }
 
     body.procurement-warm-ui .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip {
-        border-left: none;
-        border-top: 1px solid #ddd8cc;
+        border: none;
     }
 
     body.procurement-warm-ui .location-filter-locations__settings {
         border-left: none;
-        border-top: 1px solid #ddd8cc;
+        border-top: none;
     }
 
     .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip__right {
@@ -6070,4 +6345,28 @@ body.procurement-warm-ui #panel-view .pr-view-pr-card__controls .view-pr-udf-sta
     body.procurement-warm-ui .pr-view-kv--email {
         max-width: 100%;
     }
+}
+
+/* Report tab toolbar: single unified row (no section dividers) */
+body.procurement-warm-ui .location-filter-shell.location-filter-shell--below-cutoff .location-filter-locations {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 8px 14px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+body.procurement-warm-ui .location-filter-shell.location-filter-shell--below-cutoff .location-filter-locations__main,
+body.procurement-warm-ui .location-filter-shell.location-filter-shell--below-cutoff .location-filter-locations__settings,
+body.procurement-warm-ui .location-filter-shell.location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip {
+    border-left: none;
+    padding-left: 0;
+}
+
+body.procurement-warm-ui .location-filter-shell.location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    margin-left: auto;
 }
