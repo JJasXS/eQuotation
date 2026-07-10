@@ -244,6 +244,7 @@ body.equotation-icy-theme.procurement-warm-ui {
 }
 
 body.equotation-icy-theme.procurement-warm-ui .location-filter-shell,
+body.equotation-icy-theme.procurement-warm-ui .stock-report-item-search-row,
 body.equotation-icy-theme.procurement-warm-ui .stock-dashboard-cutoff-strip,
 body.equotation-icy-theme.procurement-warm-ui .stock-dashboard-layout-toggle {
     background: var(--ice-surface) !important;
@@ -383,6 +384,24 @@ body.equotation-icy-theme.procurement-warm-ui .pr-field textarea {
     border-color: var(--ice-border-soft) !important;
     background: var(--ice-surface-input) !important;
     color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-report-item-search-row {
+    border-bottom: none !important;
+    border-radius: 12px 12px 0 0 !important;
+    box-shadow: none !important;
+    margin-bottom: 0 !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-report-item-search-row .stock-card-item-search-label {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-report-item-search-row + .stock-card-table-wrap {
+    border-top: none !important;
+    border-radius: 0 0 12px 12px !important;
+    margin-top: 0 !important;
+    box-shadow: 0 2px 14px var(--ice-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui .stock-card-table-wrap {

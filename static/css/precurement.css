@@ -1791,11 +1791,12 @@ body.procurement-warm-ui .stock-card-item-search-input:focus {
     display: flex;
     align-items: center;
     width: 100%;
-    margin: 0 0 10px;
+    margin: 0;
     padding: 10px 12px;
     background: #1f2533;
     border: 1px solid #343b46;
-    border-radius: 12px;
+    border-bottom: none;
+    border-radius: 12px 12px 0 0;
     box-sizing: border-box;
 }
 
@@ -1825,12 +1826,24 @@ body.procurement-warm-ui .stock-card-item-search-input:focus {
 body.procurement-warm-ui .stock-report-item-search-row {
     background: #fffef9;
     border: 1px solid #dccfb8;
-    border-radius: 12px;
-    box-shadow: 0 2px 14px rgba(42, 36, 27, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+    border-bottom: none;
+    border-radius: 12px 12px 0 0;
+    box-shadow: none;
+    margin-bottom: 0;
 }
 
 body.procurement-warm-ui .stock-report-item-search-row .stock-card-item-search-label {
     color: #6b6254;
+}
+
+.stock-report-item-search-row + .stock-card-table-wrap {
+    border-top: none;
+    border-radius: 0 0 12px 12px;
+    margin-top: 0;
+}
+
+body.procurement-warm-ui .stock-report-item-search-row + .stock-card-table-wrap {
+    box-shadow: 0 2px 14px rgba(42, 36, 27, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 
 .location-filter-shell--below-cutoff .report-summary-cards {
