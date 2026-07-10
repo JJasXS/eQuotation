@@ -201,6 +201,20 @@ body.login-page-body {
     max-width: 400px;
 }
 
+.login-brand {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.login-logo {
+    max-height: 52px;
+    max-width: min(220px, 90%);
+    width: auto;
+    height: auto;
+    display: inline-block;
+    object-fit: contain;
+}
+
 .login-card {
     background: transparent;
     border-radius: 0;
