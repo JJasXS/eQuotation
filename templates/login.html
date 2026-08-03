@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sign In</title>
     <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515">
-    <link rel="stylesheet" href="/static/css/login.css?v=20260803_logo3">
+    <link rel="stylesheet" href="/static/css/login.css?v=20260803_carousel">
     <link rel="stylesheet" href="/static/css/tenant_env_chip.css">
 </head>
 <body class="equotation-icy-theme login-page-body">
@@ -15,24 +15,24 @@
         <aside class="login-aside" aria-label="Account type">
             <div class="login-aside-header">
                 <p class="login-aside-kicker">Sign in as</p>
-                <p class="login-aside-hint">Swipe or use the arrows — we look up your email only in the directory you choose.</p>
+                <p class="login-aside-hint">Choose your account type. We look up your email only in that directory.</p>
             </div>
             <div class="login-carousel-viewport" id="login-carousel-viewport">
                 <div class="login-carousel-track" id="login-carousel-track">
                     <button type="button" class="login-carousel-slide" data-mode="supplier" tabindex="-1">
                         <span class="login-carousel-icon" aria-hidden="true">🏭</span>
                         <span class="login-carousel-title">Supplier</span>
-                        <span class="login-carousel-desc">Supplier portal — AR / AP supplier email</span>
+                        <span class="login-carousel-desc">Supplier portal for AR / AP supplier email</span>
                     </button>
                     <button type="button" class="login-carousel-slide is-active" data-mode="customer" tabindex="0">
                         <span class="login-carousel-icon" aria-hidden="true">🛒</span>
                         <span class="login-carousel-title">Customer</span>
-                        <span class="login-carousel-desc">Quotations &amp; orders — AR customer / branch</span>
+                        <span class="login-carousel-desc">Quotations and orders for AR customer or branch</span>
                     </button>
                     <button type="button" class="login-carousel-slide" data-mode="admin" tabindex="-1">
                         <span class="login-carousel-icon" aria-hidden="true">⚙️</span>
                         <span class="login-carousel-title">Admin / staff</span>
-                        <span class="login-carousel-desc">Internal users — SY_USER email</span>
+                        <span class="login-carousel-desc">Internal users with SY_USER email</span>
                     </button>
                 </div>
             </div>
@@ -47,11 +47,7 @@
         <div class="login-main">
             <div class="login-container">
                 <div class="login-brand">
-                    <img
-                        src="/static/images/equote_logo.png"
-                        alt="ProAcc eQuotation"
-                        class="login-logo"
-                    />
+                    <img src="/static/images/equote_logo.png" alt="ProAcc eQuotation" class="login-logo" />
                 </div>
                 <div class="login-card">
 
