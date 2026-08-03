@@ -223,6 +223,20 @@ body.login-page-body {
     box-shadow: none;
 }
 
+.login-brand {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 20px;
+}
+
+.login-logo {
+    display: block;
+    width: min(180px, 70vw);
+    height: auto;
+    max-height: 120px;
+    object-fit: contain;
+}
+
 .login-step {
     display: none;
     animation: fadeIn 0.3s ease-in-out;
