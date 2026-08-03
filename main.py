@@ -2955,6 +2955,46 @@ def logout():
     session.clear()
     return redirect('/login')
 
+
+@app.route('/api/guide_capture_login', methods=['POST'])
+def api_guide_capture_login():
+    """Dev-only session seed for user-guide screenshots. Requires EQ_GUIDE_CAPTURE=1."""
+    if str(os.getenv('EQ_GUIDE_CAPTURE', '')).strip().lower() not in ('1', 'true', 'yes'):
+        return jsonify({'success': False, 'error': 'Guide capture login disabled'}), 404
+
+    data = request.get_json(silent=True) or {}
+    role = (data.get('role') or 'admin').strip().lower()
+    email = (data.get('email') or os.getenv('EQ_GUIDE_EMAIL') or 'guide-capture@local').strip()
+
+    session.clear()
+    session['user_email'] = email
+    session['staff_udf'] = {}
+    session.pop('customer_company_name', None)
+    session.pop('login_customer_department', None)
+    session.pop('login_matched_udf_email_column', None)
+    session.pop('login_udf_email_suffix', None)
+
+    if role == 'supplier':
+        session['user_type'] = 'supplier'
+        session['access_tier'] = ACCESS_TIER_SUPPLIER
+        session['customer_code'] = (data.get('supplier_code') or 'GUIDE-SUP').strip()
+        session['supplier_code'] = session['customer_code']
+        redirect_url = '/supplier/bidding'
+    elif role == 'customer':
+        session['user_type'] = 'user'
+        session['access_tier'] = 'customer'
+        session['customer_code'] = (data.get('customer_code') or 'GUIDE-CUST').strip()
+        redirect_url = '/create-quotation'
+    else:
+        session['user_type'] = 'admin'
+        session['access_tier'] = ACCESS_TIER_FULL_ADMIN
+        session['customer_code'] = None
+        redirect_url = '/admin'
+
+    print(f"[GUIDE CAPTURE] seeded session role={role} email={email!r} -> {redirect_url}", flush=True)
+    return jsonify({'success': True, 'role': role, 'redirect': redirect_url}), 200
+
+
 @app.route('/php/getOrdersByStatus.php')
 def proxy_get_orders_by_status():
     """Proxy endpoint to forward requests to XAMPP PHP with customer code filtering for non-admin users"""

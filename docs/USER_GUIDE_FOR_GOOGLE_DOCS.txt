@@ -1,0 +1,192 @@
+ProAcc eQuotation User Guide
+============================
+
+Plain-text copy for Google Docs. Insert screenshots from docs/images/user-guide/ where noted.
+
+This guide covers CUSTOMER, SUPPLIER, and ADMIN / STAFF.
+
+
+1. SIGN IN (ALL ROLES)
+----------------------
+Screenshot: 01-login.png
+
+1. Open the eQuotation login page.
+2. Choose account type on the left carousel:
+   - Customer - quotations and orders (AR customer / branch email)
+   - Admin / staff - internal users (SY_USER email)
+   - Supplier - supplier portal (supplier email)
+3. Enter your email and click Continue.
+4. Enter the 6-digit OTP and click Verify.
+5. You are redirected to the home screen for your role.
+
+Important: The email is looked up only in the directory for the type you selected.
+
+Guest sign-in
+Screenshot: 02-guest-signin.png
+
+Guests can use Sign in as Guest to register or request access without OTP login.
+
+
+2. CUSTOMER GUIDE
+-----------------
+
+2.1 Create a quotation
+Screenshot: 04-create-quotation.png
+Path: Quotation > Create Quotation (/create-quotation)
+
+1. After customer login you land on Request New Quotation.
+2. Confirm customer details for your account.
+3. Note the next quotation number (for example QT-#####).
+4. Under Quotation lines:
+   - Choose source (for example From catalog).
+   - Search or pick a product.
+   - Enter qty, dimensions, discount, delivery date as needed.
+   - Use + Add Item for more lines.
+5. Set Valid until if required.
+6. Review Total, then Save Draft or Submit Quotation.
+7. Use Clear to reset the form.
+
+2.2 View my quotations
+Screenshot: 05-my-quotations.png
+Path: Quotation > View Quotation (/view-quotation)
+
+1. Open the view quotations screen.
+2. Filter by tabs: Drafts, Pending, Reviewed, Cancelled.
+3. Select a quotation on the left to see details on the right.
+4. Track progress as admin or staff review and update status.
+
+Customer workflow:
+  Sign in as Customer -> Create Quotation -> View Quotation
+
+
+3. SUPPLIER GUIDE
+-----------------
+
+3.1 Supplier bidding portal
+Screenshot: 10-supplier-bidding.png
+Path: Supplier > Bidding (/supplier/bidding)
+
+1. Sign in with account type Supplier.
+2. Confirm your email and Supplier Code in the header.
+3. Under My invitations, filter by status:
+   - Open - invitations waiting for your bid
+   - Submitted - bids you already sent
+   - Accepted - awarded lines
+   - Closed - finished invitations
+4. Select an invitation on the left.
+5. On the right, review purchase request line items.
+6. Enter item-level prices and submit the bid.
+7. Use Refresh to reload, or Sign out when finished.
+
+Supplier workflow:
+  Sign in as Supplier -> Open invitations -> Enter prices -> Submit bid
+  -> Track Submitted / Accepted / Closed
+
+
+4. ADMIN / STAFF GUIDE
+----------------------
+
+Exact menus depend on your SY_USER role flags.
+
+4.1 Admin dashboard
+Screenshot: 03-admin-dashboard.png
+Path: Admin > Dashboard (/admin)
+
+1. Sign in as Admin / staff.
+2. Review summary cards (customer status, sales cycle, conversion rate).
+3. Open detail views from each card when available.
+4. Use the hamburger menu for quotations, procurement, approvals, and reports.
+
+4.2 View quotations (admin)
+Screenshot: 06-admin-view-quotations.png
+Path: Admin > View Quotations (/admin/view-quotations)
+
+1. Open admin quotation list.
+2. Filter by tabs (for example Pending).
+3. Select a quotation to review customer, lines, and status.
+4. Update or process quotations according to your role.
+
+4.3 Procurement - view purchase requests
+Screenshot: 07-procurement-view-pr.png
+Path: Admin > Procurement (/admin/procurement?tab=view)
+
+1. Open procurement View tab.
+2. Browse existing purchase requests (e-PR).
+3. Open a request to check lines, status, and next steps.
+
+4.4 Procurement - create purchase request
+Screenshot: 08-procurement-create-pr.png
+Path: Admin > Procurement (/admin/procurement?tab=create)
+
+1. Open the Create tab.
+2. Enter header details and line items.
+3. Save / submit using on-screen actions.
+4. Return to View to track the new request.
+
+4.5 Admin bidding
+Screenshot: 09-admin-bidding.png
+Path: Admin > Procurement > Bidding (/admin/procurement/bidding)
+
+1. Open bidding for a purchase request.
+2. Invite suppliers and manage bid rounds.
+3. Review submitted supplier bids.
+4. Award lines and continue the procurement workflow.
+
+4.6 Pending approvals
+Screenshot: 11-pending-approvals.png
+Path: Admin > Pending Approvals (/admin/pending-approvals)
+
+1. Open the approvals queue.
+2. Review pending items.
+3. Approve, reject, or edit according to your authority.
+
+4.7 Invoice aging report
+Screenshot: 12-invoice-aging.png
+Path: Admin > Invoice Aging (/admin/invoice-aging)
+
+1. Open the invoice aging report.
+2. Review aging buckets and customer balances.
+3. Use filters or detail links if shown for follow-up.
+
+Admin workflow:
+  Sign in as Admin -> Dashboard -> Quotations -> Procurement (create/view e-PR)
+  -> Bidding -> Approvals -> Reports
+
+
+5. ROLE COMPARISON
+------------------
+
+Task                         | Customer | Supplier | Admin / staff
+---------------------------- | -------- | -------- | -------------
+Create sales quotation       | Yes      | No       | Via sales roles / tools
+View own quotations          | Yes      | No       | Yes (company-wide)
+Respond to bid invitations   | No       | Yes      | Manage invitations
+Create / view purchase req.  | No       | No       | Yes
+Approvals and analytics      | No       | No       | Yes (by role)
+
+
+6. TIPS
+-------
+
+- Always select the correct Sign in as type before entering email.
+- OTP expires quickly; use Resend if it times out.
+- After a deploy, hard-refresh (Ctrl+Shift+R) if the UI looks stale.
+- If a menu item is missing, your role may not include that module.
+- Screenshots were generated with .\scripts\generate_user_guide.ps1.
+
+
+7. SCREENSHOT INDEX
+-------------------
+
+01-login.png                 Login (all roles)
+02-guest-signin.png          Guest sign-in
+03-admin-dashboard.png       Admin dashboard
+04-create-quotation.png      Customer create quotation
+05-my-quotations.png         Customer view quotations
+06-admin-view-quotations.png Admin view quotations
+07-procurement-view-pr.png   Admin procurement view
+08-procurement-create-pr.png Admin procurement create
+09-admin-bidding.png         Admin bidding
+10-supplier-bidding.png      Supplier bidding
+11-pending-approvals.png     Admin pending approvals
+12-invoice-aging.png         Admin invoice aging
