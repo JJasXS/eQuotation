@@ -26,7 +26,7 @@ if not exist "%DST%" mkdir "%DST%"
 
 REM Robocopy: 0-7 = success (with various copy states); 8+ = failure
 robocopy "%SRC%" "%DST%" /E /COPY:DAT /R:2 /W:2 ^
-  /XD .git .venv __pycache__ .pytest_cache tests training docs _staged_unused_review .cursor .idea .vscode node_modules ai_models_disabled .github ^
+  /XD .git .venv venv .venv312 __pycache__ .pytest_cache tests training docs _staged_unused_review .cursor .idea .vscode node_modules ai_models_disabled .github ^
   /NFL /NDL /NJH /NS /NC /NP
 
 set "RC=%ERRORLEVEL%"
