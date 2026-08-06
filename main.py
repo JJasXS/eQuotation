@@ -146,7 +146,7 @@ from config.order_config import (
 )
 
 # Import OTP configuration
-from config.otp_config import generate_otp, OTP_LENGTH, OTP_EXPIRY_SECONDS
+from config.otp_config import generate_otp, OTP_LENGTH, OTP_EXPIRY_SECONDS, OTP_RESEND_COOLDOWN_SECONDS
 
 # ============================================
 # CONFIGURATION - Load from environment variables
@@ -2720,15 +2720,30 @@ def api_send_otp():
                 'error': 'Email not found, please contact administrator'
             }), 401
 
+        # Resend cooldown (server-side)
+        existing = OTP_STORAGE.get(otp_key)
+        if existing and existing.get('last_sent'):
+            since = (datetime.now() - existing['last_sent']).total_seconds()
+            if since < OTP_RESEND_COOLDOWN_SECONDS:
+                remaining = int(OTP_RESEND_COOLDOWN_SECONDS - since)
+                return jsonify({
+                    'success': False,
+                    'error': f'Please wait {remaining}s before requesting another OTP.',
+                    'cooldown_remaining_seconds': remaining,
+                    'resend_cooldown_seconds': OTP_RESEND_COOLDOWN_SECONDS,
+                }), 429
+
         # Generate OTP
         otp = generate_otp(OTP_LENGTH)
         print(f"[DEBUG OTP] {email} -> {otp}", flush=True)
-        expiry = datetime.now() + timedelta(seconds=OTP_EXPIRY_SECONDS)
+        now = datetime.now()
+        expiry = now + timedelta(seconds=OTP_EXPIRY_SECONDS)
         
         # Store OTP temporarily (keyed by email + login tab)
         OTP_STORAGE[otp_key] = {
             'otp': otp,
-            'expiry': expiry
+            'expiry': expiry,
+            'last_sent': now,
         }
         
         # Send OTP via email
@@ -2742,7 +2757,7 @@ def api_send_otp():
                     <h1 style="background-color: #2d3440; padding: 15px; text-align: center; letter-spacing: 5px; font-weight: bold; border-radius: 4px;">
                         {otp}
                     </h1>
-                    <p>This code expires in 1 minute.</p>
+                    <p>This code expires in {OTP_EXPIRY_SECONDS} seconds.</p>
                     <p style="color: #888; font-size: 12px;">If you did not request this code, please ignore this email.</p>
                 </div>
             </body>
@@ -2777,18 +2792,22 @@ def api_send_otp():
                 ),
             }), 502
 
+        expires_at_unix = int(expiry.timestamp())
         response_payload = {
             'success': True,
             'email_sent': bool(has_smtp and mail_ok),
             'message': (
-                f'OTP sent to {email}'
+                'OTP sent successfully'
                 if has_smtp and mail_ok
                 else (
                     'OTP generated but email is not configured (missing SMTP_EMAIL/SMTP_PASSWORD). '
                     'Check server console or enable debug for the code.'
                 )
             ),
-            'expiry': OTP_EXPIRY_SECONDS
+            'expiry': OTP_EXPIRY_SECONDS,
+            'expires_at_unix': expires_at_unix,
+            'otp_lifetime_seconds': OTP_EXPIRY_SECONDS,
+            'resend_cooldown_seconds': OTP_RESEND_COOLDOWN_SECONDS,
         }
 
         if app.debug:
@@ -2815,15 +2834,15 @@ def api_verify_otp():
         return jsonify({'success': False, 'error': 'Email and OTP are required'}), 400
     
     try:
-        # OTP validation (1-minute expiry + one-time use)
+        # OTP validation (120s expiry + one-time use)
         if otp_key not in OTP_STORAGE:
-            return jsonify({'success': False, 'error': 'OTP not found. Request a new one.'}), 400
+            return jsonify({'success': False, 'error': 'OTP not found. Request a new one.', 'expired': True}), 400
 
         stored_data = OTP_STORAGE[otp_key]
 
         if datetime.now() > stored_data['expiry']:
             del OTP_STORAGE[otp_key]
-            return jsonify({'success': False, 'error': 'OTP has expired. Request a new one.'}), 400
+            return jsonify({'success': False, 'error': 'OTP has expired. Request a new one.', 'expired': True}), 400
 
         if otp != stored_data['otp']:
             return jsonify({'success': False, 'error': 'Invalid OTP. Please try again.'}), 400

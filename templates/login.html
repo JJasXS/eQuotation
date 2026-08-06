@@ -88,15 +88,15 @@
                                     <input type="text" id="otp-5" class="otp-digit" maxlength="1" inputmode="numeric" autocomplete="off" required />
                                     <input type="text" id="otp-6" class="otp-digit" maxlength="1" inputmode="numeric" autocomplete="off" required />
                                 </div>
-                                <div class="otp-hint">6 digits only</div>
+                                <div class="otp-hint" id="otp-timer">OTP expires in <span id="otp-countdown">120</span>s</div>
                             </div>
-                            <button type="submit" class="btn-submit">Verify</button>
+                            <button type="submit" class="btn-submit" id="otp-verify-btn">Verify</button>
                         </form>
 
                         <div id="otp-error" class="error-message"></div>
 
                         <div class="otp-footer">
-                            <p>Didn't receive the code? <button type="button" onclick="resendOtp()" class="btn-resend">Resend</button></p>
+                            <p>Didn't receive the code? <button type="button" onclick="resendOtp()" class="btn-resend" id="btn-resend">Resend</button></p>
                             <button type="button" onclick="backToEmail()" class="btn-back">← Back</button>
                         </div>
                     </div>
@@ -108,6 +108,6 @@
     </div>
 
     {% include 'components/tenant_env_chip.html' %}
-    <script src="/static/js/login.js?v=20260515_otp"></script>
+    <script src="/static/js/login.js?v=20260806_otp120"></script>
 </body>
 </html>

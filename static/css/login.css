@@ -313,9 +313,25 @@ input[type='text']::placeholder {
 }
 
 .otp-hint {
-    color: var(--ice-text-muted, #5a7a94);
-    font-size: 12px;
-    margin-top: 4px;
+    color: var(--ice-heading, #1a4d6e);
+    font-size: 13px;
+    font-weight: 600;
+    margin-top: 10px;
+    text-align: center;
+}
+
+.otp-hint.is-expired {
+    color: #b33a3a;
+}
+
+#otp-boxes.is-locked {
+    pointer-events: none;
+    opacity: 0.55;
+}
+
+.otp-digit:disabled {
+    cursor: not-allowed;
+    background: #e8eef3;
 }
 
 .otp-boxes {
@@ -510,8 +526,9 @@ input[type='text']::placeholder {
 }
 
 #otp-step .otp-hint {
-    margin-top: 8px;
-    font-size: 12px;
+    margin-top: 10px;
+    font-size: 13px;
+    font-weight: 600;
     letter-spacing: 0.02em;
 }
 
@@ -550,9 +567,10 @@ input[type='text']::placeholder {
 }
 
 .error-message--success {
-    color: var(--ice-accent-hover, #2d74a3) !important;
-    background: rgba(59, 143, 196, 0.1) !important;
-    border-color: rgba(59, 143, 196, 0.25) !important;
+    color: #1f6b3a !important;
+    background: rgba(46, 160, 90, 0.12) !important;
+    border-color: rgba(46, 160, 90, 0.28) !important;
+    font-weight: 600;
 }
 
 .error-message--warning {

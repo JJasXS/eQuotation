@@ -3,8 +3,13 @@
 let currentEmail = '';
 /** @type {'customer'|'admin'|'supplier'} */
 let currentLoginMode = 'customer';
-let otpTimer = null;
+let otpExpiryTimerId = null;
+let otpExpiresAtUnix = 0;
+let otpExpired = false;
 let resendCountdown = 0;
+let resendTimerId = null;
+const OTP_LIFETIME_DEFAULT = 120;
+const RESEND_COOLDOWN_DEFAULT = 30;
 
 /** Real slides count (no clones). Extended track = [clone last] + reals + [clone first]. */
 let realSlideCount = 0;
@@ -311,10 +316,16 @@ function handleEmailSubmit(event) {
                             'Email is not configured on the server (no SMTP). Check inbox only after fixing SMTP.',
                         'warning'
                     );
+                } else {
+                    showError(document.getElementById('otp-error'), data.message || 'OTP sent successfully', 'success');
                 }
-                startResendTimer();
+                startOtpExpiryTimer(data.expires_at_unix, data.otp_lifetime_seconds || data.expiry);
+                startResendTimer(data.resend_cooldown_seconds);
             } else {
                 showError(emailError, data.error || 'Failed to send OTP');
+                if (data.cooldown_remaining_seconds > 0) {
+                    startResendTimer(data.cooldown_remaining_seconds);
+                }
             }
         })
         .catch((err) => {
@@ -335,10 +346,19 @@ function handleEmailSubmit(event) {
 
 function handleOtpSubmit(event) {
     event.preventDefault();
+    if (otpExpired) {
+        showError(document.getElementById('otp-error'), 'OTP expired. Please resend a new code.');
+        return;
+    }
     const otpInputs = Array.from(document.querySelectorAll('.otp-digit'));
     const otp = otpInputs.map((input) => input.value).join('').trim();
     const otpError = document.getElementById('otp-error');
     const submitBtn = event.target.querySelector('.btn-submit');
+
+    if (otpExpiresAtUnix && Math.floor(Date.now() / 1000) >= otpExpiresAtUnix) {
+        setOtpExpiredState();
+        return;
+    }
 
     otpError.textContent = '';
     otpError.classList.remove('show');
@@ -357,21 +377,24 @@ function handleOtpSubmit(event) {
             login_mode: currentLoginMode
         })
     })
-        .then((res) => res.json())
-        .then((data) => {
-            submitBtn.disabled = false;
+        .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+        .then(({ data }) => {
+            submitBtn.disabled = otpExpired;
             submitBtn.textContent = 'Verify';
 
             if (data.success) {
                 const redirectUrl = data.redirect || '/create-quotation';
                 console.log(`Redirecting ${data.user_type} to ${redirectUrl}`);
                 window.location.href = redirectUrl;
+            } else if (data.expired) {
+                setOtpExpiredState();
+                showError(otpError, data.error || 'OTP has expired. Request a new one.');
             } else {
                 showError(otpError, data.error || 'Invalid OTP');
             }
         })
         .catch((err) => {
-            submitBtn.disabled = false;
+            submitBtn.disabled = otpExpired;
             submitBtn.textContent = 'Verify';
             showError(otpError, 'Network error. Please try again.');
             console.error(err);
@@ -383,8 +406,8 @@ function resendOtp() {
         return;
     }
 
-    const resendBtn = document.querySelector('.btn-resend');
-    resendBtn.disabled = true;
+    const resendBtn = document.getElementById('btn-resend') || document.querySelector('.btn-resend');
+    if (resendBtn) resendBtn.disabled = true;
 
     const controller = new AbortController();
     const abortTimer = setTimeout(() => controller.abort(), 45000);
@@ -399,9 +422,9 @@ function resendOtp() {
     })
         .then((res) => {
             clearTimeout(abortTimer);
-            return res.json();
+            return res.json().then((data) => ({ status: res.status, data }));
         })
-        .then((data) => {
+        .then(({ data }) => {
             if (data.success) {
                 if (data.debug_otp) {
                     showError(document.getElementById('otp-error'), `DEBUG OTP: ${data.debug_otp}`, 'success');
@@ -412,18 +435,31 @@ function resendOtp() {
                         'warning'
                     );
                 } else {
-                    showError(document.getElementById('otp-error'), 'OTP resent successfully', 'success');
+                    showError(document.getElementById('otp-error'), 'OTP sent successfully', 'success');
                 }
-                startResendTimer();
+                // Unlock + clear for new code
+                setOtpInputsEnabled(true);
+                document.querySelectorAll('.otp-digit').forEach((input) => {
+                    input.value = '';
+                    input.classList.remove('otp-digit--filled');
+                });
+                const first = document.querySelector('.otp-digit');
+                if (first) first.focus();
+                startOtpExpiryTimer(data.expires_at_unix, data.otp_lifetime_seconds || data.expiry);
+                startResendTimer(data.resend_cooldown_seconds);
             } else {
                 showError(document.getElementById('otp-error'), data.error || 'Failed to resend OTP');
+                if (data.cooldown_remaining_seconds > 0) {
+                    startResendTimer(data.cooldown_remaining_seconds);
+                } else if (resendBtn) {
+                    resendBtn.disabled = false;
+                }
             }
-            resendBtn.disabled = false;
         })
         .catch((err) => {
             clearTimeout(abortTimer);
             console.error(err);
-            resendBtn.disabled = false;
+            if (resendBtn) resendBtn.disabled = false;
             if (err && err.name === 'AbortError') {
                 showError(
                     document.getElementById('otp-error'),
@@ -434,20 +470,85 @@ function resendOtp() {
         });
 }
 
-function startResendTimer() {
-    resendCountdown = 30;
-    const resendBtn = document.querySelector('.btn-resend');
+function setOtpInputsEnabled(enabled) {
+    document.querySelectorAll('.otp-digit').forEach((input) => {
+        input.disabled = !enabled;
+        input.readOnly = !enabled;
+        if (!enabled) input.blur();
+    });
+    const boxes = document.getElementById('otp-boxes');
+    if (boxes) boxes.classList.toggle('is-locked', !enabled);
+    const verifyBtn = document.getElementById('otp-verify-btn') || document.querySelector('#otp-form .btn-submit');
+    if (verifyBtn) verifyBtn.disabled = !enabled;
+}
+
+function stopOtpExpiryTimer() {
+    if (otpExpiryTimerId) {
+        clearInterval(otpExpiryTimerId);
+        otpExpiryTimerId = null;
+    }
+}
+
+function setOtpExpiredState() {
+    otpExpired = true;
+    stopOtpExpiryTimer();
+    document.querySelectorAll('.otp-digit').forEach((input) => {
+        input.value = '';
+        input.classList.remove('otp-digit--filled');
+    });
+    setOtpInputsEnabled(false);
+    const timer = document.getElementById('otp-timer');
+    if (timer) {
+        timer.classList.add('is-expired');
+        timer.innerHTML = 'OTP expired. Request a new code below.';
+    }
+    showError(document.getElementById('otp-error'), 'OTP expired. Please resend a new code.');
+}
+
+function startOtpExpiryTimer(expiresAtUnix, lifetimeSeconds) {
+    stopOtpExpiryTimer();
+    otpExpired = false;
+    const life = lifetimeSeconds || OTP_LIFETIME_DEFAULT;
+    otpExpiresAtUnix = expiresAtUnix || (Math.floor(Date.now() / 1000) + life);
+    setOtpInputsEnabled(true);
+    const timer = document.getElementById('otp-timer');
+    if (timer) {
+        timer.classList.remove('is-expired');
+        timer.innerHTML = 'OTP expires in <span id="otp-countdown">' + life + '</span>s';
+    }
+    const tick = () => {
+        const el = document.getElementById('otp-countdown');
+        const now = Math.floor(Date.now() / 1000);
+        const remaining = Math.max(0, otpExpiresAtUnix - now);
+        if (el) el.textContent = String(remaining);
+        if (remaining <= 0) {
+            setOtpExpiredState();
+        }
+    };
+    tick();
+    otpExpiryTimerId = setInterval(tick, 1000);
+}
+
+function startResendTimer(seconds) {
+    if (resendTimerId) {
+        clearInterval(resendTimerId);
+        resendTimerId = null;
+    }
+    resendCountdown = seconds || RESEND_COOLDOWN_DEFAULT;
+    const resendBtn = document.getElementById('btn-resend') || document.querySelector('.btn-resend');
+    if (!resendBtn) return;
     resendBtn.textContent = `Resend (${resendCountdown}s)`;
     resendBtn.disabled = true;
 
-    const interval = setInterval(() => {
+    resendTimerId = setInterval(() => {
         resendCountdown--;
         if (resendCountdown > 0) {
             resendBtn.textContent = `Resend (${resendCountdown}s)`;
         } else {
             resendBtn.textContent = 'Resend';
             resendBtn.disabled = false;
-            clearInterval(interval);
+            clearInterval(resendTimerId);
+            resendTimerId = null;
         }
     }, 1000);
 }
@@ -459,6 +560,14 @@ function syncOtpDigitFilledClasses() {
 }
 
 function backToEmail() {
+    stopOtpExpiryTimer();
+    if (resendTimerId) {
+        clearInterval(resendTimerId);
+        resendTimerId = null;
+    }
+    resendCountdown = 0;
+    otpExpired = false;
+    setOtpInputsEnabled(true);
     showStep('email-step');
     document.getElementById('email').focus();
 }
@@ -531,11 +640,12 @@ document.addEventListener('DOMContentLoaded', function () {
     const otpInputs = Array.from(document.querySelectorAll('.otp-digit'));
 
     function checkAndAutoSubmitOtp() {
+        if (otpExpired) return;
         const otpValues = otpInputs.map((input) => input.value).join('');
         if (otpValues.length === 6 && /^\d{6}$/.test(otpValues)) {
             setTimeout(() => {
                 const otpForm = document.getElementById('otp-form');
-                if (otpForm) {
+                if (otpForm && !otpExpired) {
                     otpForm.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
                 }
             }, 300);
@@ -545,6 +655,10 @@ document.addEventListener('DOMContentLoaded', function () {
     if (otpInputs.length > 0) {
         otpInputs.forEach((input, index) => {
             input.addEventListener('input', function () {
+                if (otpExpired || this.disabled) {
+                    this.value = '';
+                    return;
+                }
                 this.value = this.value.replace(/[^0-9]/g, '').slice(0, 1);
                 this.classList.toggle('otp-digit--filled', this.value.length > 0);
                 if (this.value && index < otpInputs.length - 1) {
@@ -554,9 +668,14 @@ document.addEventListener('DOMContentLoaded', function () {
             });
 
             input.addEventListener('keydown', function (event) {
+                if (otpExpired || this.disabled) {
+                    event.preventDefault();
+                    return;
+                }
                 if (/^Numpad[0-9]$/.test(event.code)) {
                     const digit = event.code.replace('Numpad', '');
                     this.value = digit;
+                    this.classList.toggle('otp-digit--filled', true);
                     if (index < otpInputs.length - 1) {
                         otpInputs[index + 1].focus();
                     } else {
@@ -568,6 +687,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
                 if (/^[0-9]$/.test(event.key)) {
                     this.value = event.key;
+                    this.classList.toggle('otp-digit--filled', true);
                     if (index < otpInputs.length - 1) {
                         otpInputs[index + 1].focus();
                     } else {
@@ -583,6 +703,10 @@ document.addEventListener('DOMContentLoaded', function () {
             });
 
             input.addEventListener('paste', function (event) {
+                if (otpExpired || this.disabled) {
+                    event.preventDefault();
+                    return;
+                }
                 event.preventDefault();
                 const pasted = (event.clipboardData || window.clipboardData)
                     .getData('text')
