@@ -15,6 +15,7 @@ from utils.procurement_purchase_request import (
     _encode_status,
     _get_table_columns,
     _insert_dynamic,
+    _is_firebird_key_violation,
     _money,
     _next_key,
     _pick_existing,
@@ -129,6 +130,28 @@ def _purchase_order_number_exists(cur: Any, header_columns: set[str], docno: str
         return False
     cur.execute(f"SELECT FIRST 1 {docno_col} FROM PH_PO WHERE {docno_col} = ?", (docno,))
     return cur.fetchone() is not None
+
+
+def _allocate_unique_purchase_order_number(
+    cur: Any,
+    header_columns: set[str],
+    *,
+    preferred: str = "",
+    max_attempts: int = 200,
+) -> str:
+    """Return an unused PH_PO document number, bumping until free."""
+    seed = _clean_text(preferred)
+    if seed and not _purchase_order_number_exists(cur, header_columns, seed):
+        return seed
+
+    candidate = seed or _next_purchase_order_number(cur, header_columns)
+    for _ in range(max_attempts):
+        if not _purchase_order_number_exists(cur, header_columns, candidate):
+            return candidate
+        candidate = _next_purchase_order_number(cur, header_columns)
+    raise PurchaseOrderTransferValidationError(
+        "could not allocate a unique purchase order document number"
+    )
 
 
 def _fetch_existing_transfer_qty_map(
@@ -333,16 +356,16 @@ def transfer_purchase_request_to_po(
             raise PurchaseOrderTransferValidationError("purchase order table schema is missing required key columns")
 
         existing_qty_map = _fetch_existing_transfer_qty_map(cur, request_dockey, requested_detail_ids, xtrans_cols)
-        docno = _clean_text(supplier.get("docno") or supplier.get("poNumber")) or _next_purchase_order_number(cur, po_header_cols)
-        if _purchase_order_number_exists(cur, po_header_cols, docno):
-            raise PurchaseOrderTransferValidationError(f"purchase order number already exists: {docno}")
-
-        po_dockey = _next_key(
+        po_header_gens = ["PH_PO", "GEN_PH_PO_ID", "GEN_PH_PO_DOCKEY", "GEN_PH_PO", "SEQ_PH_PO_DOCKEY"]
+        po_detail_gens = ["PH_PODTL", "GEN_PH_PODTL_ID", "GEN_PH_PODTL_DTLKEY", "GEN_PH_PODTL", "SEQ_PH_PODTL_DTLKEY"]
+        xtrans_gens = ["ST_XTRANS", "GEN_ST_XTRANS_ID", "GEN_ST_XTRANS_DOCKEY", "GEN_ST_XTRANS", "SEQ_ST_XTRANS_DOCKEY"]
+        docno = _allocate_unique_purchase_order_number(
             cur,
-            "PH_PO",
-            po_header_key_col,
-            ["GEN_PH_PO_ID", "GEN_PH_PO_DOCKEY", "GEN_PH_PO", "SEQ_PH_PO_DOCKEY"],
+            po_header_cols,
+            preferred=_clean_text(supplier.get("docno") or supplier.get("poNumber") or ""),
         )
+
+        po_dockey = _next_key(cur, "PH_PO", po_header_key_col, po_header_gens)
 
         status_is_numeric = bool(po_status_col and _column_is_numeric(cur, "PH_PO", po_status_col))
         po_status_value = _encode_status("DRAFT", status_is_numeric)
@@ -389,7 +412,7 @@ def transfer_purchase_request_to_po(
                 cur,
                 "PH_PODTL",
                 po_detail_key_col,
-                ["GEN_PH_PODTL_ID", "GEN_PH_PODTL_DTLKEY", "GEN_PH_PODTL", "SEQ_PH_PODTL_DTLKEY"],
+                po_detail_gens,
             )
             inserted_detail_keys.append(po_detail_key)
 
@@ -444,7 +467,7 @@ def transfer_purchase_request_to_po(
                     cur,
                     "ST_XTRANS",
                     xtrans_key_col,
-                    ["GEN_ST_XTRANS_ID", "GEN_ST_XTRANS_DOCKEY", "GEN_ST_XTRANS", "SEQ_ST_XTRANS_DOCKEY"],
+                    xtrans_gens,
                 ),
                 "CODE": supplier_code,
                 "FROMDOCTYPE": "PQ",
@@ -531,11 +554,54 @@ def transfer_purchase_request_to_po(
             "LASTMODIFIED": int(time.time()),
         }
 
-        _insert_dynamic(cur, "PH_PO", _fit_string_values(header_values, po_header_str_len), po_header_cols)
-        for row in detail_inserts:
-            _insert_dynamic(cur, "PH_PODTL", _fit_string_values(row, po_detail_str_len), po_detail_cols)
-        for row in xtrans_rows:
-            _insert_dynamic(cur, "ST_XTRANS", _fit_string_values(row, xtrans_str_len), xtrans_cols)
+        last_insert_exc: BaseException | None = None
+        for insert_attempt in range(12):
+            if insert_attempt > 0:
+                # Concurrent SQL Accounting insert collided — refresh all keys + DOCNO.
+                po_dockey = _next_key(cur, "PH_PO", po_header_key_col, po_header_gens)
+                docno = _allocate_unique_purchase_order_number(cur, po_header_cols, preferred=docno)
+                header_values[po_header_key_col] = po_dockey
+                header_values["DOCNO"] = docno
+                header_values["DOCNOEX"] = docno
+                inserted_detail_keys = []
+                for detail_row, x_row in zip(detail_inserts, xtrans_rows):
+                    po_detail_key = _next_key(cur, "PH_PODTL", po_detail_key_col, po_detail_gens)
+                    inserted_detail_keys.append(po_detail_key)
+                    detail_row[po_detail_key_col] = po_detail_key
+                    detail_row[po_detail_fk_col] = po_dockey
+                    x_row[xtrans_key_col] = _next_key(cur, "ST_XTRANS", xtrans_key_col, xtrans_gens)
+                    x_row["TODOCKEY"] = po_dockey
+                    x_row["TODTLKEY"] = po_detail_key
+            try:
+                _insert_dynamic(
+                    cur, "PH_PO", _fit_string_values(header_values, po_header_str_len), po_header_cols
+                )
+                for row in detail_inserts:
+                    _insert_dynamic(
+                        cur, "PH_PODTL", _fit_string_values(row, po_detail_str_len), po_detail_cols
+                    )
+                for row in xtrans_rows:
+                    _insert_dynamic(
+                        cur, "ST_XTRANS", _fit_string_values(row, xtrans_str_len), xtrans_cols
+                    )
+                break
+            except Exception as exc:
+                if not _is_firebird_key_violation(exc):
+                    raise
+                last_insert_exc = exc
+                print(
+                    f"[PROCUREMENT PO TRANSFER] KEY VIOLATION on PO insert "
+                    f"(attempt {insert_attempt + 1}/12): {exc}",
+                    flush=True,
+                )
+                try:
+                    con.rollback()
+                except Exception:
+                    pass
+        else:
+            raise RuntimeError(
+                "KEY VIOLATION inserting purchase order after 12 attempts"
+            ) from last_insert_exc
 
         con.commit()
 

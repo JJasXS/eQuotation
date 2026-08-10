@@ -297,34 +297,151 @@ body.pricing-priority-rules-page {
 }
 
 @media (max-width: 720px) {
+    .pricing-priority-page .admin-header.app-page-header {
+        padding: 12px 14px;
+        gap: 8px 12px;
+        flex-wrap: wrap;
+        align-items: flex-start;
+    }
+
+    .pricing-priority-page .app-page-header__left {
+        flex: 1 1 100%;
+        max-width: 100%;
+        gap: 12px;
+    }
+
+    .pricing-priority-page h2.app-page-header__title {
+        font-size: 16px;
+    }
+
+    .pricing-priority-page .app-page-header__end {
+        flex: 1 1 100%;
+        max-width: 100%;
+        justify-content: flex-start;
+        padding-left: 44px; /* align under title beside hamburger */
+    }
+
+    .pricing-priority-page .app-page-header__subtitle {
+        text-align: left;
+        font-size: 11px;
+        max-width: 100%;
+    }
+
     .priority-shell {
-        margin: 12px;
-        padding: 16px;
+        margin: 10px;
+        padding: 14px;
+        border-radius: 12px;
     }
 
     .priority-shell__header {
         flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+        margin-bottom: 14px;
+    }
+
+    .priority-shell__header h2 {
+        font-size: 20px;
+        line-height: 1.25;
+    }
+
+    .priority-shell__header p {
+        font-size: 13px;
+        max-width: none;
+        line-height: 1.4;
     }
 
     .priority-shell__actions {
         width: 100%;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
     }
 
     .primary-btn,
     .secondary-btn {
-        flex: 1;
+        flex: none;
+        width: 100%;
+        min-height: 44px;
+        padding: 10px 12px;
     }
 
     .priority-list-header {
         display: none;
     }
 
+    /* Handle + # sit left of the title (not centered alone on their own row). */
     .priority-rule-row {
-        grid-template-columns: 1fr;
-        gap: 12px;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        grid-template-areas:
+            "num details"
+            "toggle toggle";
+        gap: 8px 12px;
+        align-items: start;
+        padding: 12px;
+    }
+
+    .priority-number {
+        grid-area: num;
+        justify-self: start;
+        justify-content: flex-start;
+        align-items: center;
+        width: auto;
+        gap: 8px;
+        padding-top: 2px;
+    }
+
+    .drag-handle {
+        width: 40px;
+        height: 40px;
+        font-size: 16px;
+        flex-shrink: 0;
+    }
+
+    .rule-details {
+        grid-area: details;
+        min-width: 0;
+    }
+
+    .rule-name {
+        font-size: 14px;
+        line-height: 1.3;
+    }
+
+    .rule-code {
+        font-size: 11px;
+        letter-spacing: 0.02em;
     }
 
     .rule-toggle {
-        justify-self: start;
+        grid-area: toggle;
+        justify-self: stretch;
+        justify-content: flex-start;
+        width: 100%;
+        margin-top: 2px;
+        padding-top: 10px;
+        border-top: 1px solid var(--ice-border-soft, #c5dce9);
+        min-height: 44px;
+    }
+
+    .rule-toggle input {
+        width: 20px;
+        height: 20px;
+    }
+}
+
+@media (max-width: 420px) {
+    .pricing-priority-page .app-page-header__end {
+        padding-left: 0;
+    }
+
+    .priority-shell {
+        margin: 8px;
+        padding: 12px;
+    }
+
+    .priority-shell__actions {
+        grid-template-columns: 1fr;
     }
 }

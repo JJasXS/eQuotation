@@ -294,23 +294,135 @@ def _append_pqdtl_sqty_suom_update(
             line_values.append(0.0)
 
 
+def _is_firebird_key_violation(exc: BaseException) -> bool:
+    """True when Firebird rejects an insert/update for primary/unique key collision."""
+    msg = str(exc or "").lower()
+    return (
+        "key violation" in msg
+        or "violation of primary or unique key" in msg
+        or ("unique key" in msg and "violation" in msg)
+        or "335544665" in msg
+    )
+
+
 def _next_key(cur: Any, table_name: str, key_column: str, generator_candidates: list[str]) -> int:
+    """Allocate the next numeric key for a shared SQL Accounting table.
+
+    Prefer Firebird generators (atomic across sessions). SQL Accounting names
+    generators after the table (e.g. PH_PQ, PH_PO, ST_XTRANS). If a generator
+    lags behind rows inserted by SQL Accounting, catch it up with GEN_ID jumps —
+    never return a bare MAX+1 while a generator exists (that races with concurrent inserts).
+    """
     cur.execute(f"SELECT COALESCE(MAX({key_column}), 0) FROM {table_name}")
     row = cur.fetchone()
     max_existing = int(row[0] if row and row[0] is not None else 0)
 
-    for generator_name in generator_candidates:
+    # Table-named generator first (SQL Accounting convention), then explicit aliases.
+    ordered_candidates: list[str] = []
+    for name in [table_name, *(generator_candidates or [])]:
+        cleaned = str(name or "").strip()
+        if cleaned and cleaned.upper() not in {c.upper() for c in ordered_candidates}:
+            ordered_candidates.append(cleaned)
+
+    for generator_name in ordered_candidates:
         try:
             cur.execute(f"SELECT GEN_ID({generator_name}, 1) FROM RDB$DATABASE")
             row = cur.fetchone()
-            if row and row[0] is not None:
-                gen_val = int(row[0])
-                # Keep in sync with existing SQL rows even when a generator is behind.
-                return gen_val if gen_val > max_existing else (max_existing + 1)
+            if row is None or row[0] is None:
+                continue
+            gen_val = int(row[0])
+            if gen_val > max_existing:
+                return gen_val
+
+            # Generator is behind table data (SQL Accounting / other writers). Jump
+            # forward so the returned value is at least max_existing + 1.
+            delta = (max_existing + 1) - gen_val
+            if delta > 0:
+                cur.execute(
+                    f"SELECT GEN_ID({generator_name}, {int(delta)}) FROM RDB$DATABASE"
+                )
+                row = cur.fetchone()
+                if row and row[0] is not None:
+                    gen_val = int(row[0])
+            if gen_val > max_existing:
+                return gen_val
+
+            # Extremely rare: another writer advanced MAX during the jump.
+            cur.execute(f"SELECT COALESCE(MAX({key_column}), 0) FROM {table_name}")
+            row = cur.fetchone()
+            max_existing = int(row[0] if row and row[0] is not None else 0)
+            if gen_val > max_existing:
+                return gen_val
+            delta = (max_existing + 1) - gen_val
+            if delta > 0:
+                cur.execute(
+                    f"SELECT GEN_ID({generator_name}, {int(delta)}) FROM RDB$DATABASE"
+                )
+                row = cur.fetchone()
+                if row and row[0] is not None:
+                    return int(row[0])
+            return max_existing + 1
         except Exception:
             continue
 
+    # No usable generator — last resort (still racy under concurrency; callers retry inserts).
     return max_existing + 1
+
+
+def _allocate_unique_request_number(
+    cur: Any,
+    header_columns: set[str],
+    *,
+    preferred: str = "",
+    max_attempts: int = 200,
+) -> str:
+    """Return an unused PH_PQ document number, bumping until free."""
+    seed = _clean_text(preferred)
+    if seed and not _request_number_exists(cur, header_columns, seed):
+        return seed
+
+    candidate = seed or _next_request_number(cur, header_columns)
+    for _ in range(max_attempts):
+        if not _request_number_exists(cur, header_columns, candidate):
+            return candidate
+        bumped = _next_request_number_from_seed(cur, header_columns, candidate)
+        if not bumped or bumped == candidate:
+            candidate = _next_request_number(cur, header_columns)
+        else:
+            candidate = bumped
+    raise RuntimeError("could not allocate a unique purchase request document number")
+
+
+def _insert_dynamic_with_pk_retry(
+    cur: Any,
+    table_name: str,
+    data: dict[str, Any],
+    existing_columns: set[str],
+    *,
+    key_column: str | None,
+    generator_candidates: list[str],
+    max_attempts: int = 12,
+) -> Any:
+    """Insert a row; on Firebird KEY VIOLATION, re-allocate the PK and retry."""
+    last_exc: BaseException | None = None
+    for attempt in range(max_attempts):
+        if key_column and attempt > 0:
+            data[key_column] = _next_key(cur, table_name, key_column, generator_candidates)
+        try:
+            _insert_dynamic(cur, table_name, data, existing_columns)
+            return data.get(key_column) if key_column else None
+        except Exception as exc:
+            if not _is_firebird_key_violation(exc):
+                raise
+            last_exc = exc
+            print(
+                f"[PROCUREMENT] KEY VIOLATION on {table_name} insert "
+                f"(attempt {attempt + 1}/{max_attempts}): {exc}",
+                flush=True,
+            )
+    raise RuntimeError(
+        f"KEY VIOLATION inserting into {table_name} after {max_attempts} attempts"
+    ) from last_exc
 
 
 def _insert_dynamic(cur: Any, table_name: str, data: dict[str, Any], existing_columns: set[str]) -> None:
@@ -854,9 +966,11 @@ def create_purchase_request(
         header_cols = _get_table_columns(cur, "PH_PQ")
         detail_cols = _get_table_columns(cur, "PH_PQDTL")
 
-        request_number = validated.get("requestNumber") or _next_request_number(cur, header_cols)
-        if _request_number_exists(cur, header_cols, request_number):
-            request_number = _next_request_number_from_seed(cur, header_cols, request_number)
+        request_number = _allocate_unique_request_number(
+            cur,
+            header_cols,
+            preferred=_clean_text(validated.get("requestNumber") or ""),
+        )
         status = _resolve_initial_status(validated.get("status") or "")
 
         header_key_col = _pick_existing(header_cols, "DOCKEY", "PQKEY", "ID")
@@ -870,12 +984,9 @@ def create_purchase_request(
         if not detail_fk_col:
             raise RuntimeError("PH_PQDTL foreign key column not found (expected DOCKEY/PQKEY/REQUEST_ID/HEADER_ID)")
 
-        header_id = _next_key(
-            cur,
-            "PH_PQ",
-            header_key_col,
-            ["GEN_PH_PQ_ID", "GEN_PH_PQ_DOCKEY", "GEN_PH_PQ", "SEQ_PH_PQ_DOCKEY"],
-        )
+        pq_header_gens = ["PH_PQ", "GEN_PH_PQ_ID", "GEN_PH_PQ_DOCKEY", "GEN_PH_PQ", "SEQ_PH_PQ_DOCKEY"]
+        pq_detail_gens = ["PH_PQDTL", "GEN_PH_PQDTL_ID", "GEN_PH_PQDTL_DTLKEY", "GEN_PH_PQDTL", "SEQ_PH_PQDTL_DTLKEY"]
+        header_id = _next_key(cur, "PH_PQ", header_key_col, pq_header_gens)
 
         upstream_status = "PENDING"
         upstream_reference = ""
@@ -923,7 +1034,37 @@ def create_purchase_request(
             "UPDATEDBY": normalized_actor,
             "UPDATED_AT": now_iso,
         }
-        _insert_dynamic(cur, "PH_PQ", header_values, header_cols)
+        # Concurrent SQL Accounting inserts can collide on DOCKEY or DOCNO.
+        last_header_exc: BaseException | None = None
+        for header_attempt in range(12):
+            if header_attempt > 0:
+                header_id = _next_key(cur, "PH_PQ", header_key_col, pq_header_gens)
+                request_number = _allocate_unique_request_number(
+                    cur,
+                    header_cols,
+                    preferred=request_number,
+                )
+                header_values[header_key_col] = header_id
+                header_values["DOCNO"] = request_number
+                header_values["DOCNOEX"] = request_number
+                header_values["REQUESTNO"] = request_number
+                header_values["PRNO"] = request_number
+            try:
+                _insert_dynamic(cur, "PH_PQ", header_values, header_cols)
+                break
+            except Exception as exc:
+                if not _is_firebird_key_violation(exc):
+                    raise
+                last_header_exc = exc
+                print(
+                    f"[PROCUREMENT] KEY VIOLATION on PH_PQ insert "
+                    f"(attempt {header_attempt + 1}/12): {exc}",
+                    flush=True,
+                )
+        else:
+            raise RuntimeError(
+                "KEY VIOLATION inserting purchase request header after 12 attempts"
+            ) from last_header_exc
 
         for idx, item in enumerate(validated["lineItems"], start=1):
             line_location = _clean_text(item.get("locationCode"))
@@ -957,7 +1098,7 @@ def create_purchase_request(
                     cur,
                     "PH_PQDTL",
                     detail_key_col,
-                    ["GEN_PH_PQDTL_ID", "GEN_PH_PQDTL_DTLKEY", "GEN_PH_PQDTL", "SEQ_PH_PQDTL_DTLKEY"],
+                    pq_detail_gens,
                 )
             _apply_pqdtl_sqty_suom_columns(
                 detail_values,
@@ -968,7 +1109,14 @@ def create_purchase_request(
                 qty_su=float(item.get("qtySuomqty") if item.get("qtySuomqty") is not None else 0),
             )
             _apply_pqdtl_line_udf_columns(detail_values, detail_cols, item)
-            _insert_dynamic(cur, "PH_PQDTL", detail_values, detail_cols)
+            _insert_dynamic_with_pk_retry(
+                cur,
+                "PH_PQDTL",
+                detail_values,
+                detail_cols,
+                key_column=detail_key_col,
+                generator_candidates=pq_detail_gens,
+            )
 
         if status == "SUBMITTED":
             upstream_payload = _build_upstream_payload(
