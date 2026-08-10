@@ -21,14 +21,16 @@ function toggleSubmenu(event, submenuId) {
     const parentLink = event.currentTarget;
 
     if (submenu && parentLink) {
-        submenu.classList.toggle('active');
-        parentLink.classList.toggle('active');
+        const willOpen = !submenu.classList.contains('active');
+        submenu.classList.toggle('active', willOpen);
+        parentLink.classList.toggle('active', willOpen);
+        parentLink.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
 
         try {
             if (window.localStorage) {
                 const raw = localStorage.getItem(HAMBURGER_EXPANDED_KEY);
                 const current = raw ? JSON.parse(raw) : {};
-                current[submenuId] = submenu.classList.contains('active');
+                current[submenuId] = willOpen;
                 localStorage.setItem(HAMBURGER_EXPANDED_KEY, JSON.stringify(current));
             }
         } catch (e) {
@@ -68,6 +70,7 @@ function restoreHamburgerExpandedState() {
             const parentLink = document.querySelector('[onclick*="' + submenuId + '"]');
             if (parentLink) {
                 parentLink.classList.toggle('active', Boolean(isActive));
+                parentLink.setAttribute('aria-expanded', isActive ? 'true' : 'false');
             }
         });
     } catch (e) {

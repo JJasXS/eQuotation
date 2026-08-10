@@ -983,24 +983,45 @@ def _strip_client_currency_fields(data: dict) -> dict:
 
 def _resolve_quotation_currency_code(data: dict, customer_code: str) -> str:
     """
-    Currency for ``/salesquotation`` — **only** SQL API GET ``/customer?code=…`` (same as create screen).
-
-    Ignores request body, Firebird AR_CUSTOMER, and any MYR/default fallbacks.
+    Currency for ``/salesquotation``. Prefer SQL API GET ``/customer``, then local
+    ``AR_CUSTOMER.CURRENCYCODE``. Never hardcode MYR.
     """
     _ = data
     code = str(customer_code or "").strip()
     if not code:
-        raise ValueError("Customer code is required to load currency from SQL API.")
-    from utils.sql_api_customer import sql_api_currency_and_code
+        raise ValueError("Customer code is required to load currency.")
 
-    fields = sql_api_currency_and_code(code)
-    cc = str(fields.get("currencycode") or "").strip()
-    http_status = str(fields.get("httpStatus") or "").strip()
+    cc = ""
+    try:
+        from utils.sql_api_customer import sql_api_currency_and_code
+
+        fields = sql_api_currency_and_code(code)
+        cc = str(fields.get("currencycode") or "").strip()
+    except Exception as exc:
+        print(f"[QUOTATION CURRENCY] SQL API customer lookup warning: {exc}", flush=True)
+
     if not cc or cc in ("-", "—"):
-        hint = f" (SQL API HTTP {http_status})" if http_status else ""
+        try:
+            from utils.db_utils import get_db_connection
+
+            con = get_db_connection()
+            try:
+                cur = con.cursor()
+                cur.execute(
+                    "SELECT TRIM(CURRENCYCODE) FROM AR_CUSTOMER WHERE TRIM(CODE) = ?",
+                    (code,),
+                )
+                row = cur.fetchone()
+                if row:
+                    cc = str(row[0] or "").strip()
+            finally:
+                con.close()
+        except Exception as exc:
+            print(f"[QUOTATION CURRENCY] AR_CUSTOMER.CURRENCYCODE lookup warning: {exc}", flush=True)
+
+    if not cc or cc in ("-", "—"):
         raise ValueError(
-            f"Currency not returned from SQL API GET /customer for customer {code!r}{hint}. "
-            "Fix SQL API keys for this tenant and restart eQuotation, then reload Create Quotation."
+            f"Currency not found for customer {code!r} (SQL API GET /customer and AR_CUSTOMER.CURRENCYCODE)."
         )
     return cc
 

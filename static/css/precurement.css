@@ -3225,7 +3225,7 @@ body.procurement-warm-ui .pr-line-items-table .pr-stock-uom-readonly {
 }
 
 .view-pr-detail-table .col-approved {
-    min-width: 56px;
+    min-width: 72px;
     text-align: center;
 }
 
@@ -3234,10 +3234,134 @@ body.procurement-warm-ui .pr-line-items-table .pr-stock-uom-readonly {
 }
 
 .view-pr-approved-cell input[type="checkbox"] {
-    width: 14px;
-    height: 14px;
-    accent-color: #6ea3e2;
-    cursor: default;
+    width: 18px;
+    height: 18px;
+    accent-color: var(--ice-accent, #3b8fc4);
+    cursor: pointer;
+}
+
+.view-pr-approved-cell input[type="checkbox"]:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.view-pr-approved-head-toggle {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    margin: 0;
+    cursor: pointer;
+    user-select: none;
+}
+
+.view-pr-approved-head-toggle input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--ice-accent, #3b8fc4);
+    cursor: pointer;
+}
+
+.view-pr-approved-head-toggle input[type="checkbox"]:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.view-pr-approved-head-toggle__text {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ice-text-muted, #5a7a94);
+    line-height: 1.1;
+}
+
+.view-pr-line-bulk-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 14px;
+    margin: 0 0 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--ice-border, #b8d4e8);
+    border-radius: 10px;
+    background: linear-gradient(180deg, var(--ice-surface, #f7fbff) 0%, var(--ice-surface-alt, #eef6fc) 100%);
+    box-shadow: 0 1px 3px rgba(30, 80, 120, 0.06);
+}
+
+.view-pr-line-bulk-bar__select {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+    margin: 0;
+    cursor: pointer;
+    min-width: 0;
+}
+
+.view-pr-line-bulk-bar__select input[type="checkbox"],
+.view-pr-line-bulk-master {
+    width: 20px;
+    height: 20px;
+    accent-color: var(--ice-accent, #3b8fc4);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.view-pr-line-bulk-bar__label {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--ice-heading, #1a4d6e);
+}
+
+.view-pr-line-bulk-bar__count {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ice-text-muted, #5a7a94);
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(59, 143, 196, 0.12);
+    border: 1px solid var(--ice-border-soft, #c5dce9);
+}
+
+.view-pr-line-bulk-bar__hint {
+    font-size: 12px;
+    color: var(--ice-text-muted, #5a7a94);
+    line-height: 1.35;
+    max-width: 100%;
+}
+
+.view-pr-detail-table tbody tr.view-pr-detail-line.is-selected td {
+    background: rgba(59, 143, 196, 0.12) !important;
+}
+
+.view-pr-detail-table tbody tr.view-pr-detail-line.is-selected:hover td {
+    background: rgba(59, 143, 196, 0.18) !important;
+}
+
+@media (max-width: 720px) {
+    .view-pr-line-bulk-bar {
+        padding: 10px;
+        gap: 8px;
+    }
+
+    .view-pr-line-bulk-bar__hint {
+        width: 100%;
+        font-size: 11px;
+    }
+
+    .view-pr-detail-table .col-approved {
+        min-width: 64px;
+    }
+
+    .view-pr-approved-cell input[type="checkbox"],
+    .view-pr-approved-head-toggle input[type="checkbox"],
+    .view-pr-line-bulk-master {
+        width: 20px;
+        height: 20px;
+    }
 }
 
 .view-pr-transfer-qty-input {
@@ -5572,6 +5696,38 @@ body.procurement-warm-ui .pr-view-left-search {
     gap: 5px;
 }
 
+body.procurement-warm-ui .pr-view-left-search-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+body.procurement-warm-ui .pr-view-left-bulk-select {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    cursor: pointer;
+    user-select: none;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--ice-heading, #1a4d6e);
+    white-space: nowrap;
+}
+
+body.procurement-warm-ui .pr-view-left-bulk-select[hidden] {
+    display: none !important;
+}
+
+body.procurement-warm-ui .pr-view-left-bulk-select input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--ice-accent, #3b8fc4);
+    cursor: pointer;
+    margin: 0;
+}
+
 body.procurement-warm-ui .pr-view-left-search-label {
     font-size: 10px;
     font-weight: 700;
@@ -6182,8 +6338,8 @@ body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-table .col-am
 }
 
 body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-table .col-approved {
-    min-width: 40px;
-    width: 42px;
+    min-width: 64px;
+    width: 72px;
 }
 
 body.procurement-warm-ui .pr-view-quotation-detail .view-pr-transfer-qty-input--inline {
@@ -6348,13 +6504,20 @@ body.procurement-warm-ui #panel-view .pr-view-pr-card__controls .view-pr-udf-sta
     gap: 0.5rem 1rem;
     padding: 0.5rem 0.75rem;
     margin-top: 0.4rem;
-    background: rgba(15, 23, 42, 0.05);
-    border-radius: 8px;
+    background: linear-gradient(180deg, var(--ice-surface, #f7fbff) 0%, var(--ice-surface-alt, #eef6fc) 100%);
+    border: 1px solid var(--ice-border, #b8d4e8);
+    border-radius: 10px;
     font-size: 0.875rem;
+    color: var(--ice-text, #1e3a52);
 }
 
 .view-pr-bulk-pending-bar[hidden] {
     display: none !important;
+}
+
+.view-pr-bulk-selection-count {
+    font-weight: 600;
+    color: var(--ice-heading, #1a4d6e);
 }
 
 .view-pr-bulk-pending-bar__actions {
@@ -6366,6 +6529,28 @@ body.procurement-warm-ui #panel-view .pr-view-pr-card__controls .view-pr-udf-sta
 
 .view-pr-bulk-btn--primary {
     font-weight: 600;
+}
+
+#panel-view .pr-view-pr-card__bulk input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--ice-accent, #3b8fc4);
+}
+
+@media (max-width: 720px) {
+    body.procurement-warm-ui .pr-view-left-search-top {
+        flex-wrap: wrap;
+    }
+
+    body.procurement-warm-ui .pr-view-left-bulk-select {
+        font-size: 12px;
+    }
+
+    body.procurement-warm-ui .pr-view-left-bulk-select input[type="checkbox"],
+    #panel-view .pr-view-pr-card__bulk input[type="checkbox"] {
+        width: 20px;
+        height: 20px;
+    }
 }
 
 @media (max-width: 1100px) {

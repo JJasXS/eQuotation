@@ -4996,6 +4996,10 @@ def _enrich_supplier_display_rows(rows: list[dict]) -> list[dict]:
             row['name'] = company_name
         if api_email and not str(row.get('email') or '').strip():
             row['email'] = api_email
+        for key in ('address1', 'address2', 'address3', 'address4', 'city', 'state', 'postcode', 'country'):
+            val = str(hit.get(key) or '').strip()
+            if val and not str(row.get(key) or '').strip():
+                row[key] = val
     return rows
 
 
@@ -5316,6 +5320,14 @@ def _fetch_supplier_master_from_sql_api(codes: list[str]) -> dict[str, dict[str,
             'companyname': str(row.get('companyname') or row.get('companyName') or '').strip(),
             'udf_email': supplier_primary_email_from_sql_api_row(row),
             'emails': emails,
+            'address1': str(row.get('address1') or row.get('daddress1') or '').strip(),
+            'address2': str(row.get('address2') or row.get('daddress2') or '').strip(),
+            'address3': str(row.get('address3') or row.get('daddress3') or '').strip(),
+            'address4': str(row.get('address4') or row.get('daddress4') or '').strip(),
+            'city': str(row.get('city') or '').strip(),
+            'state': str(row.get('state') or '').strip(),
+            'postcode': str(row.get('postcode') or '').strip(),
+            'country': str(row.get('country') or '').strip(),
         }
 
     out: dict[str, dict[str, str]] = {}
@@ -8833,7 +8845,7 @@ def api_get_my_draft_quotations():
                 'DESCRIPTION': row[3],
                 'DOCAMT': float(row[4]) if row[4] is not None else 0,
                 'VALIDITY': str(row[5]) if row[5] is not None else None,
-                'CREDITTERM': str(row[6]) if row[6] is not None else 'N/A',
+                'CREDITTERM': str(row[6]) if row[6] is not None else '',
             })
         return jsonify({'success': True, 'data': drafts})
     except Exception as e:
@@ -8914,6 +8926,32 @@ def api_get_draft_quotation_details():
         return jsonify({'success': True, 'data': data})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def _quotation_docno_sort_key(docno) -> int:
+    """Numeric DOCNO key so QT-43143 ranks after QT-8000 (not lexicographic)."""
+    import re
+    text = str(docno or '').strip().upper()
+    digits = re.sub(r'\D+', '', text)
+    if not digits:
+        return 0
+    try:
+        return int(digits)
+    except Exception:
+        return 0
+
+
+def _sort_quotations_newest_first(quotations: list) -> list:
+    """Newest by date, then numeric DOCNO, then DOCKEY."""
+    def _key(rec):
+        date_s = str(rec.get('DOCDATE') or '')
+        try:
+            dockey = int(rec.get('DOCKEY') or 0)
+        except Exception:
+            dockey = 0
+        return (date_s, _quotation_docno_sort_key(rec.get('DOCNO')), dockey)
+
+    return sorted(quotations or [], key=_key, reverse=True)
 
 
 @app.route('/api/get_my_quotations')
@@ -9015,14 +9053,14 @@ def api_get_my_quotations():
                 'DOCAMT': float(row_map['DOCAMT']) if row_map.get('DOCAMT') is not None else 0,
                 'VALIDITY': row_map.get('VALIDITY'),
                 'STATUS': status_str,
-                'CREDITTERM': str(row_map.get('TERMS')) if row_map.get('TERMS') is not None else 'N/A',
+                'CREDITTERM': str(row_map.get('TERMS')) if row_map.get('TERMS') is not None else '',
                 'CANCELLED': cancelled_value,
                 'UPDATECOUNT': updatecount_value,
                 'CODE': (str(row_map.get('CODE')).strip() if row_map.get('CODE') is not None else ''),
                 'COMPANYNAME': (
-                    (row_map.get('COMPANYNAME') or 'N/A')
+                    (row_map.get('COMPANYNAME') or '')
                     if 'COMPANYNAME' in fields
-                    else 'N/A'
+                    else ''
                 ),
             }
             if udf_status_val is not None:
@@ -9031,6 +9069,7 @@ def api_get_my_quotations():
             rec['creatorDepartment'] = _resolve_quotation_creator_department(row_map)
             quotations.append(rec)
 
+        quotations = _sort_quotations_newest_first(quotations)
         _attach_creator_names_to_quotations(cur, quotations)
         return jsonify({'success': True, 'data': quotations})
     except Exception as e:
@@ -9344,10 +9383,10 @@ def api_admin_get_all_quotations():
                 'DOCAMT': _safe_float(row_map.get('DOCAMT')),
                 'VALIDITY': str(row_map['VALIDITY']) if row_map.get('VALIDITY') is not None else None,
                 'STATUS': status_str,
-                'CREDITTERM': str(row_map.get('TERMS')) if row_map.get('TERMS') is not None else 'N/A',
+                'CREDITTERM': str(row_map.get('TERMS')) if row_map.get('TERMS') is not None else '',
                 'CANCELLED': cancelled_value,
                 'UPDATECOUNT': updatecount_value,
-                'COMPANYNAME': row_map.get('COMPANYNAME') or 'N/A',
+                'COMPANYNAME': row_map.get('COMPANYNAME') or '',
                 'creatorEmail': _resolve_quotation_creator_email(row_map),
                 'creatorDepartment': _resolve_quotation_creator_department(row_map),
             }
@@ -9359,6 +9398,7 @@ def api_admin_get_all_quotations():
             cancelled_norm = str(cancelled).strip().lower() in ('1', 'true', 't', 'yes', 'y')
             quotations = [q for q in quotations if q.get('CANCELLED') is cancelled_norm]
 
+        quotations = _sort_quotations_newest_first(quotations)
         _attach_creator_names_to_quotations(cur, quotations)
         return jsonify({'success': True, 'count': len(quotations), 'data': quotations})
     except Exception as e:

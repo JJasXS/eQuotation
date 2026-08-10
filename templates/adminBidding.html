@@ -12,11 +12,11 @@
 
     <link rel="stylesheet" href="/static/css/chat.css">
 
-    <link rel="stylesheet" href="/static/css/hamburger_menu.css?v=20260515_sidebar">
+    <link rel="stylesheet" href="/static/css/hamburger_menu.css?v=20260810_nav_fix1">
 
     <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
 
-    <link rel="stylesheet" href="/static/css/adminBidding.css?v=20260604_bidding_url">
+    <link rel="stylesheet" href="/static/css/adminBidding.css?v=20260810_award_colors">
 
     <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515_admin_blue">
 
@@ -1153,9 +1153,9 @@
 
                                 const thisPrCell = s.isAwardedOnThisPr
                                     ? '<span class="awarded-badge">Awarded</span>'
-                                    : '—';
+                                    : '<span class="not-awarded-badge">Not awarded</span>';
 
-                                const rowClass = s.isAwardedOnThisPr ? 'compare-row-awarded' : '';
+                                const rowClass = s.isAwardedOnThisPr ? 'compare-row-awarded' : 'compare-row-not-awarded';
 
                                 return `
 
@@ -1256,7 +1256,7 @@
 
                 return `
 
-                    <div class="bid-card${isAwarded ? ' bid-card-awarded' : ''}">
+                    <div class="bid-card${isAwarded ? ' bid-card-awarded' : ' bid-card-not-awarded'}">
 
                         <div class="toolbar">
 

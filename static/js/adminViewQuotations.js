@@ -681,7 +681,7 @@ async function loadQuotations() {
                 draftsQuotationsCache.push({
                     ...d,
                     _sourceSlQtDraft: true,
-                    COMPANYNAME: d.COMPANYNAME || 'N/A',
+                    COMPANYNAME: d.COMPANYNAME || '',
                 });
             });
         } else {
@@ -929,8 +929,8 @@ async function renderQuotationDetail(currentList, options = {}) {
     const amount = Number(selected.DOCAMT || 0).toFixed(2);
     const docDate = formatDateForDisplay(selected.DOCDATE);
     const validity = formatDateForDisplay(selected.VALIDITY);
-    const companyName = selected.COMPANYNAME || 'N/A';
-    const customerCode = selected.CODE || 'N/A';
+    const companyName = selected.COMPANYNAME || '';
+    const customerCode = selected.CODE || '';
 
     const showSubmitterInMeta = !isCustomerMyQuotationsPage();
     panel.innerHTML = `

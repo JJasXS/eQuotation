@@ -594,7 +594,7 @@ function renderQuotationList(list, listType) {
         const amount = Number(qt.DOCAMT || 0).toFixed(2);
         const docDate = escapeHtml(qt.DOCDATE || '—');
         const validity = escapeHtml(qt.VALIDITY || '—');
-        const companyName = escapeHtml(qt.COMPANYNAME || 'N/A');
+        const companyName = escapeHtml(qt.COMPANYNAME || '');
         const docno = escapeHtml(qt.DOCNO || 'DOCKEY #' + qt.DOCKEY);
         const creatorInner = formatSubmittedByCreatorInner(qt.creatorName, qt.creatorEmail, qt.creatorDepartment);
         const creatorLine = creatorInner
@@ -670,7 +670,7 @@ function renderDraftList(list) {
         const amount = Number(qt.DOCAMT || 0).toFixed(2);
         const docDate = escapeHtml(qt.DOCDATE || '—');
         const validity = escapeHtml(qt.VALIDITY || '—');
-        const companyName = escapeHtml(qt.COMPANYNAME || 'N/A');
+        const companyName = escapeHtml(qt.COMPANYNAME || '');
         const docno = escapeHtml(qt.DOCNO || 'DOCKEY #' + qt.DOCKEY);
         html += `
             <div class="view-qt-list-card" data-dockey="${qt.DOCKEY}" data-list-type="draft" data-source="slqtdraft" style="border-left-color:#4b6e9e" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}">

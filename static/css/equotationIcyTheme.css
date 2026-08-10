@@ -704,6 +704,25 @@ body.equotation-icy-theme.procurement-warm-ui .view-pr-approved-cell input[type=
     accent-color: var(--ice-accent) !important;
 }
 
+body.equotation-icy-theme.procurement-warm-ui .view-pr-line-bulk-bar {
+    background: linear-gradient(180deg, var(--ice-surface) 0%, var(--ice-surface-alt) 100%) !important;
+    border-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-line-bulk-bar__label {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-line-bulk-bar__count,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-line-bulk-bar__hint,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-approved-head-toggle__text {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-table tbody tr.view-pr-detail-line.is-selected td {
+    background: rgba(59, 143, 196, 0.12) !important;
+}
+
 body.equotation-icy-theme.procurement-warm-ui .view-pr-list-wrap {
     background: var(--ice-surface) !important;
     border-color: var(--ice-border) !important;

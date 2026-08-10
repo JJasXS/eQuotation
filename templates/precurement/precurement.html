@@ -94,7 +94,7 @@
 
 
 
-    <link rel="stylesheet" href="/static/css/hamburger_menu.css?v=20260515_sidebar">
+    <link rel="stylesheet" href="/static/css/hamburger_menu.css?v=20260810_nav_fix1">
 
 
 
@@ -143,7 +143,7 @@
 
 
     <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260810_tabs_phone_v3">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=20260810_awaiting_v12">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=20260810_list_bulk1">
     <style id="pr-report-phone-layout">
     /* Report settings: phone drawer (slides in from right) */
     .stock-report-settings-bar,
@@ -364,7 +364,7 @@
 
 
 
-    <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260603_report_search_color">
+    <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260810_list_bulk1">
 
 
 
@@ -1901,7 +1901,7 @@
                                     </div>
                                     <p id="view-pr-list-perf" class="view-pr-list-perf view-pr-list-perf--inline" aria-live="polite" hidden></p>
 
-                                    <div id="view-pr-bulk-pending-bar" class="view-pr-bulk-pending-bar" hidden style="display:none !important;">
+                                    <div id="view-pr-bulk-pending-bar" class="view-pr-bulk-pending-bar" hidden>
 
 
 
@@ -1961,7 +1961,7 @@
 
 
 
-                                            <button type="button" class="view-pr-refresh-btn view-pr-bulk-btn view-pr-bulk-btn--primary" id="view-pr-bulk-approve-btn" onclick="viewPrBulkQueueApproveSelected()" disabled>Approve selected</button>
+                                            <button type="button" class="view-pr-refresh-btn view-pr-bulk-btn view-pr-bulk-btn--primary" id="view-pr-bulk-approve-btn" onclick="viewPrBulkQueueApproveSelected()" disabled>Update selected</button>
 
 
 
@@ -2057,7 +2057,18 @@
 
 
 
-                                                <label class="pr-view-left-search-label" for="view-pr-search-input">Search PR</label>
+                                                <div class="pr-view-left-search-top">
+                                                    <label class="pr-view-left-search-label" for="view-pr-search-input">Search PR</label>
+                                                    <label class="pr-view-left-bulk-select" id="view-pr-list-bulk-select-wrap" hidden title="Select all visible purchase requests">
+                                                        <input
+                                                            type="checkbox"
+                                                            id="view-pr-list-bulk-select-all"
+                                                            aria-label="Select all purchase requests for bulk update"
+                                                            onchange="onViewPrListBulkSelectAllChange(this)"
+                                                        />
+                                                        <span>Select all</span>
+                                                    </label>
+                                                </div>
 
 
 
@@ -2693,7 +2704,7 @@
 
 
 
-                                            <label class="pr-field pr-field-wide">
+                                            <label class="pr-field pr-field-wide" id="pr-edit-delivery-location-wrap" hidden style="display:none !important;">
 
 
 
@@ -4290,6 +4301,7 @@
                                                 <th>DP</th>
                                                 <th>DFP</th>
                                                 <th>Cost/KG</th>
+                                                <th>Formula</th>
 
 
 
@@ -11232,7 +11244,7 @@
 
         function canEditPrLineSelection(header) {
             const s = normalizeUdfStatus((header && (header._originalUdfStatus || header.udfStatus)) || '');
-            return s === 'PENDING' || s === 'APPROVED';
+            return s === 'AWAITING' || s === 'PENDING' || s === 'APPROVED';
         }
 
 
@@ -13522,29 +13534,25 @@
 
 
         function isViewPendingBulkSelectMode() {
+            // List bulk select for Awaiting / Pending / Approved tabs.
+            return (
+                viewStatusFilters instanceof Set
+                && viewStatusFilters.size === 1
+                && (viewStatusFilters.has('AWAITING') || viewStatusFilters.has('PENDING') || viewStatusFilters.has('APPROVED'))
+            );
+        }
 
-
-
-
-
-
-
-
-
-
-
-            return viewStatusFilters instanceof Set && viewStatusFilters.size === 1 && viewStatusFilters.has('PENDING');
-
-
-
-
-
-
-
-
-
-
-
+        function getViewListBulkTargetUdfStatus() {
+            if (!(viewStatusFilters instanceof Set) || viewStatusFilters.size !== 1) {
+                return '';
+            }
+            if (viewStatusFilters.has('PENDING')) {
+                return 'APPROVED';
+            }
+            if (viewStatusFilters.has('AWAITING')) {
+                return 'PENDING';
+            }
+            return '';
         }
 
 
@@ -13798,6 +13806,8 @@
 
 
                 bar.hidden = true;
+                syncViewListBulkMasterCheckbox();
+
 
 
 
@@ -13930,18 +13940,17 @@
 
 
                 approveBtn.disabled = n === 0;
-
-
-
-
-
-
-
-
-
-
-
-                approveBtn.textContent = n === 0 ? 'Approve selected' : `Approve selected (${n})`;
+                const targetUdf = getViewListBulkTargetUdfStatus();
+                if (targetUdf === 'APPROVED') {
+                    approveBtn.textContent = n === 0 ? 'Approve selected' : `Approve selected (${n})`;
+                    approveBtn.hidden = false;
+                } else if (targetUdf === 'PENDING') {
+                    approveBtn.textContent = n === 0 ? 'Mark selected Pending' : `Mark selected Pending (${n})`;
+                    approveBtn.hidden = false;
+                } else {
+                    approveBtn.textContent = 'Update selected';
+                    approveBtn.hidden = true;
+                }
 
 
 
@@ -13965,6 +13974,7 @@
 
 
 
+                    syncViewListBulkMasterCheckbox();
         }
 
 
@@ -14252,6 +14262,41 @@
 
 
 
+
+        function onViewPrListBulkSelectAllChange(el) {
+            if (!el) {
+                return;
+            }
+            if (el.checked) {
+                viewPrBulkSelectAllPending();
+            } else {
+                viewPrBulkClearSelection();
+            }
+        }
+
+        function syncViewListBulkMasterCheckbox() {
+            const wrap = document.getElementById('view-pr-list-bulk-select-wrap');
+            const master = document.getElementById('view-pr-list-bulk-select-all');
+            if (!wrap || !master) {
+                return;
+            }
+            const hide = document.body.classList.contains('procurement-hide-pr-approval-edits');
+            const active = isViewPendingBulkSelectMode() && !hide;
+            wrap.hidden = !active;
+            if (!active) {
+                master.checked = false;
+                master.indeterminate = false;
+                return;
+            }
+            const visibleIds = getFilteredViewPurchaseRequests()
+                .map((r) => Number(r.id || 0))
+                .filter((id) => id > 0);
+            const selectedVisible = visibleIds.filter((id) => viewBulkSelectedHeaderIds.has(id));
+            const all = visibleIds.length > 0 && selectedVisible.length === visibleIds.length;
+            const some = selectedVisible.length > 0 && !all;
+            master.checked = all;
+            master.indeterminate = some;
+        }
 
         function viewPrBulkSelectAllPending() {
 
@@ -14806,29 +14851,12 @@
 
 
             if (!isViewPendingBulkSelectMode() || viewBulkSelectedHeaderIds.size === 0) {
-
-
-
-
-
-
-
-
-
-
-
                 return;
+            }
 
-
-
-
-
-
-
-
-
-
-
+            const targetUdf = getViewListBulkTargetUdfStatus();
+            if (!targetUdf) {
+                return;
             }
 
 
@@ -14865,7 +14893,7 @@
 
 
 
-                if (queueHeaderUdfPendingFromSaved(hid, 'APPROVED')) {
+                if (queueHeaderUdfPendingFromSaved(hid, targetUdf)) {
 
 
 
@@ -14938,6 +14966,12 @@
 
 
                 renderFilteredViewPurchaseRequests();
+
+                if (typeof saveViewDetailApprovals === 'function') {
+                    Promise.resolve(saveViewDetailApprovals()).catch((err) => {
+                        console.warn('[VIEW PR] bulk approve save failed', err);
+                    });
+                }
 
 
 
@@ -17427,9 +17461,17 @@
                 }
             });
 
-            const hasPending = header.details.some((row) => Number(row && row.id ? row.id : 0) > 0 && isDetailChecked(row));
-            queueHeaderUdfPendingFromSaved(headerId, hasPending ? 'APPROVED' : 'PENDING');
+            const selectable = header.details.filter((row) => Number(row && row.id ? row.id : 0) > 0);
+            const hasChecked = selectable.some((row) => isDetailChecked(row));
+            header.selectedLineCount = selectable.filter((row) => isDetailChecked(row)).length;
+            header.lineCount = selectable.length;
+            const savedUdf = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
+            // Only Pending auto-stages header → Approved; Awaiting keeps header UDF unchanged.
+            if (savedUdf === 'PENDING') {
+                queueHeaderUdfPendingFromSaved(headerId, hasChecked ? 'APPROVED' : 'PENDING');
+            }
             updateViewApprovalButtonState();
+            renderViewPurchaseRequestDetailPanel();
             renderFilteredViewPurchaseRequests();
         }
 
@@ -18791,7 +18833,27 @@ if (viewHeaderStatusPendingChanges.size > 0) {
 
 
 
-        function buildViewPurchaseRequestDetailHtml(header) {
+        
+            function formatViewPrSupplierAddress(supplier) {
+                if (!supplier || typeof supplier !== 'object') return '';
+                const parts = [
+                    supplier.address1, supplier.address2, supplier.address3, supplier.address4,
+                    supplier.daddress1, supplier.daddress2, supplier.daddress3, supplier.daddress4,
+                    supplier.city, supplier.state, supplier.postcode, supplier.country,
+                ].map((v) => String(v || '').trim()).filter((v) => v && v.toUpperCase() !== 'N/A' && v !== '-');
+                // de-dupe while preserving order
+                const seen = new Set();
+                const uniq = [];
+                parts.forEach((p) => {
+                    const k = p.toUpperCase();
+                    if (seen.has(k)) return;
+                    seen.add(k);
+                    uniq.push(p);
+                });
+                return uniq.join(', ');
+            }
+
+function buildViewPurchaseRequestDetailHtml(header) {
 
 
 
@@ -19112,6 +19174,10 @@ if (viewHeaderStatusPendingChanges.size > 0) {
 
 
                         <span>${escapeHtml(name)}</span>
+                        ${(() => {
+                            const addr = formatViewPrSupplierAddress(supplier);
+                            return addr ? `<div class="view-pr-detail-supplier-address muted">${escapeHtml(addr)}</div>` : '';
+                        })()}
 
 
 
@@ -19174,6 +19240,13 @@ if (viewHeaderStatusPendingChanges.size > 0) {
             const selectedDetailCount = details.filter((detail) => Number(detail.id || 0) > 0 && isDetailChecked(detail)).length;
             const allDetailsSelected = selectableDetailCount > 0 && selectedDetailCount === selectableDetailCount;
 
+            const lineBulkHint = savedUdfDisplay === 'APPROVED'
+                ? 'Selected lines can be transferred'
+                : savedUdfDisplay === 'PENDING'
+                    ? 'Update to save · selected lines stage Approved'
+                    : 'Update to save selected lines';
+
+
             const detailRows = details.length
 
 
@@ -19199,6 +19272,7 @@ if (viewHeaderStatusPendingChanges.size > 0) {
 
 
                 const { sqty: rowSqty, suomqty: rowSuom } = viewPrDetailSqtySuom(detail);
+                const rowSelected = isDetailChecked(detail);
 
 
 
@@ -19222,7 +19296,7 @@ if (viewHeaderStatusPendingChanges.size > 0) {
 
 
 
-            <tr>
+            <tr class="view-pr-detail-line${rowSelected ? ' is-selected' : ''}">
 
 
 
@@ -19246,7 +19320,7 @@ if (viewHeaderStatusPendingChanges.size > 0) {
 
 
 
-                <td class="col-item-name">${escapeHtml(detail.itemName || '-')}</td>
+                <td class="col-item-name">${escapeHtml(detail.itemCode || detail.itemName || '-')}</td>
 
 
 
@@ -20327,6 +20401,22 @@ if (viewHeaderStatusPendingChanges.size > 0) {
 
 
 
+                ${canEditLines && selectableDetailCount ? `
+                <div class="view-pr-line-bulk-bar" role="group" aria-label="Bulk line selection">
+                    <label class="view-pr-line-bulk-bar__select">
+                        <input
+                            type="checkbox"
+                            class="view-pr-line-bulk-master"
+                            aria-label="Select all lines"
+                            ${allDetailsSelected ? 'checked' : ''}
+                            onchange="onDetailApprovalToggleAll(${headerId}, this.checked)"
+                        />
+                        <span class="view-pr-line-bulk-bar__label">Select all lines</span>
+                        <span class="view-pr-line-bulk-bar__count">${selectedDetailCount} of ${selectableDetailCount} selected</span>
+                    </label>
+                    <span class="view-pr-line-bulk-bar__hint">${escapeHtml(lineBulkHint)}</span>
+                </div>` : ''}
+
                 <div class="view-pr-detail-wrap view-pr-detail-wrap--unified">
 
 
@@ -20543,7 +20633,7 @@ if (viewHeaderStatusPendingChanges.size > 0) {
 
 
 
-                                <th class="col-item-name">Description</th>
+                                <th class="col-item-name">Item code</th>
 
 
 
@@ -20555,7 +20645,7 @@ if (viewHeaderStatusPendingChanges.size > 0) {
 
 
 
-                                <th class="col-location col-batch">Batch</th>
+                                <th class="col-location col-batch">Location</th>
 
 
 
@@ -20636,6 +20726,7 @@ if (viewHeaderStatusPendingChanges.size > 0) {
                                             ${(selectableDetailCount && canEditLines) ? '' : 'disabled'}
                                             onchange="onDetailApprovalToggleAll(${headerId}, this.checked)"
                                         />
+                                        <span class="view-pr-approved-head-toggle__text">Select</span>
                                     </label>
                                 </th>
 
@@ -22298,7 +22389,7 @@ if (viewHeaderStatusPendingChanges.size > 0) {
 
 
 
-                const bulkMode = false;
+                const bulkMode = isViewPendingBulkSelectMode() && !document.body.classList.contains('procurement-hide-pr-approval-edits');
 
 
 
@@ -35691,7 +35782,7 @@ if (viewHeaderStatusPendingChanges.size > 0) {
 
 
 
-        function renderStTrQtyPairBreakdownRows(rows) {
+        function renderStTrQtyPairBreakdownRows(rows, itemCode, locationCode) {
 
 
 
@@ -35835,7 +35926,7 @@ if (viewHeaderStatusPendingChanges.size > 0) {
 
 
 
-                    + `<td class="stock-card-breakdown-batch-td">${escapeHtml(batch)}</td>`
+                    + `<td class="stock-card-breakdown-batch-td">${escapeHtml(String(locationCode || row.location || batch || '-').trim() || '-')}</td>`
 
 
 
@@ -35847,7 +35938,7 @@ if (viewHeaderStatusPendingChanges.size > 0) {
 
 
 
-                    + `<td class="stock-card-breakdown-desc">${escapeHtml(batchDesc)}</td>`
+                    + `<td class="stock-card-breakdown-desc">${escapeHtml(String(itemCode || row.item_code || row.itemCode || '-').trim() || '-')}</td>`
 
 
 
@@ -36639,7 +36730,7 @@ if (viewHeaderStatusPendingChanges.size > 0) {
 
 
 
-                thead.innerHTML = '<tr><th scope="col">Batch</th><th scope="col">Description</th><th scope="col">Exp Date</th><th scope="col">Mfg Date</th><th scope="col" class="stock-card-breakdown-num">SQTY</th><th scope="col" class="stock-card-breakdown-num">SUOMQTY</th></tr>';
+                thead.innerHTML = '<tr><th scope="col">Location</th><th scope="col">Item code</th><th scope="col">Exp Date</th><th scope="col">Mfg Date</th><th scope="col" class="stock-card-breakdown-num">SQTY</th><th scope="col" class="stock-card-breakdown-num">SUOMQTY</th></tr>';
 
 
 
@@ -36699,7 +36790,7 @@ if (viewHeaderStatusPendingChanges.size > 0) {
 
 
 
-                body.innerHTML = renderStTrQtyPairBreakdownRows(rows);
+                body.innerHTML = renderStTrQtyPairBreakdownRows(rows, payload.item_code || payload.itemCode || '', payload.location || payload.locationCode || '');
 
 
 
@@ -47313,7 +47404,7 @@ if (viewHeaderStatusPendingChanges.size > 0) {
             const code = prCatalogProductCode(product);
             const desc = prCatalogProductDesc(product);
             if (!code) return desc;
-            return desc && desc !== code ? `${desc} (${code})` : desc;
+            return desc && desc !== code ? `${code} — ${desc}` : code;
         }
 
         function normalizePrProductSearchText(value) {
@@ -49168,6 +49259,7 @@ if (viewHeaderStatusPendingChanges.size > 0) {
                         <td class="pr-udf-readonly">${escapeHtml(prCatalogUdfValue(product, 'udf_dp') || '-')}</td>
                         <td class="pr-udf-readonly">${escapeHtml(prCatalogUdfValue(product, 'udf_dfp') || '-')}</td>
                         <td class="pr-udf-readonly">${escapeHtml(prCatalogUdfValue(product, 'udf_costkg') || '-')}</td>
+                        <td class="pr-udf-readonly">${escapeHtml(prCatalogUdfValue(product, 'udf_formula') || '-')}</td>
 
 
 

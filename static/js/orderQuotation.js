@@ -2473,7 +2473,7 @@ async function loadUserInfo() {
             // Customer email: keep server-rendered session login email (#quotation-customer). Do not replace
             // with AR_CUSTOMER master UDF_EMAIL/EMAIL — users may log in via UDF_EMAIL2/3… (jason.choo…).
         } else {
-            // Set default N/A values if data not found
+            // Customer data missing — leave fields blank (do not fill N/A)
             console.warn('Customer data not found:', data.error);
             setDefaultCustomerInfo();
         }
@@ -2483,7 +2483,7 @@ async function loadUserInfo() {
     }
 }
 
-// Helper function to set all customer fields to N/A
+// Helper: clear customer fields (blank, not N/A)
 function setDefaultCustomerInfo() {
     quotationCustomerScalars = {};
     sqlApiCustomerCurrencyCode = null;

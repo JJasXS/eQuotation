@@ -410,9 +410,13 @@ body.admin-bidding-page {
 }
 
 .bid-card .bid-td-item {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow: visible;
+    text-overflow: unset;
+    white-space: normal;
+    word-break: break-word;
+    min-width: 10rem;
+    max-width: 18rem;
+    line-height: 1.35;
     text-align: left;
 }
 
@@ -467,6 +471,10 @@ body.admin-bidding-page {
     background: #e8f5e9;
 }
 
+.compare-row-not-awarded td {
+    background: #fdecea;
+}
+
 .awarded-badge {
     display: inline-block;
     padding: 2px 8px;
@@ -477,9 +485,25 @@ body.admin-bidding-page {
     color: #1b5e20;
 }
 
+.not-awarded-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    background: #ffcdd2;
+    color: #b71c1c;
+}
+
 .bid-card-awarded {
     border-color: #81c784;
     box-shadow: 0 0 0 1px #a5d6a7;
+}
+
+.bid-card-not-awarded {
+    border-color: #e57373;
+    box-shadow: 0 0 0 1px #ef9a9a;
+    opacity: 0.92;
 }
 
 .status {

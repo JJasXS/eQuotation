@@ -134,3 +134,89 @@
     padding-left: 40px;
     font-size: 14px;
 }
+
+.hamburger-nav-group {
+    border-bottom: 1px solid var(--ice-border-soft, #c5dce9);
+}
+
+.hamburger-nav-group__toggle {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 0;
+    padding: 14px 24px;
+    min-height: 44px;
+    box-sizing: border-box;
+    border: 0 !important;
+    border-radius: 0;
+    outline: none;
+    background: transparent !important;
+    box-shadow: none !important;
+    color: var(--ice-text, #1e3a52);
+    font: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.2;
+    text-align: left;
+    cursor: pointer;
+}
+
+.hamburger-nav-group__toggle > span:first-child {
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    padding: 0;
+    margin: 0;
+}
+
+.hamburger-nav-group__toggle:hover,
+.hamburger-nav-group__toggle.active,
+.hamburger-nav-group__toggle:focus-visible {
+    background: var(--ice-accent-soft, #dbeafe) !important;
+    color: var(--ice-heading, #1a4d6e);
+}
+
+.hamburger-nav-group__toggle:focus-visible {
+    box-shadow: inset 0 0 0 2px rgba(59, 143, 196, 0.35) !important;
+}
+
+.hamburger-nav-group__chevron {
+    width: 8px;
+    height: 8px;
+    border: 0 !important;
+    border-right: 2px solid currentColor !important;
+    border-bottom: 2px solid currentColor !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    transform: rotate(45deg);
+    transition: transform 0.2s ease;
+    flex-shrink: 0;
+}
+
+.hamburger-nav-group__toggle.active .hamburger-nav-group__chevron {
+    transform: rotate(-135deg);
+}
+
+.hamburger-submenu {
+    display: none;
+    background: rgba(255, 255, 255, 0.45);
+}
+
+.hamburger-submenu.active {
+    display: block;
+}
+
+.hamburger-submenu a {
+    padding-left: 40px;
+    font-size: 14px;
+    font-weight: 500;
+    border-bottom: 1px solid var(--ice-border-soft, #c5dce9);
+}
+
+.hamburger-submenu a:last-child {
+    border-bottom: none;
+}

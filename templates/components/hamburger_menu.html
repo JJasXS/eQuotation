@@ -8,6 +8,7 @@
 {% set perm_view_quotation_ui = perm_view_quotation_ui | default(false) %}
 {% set perm_admin_view_quotations = perm_admin_view_quotations | default(false) %}
 {% set view_quotation_href = '/admin/view-quotations' if perm_admin_view_quotations else '/view-quotation' %}
+{% set show_sales_menu = (not is_supplier) and (perm_create_quotation or perm_view_quotation_ui) %}
 <div class="hamburger-menu-container">
     <button class="hamburger-btn" type="button" onclick="toggleHamburgerMenu()" aria-label="Menu">
         <span></span>
@@ -18,21 +19,39 @@
     <div class="hamburger-dropdown" id="hamburger-dropdown">
         <div class="hamburger-dropdown__body">
             {% if perm_admin_dashboard %}
-            <a href="/admin">Admin Dashboard</a>
+            <a href="/admin">Dashboard</a>
             {% endif %}
 
             {% if perm_purchase_menu %}
-            <a href="/admin/procurement?tab=report">Purchase Dashboard</a>
-            <a href="/admin/procurement?tab=create" class="hamburger-nav-indent">Create e-Purchase Request</a>
-            <a href="/admin/procurement?tab=view" class="hamburger-nav-indent">View e-Purchase Request</a>
-            <a href="/admin/procurement/bidding">Supplier Bidding</a>
+            <div class="hamburger-nav-group">
+                <button type="button" class="hamburger-nav-group__toggle" onclick="toggleSubmenu(event, 'submenu-purchase')" aria-expanded="false">
+                    <span>Purchase</span>
+                    <span class="hamburger-nav-group__chevron" aria-hidden="true"></span>
+                </button>
+                <div class="hamburger-submenu" id="submenu-purchase">
+                    <a href="/admin/procurement?tab=report">Purchase Dashboard</a>
+                    <a href="/admin/procurement?tab=create">Create e-PR</a>
+                    <a href="/admin/procurement?tab=view">View e-PR</a>
+                    <a href="/admin/procurement/bidding">Supplier Bidding</a>
+                </div>
+            </div>
             {% endif %}
 
-            {% if not is_supplier and perm_create_quotation %}
-            <a href="/create-quotation" id="menu-create-quotation">Create Quotation</a>
-            {% endif %}
-            {% if not is_supplier and perm_view_quotation_ui %}
-            <a href="{{ view_quotation_href }}">View Quotation</a>
+            {% if show_sales_menu %}
+            <div class="hamburger-nav-group">
+                <button type="button" class="hamburger-nav-group__toggle" onclick="toggleSubmenu(event, 'submenu-sales')" aria-expanded="false">
+                    <span>Sales</span>
+                    <span class="hamburger-nav-group__chevron" aria-hidden="true"></span>
+                </button>
+                <div class="hamburger-submenu" id="submenu-sales">
+                    {% if perm_view_quotation_ui %}
+                    <a href="{{ view_quotation_href }}">View Sales</a>
+                    {% endif %}
+                    {% if perm_create_quotation %}
+                    <a href="/create-quotation" id="menu-create-quotation">Create Sales</a>
+                    {% endif %}
+                </div>
+            </div>
             {% endif %}
 
             {% if is_supplier %}
