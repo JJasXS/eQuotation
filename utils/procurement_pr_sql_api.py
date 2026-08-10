@@ -347,5 +347,5 @@ def build_purchaserequest_upstream_payload(validated: dict[str, Any], *, request
         "daddress1": None,
         "sdsdocdetail": details,
         "changed": False,
-        "udf_status": "PENDING" if status_text == "SUBMITTED" else "",
+        "udf_status": "AWAITING" if status_text == "SUBMITTED" else "",
     }

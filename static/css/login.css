@@ -621,3 +621,60 @@ input[type='text']::placeholder {
         max-width: 100%;
     }
 }
+
+@media (max-width: 480px) {
+    body.login-page-body {
+        padding: 10px;
+    }
+
+    .login-page {
+        max-width: 100%;
+    }
+
+    .login-aside {
+        padding: 16px 14px 14px;
+    }
+
+    .login-main {
+        padding: 18px 14px 22px;
+    }
+
+    .login-carousel-slide {
+        min-height: 120px;
+        padding: 14px 12px;
+    }
+
+    .login-carousel-arrow {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    .login-carousel-dot {
+        min-width: 28px;
+        min-height: 28px;
+        padding: 8px;
+        box-sizing: content-box;
+    }
+
+    input[type='email'],
+    input[type='text'],
+    .otp-digit {
+        font-size: 16px;
+        min-height: 44px;
+    }
+
+    .otp-digit {
+        height: 48px;
+    }
+
+    .otp-boxes {
+        gap: 6px;
+    }
+
+    .btn-submit,
+    .btn-guest,
+    .btn-resend {
+        width: 100%;
+        min-height: 46px;
+    }
+}

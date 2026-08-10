@@ -78,8 +78,12 @@ def _normalize_udf_status(value: Any) -> str:
         return "APPROVED"
     if text == "INACTIVE":
         return "CANCELLED"
-    if text in {"APPROVED", "CANCELLED", "PENDING"}:
+    if text in {"AWAITING", "AWAITING_APPROVAL", "AWAITING APPROVAL"}:
+        return "AWAITING"
+    if text in {"APPROVED", "CANCELLED", "PENDING", "AWAITING"}:
         return text
+    if not text:
+        return ""
     return "PENDING"
 
 

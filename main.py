@@ -69,6 +69,7 @@ from utils.procurement_bidding import (
     create_bid_invitations,
     get_line_awards_for_request,
     get_pr_udf_status_local,
+    map_pr_udf_status_local,
     build_supplier_bid_log,
     format_display_date,
     get_supplier_bidding_award_state,
@@ -4372,10 +4373,11 @@ def api_admin_procurement_stock_card():
                 flush=True,
             )
         cur = con.cursor()
-        locations, data = fetch_procurement_stock_card_data(
+        locations, data, stock_card_meta = fetch_procurement_stock_card_data(
             cur, from_date=from_date, to_date=to_date, qty_mode=qty_mode
         )
         st_tr_udf_suomqty = fetch_st_tr_udf_suomqty_summary(cur)
+        meta = stock_card_meta if isinstance(stock_card_meta, dict) else {}
 
         return jsonify({
             'success': True,
@@ -4384,7 +4386,13 @@ def api_admin_procurement_stock_card():
                 'from_date': from_date.isoformat() if from_date else None,
                 'to_date': to_date.isoformat() if to_date else None,
                 'qty_mode': qty_mode,
+                'avg_sales_3m_months': meta.get('avg_sales_3m_months') or [],
+                'avg_sales_3m_from': meta.get('avg_sales_3m_from'),
+                'avg_sales_3m_to': meta.get('avg_sales_3m_to'),
             },
+            'avg_sales_3m_months': meta.get('avg_sales_3m_months') or [],
+            'avg_sales_3m_from': meta.get('avg_sales_3m_from'),
+            'avg_sales_3m_to': meta.get('avg_sales_3m_to'),
             'locations': locations,
             'data': data,
             'st_tr_udf_suomqty': st_tr_udf_suomqty,
@@ -4991,13 +4999,14 @@ def _enrich_supplier_display_rows(rows: list[dict]) -> list[dict]:
     return rows
 
 
-def _list_selected_suppliers(request_dockey):
+def _list_selected_suppliers(request_dockey, request_no=None):
     try:
-        request_id = int(request_dockey)
+        request_id = int(request_dockey or 0)
     except Exception:
-        return []
+        request_id = 0
 
-    if request_id <= 0:
+    docno = str(request_no or '').strip()
+    if request_id <= 0 and not docno:
         return []
 
     con = None
@@ -5005,16 +5014,38 @@ def _list_selected_suppliers(request_dockey):
     try:
         con = get_db_connection()
         cur = con.cursor()
-        cur.execute(
-            '''
-            SELECT SUPPLIER_CODE, SUPPLIER_NAME, SUPPLIER_EMAIL
-            FROM PR_SELECTED_SUPPLIER
-            WHERE REQUEST_DOCKEY = ?
-            ORDER BY ID ASC
-            ''',
-            (request_id,),
-        )
+        if request_id > 0:
+            cur.execute(
+                '''
+                SELECT SUPPLIER_CODE, SUPPLIER_NAME, SUPPLIER_EMAIL
+                FROM PR_SELECTED_SUPPLIER
+                WHERE REQUEST_DOCKEY = ?
+                ORDER BY ID ASC
+                ''',
+                (request_id,),
+            )
+        else:
+            cur.execute(
+                '''
+                SELECT SUPPLIER_CODE, SUPPLIER_NAME, SUPPLIER_EMAIL
+                FROM PR_SELECTED_SUPPLIER
+                WHERE REQUEST_NO = ?
+                ORDER BY ID ASC
+                ''',
+                (docno,),
+            )
         rows = cur.fetchall() or []
+        if not rows and docno and request_id > 0:
+            cur.execute(
+                '''
+                SELECT SUPPLIER_CODE, SUPPLIER_NAME, SUPPLIER_EMAIL
+                FROM PR_SELECTED_SUPPLIER
+                WHERE REQUEST_NO = ?
+                ORDER BY ID ASC
+                ''',
+                (docno,),
+            )
+            rows = cur.fetchall() or []
         result = []
         for row in rows:
             code = str((row[0] if len(row) > 0 else '') or '').strip()
@@ -5036,17 +5067,177 @@ def _list_selected_suppliers(request_dockey):
             con.close()
 
 
-def _list_detail_suppliers_for_request(request_dockey):
-    """View e-PR detail: show awarded vendor(s) when set; else RFQ invite list."""
-    try:
-        request_id = int(request_dockey)
-    except Exception:
-        return _list_selected_suppliers(request_dockey)
+def _map_selected_suppliers_by_request_ids(request_dockeys):
+    """Batch-read PR_SELECTED_SUPPLIER for View e-PR list/detail (Awaiting has no awards yet)."""
+    ids = []
+    for raw in request_dockeys or []:
+        try:
+            rid = int(raw)
+        except Exception:
+            continue
+        if rid > 0 and rid not in ids:
+            ids.append(rid)
+    if not ids:
+        return {}
 
-    awarded = list_awarded_suppliers_for_request(request_id)
-    if awarded:
-        return _enrich_supplier_display_rows(awarded)
-    return _list_selected_suppliers(request_id)
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        out = {rid: [] for rid in ids}
+        chunk_size = 80
+        for i in range(0, len(ids), chunk_size):
+            chunk = ids[i:i + chunk_size]
+            placeholders = ', '.join(['?'] * len(chunk))
+            cur.execute(
+                f'''
+                SELECT REQUEST_DOCKEY, SUPPLIER_CODE, SUPPLIER_NAME, SUPPLIER_EMAIL
+                FROM PR_SELECTED_SUPPLIER
+                WHERE REQUEST_DOCKEY IN ({placeholders})
+                ORDER BY ID ASC
+                ''',
+                tuple(chunk),
+            )
+            for row in cur.fetchall() or []:
+                if not row:
+                    continue
+                try:
+                    rid = int(row[0])
+                except Exception:
+                    continue
+                code = str((row[1] if len(row) > 1 else '') or '').strip()
+                if not code:
+                    continue
+                out.setdefault(rid, []).append({
+                    'code': code,
+                    'name': str((row[2] if len(row) > 2 else '') or '').strip(),
+                    'email': str((row[3] if len(row) > 3 else '') or '').strip(),
+                })
+        for rid, rows in list(out.items()):
+            out[rid] = _enrich_supplier_display_rows(rows)
+        return out
+    except Exception as exc:
+        print(f"[PROCUREMENT SELECTED SUPPLIERS] map warning: {exc}", flush=True)
+        return {}
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
+
+
+
+def _map_line_selection_counts_by_request_ids(request_dockeys):
+    """Return {dockey: {'selected': n, 'total': n}} from PH_PQDTL.TRANSFERABLE."""
+    ids = []
+    for raw in request_dockeys or []:
+        try:
+            rid = int(raw)
+        except Exception:
+            continue
+        if rid > 0 and rid not in ids:
+            ids.append(rid)
+    if not ids:
+        return {}
+
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        cur.execute(
+            """
+            SELECT TRIM(RF.RDB$FIELD_NAME)
+            FROM RDB$RELATION_FIELDS RF
+            WHERE RF.RDB$RELATION_NAME = 'PH_PQDTL'
+            """
+        )
+        cols = {str(r[0]).strip().upper() for r in (cur.fetchall() or []) if r and r[0]}
+        key_col = 'DOCKEY' if 'DOCKEY' in cols else ('PQKEY' if 'PQKEY' in cols else '')
+        dtl_col = 'DTLKEY' if 'DTLKEY' in cols else ('PQDTLKEY' if 'PQDTLKEY' in cols else ('ID' if 'ID' in cols else ''))
+        transferable_col = 'TRANSFERABLE' if 'TRANSFERABLE' in cols else ''
+        if not key_col or not dtl_col:
+            return {}
+
+        out = {rid: {'selected': 0, 'total': 0} for rid in ids}
+        chunk_size = 80
+        for i in range(0, len(ids), chunk_size):
+            chunk = ids[i:i + chunk_size]
+            placeholders = ', '.join(['?'] * len(chunk))
+            if transferable_col:
+                cur.execute(
+                    f"""
+                    SELECT {key_col}, {dtl_col}, {transferable_col}
+                    FROM PH_PQDTL
+                    WHERE {key_col} IN ({placeholders})
+                    """,
+                    tuple(chunk),
+                )
+                for row in cur.fetchall() or []:
+                    if not row:
+                        continue
+                    try:
+                        rid = int(row[0])
+                    except Exception:
+                        continue
+                    bucket = out.setdefault(rid, {'selected': 0, 'total': 0})
+                    bucket['total'] = int(bucket.get('total') or 0) + 1
+                    flag = row[2]
+                    is_selected = False
+                    if isinstance(flag, bool):
+                        is_selected = flag
+                    else:
+                        text = str(flag if flag is not None else '').strip().upper()
+                        is_selected = text in {'1', 'TRUE', 'T', 'Y', 'YES'}
+                    if is_selected:
+                        bucket['selected'] = int(bucket.get('selected') or 0) + 1
+            else:
+                cur.execute(
+                    f"""
+                    SELECT {key_col}, COUNT(*)
+                    FROM PH_PQDTL
+                    WHERE {key_col} IN ({placeholders})
+                    GROUP BY {key_col}
+                    """,
+                    tuple(chunk),
+                )
+                for row in cur.fetchall() or []:
+                    if not row:
+                        continue
+                    try:
+                        rid = int(row[0])
+                    except Exception:
+                        continue
+                    try:
+                        total = int(row[1] or 0)
+                    except Exception:
+                        total = 0
+                    out[rid] = {'selected': 0, 'total': max(0, total)}
+
+        return out
+    except Exception as exc:
+        print(f"[PROCUREMENT LINE SELECTION] map warning: {exc}", flush=True)
+        return {}
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
+
+
+def _list_detail_suppliers_for_request(request_dockey, request_no=None):
+    """View e-PR detail: show awarded vendor(s) when set; else selected invite list."""
+    try:
+        request_id = int(request_dockey or 0)
+    except Exception:
+        request_id = 0
+
+    if request_id > 0:
+        awarded = list_awarded_suppliers_for_request(request_id)
+        if awarded:
+            return _enrich_supplier_display_rows(awarded)
+    return _list_selected_suppliers(request_id, request_no=request_no)
 
 
 @app.route('/api/admin/procurement/purchase-requests', methods=['POST'])
@@ -5077,35 +5268,18 @@ def api_admin_create_purchase_request():
         suppliers = payload.get('suppliers') or []
         _save_selected_suppliers(result.get('id'), result.get('requestNumber'), suppliers, actor)
 
-        # Draft-first create does not trigger bid invitations.
-        is_submitted = str(result.get('status') or '').strip().upper() == 'SUBMITTED'
-        if is_submitted and suppliers and isinstance(suppliers, list) and result.get('id') and result.get('requestNumber'):
-            try:
-                from utils.procurement_bidding import create_bid_invitations
-                create_bid_invitations(
-                    request_dockey=result['id'],
-                    request_no=result['requestNumber'],
-                    suppliers=suppliers,
-                    created_by=actor,
-                )
-                result['bidInvitationsSent'] = len(suppliers)
-                print(f"[PROCUREMENT] Created bid invitations for {len(suppliers)} supplier(s) on PR {result['requestNumber']}", flush=True)
+        # SUBMITTED create now lands in UDF_STATUS=AWAITING. Bid invitations and RFQ
+        # emails are deferred until header status moves Awaiting -> Pending.
+        result['bidInvitationsSent'] = 0
+        result['bidInvitationEmailsQueued'] = 0
+        if str(result.get('status') or '').strip().upper() == 'SUBMITTED' and not result.get('udfStatus'):
+            result['udfStatus'] = 'AWAITING'
 
-                if is_submitted:
-                    request_number = str(result.get('requestNumber') or '').strip()
-                    required_date = str(payload.get('requestDate') or payload.get('requiredDate') or '').strip()
-                    line_items = payload.get('lineItems') if isinstance(payload.get('lineItems'), list) else []
-                    queued = _queue_rfq_invitation_emails_for_suppliers(
-                        suppliers,
-                        request_number,
-                        required_date,
-                        line_items,
-                    )
-                    result['bidInvitationEmailsQueued'] = queued
-            except Exception as bid_exc:
-                print(f"[PROCUREMENT] Bid invitation creation failed (non-fatal): {bid_exc}", flush=True)
-                result['bidInvitationsSent'] = 0
-                result['bidInvitationEmailsQueued'] = 0
+        try:
+            with PURCHASE_REQUEST_LIST_CACHE_LOCK:
+                PURCHASE_REQUEST_LIST_CACHE.clear()
+        except Exception:
+            pass
 
         return jsonify({
             'success': True,
@@ -5494,22 +5668,117 @@ def _queue_rfq_invitation_emails_for_suppliers(
     request_number: str,
     required_date: str,
     line_items: list,
+    request_dockey: int | None = None,
 ) -> int:
     """Queue RFQ emails for each invited supplier using SQL API udf_email01..15 (all non-empty)."""
     if not suppliers or not str(request_number or '').strip():
         return 0
+    portal_base = (os.getenv('SUPPLIER_PORTAL_BASE_URL') or '').strip().rstrip('/')
+    if not portal_base:
+        print(
+            f"[PROCUREMENT] SUPPLIER_PORTAL_BASE_URL is empty; "
+            f"skipping RFQ emails for PR {request_number}",
+            flush=True,
+        )
+        return 0
     targets = _dedupe_invitation_targets_by_email(_resolve_invitation_email_targets(suppliers))
     if not targets:
         return 0
+    try:
+        dockey = int(request_dockey or 0)
+    except Exception:
+        dockey = 0
     threading.Thread(
         target=_send_rfq_invitation_emails_background,
-        args=(targets, request_number, required_date, line_items),
+        args=(targets, request_number, required_date, line_items, dockey or None),
         daemon=True,
     ).start()
     return _rfq_recipient_count(targets)
 
 
-def _send_rfq_invitation_emails_background(invite_targets, req_no, req_required_date, req_lines):
+def _send_bidding_invitations_for_pr(request_dockey, request_no, actor):
+    """Create PR_BID_INVITE rows and queue RFQ emails once, on Awaiting -> Pending.
+
+    Skips if invitations already exist for this dockey (idempotent for re-saves).
+    Returns dict with inviteCount and emailsQueued.
+    """
+    try:
+        dockey = int(request_dockey or 0)
+    except Exception:
+        dockey = 0
+    req_no = str(request_no or '').strip()
+    if not dockey:
+        return {'inviteCount': 0, 'emailsQueued': 0, 'skipped': True, 'reason': 'missing_dockey'}
+
+    existing = []
+    try:
+        existing = list_invited_suppliers_for_request(dockey) or []
+    except Exception as exc:
+        print(f"[PROCUREMENT] list_invited_suppliers_for_request failed for {dockey}: {exc}", flush=True)
+
+    if existing:
+        print(
+            f"[PROCUREMENT] Bid invitations already exist for PR {req_no or dockey} "
+            f"({len(existing)}); skip re-send",
+            flush=True,
+        )
+        return {
+            'inviteCount': len(existing),
+            'emailsQueued': 0,
+            'skipped': True,
+            'reason': 'already_invited',
+        }
+
+    suppliers = _list_selected_suppliers(dockey)
+    if not suppliers:
+        print(
+            f"[PROCUREMENT] No selected suppliers for PR {req_no or dockey}; "
+            "cannot create bid invitations",
+            flush=True,
+        )
+        return {'inviteCount': 0, 'emailsQueued': 0, 'skipped': True, 'reason': 'no_suppliers'}
+
+    if not req_no:
+        local = _resolve_local_purchase_request_header(str(dockey), '')
+        if isinstance(local, dict):
+            req_no = str(
+                local.get('docno')
+                or local.get('docNo')
+                or local.get('requestNumber')
+                or ''
+            ).strip()
+
+    from utils.procurement_bidding import create_bid_invitations
+    create_bid_invitations(
+        request_dockey=dockey,
+        request_no=req_no,
+        suppliers=suppliers,
+        created_by=actor,
+    )
+    lines, req_date = _local_pr_lines_for_rfq_email(dockey, req_no)
+    queued = _queue_rfq_invitation_emails_for_suppliers(
+        suppliers, req_no, req_date, lines, request_dockey=dockey,
+    )
+    print(
+        f"[PROCUREMENT] Awaiting->Pending: created bid invitations for "
+        f"{len(suppliers)} supplier(s) on PR {req_no or dockey}; emailsQueued={queued}",
+        flush=True,
+    )
+    result = {
+        'inviteCount': len(suppliers),
+        'emailsQueued': queued,
+        'skipped': False,
+        'requestNumber': req_no,
+        'requestId': dockey,
+    }
+    if queued <= 0 and not (os.getenv('SUPPLIER_PORTAL_BASE_URL') or '').strip():
+        result['reason'] = 'missing_portal_url'
+    return result
+
+
+def _send_rfq_invitation_emails_background(
+    invite_targets, req_no, req_required_date, req_lines, request_dockey=None,
+):
     """Send RFQ HTML emails (async worker). invite_targets: list of dict with email/emails, name, code."""
     item_rows = ''
     for idx, line in enumerate(req_lines or [], start=1):
@@ -5533,6 +5802,26 @@ def _send_rfq_invitation_emails_background(invite_targets, req_no, req_required_
             "No line items were included in this notification."
             "</td></tr>"
         )
+
+    portal_base = (os.getenv('SUPPLIER_PORTAL_BASE_URL') or '').strip().rstrip('/')
+    if not portal_base:
+        print(
+            f"[PROCUREMENT] SUPPLIER_PORTAL_BASE_URL missing; abort RFQ email send for PR {req_no}",
+            flush=True,
+        )
+        return
+    try:
+        dockey = int(request_dockey or 0)
+    except Exception:
+        dockey = 0
+    bidding_url = f"{portal_base}/supplier/bidding"
+    if dockey > 0:
+        bidding_url = f"{bidding_url}?request_id={dockey}"
+    portal_cta_html = (
+        "<p style='margin-top:14px;'>Please go to the supplier bidding portal to submit your quotation:</p>"
+        f"<p style='margin-top:8px;'><a href='{_rfq_invite_safe_html(bidding_url)}' "
+        f"style='color:#1d4ed8;font-weight:600;'>{_rfq_invite_safe_html(bidding_url)}</a></p>"
+    )
 
     for target in invite_targets:
         recipients: list[str] = []
@@ -5569,7 +5858,7 @@ def _send_rfq_invitation_emails_background(invite_targets, req_no, req_required_
                             </thead>
                             <tbody>{item_rows}</tbody>
                         </table>
-                        <p style='margin-top:14px;'>Please submit your quotation in the supplier bidding portal.</p>
+                        {portal_cta_html}
                     </div>
                 </div>
             </body>
@@ -6048,12 +6337,34 @@ def api_admin_list_purchase_requests():
             })
         records_map_ms = round((time.perf_counter() - map_started) * 1000, 1)
 
+        # Local PH_PQ.UDF_STATUS is the View e-PR workflow source of truth (AWAITING/PENDING/...).
+        try:
+            local_udf_map = map_pr_udf_status_local([int(r['id']) for r in records if r.get('id')])
+        except Exception as local_udf_exc:
+            print(f"[PROCUREMENT LIST PR] local UDF_STATUS overlay warning: {local_udf_exc}", flush=True)
+            local_udf_map = {}
+        for rec in records:
+            try:
+                rid = int(rec.get('id') or 0)
+            except Exception:
+                continue
+            local_udf = local_udf_map.get(rid)
+            if local_udf:
+                rec['udfStatus'] = local_udf
+
         supplier_started = time.perf_counter()
         try:
             awarded_suppliers = map_awarded_suppliers_by_request_ids([int(r['id']) for r in records if r.get('id')])
         except Exception as awarded_exc:
             print(f"[PROCUREMENT LIST PR] awarded supplier lookup warning: {awarded_exc}", flush=True)
             awarded_suppliers = {}
+        try:
+            selected_suppliers_map = _map_selected_suppliers_by_request_ids(
+                [int(r['id']) for r in records if r.get('id')]
+            )
+        except Exception as selected_exc:
+            print(f"[PROCUREMENT LIST PR] selected supplier lookup warning: {selected_exc}", flush=True)
+            selected_suppliers_map = {}
         debug_supplier_rows = []
         for rec in records:
             rid = rec.get('id')
@@ -6064,30 +6375,71 @@ def api_admin_list_purchase_requests():
             except Exception:
                 continue
             hit = awarded_suppliers.get(key)
-            if not isinstance(hit, dict):
-                if debug_suppliers:
-                    debug_supplier_rows.append({
-                        'requestId': key,
-                        'awardedSupplierCode': '',
-                        'awardedSupplierName': '',
-                    })
-                continue
-            header_company = str(rec.get('supplierName') or '').strip()
-            new_code = str(hit.get('supplierCode') or '').strip()
-            new_name = str(hit.get('supplierName') or '').strip()
-            if new_code:
-                rec['supplierId'] = new_code
-            if new_name and new_name.upper() != new_code.upper():
-                rec['supplierName'] = new_name
-            elif header_company and header_company.upper() != new_code.upper():
-                rec['supplierName'] = header_company
+            if isinstance(hit, dict):
+                header_company = str(rec.get('supplierName') or '').strip()
+                new_code = str(hit.get('supplierCode') or '').strip()
+                new_name = str(hit.get('supplierName') or '').strip()
+                if new_code:
+                    rec['supplierId'] = new_code
+                if new_name and new_name.upper() != new_code.upper():
+                    rec['supplierName'] = new_name
+                elif header_company and header_company.upper() != new_code.upper():
+                    rec['supplierName'] = header_company
+                rec['suppliers'] = [{
+                    'code': new_code,
+                    'name': str(rec.get('supplierName') or new_name or '').strip(),
+                    'email': str(hit.get('supplierEmail') or '').strip(),
+                }] if new_code else []
+            else:
+                selected_rows = selected_suppliers_map.get(key) or []
+                rec['suppliers'] = selected_rows
+                if selected_rows and not str(rec.get('supplierName') or '').strip():
+                    names = [
+                        str(s.get('name') or s.get('code') or '').strip()
+                        for s in selected_rows
+                        if str(s.get('name') or s.get('code') or '').strip()
+                    ]
+                    codes = [
+                        str(s.get('code') or '').strip()
+                        for s in selected_rows
+                        if str(s.get('code') or '').strip()
+                    ]
+                    emails = [
+                        str(s.get('email') or '').strip()
+                        for s in selected_rows
+                        if str(s.get('email') or '').strip()
+                    ]
+                    if names:
+                        rec['supplierName'] = ', '.join(names)
+                    if codes and not str(rec.get('supplierId') or '').strip():
+                        rec['supplierId'] = ', '.join(codes)
+                    if emails and not str(rec.get('supplierEmail') or '').strip():
+                        rec['supplierEmail'] = ', '.join(emails)
             if debug_suppliers:
                 debug_supplier_rows.append({
                     'requestId': key,
-                    'awardedSupplierCode': rec['supplierId'],
-                    'awardedSupplierName': rec['supplierName'],
+                    'awardedSupplierCode': rec.get('supplierId') or '',
+                    'awardedSupplierName': rec.get('supplierName') or '',
+                    'selectedCount': len(rec.get('suppliers') or []),
                 })
         supplier_ms = round((time.perf_counter() - supplier_started) * 1000, 1)
+
+        try:
+            line_selection_map = _map_line_selection_counts_by_request_ids(
+                [int(r['id']) for r in records if r.get('id')]
+            )
+        except Exception as line_sel_exc:
+            print(f"[PROCUREMENT LIST PR] line selection lookup warning: {line_sel_exc}", flush=True)
+            line_selection_map = {}
+        for rec in records:
+            try:
+                key = int(rec.get('id') or 0)
+            except Exception:
+                continue
+            counts = line_selection_map.get(key) or {}
+            rec['selectedLineCount'] = int(counts.get('selected') or 0)
+            rec['lineCount'] = int(counts.get('total') or 0)
+
 
         if not fast_mode:
             try:
@@ -6298,7 +6650,13 @@ def api_admin_purchase_request_details(request_id):
                 'stockQtyUom': basis,
             })
 
-        return jsonify({'success': True, 'id': int(request_id), 'details': details, 'count': len(details)})
+        return jsonify({
+            'success': True,
+            'id': int(request_id),
+            'details': details,
+            'suppliers': _list_detail_suppliers_for_request(request_id),
+            'count': len(details),
+        })
     except requests.exceptions.Timeout:
         return jsonify({'success': False, 'error': 'Purchase request detail request timed out'}), 504
     except requests.exceptions.ConnectionError:
@@ -6617,7 +6975,10 @@ def api_admin_purchase_request_details_fallback():
                 continue
             PURCHASE_REQUEST_DETAIL_ENDPOINT_HINT = url
 
-            selected_suppliers = _list_detail_suppliers_for_request(extracted.get('id'))
+            selected_suppliers = _list_detail_suppliers_for_request(
+                extracted.get('id'),
+                request_no=extracted.get('requestNumber') or request_no,
+            )
             total_ms = round((time.perf_counter() - started_total) * 1000, 1)
             upstream_ms = round((time.perf_counter() - upstream_started) * 1000, 1)
             detail_count = len(extracted.get('details') or [])
@@ -6635,7 +6996,8 @@ def api_admin_purchase_request_details_fallback():
                 pass
             print(
                 f"[PROCUREMENT PR DETAIL PERF] request_id={extracted.get('id')} total_ms={total_ms} upstream_ms={upstream_ms} "
-                f"gate_ms={_num(extracted.get('_perfGateMs')):.1f} detail_count={detail_count}",
+                f"gate_ms={_num(extracted.get('_perfGateMs')):.1f} detail_count={detail_count} "
+                f"supplier_count={len(selected_suppliers)}",
                 flush=True
             )
 
@@ -6650,8 +7012,18 @@ def api_admin_purchase_request_details_fallback():
                 'count': len(extracted.get('details') or []),
             })
 
+        selected_even_if_empty = _list_detail_suppliers_for_request(
+            int(raw_request_id) if str(raw_request_id).isdigit() else 0,
+            request_no=request_no,
+        )
         if last_status == 404:
-            return jsonify({'success': True, 'details': [], 'count': 0, 'message': 'No details found for this request'}), 200
+            return jsonify({
+                'success': True,
+                'details': [],
+                'count': 0,
+                'suppliers': selected_even_if_empty,
+                'message': 'No details found for this request',
+            }), 200
         return jsonify({'success': False, 'error': f'SQL API returned {last_status}'}), 502
     except requests.exceptions.Timeout:
         return jsonify({'success': False, 'error': 'Purchase request detail request timed out'}), 504
@@ -6873,6 +7245,15 @@ def api_admin_create_bidding_invitations():
 
         request_dockey = int(request_header.get('dockey'))
         request_docno = str(request_header.get('docno') or request_no or '').strip()
+        current_udf = normalize_pr_udf_status(get_pr_udf_status_local(request_dockey))
+        if current_udf != 'PENDING':
+            return jsonify({
+                'success': False,
+                'error': (
+                    'Manual bidding invitations are only allowed when the purchase request '
+                    'is Pending (Awaiting RFQ). Move from Awaiting Approval to Pending first.'
+                ),
+            }), 400
         result = create_bid_invitations(request_dockey, request_docno, suppliers, actor)
         try:
             lines, req_date = _local_pr_lines_for_rfq_email(request_dockey, request_docno)
@@ -6881,6 +7262,7 @@ def api_admin_create_bidding_invitations():
                 request_docno,
                 req_date,
                 lines,
+                request_dockey=request_dockey,
             )
             if not result['rfqEmailsQueued']:
                 result['rfqEmailNote'] = (
@@ -8131,8 +8513,37 @@ def api_admin_purchase_request_header_status_update():
     if not can_update_pr_approvals_and_header_status(session):
         return jsonify({'success': False, 'error': 'Insufficient permissions to update PR header status'}), 403
     payload = request.get_json(silent=True) or {}
+    actor = (session.get('user_email') or session.get('user_name') or 'admin').strip()
 
     try:
+        changes = payload.get('changes') if isinstance(payload, dict) else None
+        if not isinstance(changes, list) or not changes:
+            return jsonify({'success': False, 'error': 'changes[] is required'}), 400
+
+        # Snapshot previous UDF before update (used for RFQ gate + supplier pre-check).
+        previous_by_id: dict[int, str] = {}
+        for raw in changes:
+            if not isinstance(raw, dict):
+                continue
+            try:
+                request_id = int(raw.get('requestId') or 0)
+            except Exception:
+                request_id = 0
+            if not request_id:
+                continue
+            previous = normalize_pr_udf_status(get_pr_udf_status_local(request_id))
+            previous_by_id[request_id] = previous
+            status_value = str(raw.get('udfStatus') or '').strip().upper()
+            if status_value == 'PENDING' and previous == 'AWAITING':
+                suppliers = _list_selected_suppliers(request_id)
+                if not suppliers:
+                    return jsonify({
+                        'success': False,
+                        'error': (
+                            'Select at least one supplier before moving to Pending (Awaiting RFQ).'
+                        ),
+                    }), 400
+
         headers = _build_sql_api_auth_headers()
         try:
             body, _resp = http_request_json(
@@ -8151,8 +8562,84 @@ def api_admin_purchase_request_header_status_update():
                     message = (e.response.text or '').strip()
             st = e.response.status_code if e.response is not None else 502
             err = f"SQL API returned {st}" + (f": {message}" if message else '')
-            return jsonify({'success': False, 'error': err}), 502
-        return jsonify({'success': True, 'data': body})
+            return jsonify({'success': False, 'error': err}), st if st in (400, 404) else 502
+
+        # Awaiting Approval -> Pending only: create invitations and queue RFQ emails.
+        invite_results = []
+        applied = body.get('changes') if isinstance(body, dict) else None
+        if not isinstance(applied, list) or not applied:
+            applied = []
+            for raw in changes:
+                if not isinstance(raw, dict):
+                    continue
+                try:
+                    request_id = int(raw.get('requestId') or 0)
+                except Exception:
+                    request_id = 0
+                if not request_id:
+                    continue
+                applied.append({
+                    'requestId': request_id,
+                    'udfStatus': str(raw.get('udfStatus') or '').strip().upper(),
+                    'previousUdfStatus': previous_by_id.get(request_id, ''),
+                })
+
+        for applied_change in applied:
+            if not isinstance(applied_change, dict):
+                continue
+            try:
+                request_id = int(applied_change.get('requestId') or 0)
+            except Exception:
+                request_id = 0
+            if not request_id:
+                continue
+            status_value = normalize_pr_udf_status(applied_change.get('udfStatus'))
+            previous = normalize_pr_udf_status(
+                applied_change.get('previousUdfStatus')
+                if applied_change.get('previousUdfStatus') is not None
+                else previous_by_id.get(request_id, '')
+            )
+            if status_value != 'PENDING' or previous != 'AWAITING':
+                continue
+            request_no = ''
+            for raw in changes:
+                if not isinstance(raw, dict):
+                    continue
+                try:
+                    rid = int(raw.get('requestId') or 0)
+                except Exception:
+                    rid = 0
+                if rid == request_id:
+                    request_no = str(
+                        raw.get('requestNumber')
+                        or raw.get('requestNo')
+                        or raw.get('docNo')
+                        or ''
+                    ).strip()
+                    break
+            try:
+                invite_results.append(
+                    _send_bidding_invitations_for_pr(request_id, request_no, actor)
+                )
+            except Exception as invite_exc:
+                print(
+                    f"[PROCUREMENT PR HEADER STATUS] bid invite on PENDING failed "
+                    f"for {request_id}: {invite_exc}",
+                    flush=True,
+                )
+                invite_results.append({
+                    'inviteCount': 0,
+                    'emailsQueued': 0,
+                    'skipped': True,
+                    'reason': str(invite_exc),
+                    'requestId': request_id,
+                })
+
+        out = body if isinstance(body, dict) else {'upstream': body}
+        if invite_results:
+            out = dict(out)
+            out['bidInvitationResults'] = invite_results
+        return jsonify({'success': True, 'data': out})
     except requests.exceptions.Timeout:
         return jsonify({'success': False, 'error': 'Header status update request timed out'}), 504
     except requests.exceptions.ConnectionError:

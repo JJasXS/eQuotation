@@ -2270,6 +2270,8 @@ def normalize_pr_udf_status(value: Any) -> str:
         return "APPROVED"
     if text == "INACTIVE":
         return "CANCELLED"
+    if text in {"AWAITING", "AWAITING_APPROVAL", "AWAITING APPROVAL"}:
+        return "AWAITING"
     return text
 
 
@@ -2281,26 +2283,54 @@ def get_pr_udf_status_local(request_dockey: int) -> str:
     """Read PH_PQ.UDF_STATUS for one purchase request (View e-PR tab updates)."""
     if not request_dockey:
         return ""
+    mapped = map_pr_udf_status_local([int(request_dockey)])
+    return mapped.get(int(request_dockey), "")
+
+
+def map_pr_udf_status_local(request_dockeys: list[int]) -> dict[int, str]:
+    """Batch-read PH_PQ.UDF_STATUS for View e-PR list filtering (local is source of truth)."""
+    ids: list[int] = []
+    for raw in request_dockeys or []:
+        try:
+            rid = int(raw)
+        except Exception:
+            continue
+        if rid > 0 and rid not in ids:
+            ids.append(rid)
+    if not ids:
+        return {}
+
     con = _connect_db()
     try:
         cur = con.cursor()
         if not _table_exists(cur, "PH_PQ"):
-            return ""
+            return {}
         cols = _get_table_columns(cur, "PH_PQ")
         key_col = _pick_existing(cols, "DOCKEY", "PQKEY", "ID")
         udf_col = _pick_existing(cols, "UDF_STATUS")
         if not key_col or not udf_col:
-            return ""
-        cur.execute(
-            f"SELECT FIRST 1 {udf_col} FROM PH_PQ WHERE {key_col} = ?",
-            (int(request_dockey),),
-        )
-        row = cur.fetchone()
-        if not row:
-            return ""
-        return normalize_pr_udf_status(row[0])
+            return {}
+
+        out: dict[int, str] = {}
+        chunk_size = 80
+        for i in range(0, len(ids), chunk_size):
+            chunk = ids[i : i + chunk_size]
+            placeholders = ", ".join(["?"] * len(chunk))
+            cur.execute(
+                f"SELECT {key_col}, {udf_col} FROM PH_PQ WHERE {key_col} IN ({placeholders})",
+                tuple(chunk),
+            )
+            for row in cur.fetchall() or []:
+                if not row:
+                    continue
+                try:
+                    rid = int(row[0])
+                except Exception:
+                    continue
+                out[rid] = normalize_pr_udf_status(row[1])
+        return out
     except Exception:
-        return ""
+        return {}
     finally:
         con.close()
 
@@ -2319,21 +2349,42 @@ def assert_pr_line_awards_editable(request_dockey: int, udf_status: Any = "") ->
         )
 
 
-def _line_udf_explicitly_rejected(detail: dict[str, Any]) -> bool:
-    for key in ("udfPqApproved", "udf_pqapproved", "UDF_PQAPPROVED"):
+def _line_bool_flag(detail: dict[str, Any], *keys: str) -> bool | None:
+    """Return True/False when a detail flag is explicitly set; otherwise None."""
+    if not isinstance(detail, dict):
+        return None
+    for key in keys:
         if key not in detail:
             continue
         val = detail.get(key)
         if val is None:
             continue
+        if isinstance(val, bool):
+            return val
         text = str(val).strip().upper()
         if text in {"", "NULL"}:
             continue
         if text in {"0", "FALSE", "F", "N", "NO"}:
-            return True
-        if text in {"1", "TRUE", "T", "Y", "YES"}:
             return False
-    return False
+        if text in {"1", "TRUE", "T", "Y", "YES"}:
+            return True
+    return None
+
+
+def _line_udf_explicitly_rejected(detail: dict[str, Any]) -> bool:
+    approved = _line_bool_flag(detail, "udfPqApproved", "udf_pqapproved", "UDF_PQAPPROVED")
+    if approved is False:
+        return True
+    transferable = _line_bool_flag(detail, "transferable", "TRANSFERABLE")
+    return transferable is False
+
+
+def _line_udf_explicitly_approved(detail: dict[str, Any]) -> bool:
+    approved = _line_bool_flag(detail, "udfPqApproved", "udf_pqapproved", "UDF_PQAPPROVED")
+    if approved is True:
+        return True
+    transferable = _line_bool_flag(detail, "transferable", "TRANSFERABLE")
+    return transferable is True
 
 
 def _awarded_detail_ids_from_gate(gate: dict[str, Any]) -> set[int]:
@@ -2369,7 +2420,8 @@ def apply_transferable_flags_for_approved_pr(
     """When PH_PQ UDF_STATUS is APPROVED, lines with remaining qty are transferable.
 
     Bidding line-awards limit transfer to awarded detail rows only. Lines explicitly
-    rejected via UDF_PQAPPROVED stay non-transferable.
+    rejected (UDF_PQAPPROVED/TRANSFERABLE=false) stay non-transferable. When the user
+    selected only some lines on Pending, keep that selection instead of forcing all.
     """
     if not request_dockey or not details:
         return
@@ -2379,6 +2431,11 @@ def apply_transferable_flags_for_approved_pr(
 
     awarded_ids = _awarded_detail_ids_from_gate(gate)
     restrict_to_awards = bool(awarded_ids)
+    has_explicit_selection = any(
+        _line_udf_explicitly_approved(d) or _line_udf_explicitly_rejected(d)
+        for d in details
+        if isinstance(d, dict)
+    )
 
     for detail in details:
         if not isinstance(detail, dict):
@@ -2400,14 +2457,19 @@ def apply_transferable_flags_for_approved_pr(
             continue
         if _line_udf_explicitly_rejected(detail):
             detail["transferable"] = False
+            detail["udfPqApproved"] = False
             continue
         if restrict_to_awards:
             transferable = detail_id in awarded_ids
+        elif has_explicit_selection:
+            transferable = _line_udf_explicitly_approved(detail)
         else:
             transferable = True
         detail["transferable"] = transferable
         if transferable:
             detail["udfPqApproved"] = True
+        elif has_explicit_selection:
+            detail["udfPqApproved"] = False
 
 
 def get_transfer_gate_state(request_dockey: int) -> dict[str, Any]:

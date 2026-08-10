@@ -2,10 +2,71 @@
 from __future__ import annotations
 
 import os
+from calendar import monthrange
 from datetime import date
 from typing import Any
 
 from utils.role_permissions import _truthy
+
+
+def _shift_calendar_month(year: int, month: int, delta: int) -> tuple[int, int]:
+    """Shift a calendar month by ``delta`` months (may be negative)."""
+    idx = (year * 12 + (month - 1)) + int(delta)
+    return idx // 12, (idx % 12) + 1
+
+
+def prev_n_full_months_range(
+    today: date | None = None, n: int = 3
+) -> tuple[date, date, list[str]]:
+    """Return inclusive date range and YYYY-MM labels for the last ``n`` complete months.
+
+    Example: today in August 2026 with n=3 → 2026-05-01 … 2026-07-31,
+    months ``['2026-05', '2026-06', '2026-07']``.
+    """
+    months_n = max(1, int(n or 1))
+    base = today if isinstance(today, date) else date.today()
+    end_y, end_m = _shift_calendar_month(base.year, base.month, -1)
+    start_y, start_m = _shift_calendar_month(end_y, end_m, -(months_n - 1))
+    range_start = date(start_y, start_m, 1)
+    range_end = date(end_y, end_m, monthrange(end_y, end_m)[1])
+    months: list[str] = []
+    cy, cm = start_y, start_m
+    for _ in range(months_n):
+        months.append(f"{cy:04d}-{cm:02d}")
+        cy, cm = _shift_calendar_month(cy, cm, 1)
+    return range_start, range_end, months
+
+
+def _scale_item_location_qty_map(
+    qty_map: dict[str, dict[str, float]], divisor: float
+) -> dict[str, dict[str, float]]:
+    """Divide every item×location qty by ``divisor`` (e.g. 3 for a 3-month average)."""
+    if not qty_map:
+        return {}
+    d = float(divisor) if divisor else 1.0
+    if d == 0:
+        d = 1.0
+    out: dict[str, dict[str, float]] = {}
+    for item_code, loc_map in qty_map.items():
+        out[item_code] = {
+            loc: (float(qty) / d) for loc, qty in (loc_map or {}).items()
+        }
+    return out
+
+
+def _iv_header_not_cancelled_sql(header_cols: set[str], alias: str = "H") -> str:
+    """Exclude cancelled invoices when a cancel flag column exists."""
+    upper = {c.upper() for c in header_cols}
+    if "CANCELLED" in upper:
+        return f" AND COALESCE({alias}.CANCELLED, 0) = 0"
+    if "CANCELED" in upper:
+        return f" AND COALESCE({alias}.CANCELED, 0) = 0"
+    if "STATUS" in upper:
+        return (
+            f" AND TRIM(UPPER(COALESCE({alias}.STATUS, ''))) "
+            f"NOT IN ('C', 'CANCEL', 'CANCELLED', 'CANCELED', 'V', 'VOID')"
+        )
+    return ""
 
 
 def _clean_str(value: Any) -> str:
@@ -1347,20 +1408,29 @@ def fetch_procurement_stock_card_data(
     from_date: date | None = None,
     to_date: date | None = None,
     qty_mode: str = "SQTY",
-) -> tuple[list[str], list[dict[str, Any]]]:
-    """Return locations and stock-card rows for procurement overall report.
+) -> tuple[list[str], list[dict[str, Any]], dict[str, Any]]:
+    """Return locations, stock-card rows, and report meta for procurement overall report.
 
     Each row includes parallel **SQTY-priority** and **SUOM-priority** quantity stacks
     (``*_sqty_by_location`` / ``*_suom_by_location``) for on-hand, S.O, P.O, J.O, Avail,
-    pending PR, and need-to-buy. Legacy flat keys (``so_qty_by_location``, etc.) mirror
+    pending PR, need-to-buy, and average invoiced sales over the previous 3 full months.
+    Legacy flat keys (``so_qty_by_location``, etc.) mirror
     ``qty_mode``: ``SQTY`` → SQTY stack, ``SUOMQTY`` → SUOM stack (same as before for SUOM clients).
 
     When ``from_date`` / ``to_date`` are set, S.O / P.O / J.O (and open PR) aggregates use
     document dates; **quantity on hand** from ``ST_TR`` is not cleared by the cutoff.
+    Avg sales 3M always uses the last 3 complete calendar months relative to today.
     """
     normalized_from = from_date if isinstance(from_date, date) else _parse_iso_date(from_date)
     normalized_to = to_date if isinstance(to_date, date) else _parse_iso_date(to_date)
     primary_is_suom = _clean_str(qty_mode).upper() == "SUOMQTY"
+
+    avg_sales_start, avg_sales_end, avg_sales_months = prev_n_full_months_range(date.today(), 3)
+    report_meta: dict[str, Any] = {
+        "avg_sales_3m_months": avg_sales_months,
+        "avg_sales_3m_from": avg_sales_start.isoformat(),
+        "avg_sales_3m_to": avg_sales_end.isoformat(),
+    }
 
     _sodtl_cols = _get_table_columns(cur, "SL_SODTL")
     _podtl_cols = _get_table_columns(cur, "PH_PODTL")
@@ -1368,6 +1438,8 @@ def fetch_procurement_stock_card_data(
     _sttr_cols = _get_table_columns(cur, "ST_TR")
     _xtrans_cols = _get_table_columns(cur, "ST_XTRANS")
     _pqdtl_cols = _get_table_columns(cur, "PH_PQDTL")
+    _iv_cols = _get_table_columns(cur, "SL_IV")
+    _ivdtl_cols = _get_table_columns(cur, "SL_IVDTL")
 
     _so_doc_sq = _doc_line_sqty_priority_expr(_sodtl_cols, "SL_SODTL")
     _so_doc_su = _doc_line_stock_qty_expr(_sodtl_cols, "SL_SODTL")
@@ -1375,10 +1447,15 @@ def fetch_procurement_stock_card_data(
     _po_doc_su = _doc_line_stock_qty_expr(_podtl_cols, "D")
     _jo_doc_sq = _doc_line_sqty_priority_expr(_jodtl_cols, "D")
     _jo_doc_su = _doc_line_stock_qty_expr(_jodtl_cols, "D")
+    _iv_doc_sq = _doc_line_sqty_priority_expr(_ivdtl_cols, "D")
+    _iv_doc_su = _doc_line_stock_qty_expr(_ivdtl_cols, "D")
     _avail_sq = _st_tr_sqty_bare_expr_for_aggregate(_sttr_cols)
     _avail_su = _st_tr_qty_bare_expr_for_aggregate(_sttr_cols)
     _x_sq = _xtrans_sqty_priority_expr(_xtrans_cols, "X")
     _x_su = _xtrans_moved_qty_expr(_xtrans_cols, "X")
+    _iv_item_col = _pick_existing(_ivdtl_cols, "ITEMCODE", "CODE")
+    _iv_loc_col = _pick_existing(_ivdtl_cols, "LOCATION", "LOC", "STOCKLOCATION", "STORELOCATION")
+    _iv_cancel_sql = _iv_header_not_cancelled_sql(_iv_cols, "H")
 
     cur.execute("SELECT CODE FROM ST_LOCATION ORDER BY CODE")
     location_rows = cur.fetchall() or []
@@ -1569,6 +1646,39 @@ def fetch_procurement_stock_card_data(
         xtrans_moved_qty_expr=_x_su,
     )
 
+    avg_sales_sum_sq: dict[str, dict[str, float]] = {}
+    avg_sales_sum_su: dict[str, dict[str, float]] = {}
+    if _iv_item_col and _iv_loc_col and _iv_cols:
+        try:
+            avg_sales_sum_sq, avg_sales_sum_su = _fetch_grouped_qty_pair_map(
+                cur,
+                f"""
+                SELECT D.{_iv_item_col},
+                       D.{_iv_loc_col},
+                       CAST(SUM(CAST({_iv_doc_sq} AS DOUBLE PRECISION)) AS DOUBLE PRECISION),
+                       CAST(SUM(CAST({_iv_doc_su} AS DOUBLE PRECISION)) AS DOUBLE PRECISION)
+                FROM SL_IVDTL D
+                JOIN SL_IV H
+                  ON H.DOCKEY = D.DOCKEY
+                WHERE H.DOCDATE >= ?
+                  AND H.DOCDATE <= ?
+                {_iv_cancel_sql}
+                GROUP BY D.{_iv_item_col}, D.{_iv_loc_col}
+                """,
+                (avg_sales_start, avg_sales_end),
+            )
+        except Exception as exc:
+            print(f"[PROCUREMENT STOCK CARD] Avg sales 3M query failed: {exc}", flush=True)
+            avg_sales_sum_sq, avg_sales_sum_su = {}, {}
+    else:
+        print(
+            "[PROCUREMENT STOCK CARD] SL_IVDTL ITEMCODE/LOCATION missing; Avg Sales 3M empty",
+            flush=True,
+        )
+
+    avg_sales_sq_map = _scale_item_location_qty_map(avg_sales_sum_sq, 3.0)
+    avg_sales_su_map = _scale_item_location_qty_map(avg_sales_sum_su, 3.0)
+
     def _outstanding(total: float, moved: float) -> float:
         v = total - moved
         return v if v > 0 else 0.0
@@ -1589,6 +1699,8 @@ def fetch_procurement_stock_card_data(
         pending_su = {loc: 0.0 for loc in locations}
         need_sq = {loc: 0.0 for loc in locations}
         need_su = {loc: 0.0 for loc in locations}
+        avg_sales_sq = {loc: 0.0 for loc in locations}
+        avg_sales_su = {loc: 0.0 for loc in locations}
 
         ia_sq = avail_sq_map.get(code, {})
         ia_su = avail_su_map.get(code, {})
@@ -1606,6 +1718,8 @@ def fetch_procurement_stock_card_data(
         ijm_su = jo_moved_su.get(code, {})
         ipr_sq = pr_pending_sq_map.get(code, {})
         ipr_su = pr_pending_su_map.get(code, {})
+        ias_sq = avg_sales_sq_map.get(code, {})
+        ias_su = avg_sales_su_map.get(code, {})
 
         for location_code in locations:
             so_o_sq = _outstanding(ist_sq.get(location_code, 0), ism_sq.get(location_code, 0))
@@ -1643,6 +1757,9 @@ def fetch_procurement_stock_card_data(
             need_sq[location_code] = max(0.0, max(0.0, -bal_sq) - pending_sq[location_code])
             need_su[location_code] = max(0.0, max(0.0, -bal_su) - pending_su[location_code])
 
+            avg_sales_sq[location_code] = float(ias_sq.get(location_code, 0) or 0)
+            avg_sales_su[location_code] = float(ias_su.get(location_code, 0) or 0)
+
         primary_so = so_su if primary_is_suom else so_sq
         primary_po = po_su if primary_is_suom else po_sq
         primary_jo = jo_su if primary_is_suom else jo_sq
@@ -1650,6 +1767,7 @@ def fetch_procurement_stock_card_data(
         primary_qty = qty_su if primary_is_suom else qty_sq
         primary_pending = pending_su if primary_is_suom else pending_sq
         primary_need = need_su if primary_is_suom else need_sq
+        primary_avg_sales = avg_sales_su if primary_is_suom else avg_sales_sq
 
         data.append(
             {
@@ -1682,7 +1800,11 @@ def fetch_procurement_stock_card_data(
                 "need_to_buy_by_location": primary_need,
                 "need_to_buy_sqty_by_location": need_sq,
                 "need_to_buy_suom_by_location": need_su,
+                "avg_sales_3m": sum(primary_avg_sales.values()),
+                "avg_sales_3m_by_location": primary_avg_sales,
+                "avg_sales_3m_sqty_by_location": avg_sales_sq,
+                "avg_sales_3m_suom_by_location": avg_sales_su,
             }
         )
 
-    return locations, data
+    return locations, data, report_meta

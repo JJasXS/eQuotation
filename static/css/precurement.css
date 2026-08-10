@@ -6553,3 +6553,60 @@ body.procurement-warm-ui .location-filter-shell.location-filter-shell--below-cut
         margin-right: 0 !important;
     }
 }
+
+
+body.procurement-warm-ui .view-pr-detail-udf-chip--awaiting {
+    background: #e0e7ff;
+    color: #3730a3;
+}
+
+body.procurement-warm-ui .pr-view-pr-card__udf-badge--awaiting {
+    background: #e0e7ff;
+    color: #3730a3;
+}
+
+body.procurement-warm-ui .view-pr-detail-selected-chip {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: #e2e8f0;
+    color: #334155;
+    border: 1px solid #cbd5e1;
+}
+
+body.procurement-warm-ui .view-pr-detail-selected-chip.is-all {
+    background: #dbeafe;
+    color: #1e40af;
+    border-color: #93c5fd;
+}
+
+body.procurement-warm-ui .pr-view-pr-card__selection {
+    display: inline-flex;
+    align-items: center;
+    margin-top: 7px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #6b5b3e;
+    background: #f3ebd8;
+    border: 1px solid #e0d2b4;
+}
+
+body.procurement-warm-ui .pr-view-pr-card__selection.is-partial {
+    color: #3d5a80;
+    background: #e7eef8;
+    border-color: #b7c9e0;
+}
+
+body.procurement-warm-ui .pr-view-pr-card__selection.is-all {
+    color: #1f5c40;
+    background: #e5f4ec;
+    border-color: #b7dcc8;
+}
+

@@ -4,11 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Supplier Bidding</title>
-    <link rel="stylesheet" href="/static/css/hamburger_menu.css?v=20260515_sidebar">
+    <link rel="stylesheet" href="/static/css/hamburger_menu.css?v=20260810_mobile1">
     <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
     <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515_icy">
     <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260604_tabs_size">
-    <link rel="stylesheet" href="/static/css/supplierBidding.css?v=20260604_inv_cards5">
+    <link rel="stylesheet" href="/static/css/supplierBidding.css?v=20260810_mobile8">
 </head>
 <body class="equotation-icy-theme supplier-bidding-page">
     <div class="container">
@@ -47,11 +47,22 @@
                         </div>
                     </aside>
                     <div class="supplier-bidding-detail-pane" aria-label="Bidding workbench">
+                        <div id="sb-sheet-backdrop" class="sb-sheet-backdrop" hidden aria-hidden="true"></div>
                         <div id="supplier-bid-placeholder" class="sb-placeholder">
                             <p><strong>Select an invitation</strong> from the list to load purchase request details and submit your item-level prices.</p>
                         </div>
                         <div id="bidding-workbench">
-                            <div class="sb-workbench-header">
+                            <div class="sb-workbench-header" id="sb-workbench-drag-region">
+                                <div class="sb-sheet-handle" id="sb-sheet-handle" aria-hidden="true">
+                                    <span class="sb-sheet-handle__bar"></span>
+                                    <span class="sb-sheet-handle__chevron" aria-hidden="true">
+                                        <svg viewBox="0 0 24 24" width="18" height="18" focusable="false">
+                                            <path d="M6.7 9.3a1 1 0 0 1 1.4 0L12 13.2l3.9-3.9a1 1 0 1 1 1.4 1.4l-4.6 4.6a1 1 0 0 1-1.4 0L6.7 10.7a1 1 0 0 1 0-1.4z" fill="currentColor"/>
+                                        </svg>
+                                    </span>
+                                    <span class="sb-sheet-handle__hint">Pull down to close</span>
+                                </div>
+                                <button type="button" class="sb-sheet-close" id="sb-sheet-close" aria-label="Close bid" title="Close bid" hidden>&times;</button>
                                 <div class="bidding-head">
                                     <h3 id="active-request-title">Bid details</h3>
                                     <div id="active-request-subtitle" class="sb-subtitle muted"></div>
@@ -247,6 +258,9 @@
         function showWorkbench(visible) {
             const ph = document.getElementById('supplier-bid-placeholder');
             const wb = document.getElementById('bidding-workbench');
+            const backdrop = document.getElementById('sb-sheet-backdrop');
+            const closeBtn = document.getElementById('sb-sheet-close');
+            const sheetMode = window.innerWidth <= 640;
             if (ph) {
                 if (visible) {
                     ph.setAttribute('hidden', '');
@@ -256,7 +270,160 @@
                     ph.classList.remove('sb-workbench-on');
                 }
             }
-            if (wb) wb.classList.toggle('is-visible', visible);
+            if (wb) {
+                wb.classList.toggle('is-visible', visible);
+                wb.classList.toggle('sb-sheet-mode', visible && sheetMode);
+                if (!visible) {
+                    wb.style.transform = '';
+                    wb.style.transition = '';
+                    wb.classList.remove('is-dragging', 'is-dismissing');
+                }
+            }
+            if (backdrop) {
+                if (visible && sheetMode) {
+                    backdrop.hidden = false;
+                    backdrop.setAttribute('aria-hidden', 'false');
+                    backdrop.classList.add('is-visible');
+                } else {
+                    backdrop.hidden = true;
+                    backdrop.setAttribute('aria-hidden', 'true');
+                    backdrop.classList.remove('is-visible');
+                }
+            }
+            if (closeBtn) {
+                closeBtn.hidden = !(visible && sheetMode);
+            }
+            document.body.classList.toggle('sb-sheet-open', !!(visible && sheetMode));
+            if (visible && wb && sheetMode) {
+                try {
+                    wb.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                } catch (e) { /* ignore */ }
+            }
+        }
+
+        function closeWorkbenchSheet() {
+            resetWorkbench({ updateUrl: true });
+        }
+
+        function bindWorkbenchSheetDismissOnce() {
+            const wb = document.getElementById('bidding-workbench');
+            const handle = document.getElementById('sb-sheet-handle');
+            const header = document.getElementById('sb-workbench-drag-region');
+            const backdrop = document.getElementById('sb-sheet-backdrop');
+            const closeBtn = document.getElementById('sb-sheet-close');
+            if (!wb || wb.dataset.sheetDismissBound === '1') return;
+            wb.dataset.sheetDismissBound = '1';
+
+            let dragging = false;
+            let startY = 0;
+            let lastY = 0;
+            let lastTs = 0;
+            let velocity = 0;
+            let pointerId = null;
+
+            function sheetModeActive() {
+                return window.innerWidth <= 640 && wb.classList.contains('is-visible');
+            }
+
+            function canStartDrag(target) {
+                if (!sheetModeActive()) return false;
+                if (!target || !target.closest) return false;
+                if (target.closest('input, textarea, select, button, a, .bid-lines-table, .sb-workbench-body, .footer-actions')) {
+                    return false;
+                }
+                return !!(target.closest('#sb-sheet-handle') || target.closest('#sb-workbench-drag-region'));
+            }
+
+            function onPointerDown(e) {
+                if (e.pointerType === 'mouse' && e.button !== 0) return;
+                if (!canStartDrag(e.target)) return;
+                dragging = true;
+                pointerId = e.pointerId;
+                startY = e.clientY;
+                lastY = e.clientY;
+                lastTs = Date.now();
+                velocity = 0;
+                wb.classList.add('is-dragging');
+                wb.style.transition = 'none';
+                try { header.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+                e.preventDefault();
+            }
+
+            function onPointerMove(e) {
+                if (!dragging || (pointerId != null && e.pointerId !== pointerId)) return;
+                const y = e.clientY;
+                const now = Date.now();
+                const dy = Math.max(0, y - startY);
+                const dt = Math.max(1, now - lastTs);
+                velocity = (y - lastY) / dt;
+                lastY = y;
+                lastTs = now;
+                wb.style.transform = `translateY(${dy}px)`;
+                if (backdrop) {
+                    const opacity = Math.max(0.08, 0.45 * (1 - Math.min(dy, 280) / 280));
+                    backdrop.style.opacity = String(opacity);
+                }
+            }
+
+            function finishDrag(e) {
+                if (!dragging || (pointerId != null && e.pointerId !== pointerId)) return;
+                dragging = false;
+                pointerId = null;
+                wb.classList.remove('is-dragging');
+                const dy = Math.max(0, (e.clientY || lastY) - startY);
+                const shouldClose = dy > 110 || (dy > 48 && velocity > 0.45);
+                if (backdrop) backdrop.style.opacity = '';
+                if (shouldClose) {
+                    wb.classList.add('is-dismissing');
+                    wb.style.transition = 'transform 0.22s ease-out';
+                    wb.style.transform = 'translateY(110%)';
+                    window.setTimeout(() => {
+                        closeWorkbenchSheet();
+                    }, 200);
+                    return;
+                }
+                wb.style.transition = 'transform 0.2s ease-out';
+                wb.style.transform = 'translateY(0)';
+                window.setTimeout(() => {
+                    if (!wb.classList.contains('is-dragging')) {
+                        wb.style.transition = '';
+                        wb.style.transform = '';
+                    }
+                }, 220);
+            }
+
+            header.addEventListener('pointerdown', onPointerDown, { passive: false });
+            header.addEventListener('pointermove', onPointerMove, { passive: true });
+            header.addEventListener('pointerup', finishDrag, { passive: true });
+            header.addEventListener('pointercancel', finishDrag, { passive: true });
+
+            if (backdrop) {
+                backdrop.addEventListener('click', () => {
+                    if (sheetModeActive()) closeWorkbenchSheet();
+                });
+            }
+            if (closeBtn) {
+                closeBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    closeWorkbenchSheet();
+                });
+            }
+            window.addEventListener('resize', () => {
+                if (!wb.classList.contains('is-visible')) return;
+                const sheet = window.innerWidth <= 640;
+                wb.classList.toggle('sb-sheet-mode', sheet);
+                document.body.classList.toggle('sb-sheet-open', sheet);
+                if (closeBtn) closeBtn.hidden = !sheet;
+                if (backdrop) {
+                    backdrop.hidden = !sheet;
+                    backdrop.classList.toggle('is-visible', sheet);
+                    backdrop.setAttribute('aria-hidden', sheet ? 'false' : 'true');
+                }
+                if (!sheet) {
+                    wb.style.transform = '';
+                    wb.style.transition = '';
+                }
+            });
         }
 
         function chipClass(status) {
@@ -864,15 +1031,15 @@
                     const itemTitle = note ? ` title="${escapeHtml(note)}"` : '';
                     return `
                         <tr class="bid-line-row${rowTone}" data-detail-id="${Number(line.detailId || 0)}">
-                            <td class="bid-cell--item"${itemTitle}>${escapeHtml(formatBidLogItem(line))}</td>
-                            <td class="bid-cell--date">${escapeHtml(formatDateText(line.deliveryDate))}</td>
-                            <td class="bid-cell--req bid-cell--num">${reqQty}</td>
-                            <td class="bid-cell--req bid-cell--num">${suomDisp}</td>
-                            <td class="bid-cell--bid bid-cell--num">${Number(line.quantity || 0).toFixed(2)}</td>
-                            <td class="bid-cell--bid bid-cell--num">${Number(line.unitPrice || 0).toFixed(2)}</td>
-                            <td class="bid-cell--bid bid-cell--num">${Number(line.amount || 0).toFixed(2)}</td>
-                            <td class="bid-cell--bid bid-cell--num">${String(line.leadDays != null ? line.leadDays : 0)}</td>
-                            <td class="bid-cell--remarks">${escapeHtml(String(line.remarks || '').trim()) || '—'}</td>
+                            <td class="bid-cell--item" data-label="Item"${itemTitle}>${escapeHtml(formatBidLogItem(line))}</td>
+                            <td class="bid-cell--date" data-label="Delivery Date">${escapeHtml(formatDateText(line.deliveryDate))}</td>
+                            <td class="bid-cell--req bid-cell--num" data-label="Requested Qty">${reqQty}</td>
+                            <td class="bid-cell--req bid-cell--num" data-label="S/U Qty">${suomDisp}</td>
+                            <td class="bid-cell--bid bid-cell--num" data-label="Bid Qty">${Number(line.quantity || 0).toFixed(2)}</td>
+                            <td class="bid-cell--bid bid-cell--num" data-label="Bid Unit Price">${Number(line.unitPrice || 0).toFixed(2)}</td>
+                            <td class="bid-cell--bid bid-cell--num" data-label="Amount">${Number(line.amount || 0).toFixed(2)}</td>
+                            <td class="bid-cell--bid bid-cell--num" data-label="Lead Days">${String(line.leadDays != null ? line.leadDays : 0)}</td>
+                            <td class="bid-cell--remarks" data-label="Remarks">${escapeHtml(String(line.remarks || '').trim()) || '—'}</td>
                         </tr>`;
                 }).join('');
             } else {
@@ -887,15 +1054,15 @@
                     const bid = formatReadOnlyBidFields(bl);
                     return `
                         <tr class="bid-line-row${rowTone}" data-detail-id="${lid}">
-                            <td class="bid-cell--item">${escapeHtml(line.itemCode)} - ${escapeHtml(line.itemName || line.description)}</td>
-                            <td class="bid-cell--date">${escapeHtml(formatDateText(line.deliveryDate))}</td>
-                            <td class="bid-cell--req bid-cell--num">${line.quantity != null ? Number(line.quantity || 0).toFixed(2) : '—'}</td>
-                            <td class="bid-cell--req bid-cell--num">${suomDisp}</td>
-                            <td class="bid-cell--bid bid-cell--num">${bid.dq}</td>
-                            <td class="bid-cell--bid bid-cell--num">${bid.dup}</td>
-                            <td class="bid-cell--bid bid-cell--num">${bid.amt}</td>
-                            <td class="bid-cell--bid bid-cell--num">${bid.ld}</td>
-                            <td class="bid-cell--remarks">${bid.rm}</td>
+                            <td class="bid-cell--item" data-label="Item">${escapeHtml(line.itemCode)} - ${escapeHtml(line.itemName || line.description)}</td>
+                            <td class="bid-cell--date" data-label="Delivery Date">${escapeHtml(formatDateText(line.deliveryDate))}</td>
+                            <td class="bid-cell--req bid-cell--num" data-label="Requested Qty">${line.quantity != null ? Number(line.quantity || 0).toFixed(2) : '—'}</td>
+                            <td class="bid-cell--req bid-cell--num" data-label="S/U Qty">${suomDisp}</td>
+                            <td class="bid-cell--bid bid-cell--num" data-label="Bid Qty">${bid.dq}</td>
+                            <td class="bid-cell--bid bid-cell--num" data-label="Bid Unit Price">${bid.dup}</td>
+                            <td class="bid-cell--bid bid-cell--num" data-label="Amount">${bid.amt}</td>
+                            <td class="bid-cell--bid bid-cell--num" data-label="Lead Days">${bid.ld}</td>
+                            <td class="bid-cell--remarks" data-label="Remarks">${bid.rm}</td>
                         </tr>`;
                 }
 
@@ -912,14 +1079,14 @@
                 const remarksAttr = String(rm).replace(/"/g, '&quot;');
                 return `
                     <tr data-detail-id="${lid}">
-                        <td class="bid-cell--item">${escapeHtml(line.itemCode)} - ${escapeHtml(line.itemName || line.description)}</td>
-                        <td class="bid-cell--date">${escapeHtml(formatDateText(line.deliveryDate))}</td>
-                        <td class="bid-cell--req bid-cell--num">${Number(line.quantity || 0).toFixed(2)}</td>
-                        <td class="bid-cell--req bid-cell--num bid-readonly-cell">${suomDisp}</td>
-                        <td><input type="number" step="0.01" min="0" class="bid-qty" value="${qtyVal}"></td>
-                        <td><input type="number" step="0.01" min="0" class="bid-unit-price" value="${priceVal}" placeholder="Enter quote unit price"></td>
-                        <td><input type="number" step="1" min="0" class="bid-lead-days" value="${ldVal}"></td>
-                        <td><input type="text" class="bid-remarks" placeholder="Optional" value="${remarksAttr}"></td>
+                        <td class="bid-cell--item" data-label="Item">${escapeHtml(line.itemCode)} - ${escapeHtml(line.itemName || line.description)}</td>
+                        <td class="bid-cell--date" data-label="Delivery Date">${escapeHtml(formatDateText(line.deliveryDate))}</td>
+                        <td class="bid-cell--req bid-cell--num" data-label="Requested Qty">${Number(line.quantity || 0).toFixed(2)}</td>
+                        <td class="bid-cell--req bid-cell--num bid-readonly-cell" data-label="S/U Qty">${suomDisp}</td>
+                        <td data-label="Bid Qty"><input type="number" step="0.01" min="0" class="bid-qty" value="${qtyVal}"></td>
+                        <td data-label="Bid Unit Price"><input type="number" step="0.01" min="0" class="bid-unit-price" value="${priceVal}" placeholder="Enter quote unit price"></td>
+                        <td data-label="Lead Days"><input type="number" step="1" min="0" class="bid-lead-days" value="${ldVal}"></td>
+                        <td data-label="Remarks"><input type="text" class="bid-remarks" placeholder="Optional" value="${remarksAttr}"></td>
                     </tr>`;
             }).join('');
             }
@@ -1031,6 +1198,7 @@
 
         async function initSupplierBiddingPage() {
             bindInviteListOnce();
+            bindWorkbenchSheetDismissOnce();
             window.addEventListener('popstate', onSupplierBiddingPopState);
             const params = new URLSearchParams(window.location.search || '');
             const rawTab = String(params.get('tab') || '').trim().toUpperCase();

@@ -1900,7 +1900,7 @@ def _ensure_ph_pq_status_trigger(conn):
     """Trigger on PH_PQ that enforces UDF_PQAPPROVED based on UDF_STATUS.
 
     Rules:
-    - STATUS = 'PENDING'  -> UDF_PQAPPROVED = NULL
+    - STATUS = 'PENDING' or 'AWAITING' -> UDF_PQAPPROVED = NULL
     - STATUS = 'APPROVED' -> UDF_PQAPPROVED = true/1/'1' (based on column type)
     - STATUS = 'CANCELLED' -> UDF_PQAPPROVED = false/0/'0' (based on column type)
     - Any other STATUS keeps UDF_PQAPPROVED unchanged.
@@ -1946,7 +1946,7 @@ def _ensure_ph_pq_status_trigger(conn):
         BEGIN
           V_STATUS = UPPER(TRIM(COALESCE(NEW.UDF_STATUS, '')));
 
-          IF (V_STATUS = 'PENDING') THEN
+          IF (V_STATUS = 'PENDING' OR V_STATUS = 'AWAITING') THEN
             NEW.UDF_PQAPPROVED = NULL;
                     ELSE IF (V_STATUS = 'APPROVED') THEN
             NEW.UDF_PQAPPROVED = {approved_literal};

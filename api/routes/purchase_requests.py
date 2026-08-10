@@ -719,6 +719,32 @@ def update_purchase_request_detail_approval(
             con.close()
 
 
+def _normalize_header_udf_status(value: Any) -> str:
+    text = str(value or "").strip().upper()
+    if text == "ACTIVE":
+        return "APPROVED"
+    if text == "INACTIVE":
+        return "CANCELLED"
+    if text in {"AWAITING", "AWAITING_APPROVAL", "AWAITING APPROVAL"}:
+        return "AWAITING"
+    if text == "DRAFT":
+        return "DRAFT"
+    if text in {"APPROVED", "CANCELLED", "PENDING", "AWAITING"}:
+        return text
+    return text
+
+
+# Mirror View e-PR UI transition rules (idempotent same-status allowed).
+_UDF_STATUS_TRANSITIONS: dict[str, set[str]] = {
+    "AWAITING": {"AWAITING", "PENDING", "CANCELLED"},
+    "PENDING": {"PENDING", "APPROVED", "CANCELLED"},
+    "APPROVED": {"APPROVED", "CANCELLED"},
+    "CANCELLED": {"CANCELLED"},
+    "DRAFT": {"DRAFT", "AWAITING", "PENDING", "CANCELLED"},
+    "": {"", "DRAFT", "AWAITING", "PENDING", "CANCELLED"},
+}
+
+
 @router.post("/purchaserequest/header-status")
 def update_purchase_request_header_status(
     payload: dict[str, Any] = Body(default={}),
@@ -729,7 +755,7 @@ def update_purchase_request_header_status(
     if not isinstance(changes, list) or not changes:
         raise HTTPException(status_code=400, detail="changes[] is required")
 
-    allowed = {"APPROVED", "CANCELLED", "PENDING", "ACTIVE", "INACTIVE"}
+    allowed = {"APPROVED", "CANCELLED", "PENDING", "AWAITING", "ACTIVE", "INACTIVE", "DRAFT"}
 
     con = None
     cur = None
@@ -746,6 +772,7 @@ def update_purchase_request_header_status(
             raise HTTPException(status_code=500, detail="PH_PQ.UDF_STATUS column not found")
 
         updated = 0
+        applied: list[dict[str, Any]] = []
         for raw in changes:
             if not isinstance(raw, dict):
                 continue
@@ -760,22 +787,50 @@ def update_purchase_request_header_status(
             status_value = str(raw.get("udfStatus") or "").strip().upper()
             if status_value not in allowed:
                 continue
-            if status_value == "ACTIVE":
-                status_value = "APPROVED"
-            elif status_value == "INACTIVE":
-                status_value = "CANCELLED"
+            status_value = _normalize_header_udf_status(status_value)
+
+            cur.execute(
+                f"SELECT FIRST 1 {udf_status_col} FROM PH_PQ WHERE {key_col} = ?",
+                (request_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Purchase request {request_id} not found",
+                )
+            previous = _normalize_header_udf_status(row[0])
+            allowed_targets = _UDF_STATUS_TRANSITIONS.get(previous)
+            if allowed_targets is None:
+                allowed_targets = {previous, "CANCELLED"} if previous else _UDF_STATUS_TRANSITIONS[""]
+            if status_value not in allowed_targets:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Invalid UDF_STATUS transition for request {request_id}: "
+                        f"{previous or '(empty)'} → {status_value}"
+                    ),
+                )
 
             cur.execute(
                 f"UPDATE PH_PQ SET {udf_status_col} = ? WHERE {key_col} = ?",
                 (status_value, request_id),
             )
             updated += int(cur.rowcount or 0)
+            applied.append(
+                {
+                    "requestId": request_id,
+                    "previousUdfStatus": previous,
+                    "udfStatus": status_value,
+                }
+            )
 
         con.commit()
         return {
             "success": True,
             "updated": updated,
             "requested": len(changes),
+            "changes": applied,
         }
     except HTTPException:
         if con is not None:

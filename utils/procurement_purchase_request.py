@@ -914,8 +914,8 @@ def create_purchase_request(
             "TOTALAMT": validated["totalAmount"],
             "TOTAL_AMOUNT": validated["totalAmount"],
             "STATUS": _encode_status(status, status_is_numeric),
-            "UDF_STATUS": "PENDING" if status == "SUBMITTED" else "",
-            "UDFSTATUS": "PENDING" if status == "SUBMITTED" else "",
+            "UDF_STATUS": "AWAITING" if status == "SUBMITTED" else "",
+            "UDFSTATUS": "AWAITING" if status == "SUBMITTED" else "",
             "UPSTREAM_STATUS": upstream_status,
             "UPSTREAM_REFERENCE": upstream_reference,
             "CREATEDBY": normalized_actor,
@@ -1039,6 +1039,7 @@ def create_purchase_request(
             "totalAmount": validated["totalAmount"],
             "currency": validated["currency"],
             "lineItemCount": len(validated["lineItems"]),
+            "udfStatus": "AWAITING" if status == "SUBMITTED" else "",
         }
     except Exception:
         con.rollback()

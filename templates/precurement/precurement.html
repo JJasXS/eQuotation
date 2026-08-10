@@ -143,7 +143,7 @@
 
 
     <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260810_tabs_phone_v3">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=20260810_report_drawer_v1">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=20260810_awaiting_v12">
     <style id="pr-report-phone-layout">
     /* Report settings: phone drawer (slides in from right) */
     .stock-report-settings-bar,
@@ -1889,8 +1889,9 @@
                                         <h2 class="pr-view-page-title">Purchase Requests</h2>
                                         <nav class="eq-line-tabs pr-view-filter-tabs" id="view-pr-filter-tabs" role="tablist" aria-label="Filter by approval status">
                                             <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="DRAFT" aria-selected="false" onclick="toggleViewStatusFilter('DRAFT')">Draft</button>
-                                            <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="APPROVED" aria-selected="false" onclick="toggleViewStatusFilter('APPROVED')">Approved</button>
+                                            <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="AWAITING" aria-selected="false" onclick="toggleViewStatusFilter('AWAITING')">Awaiting Approval</button>
                                             <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab is-active" data-status="PENDING" aria-selected="true" onclick="toggleViewStatusFilter('PENDING')">Pending</button>
+                                            <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="APPROVED" aria-selected="false" onclick="toggleViewStatusFilter('APPROVED')">Approved</button>
                                             <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="CANCELLED" aria-selected="false" onclick="toggleViewStatusFilter('CANCELLED')">Cancelled</button>
                                         </nav>
                                         <div class="pr-view-toolbar-actions view-pr-actions-right view-pr-actions-right--toolbar">
@@ -6837,7 +6838,7 @@
 
 
 
-        const VIEW_STATUS_FILTER_OPTIONS = ['DRAFT', 'APPROVED', 'PENDING', 'CANCELLED'];
+        const VIEW_STATUS_FILTER_OPTIONS = ['DRAFT', 'AWAITING', 'PENDING', 'APPROVED', 'CANCELLED'];
 
 
 
@@ -6898,6 +6899,7 @@
 
 
             CANCELLED: 'Cancelled',
+            AWAITING: 'Awaiting Approval',
 
 
 
@@ -7269,28 +7271,53 @@
             return true;
         }
 
-        async function finalizeViewPrAfterApprovalSave(selectedHeaderId) {
+        async function finalizeViewPrAfterApprovalSave(selectedHeaderId, options) {
+            const opts = options && typeof options === 'object' ? options : {};
             const keepId = Number(selectedHeaderId || viewSelectedHeaderId || 0);
+            const rawTarget = String(opts.targetUdfStatus || '').trim().toUpperCase();
+            const targetUdf = rawTarget ? normalizeUdfStatus(rawTarget) : '';
             if (keepId > 0) {
                 viewSelectedHeaderId = keepId;
                 const record = (viewPurchaseRequests || []).find((row) => Number(row.id || 0) === keepId);
                 if (record) {
-                    record.udfStatus = 'APPROVED';
-                    record._originalUdfStatus = 'APPROVED';
-                    delete record._pendingUdfStatus;
-                    invalidateViewDetailCache(keepId);
-                    viewLoadingDetailIds.add(keepId);
-                    renderFilteredViewPurchaseRequests();
-                    try {
-                        await fetchViewPurchaseRequestDetail(record, true);
-                    } catch (error) {
-                        console.warn('[View PR] Failed to refresh detail after approval:', error);
+                    if (targetUdf === 'PENDING') {
+                        record.udfStatus = 'PENDING';
+                        record._originalUdfStatus = 'PENDING';
+                        delete record._pendingUdfStatus;
+                        invalidateViewDetailCache(keepId);
+                        goToViewPrStatus('PENDING', { reload: true });
+                        syncViewPrToUrl();
+                        return;
                     }
-                    viewLoadingDetailIds.delete(keepId);
-                    syncViewPrToUrl();
-                    renderFilteredViewPurchaseRequests();
-                    loadViewPurchaseRequests(false, { background: true });
-                    return;
+                    if (targetUdf === 'CANCELLED') {
+                        record.udfStatus = 'CANCELLED';
+                        record._originalUdfStatus = 'CANCELLED';
+                        delete record._pendingUdfStatus;
+                        invalidateViewDetailCache(keepId);
+                        goToViewPrStatus('CANCELLED', { reload: true });
+                        syncViewPrToUrl();
+                        return;
+                    }
+                    if (targetUdf === 'APPROVED') {
+                        record.udfStatus = 'APPROVED';
+                        record._originalUdfStatus = 'APPROVED';
+                        delete record._pendingUdfStatus;
+                    }
+                    if (targetUdf === 'APPROVED' || !targetUdf) {
+                        invalidateViewDetailCache(keepId);
+                        viewLoadingDetailIds.add(keepId);
+                        renderFilteredViewPurchaseRequests();
+                        try {
+                            await fetchViewPurchaseRequestDetail(record, true);
+                        } catch (error) {
+                            console.warn('[View PR] Failed to refresh detail after approval:', error);
+                        }
+                        viewLoadingDetailIds.delete(keepId);
+                        syncViewPrToUrl();
+                        renderFilteredViewPurchaseRequests();
+                        loadViewPurchaseRequests(false, { background: true });
+                        return;
+                    }
                 }
             }
             await loadViewPurchaseRequests(false, { background: true });
@@ -9569,6 +9596,7 @@
 
 
             { key: 'pending_pr_by_location', label: 'Pending PR', maps: { sqty: 'pending_pr_sqty_by_location', suom: 'pending_pr_suom_by_location' } },
+            { key: 'avg_sales_3m_by_location', label: 'Avg Sales 3M', maps: { sqty: 'avg_sales_3m_sqty_by_location', suom: 'avg_sales_3m_suom_by_location' } },
 
 
 
@@ -9617,6 +9645,7 @@
 
 
         let stockCardMetricFilter = null;
+        let stockCardAvgSales3mMonths = [];
 
 
 
@@ -11140,7 +11169,7 @@
 
 
 
-            if (!text) return 'PENDING';
+            if (!text) return '';
 
 
 
@@ -11166,6 +11195,9 @@
 
             if (text === 'INACTIVE') return 'CANCELLED';
 
+            if (text === 'AWAITING' || text === 'AWAITING_APPROVAL' || text === 'AWAITING APPROVAL') return 'AWAITING';
+
+
 
 
 
@@ -11189,6 +11221,20 @@
 
 
         }
+
+        function formatUdfStatusLabel(value) {
+            const s = normalizeUdfStatus(value);
+            if (!s) return '';
+            if (s === 'AWAITING') return 'Awaiting Approval';
+            if (s === 'PENDING') return 'Pending (Awaiting RFQ)';
+            return s;
+        }
+
+        function canEditPrLineSelection(header) {
+            const s = normalizeUdfStatus((header && (header._originalUdfStatus || header.udfStatus)) || '');
+            return s === 'PENDING' || s === 'APPROVED';
+        }
+
 
 
 
@@ -12568,6 +12614,14 @@
 
 
 
+
+            if (f === 'AWAITING') {
+                if (rowSavedUdfStatus(row) !== 'AWAITING') {
+                    return false;
+                }
+                return rowPrStatusUpper(row) === 'SUBMITTED';
+            }
+
             if (f === 'PENDING') {
 
 
@@ -13264,6 +13318,28 @@
 
 
 
+
+        function goToViewPrStatus(status, options) {
+            const s = String(status || '').trim().toUpperCase();
+            const opts = options && typeof options === 'object' ? options : {};
+            if (VIEW_STATUS_FILTER_OPTIONS.includes(s)) {
+                viewStatusFilters = new Set([s]);
+                try {
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('tab', 'view');
+                    url.searchParams.set('status', s.toLowerCase());
+                    history.replaceState({}, '', url);
+                } catch (e) { /* ignore */ }
+            }
+            showTab('view');
+            try { syncViewStatusFilterTabClasses(); } catch (e) { /* ignore */ }
+            try { syncViewStatusToUrl(); } catch (e) { /* ignore */ }
+            if (opts.reload !== false) {
+                try { loadViewPurchaseRequests(true, { bustCache: true }); } catch (e) { /* ignore */ }
+            } else {
+                try { renderFilteredViewPurchaseRequests(); } catch (e) { /* ignore */ }
+            }
+        }
 
         function toggleViewStatusFilter(status) {
 
@@ -14478,16 +14554,26 @@
 
 
             const saved = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
-
-
-
-
-
-
-
-
-
-
+            const normalizedTarget = normalizeUdfStatus(value);
+            const allowedFrom = {
+                AWAITING: new Set(['AWAITING', 'PENDING', 'CANCELLED']),
+                PENDING: new Set(['PENDING', 'APPROVED', 'CANCELLED']),
+                APPROVED: new Set(['APPROVED', 'CANCELLED']),
+                CANCELLED: new Set(['CANCELLED']),
+                DRAFT: new Set(['DRAFT', 'AWAITING', 'PENDING', 'CANCELLED']),
+                '': new Set(['', 'DRAFT', 'AWAITING', 'PENDING', 'CANCELLED']),
+            };
+            const allowed = allowedFrom[saved] || new Set([saved, 'CANCELLED']);
+            if (!allowed.has(normalizedTarget)) {
+                return false;
+            }
+            if (saved === 'AWAITING' && normalizedTarget === 'PENDING') {
+                const suppliers = Array.isArray(header._suppliers) ? header._suppliers : [];
+                if (!suppliers.length) {
+                    alert('Select at least one supplier before moving to Pending (Awaiting RFQ).');
+                    return false;
+                }
+            }
 
             if (saved === 'APPROVED' || saved === 'CANCELLED') {
 
@@ -14598,17 +14684,7 @@
 
 
                     requestId: Number(requestId),
-
-
-
-
-
-
-
-
-
-
-
+                    requestNumber: String((header && (header.requestNumber || header.docNo || header.docno)) || '').trim(),
                     udfStatus: normalized,
 
 
@@ -17357,17 +17433,29 @@
             renderFilteredViewPurchaseRequests();
         }
 
-        async function onDetailApprovalChangeAutoHeader(headerId, detailId, checked) {
+        function onDetailApprovalChangeStageOnly(headerId, detailId, checked) {
             onDetailApprovalChange(headerId, detailId, checked);
             const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(headerId));
             if (!header || !Array.isArray(header.details)) {
                 return;
             }
-            const hasPending = header.details.some((row) => Number(row && row.id ? row.id : 0) > 0 && isDetailChecked(row));
-            queueHeaderUdfPendingFromSaved(headerId, hasPending ? 'APPROVED' : 'PENDING');
+            const savedUdf = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
+            const selectable = header.details.filter((row) => Number(row && row.id ? row.id : 0) > 0);
+            const hasChecked = selectable.some((row) => isDetailChecked(row));
+            header.selectedLineCount = selectable.filter((row) => isDetailChecked(row)).length;
+            header.lineCount = selectable.length;
+            // Stage only — Update button persists. Do not POST on checkbox click.
+            if (savedUdf === 'PENDING') {
+                queueHeaderUdfPendingFromSaved(headerId, hasChecked ? 'APPROVED' : 'PENDING');
+            }
+            syncAllLineApprovalsBeforeHeaderApprove(headerId);
             updateViewApprovalButtonState();
+            renderViewPurchaseRequestDetailPanel();
             renderFilteredViewPurchaseRequests();
-            await persistSingleDetailApprovalChange(headerId, detailId, checked);
+        }
+
+        async function onDetailApprovalChangeAutoHeader(headerId, detailId, checked) {
+            onDetailApprovalChangeStageOnly(headerId, detailId, checked);
         }
 
         async function persistSingleDetailApprovalChange(headerId, detailId, checked) {
@@ -17411,101 +17499,58 @@
             }
         }
 
+
+        function syncAllLineApprovalsBeforeHeaderApprove(headerId) {
+            const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(headerId));
+            if (!header || !Array.isArray(header.details)) {
+                return;
+            }
+            const requestId = Number(header.id || headerId || 0);
+            header.details.forEach((detail) => {
+                const detailId = Number(detail && detail.id ? detail.id : 0);
+                if (!detailId) return;
+                const checked = isDetailChecked(detail);
+                detail.udfPqApproved = checked;
+                detail.transferable = checked;
+                viewApprovalPendingChanges.set(String(detailId), {
+                    detailId,
+                    requestId,
+                    approved: checked,
+                });
+            });
+        }
+
         async function saveViewDetailApprovals() {
-
-
-
-
-
-
-
-
-
-
-
             if (document.body.classList.contains('procurement-hide-pr-approval-edits')) {
-
-
-
-
-
-
-
-
-
-
-
                 return;
-
-
-
-
-
-
-
-
-
-
-
+            }
+            if (viewApprovalSaving) {
+                return;
             }
 
+            try {
+                const selectedId = viewSelectedHeaderId != null ? Number(viewSelectedHeaderId) : 0;
+                if (selectedId > 0) {
+                    const sel = document.getElementById(`view-pr-detail-udf-${selectedId}`);
+                    if (sel && typeof onHeaderUdfStatusChange === 'function') {
+                        onHeaderUdfStatusChange(selectedId, sel.value);
+                    }
+                    // Always capture current checkbox state for the open PR.
+                    syncAllLineApprovalsBeforeHeaderApprove(selectedId);
+                    const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === selectedId);
+                    const savedUdf = normalizeUdfStatus(header && (header._originalUdfStatus || header.udfStatus));
+                    const hasChecked = !!(header && Array.isArray(header.details)
+                        && header.details.some((row) => Number(row && row.id ? row.id : 0) > 0 && isDetailChecked(row)));
+                    if (savedUdf === 'PENDING' && hasChecked) {
+                        queueHeaderUdfPendingFromSaved(selectedId, 'APPROVED');
+                    }
+                }
+            } catch (e) { /* ignore */ }
 
-
-
-
-
-
-
-
-
-
-            if (viewApprovalSaving || (viewApprovalPendingChanges.size === 0 && viewHeaderStatusPendingChanges.size === 0)) {
-
-
-
-
-
-
-
-
-
-
-
+            if (viewApprovalPendingChanges.size === 0 && viewHeaderStatusPendingChanges.size === 0) {
+                alert('No changes to update. Select line items and/or change Status, then click Update.');
                 return;
-
-
-
-
-
-
-
-
-
-
-
             }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
             viewApprovalSaving = true;
 
@@ -17545,6 +17590,7 @@
 
             try {
                 let headerStatusSaveFailed = false;
+                let bidInvitationResults = [];
                 let headerStatusError = '';
 
 
@@ -17557,7 +17603,39 @@
 
 
 
-                if (viewHeaderStatusPendingChanges.size > 0) {
+                
+                // When approving header, persist every line tick/untick so unchecked rows stay off.
+                viewHeaderStatusPendingChanges.forEach((change) => {
+                    if (normalizeUdfStatus(change.udfStatus) === 'APPROVED') {
+                        syncAllLineApprovalsBeforeHeaderApprove(change.requestId);
+                    }
+                });
+
+                if (viewApprovalPendingChanges.size > 0) {
+                    const detailPayloadEarly = { changes: Array.from(viewApprovalPendingChanges.values()) };
+                    const detailResEarly = await fetch('/api/admin/procurement/purchase-requests/details/approval', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(detailPayloadEarly),
+                    });
+                    const detailDataEarly = await detailResEarly.json();
+                    if (!detailResEarly.ok || !detailDataEarly.success) {
+                        throw new Error(detailDataEarly.error || `Failed to update approval details (HTTP ${detailResEarly.status})`);
+                    }
+                    viewApprovalPendingChanges.forEach((change) => {
+                        const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(change.requestId));
+                        if (!header || !Array.isArray(header.details)) return;
+                        const detail = header.details.find((row) => Number(row.id || 0) === Number(change.detailId));
+                        if (!detail) return;
+                        detail._originalApproved = Boolean(change.approved);
+                        detail.udfPqApproved = Boolean(change.approved);
+                        detail.transferable = Boolean(change.approved);
+                    });
+                    viewApprovalPendingChanges.clear();
+                }
+
+
+if (viewHeaderStatusPendingChanges.size > 0) {
 
 
 
@@ -17690,6 +17768,14 @@
 
 
                     const statusData = await statusRes.json();
+
+                    try {
+                        const payloadData = statusData && statusData.data;
+                        if (payloadData && Array.isArray(payloadData.bidInvitationResults)) {
+                            bidInvitationResults = payloadData.bidInvitationResults;
+                        }
+                    } catch (e) { /* ignore */ }
+
 
 
 
@@ -18294,6 +18380,40 @@
 
 
 
+                const pendingHeaderIdsForRefresh = new Set(
+                    Array.from(viewHeaderStatusPendingChanges.values())
+                        .filter((c) => normalizeUdfStatus(c.udfStatus) === 'PENDING')
+                        .map((c) => Number(c.requestId || 0))
+                        .filter((id) => id > 0)
+                );
+                const cancelledHeaderIdsForRefresh = new Set(
+                    Array.from(viewHeaderStatusPendingChanges.values())
+                        .filter((c) => normalizeUdfStatus(c.udfStatus) === 'CANCELLED')
+                        .map((c) => Number(c.requestId || 0))
+                        .filter((id) => id > 0)
+                );
+                if (!headerStatusSaveFailed && typeof bidInvitationResults !== 'undefined' && bidInvitationResults.length) {
+                    const notes = bidInvitationResults.map((r) => {
+                        if (!r) return '';
+                        if (r.skipped && r.reason === 'already_invited') {
+                            return `RFQ already invited (${r.inviteCount || 0}).`;
+                        }
+                        if (r.skipped && r.reason === 'no_suppliers') {
+                            return 'No selected suppliers; RFQ not sent.';
+                        }
+                        if (r.reason === 'missing_portal_url') {
+                            return 'Invites saved but SUPPLIER_PORTAL_BASE_URL is missing; emails not sent.';
+                        }
+                        if (r.skipped) {
+                            return `RFQ skipped: ${r.reason || 'unknown'}`;
+                        }
+                        return `RFQ: ${r.inviteCount || 0} invite(s), ${r.emailsQueued || 0} email(s) queued.`;
+                    }).filter(Boolean);
+                    if (notes.length) {
+                        alert(notes.join('\n'));
+                    }
+                }
+
                 viewApprovalPendingChanges.clear();
 
 
@@ -18370,19 +18490,17 @@
 
 
 
-                activateViewPrApprovedTabAfterSave(approvedHeaderIdsForRefresh);
-
-
-
-
-
-
-
-
-
-
-
-                await finalizeViewPrAfterApprovalSave(keepSelectedId);
+                                if (pendingHeaderIdsForRefresh && pendingHeaderIdsForRefresh.size) {
+                    await finalizeViewPrAfterApprovalSave(keepSelectedId, { targetUdfStatus: 'PENDING' });
+                } else if (approvedHeaderIdsForRefresh && approvedHeaderIdsForRefresh.size) {
+                    activateViewPrApprovedTabAfterSave(approvedHeaderIdsForRefresh);
+                    goToViewPrStatus('APPROVED', { reload: true });
+                    await finalizeViewPrAfterApprovalSave(keepSelectedId, { targetUdfStatus: 'APPROVED' });
+                } else if (cancelledHeaderIdsForRefresh && cancelledHeaderIdsForRefresh.size) {
+                    await finalizeViewPrAfterApprovalSave(keepSelectedId, { targetUdfStatus: 'CANCELLED' });
+                } else {
+                    await finalizeViewPrAfterApprovalSave(keepSelectedId, { targetUdfStatus: '' });
+                }
                 if (headerStatusSaveFailed) {
                     alert(`Line approvals saved, but header status update failed: ${headerStatusError || 'SQL API returned an error.'}`);
                 }
@@ -18898,8 +19016,13 @@
 
             const savedUdfDisplay = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
             const udfLocked = ['APPROVED', 'CANCELLED'].includes(normalizeUdfStatus(header._originalUdfStatus || header.udfStatus));
-            const selectUdf = normalizeUdfStatus(getHeaderPendingUdfStatus(header) || savedUdfDisplay);
+            const selectUdfRaw = normalizeUdfStatus(getHeaderPendingUdfStatus(header) || savedUdfDisplay);
+            const selectUdf = (savedUdfDisplay === 'AWAITING' && !['AWAITING', 'PENDING', 'CANCELLED'].includes(selectUdfRaw))
+                ? 'AWAITING'
+                : selectUdfRaw;
             const hideApprovalEdits = document.body.classList.contains('procurement-hide-pr-approval-edits');
+            const canEditLines = !hideApprovalEdits && savedUdfDisplay !== 'CANCELLED' && canEditPrLineSelection(header);
+
 
 
 
@@ -19471,7 +19594,7 @@
 
 
 
-                        ${detail.id ? '' : 'disabled'}
+                        ${(!detail.id || !canEditLines) ? 'disabled' : ''}
 
 
 
@@ -19495,7 +19618,7 @@
 
 
 
-                        onchange="onDetailApprovalChangeAutoHeader(${headerId}, ${Number(detail.id || 0)}, this.checked)"
+                        onchange="onDetailApprovalChangeStageOnly(${headerId}, ${Number(detail.id || 0)}, this.checked)"
 
 
 
@@ -19711,7 +19834,8 @@
 
 
 
-                                <span class="view-pr-detail-udf-chip view-pr-detail-udf-chip--${String(savedUdfDisplay || 'PENDING').toLowerCase()}">${escapeHtml(savedUdfDisplay)}</span>
+                                <span class="view-pr-detail-udf-chip view-pr-detail-udf-chip--${String(savedUdfDisplay || 'PENDING').toLowerCase()}">${escapeHtml(formatUdfStatusLabel(savedUdfDisplay))}</span>
+                                ${selectableDetailCount ? `<span class="view-pr-detail-selected-chip${allDetailsSelected ? ' is-all' : ''}" title="Selected line items">SELECTED ${selectedDetailCount}/${selectableDetailCount}</span>` : ''}
 
 
 
@@ -20509,7 +20633,7 @@
                                             type="checkbox"
                                             aria-label="Select all line items"
                                             ${allDetailsSelected ? 'checked' : ''}
-                                            ${selectableDetailCount ? '' : 'disabled'}
+                                            ${(selectableDetailCount && canEditLines) ? '' : 'disabled'}
                                             onchange="onDetailApprovalToggleAll(${headerId}, this.checked)"
                                         />
                                     </label>
@@ -20611,13 +20735,23 @@
 
                     </table>
 
-                    ${hideApprovalEdits || udfLocked ? '' : `
+                    ${hideApprovalEdits || savedUdfDisplay === 'CANCELLED' ? '' : `
                     <div class="view-pr-detail-lines-footer">
                         <div class="view-pr-detail-status-actions">
                             <label class="view-pr-detail-status-label" for="view-pr-detail-udf-${headerId}">Status</label>
-                            <select id="view-pr-detail-udf-${headerId}" class="view-pr-udf-status view-pr-detail-udf-status" onchange="onHeaderUdfStatusChange(${headerId}, this.value)" title="Approval status">
+                            <select id="view-pr-detail-udf-${headerId}" class="view-pr-udf-status view-pr-detail-udf-status" onchange="onHeaderUdfStatusChange(${headerId}, this.value)" title="Approval status" ${udfLocked && savedUdfDisplay === 'APPROVED' ? 'disabled' : ''}>
+                                ${savedUdfDisplay === 'AWAITING' ? `
+                                <option value="AWAITING" ${selectUdf === 'AWAITING' ? 'selected' : ''}>Awaiting Approval</option>
+                                <option value="PENDING" ${selectUdf === 'PENDING' ? 'selected' : ''}>Pending (Awaiting RFQ)</option>
+                                <option value="CANCELLED" ${selectUdf === 'CANCELLED' ? 'selected' : ''}>Cancelled</option>
+                                ` : savedUdfDisplay === 'PENDING' ? `
+                                <option value="PENDING" ${selectUdf === 'PENDING' ? 'selected' : ''}>Pending</option>
                                 <option value="APPROVED" ${selectUdf === 'APPROVED' ? 'selected' : ''}>Approved</option>
                                 <option value="CANCELLED" ${selectUdf === 'CANCELLED' ? 'selected' : ''}>Cancelled</option>
+                                ` : `
+                                <option value="APPROVED" ${selectUdf === 'APPROVED' ? 'selected' : ''}>Approved</option>
+                                <option value="CANCELLED" ${selectUdf === 'CANCELLED' ? 'selected' : ''}>Cancelled</option>
+                                `}
                             </select>
                             <button type="button" class="view-pr-refresh-btn view-pr-detail-update-btn" onclick="saveViewDetailApprovals()">Update</button>
                         </div>
@@ -22113,6 +22247,21 @@
 
 
 
+                
+                let cardSelectedCount = Number(header.selectedLineCount || 0);
+                let cardLineCount = Number(header.lineCount || 0);
+                if (Array.isArray(header.details) && header.details.length) {
+                    const selectable = header.details.filter((d) => Number(d && d.id ? d.id : 0) > 0);
+                    cardLineCount = selectable.length;
+                    cardSelectedCount = selectable.filter((d) => isDetailChecked(d)).length;
+                    header.selectedLineCount = cardSelectedCount;
+                    header.lineCount = cardLineCount;
+                }
+                const selectionCardHtml = cardLineCount > 0
+                    ? `<div class="pr-view-pr-card__selection${cardSelectedCount > 0 ? (cardSelectedCount >= cardLineCount ? ' is-all' : ' is-partial') : ''}" title="Selected line items">SELECTED ${cardSelectedCount}/${cardLineCount}</div>`
+                    : '';
+
+
                 const approvalBadgeHtml = udfLocked
 
 
@@ -22125,7 +22274,7 @@
 
 
 
-                    ? `<span class="pr-view-pr-card__udf-badge pr-view-pr-card__udf-badge--${String(selectUdf || 'PENDING').toLowerCase()}">${escapeHtml(selectUdf)}</span>`
+                    ? `<span class="pr-view-pr-card__udf-badge pr-view-pr-card__udf-badge--${String(selectUdf || 'PENDING').toLowerCase()}">${escapeHtml(formatUdfStatusLabel(selectUdf))}</span>`
 
 
 
@@ -22438,6 +22587,7 @@
 
 
                     <div class="pr-view-pr-card__date">${formatPrDate(header.requestDate || '-')}</div>
+                    ${selectionCardHtml}
 
 
 
@@ -22509,7 +22659,7 @@
 
 
 
-                        ${udfLocked ? approvalBadgeHtml : `<span class="pr-view-pr-card__udf-badge pr-view-pr-card__udf-badge--${String(selectUdf || 'PENDING').toLowerCase()}">${escapeHtml(selectUdf)}</span>`}
+                        ${udfLocked ? approvalBadgeHtml : `<span class="pr-view-pr-card__udf-badge pr-view-pr-card__udf-badge--${String(selectUdf || 'PENDING').toLowerCase()}">${escapeHtml(formatUdfStatusLabel(selectUdf))}</span>`}
 
 
 
@@ -22888,65 +23038,11 @@
 
 
             if ((!Array.isArray(record.details) || !record.details.length) && shouldUseViewDetailCache(record, cached)) {
-
-
-
-
-
-
-
-
-
-
-
-                record.details = Array.isArray(cached.details) ? cached.details : [];
-
-
-
-
-
-
-
-
-
-
-
-                if (Number.isFinite(Number(cached.totalAmount))) {
-
-
-
-
-
-
-
-
-
-
-
-                    record.totalAmount = Number(cached.totalAmount);
-
-
-
-
-
-
-
-
-
-
-
-                }
-
-
-
-
-
-
-
-
-
-
-
+                hydrateViewPurchaseRequestDetails(record, {
+                    details: Array.isArray(cached.details) ? cached.details : [],
+                    totalAmount: cached.totalAmount,
+                    suppliers: Array.isArray(cached.suppliers) ? cached.suppliers : [],
+                });
             }
 
 
@@ -24087,7 +24183,7 @@
 
 
             const controller = new AbortController();
-            const detailFetchTimeoutId = window.setTimeout(() => controller.abort(), 10000);
+            const detailFetchTimeoutId = window.setTimeout(() => controller.abort(), 30000);
 
 
 
@@ -25510,6 +25606,11 @@
 
 
                 row._originalUdfStatus = row.udfStatus;
+                if (Array.isArray(row.suppliers) && row.suppliers.length) {
+                    row._suppliers = row.suppliers;
+                } else if (!Array.isArray(row._suppliers)) {
+                    row._suppliers = [];
+                }
 
 
 
@@ -26678,6 +26779,11 @@
 
 
                         row._originalUdfStatus = row.udfStatus;
+                if (Array.isArray(row.suppliers) && row.suppliers.length) {
+                    row._suppliers = row.suppliers;
+                } else if (!Array.isArray(row._suppliers)) {
+                    row._suppliers = [];
+                }
 
 
 
@@ -30682,6 +30788,48 @@
 
 
 
+
+        function formatAvgSales3mMonthLabel(yyyyMm) {
+            const raw = String(yyyyMm || '').trim();
+            const m = raw.match(/^(\d{4})-(\d{2})$/);
+            if (!m) return raw;
+            const monthIdx = Math.max(1, Math.min(12, parseInt(m[2], 10) || 0)) - 1;
+            const names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            return names[monthIdx] || raw;
+        }
+
+        function stockCardAvgSales3mRangeLabel() {
+            const months = Array.isArray(stockCardAvgSales3mMonths) ? stockCardAvgSales3mMonths.filter(Boolean) : [];
+            if (!months.length) return '';
+            if (months.length === 1) return formatAvgSales3mMonthLabel(months[0]);
+            return formatAvgSales3mMonthLabel(months[0]) + '–' + formatAvgSales3mMonthLabel(months[months.length - 1]);
+        }
+
+        function stockCardMetricGroupLabel(group) {
+            const base = String((group && group.label) || '').trim() || 'Metric';
+            if (group && group.key === 'avg_sales_3m_by_location') {
+                const range = stockCardAvgSales3mRangeLabel();
+                return range ? (base + ' (' + range + ')') : base;
+            }
+            return base;
+        }
+
+        function stockCardPlainQtyCell(bgClass, value, titleText) {
+            const title = titleText ? ` title="${escapeHtml(titleText)}"` : '';
+            return `<td class="${bgClass}"${title}>${formatStockCardNumber(value)}</td>`;
+        }
+
+        function stockCardQtyCellForGroup(group, bgClass, value, itemCode, locationCode, qtyMode) {
+            if (group && group.key === 'avg_sales_3m_by_location') {
+                const range = stockCardAvgSales3mRangeLabel();
+                const title = range
+                    ? ('Avg invoiced sales / 3 (' + range + ')')
+                    : 'Avg invoiced sales over last 3 full months';
+                return stockCardPlainQtyCell(bgClass, value, title);
+            }
+            return stockCardClickableQtyCell(bgClass, value, itemCode, locationCode, group.key, qtyMode);
+        }
+
         function renderStockCardHeader(locations) {
 
 
@@ -31006,7 +31154,7 @@
 
 
 
-                        return `<th class="qty-col stock-card-expand"><div class="stock-card-th-stacked"><span class="stock-card-th-main">${escapeHtml(group.label)}</span><span class="stock-card-th-subpair"><span>SQTY</span><span>SUOMQTY</span></span></div></th>`;
+                        return `<th class="qty-col stock-card-expand"><div class="stock-card-th-stacked"><span class="stock-card-th-main">${escapeHtml(stockCardMetricGroupLabel(group))}</span><span class="stock-card-th-subpair"><span>SQTY</span><span>SUOMQTY</span></span></div></th>`;
 
 
 
@@ -31030,7 +31178,7 @@
 
 
 
-                    return `<th class="qty-col stock-card-expand">${escapeHtml(group.label)} <span class="stock-card-th-note">(${stockCardSingleUomLabel()})</span></th>`;
+                    return `<th class="qty-col stock-card-expand">${escapeHtml(stockCardMetricGroupLabel(group))} <span class="stock-card-th-note">(${stockCardSingleUomLabel()})</span></th>`;
 
 
 
@@ -31426,7 +31574,7 @@
 
 
 
-                        <span class="stock-card-hdr-condensed-metric">${escapeHtml(group.label)}</span>
+                        <span class="stock-card-hdr-condensed-metric">${escapeHtml(stockCardMetricGroupLabel(group))}</span>
 
 
 
@@ -32331,13 +32479,13 @@
 
         function isDetailChecked(detail) {
             if (!detail || typeof detail !== 'object') return false;
-            if (Object.prototype.hasOwnProperty.call(detail, 'transferable')) {
-                if (toApprovalBool(detail.transferable)) return true;
+            if (Object.prototype.hasOwnProperty.call(detail, 'transferable') && detail.transferable != null && String(detail.transferable).trim() !== '') {
+                return toApprovalBool(detail.transferable);
             }
-            if (Object.prototype.hasOwnProperty.call(detail, 'TRANSFERABLE')) {
-                if (toApprovalBool(detail.TRANSFERABLE)) return true;
+            if (Object.prototype.hasOwnProperty.call(detail, 'TRANSFERABLE') && detail.TRANSFERABLE != null && String(detail.TRANSFERABLE).trim() !== '') {
+                return toApprovalBool(detail.TRANSFERABLE);
             }
-            if (Object.prototype.hasOwnProperty.call(detail, 'udfPqApproved')) {
+            if (Object.prototype.hasOwnProperty.call(detail, 'udfPqApproved') && detail.udfPqApproved != null && String(detail.udfPqApproved).trim() !== '') {
                 return toApprovalBool(detail.udfPqApproved);
             }
             return false;
@@ -41207,7 +41355,7 @@
 
 
 
-                            html += stockCardClickableQtyCell(bg, vSq, row.code, locationCode, group.key, 'SQTY');
+                            html += stockCardQtyCellForGroup(group, bg, vSq, row.code, locationCode, 'SQTY');
 
 
 
@@ -41219,7 +41367,7 @@
 
 
 
-                            html += stockCardClickableQtyCell(bg, vSu, row.code, locationCode, group.key, 'SUOMQTY');
+                            html += stockCardQtyCellForGroup(group, bg, vSu, row.code, locationCode, 'SUOMQTY');
 
 
 
@@ -41243,7 +41391,7 @@
 
 
 
-                            html += stockCardClickableQtyCell(bg, vSu, row.code, locationCode, group.key, 'SUOMQTY');
+                            html += stockCardQtyCellForGroup(group, bg, vSu, row.code, locationCode, 'SUOMQTY');
 
 
 
@@ -41267,7 +41415,7 @@
 
 
 
-                            html += stockCardClickableQtyCell(bg, vSq, row.code, locationCode, group.key, 'SQTY');
+                            html += stockCardQtyCellForGroup(group, bg, vSq, row.code, locationCode, 'SQTY');
 
 
 
@@ -41555,7 +41703,7 @@
 
 
 
-                        html += stockCardClickableQtyCell(bg, vSq, row.code, locationCode, group.key, 'SQTY');
+                        html += stockCardQtyCellForGroup(group, bg, vSq, row.code, locationCode, 'SQTY');
 
 
 
@@ -41567,7 +41715,7 @@
 
 
 
-                        html += stockCardClickableQtyCell(bg, vSu, row.code, locationCode, group.key, 'SUOMQTY');
+                        html += stockCardQtyCellForGroup(group, bg, vSu, row.code, locationCode, 'SUOMQTY');
 
 
 
@@ -41591,7 +41739,7 @@
 
 
 
-                        html += stockCardClickableQtyCell(bg, vSu, row.code, locationCode, group.key, 'SUOMQTY');
+                        html += stockCardQtyCellForGroup(group, bg, vSu, row.code, locationCode, 'SUOMQTY');
 
 
 
@@ -41615,7 +41763,7 @@
 
 
 
-                        html += stockCardClickableQtyCell(bg, vSq, row.code, locationCode, group.key, 'SQTY');
+                        html += stockCardQtyCellForGroup(group, bg, vSq, row.code, locationCode, 'SQTY');
 
 
 
@@ -42156,6 +42304,14 @@
 
 
                     const locations = Array.isArray(payload.locations) ? payload.locations : [];
+
+                    const avgMonthsRaw = Array.isArray(payload.avg_sales_3m_months)
+                        ? payload.avg_sales_3m_months
+                        : (payload.filters && Array.isArray(payload.filters.avg_sales_3m_months)
+                            ? payload.filters.avg_sales_3m_months
+                            : []);
+                    stockCardAvgSales3mMonths = avgMonthsRaw.map((m) => String(m || '').trim()).filter(Boolean);
+
 
 
 
@@ -52393,7 +52549,7 @@
 
 
 
-                    showTab('view');
+                    goToViewPrStatus('AWAITING');
 
 
 
@@ -53149,18 +53305,6 @@
 
 
 
-                    await loadViewPurchaseRequests(true);
-
-
-
-
-
-
-
-
-
-
-
                     initPurchaseRequestForm();
 
 
@@ -53173,7 +53317,7 @@
 
 
 
-                    showTab('view');
+                    goToViewPrStatus('AWAITING');
 
 
 
