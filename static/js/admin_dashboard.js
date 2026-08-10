@@ -1,6 +1,26 @@
 let customerStatusChart = null;
 const ADMIN_DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000;
 
+function showAdminDashboardTab(tabName) {
+    const tabs = document.querySelectorAll('.admin-dashboard-tabs .eq-line-tab');
+    const panels = {
+        dashboard: document.getElementById('panel-dashboard'),
+        test: document.getElementById('panel-test'),
+    };
+
+    tabs.forEach((tab) => {
+        const isActive = tab.dataset.tab === tabName;
+        tab.classList.toggle('is-active', isActive);
+        tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+
+    Object.keys(panels).forEach((key) => {
+        const panel = panels[key];
+        if (!panel) return;
+        panel.hidden = key !== tabName;
+    });
+}
+
 function readDashboardCache(key) {
     try {
         const raw = sessionStorage.getItem(key);

@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="/static/css/admin.css">
     <link rel="stylesheet" href="/static/css/hamburger_menu.css?v=20260810_nav_fix1">
     <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
+    <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260604_tabs_size">
     <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515">
 </head>
 <body class="equotation-icy-theme">
@@ -19,8 +20,12 @@
 
         <div class="admin-welcome" id="admin-welcome">
             <div class="admin-dashboard-shell">
-               
+                <nav class="eq-line-tabs admin-dashboard-tabs" role="tablist" aria-label="Admin dashboard tabs">
+                    <button type="button" role="tab" id="tab-dashboard" class="eq-line-tab is-active" data-tab="dashboard" aria-selected="true" aria-controls="panel-dashboard" onclick="showAdminDashboardTab('dashboard')">Dashboard</button>
+                    <button type="button" role="tab" id="tab-test" class="eq-line-tab" data-tab="test" aria-selected="false" aria-controls="panel-test" onclick="showAdminDashboardTab('test')">test</button>
+                </nav>
 
+                <div id="panel-dashboard" class="admin-dashboard-panel" role="tabpanel" aria-labelledby="tab-dashboard">
                 <div class="admin-dashboard-grid">
                     <div class="dashboard-widget dashboard-widget--interactive" id="customer-status-widget" data-href="/admin/invoice-aging" role="link" tabindex="0" aria-label="Open invoice aging analytics">
                         <div class="dashboard-widget-header">
@@ -107,6 +112,11 @@
                         </div>
                     </div>
                 </div>
+                </div>
+
+                <div id="panel-test" class="admin-dashboard-panel" role="tabpanel" aria-labelledby="tab-test" hidden>
+                    <div class="admin-test-panel">test</div>
+                </div>
             </div>
         </div>
 
@@ -126,6 +136,6 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/static/js/hamburger_menu.js"></script>
     <script src="/static/js/admin_menu.js"></script>
-    <script src="/static/js/admin_dashboard.js?v=20260430b"></script>
+    <script src="/static/js/admin_dashboard.js?v=20260810_test_tab"></script>
 </body>
 </html>
