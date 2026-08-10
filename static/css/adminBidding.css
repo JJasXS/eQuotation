@@ -10,8 +10,21 @@ body.admin-bidding-page {
     color: var(--ice-text, #1e3a52);
 }
 
-.bidding-page {
+/* Override chat.css .container { height:100vh; flex-direction:row } so panels can scroll. */
+body.admin-bidding-page .container.bidding-page {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: none;
+    height: 100vh;
+    height: 100dvh;
     min-height: 100vh;
+    min-height: 100dvh;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.bidding-page {
     display: flex;
     flex-direction: column;
     box-sizing: border-box;
@@ -63,15 +76,9 @@ body.admin-bidding-page {
         grid-template-rows: auto minmax(210px, 1fr);
     }
 
-    .bidding-col-stack {
+    .bidding-col[aria-label="Supplier cost comparison"] {
         grid-column: 1 / -1;
-        flex-direction: row;
-        align-items: stretch;
-    }
-
-    .bidding-col-stack .bidding-col {
-        flex: 1 1 0;
-        min-width: 0;
+        min-height: 210px;
     }
 }
 
@@ -81,10 +88,6 @@ body.admin-bidding-page {
     }
 
     .bidding-grid {
-        gap: 6px;
-    }
-
-    .bidding-col-stack {
         gap: 6px;
     }
 
@@ -125,18 +128,6 @@ body.admin-bidding-page {
 
     .pr-item .title {
         font-size: 12px;
-    }
-}
-
-@media (max-width: 720px) {
-    .bidding-grid {
-        grid-template-columns: 1fr;
-        grid-template-rows: auto;
-    }
-
-    .bidding-col-stack {
-        grid-column: auto;
-        flex-direction: column;
     }
 }
 
@@ -577,4 +568,226 @@ body.admin-bidding-page {
     background: var(--ice-surface-input, #f0f9ff);
     color: var(--ice-text, #1e3a52);
     font-size: 11px;
+}
+
+/*
+ * Phone / narrow: must come AFTER .bidding-col { overflow:hidden } and
+ * .bidding-col-body { overflow-y:auto } so document scroll wins.
+ * display:contents unwraps the stack so Comparison + Invited are real
+ * grid rows (they were collapsing under the 1400px 2-row layout).
+ */
+@media (max-width: 980px) {
+    html,
+    body.admin-bidding-page {
+        height: auto !important;
+        min-height: 100%;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    body.admin-bidding-page .container.bidding-page {
+        height: auto !important;
+        min-height: 100% !important;
+        max-height: none !important;
+        overflow: visible !important;
+    }
+
+    body.admin-bidding-page .bidding-page .main-content {
+        flex: none !important;
+        min-height: 0 !important;
+        height: auto !important;
+        overflow: visible !important;
+        padding: 0 8px 28px;
+    }
+
+    body.admin-bidding-page .bidding-grid {
+        display: grid !important;
+        flex: none !important;
+        min-height: 0 !important;
+        height: auto !important;
+        grid-template-columns: 1fr !important;
+        grid-template-rows: none !important;
+        grid-auto-rows: auto !important;
+        gap: 12px;
+        overflow: visible !important;
+        align-items: stretch !important;
+    }
+
+    /* Unwrap leftover stack wrappers if present */
+    body.admin-bidding-page .bidding-col-stack {
+        display: contents !important;
+    }
+
+    body.admin-bidding-page .bidding-col,
+    body.admin-bidding-page .bidding-col-stack .bidding-col {
+        display: flex !important;
+        flex-direction: column !important;
+        flex: none !important;
+        grid-column: 1 / -1 !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        min-height: min-content !important;
+        height: auto !important;
+        max-height: none !important;
+        overflow: visible !important;
+    }
+
+    body.admin-bidding-page .bidding-col-body {
+        flex: none !important;
+        overflow: visible !important;
+        max-height: none !important;
+    }
+
+    /* Cap tall lists so Comparison stays reachable */
+    body.admin-bidding-page .bidding-col-body.pr-list,
+    body.admin-bidding-page #bids-cards-wrap.bidding-col-body {
+        max-height: min(38vh, 280px) !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    body.admin-bidding-page .bidding-col[aria-label="Supplier cost comparison"] {
+        min-height: 140px !important;
+    }
+}
+
+/* ---- Invited suppliers: right-edge slide-in drawer ---- */
+.invite-drawer-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1250;
+    background: rgba(20, 45, 70, 0.28);
+    opacity: 0;
+    transition: opacity 0.22s ease;
+    pointer-events: none;
+}
+
+.invite-drawer-backdrop.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* Tab stays fixed on the right edge (not inside the sliding panel) */
+.invite-drawer-tab {
+    position: fixed;
+    top: 50%;
+    right: 0;
+    z-index: 1270;
+    transform: translateY(-50%);
+    width: 38px;
+    min-height: 128px;
+    margin: 0;
+    padding: 14px 0;
+    border: 1px solid var(--ice-border, #b8d4e8);
+    border-right: none;
+    border-radius: 10px 0 0 10px;
+    background: linear-gradient(180deg, var(--ice-accent, #3b8fc4) 0%, #2f7aad 100%);
+    color: #fff;
+    box-shadow: -2px 2px 12px var(--ice-shadow, rgba(30, 80, 120, 0.22));
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.invite-drawer-tab.is-open {
+    right: min(420px, 100vw);
+}
+
+.invite-drawer-tab:hover,
+.invite-drawer-tab:focus-visible {
+    background: linear-gradient(180deg, #4a9fd4 0%, var(--ice-accent, #3b8fc4) 100%);
+    outline: none;
+}
+
+.invite-drawer-tab-label {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.invite-drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    z-index: 1260;
+    height: 100vh;
+    height: 100dvh;
+    width: min(420px, 100vw);
+    pointer-events: none;
+}
+
+.invite-drawer-panel {
+    pointer-events: auto;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: var(--ice-surface, #f7fbff);
+    border-left: 1px solid var(--ice-border, #b8d4e8);
+    box-shadow: -8px 0 28px var(--ice-shadow, rgba(30, 80, 120, 0.18));
+    overflow: hidden;
+    transform: translateX(100%);
+    transition: transform 0.28s ease;
+}
+
+.invite-drawer.is-open {
+    pointer-events: auto;
+}
+
+.invite-drawer.is-open .invite-drawer-panel {
+    transform: translateX(0);
+}
+
+.invite-drawer-head {
+    flex-shrink: 0;
+}
+
+.invite-drawer-head .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+
+.invite-drawer-close {
+    margin-left: auto;
+    min-width: 34px;
+    font-size: 18px;
+    line-height: 1;
+    padding: 4px 10px;
+}
+
+.invite-drawer-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+body.invite-drawer-open {
+    overflow: hidden;
+}
+
+@media (max-width: 980px) {
+    .invite-drawer {
+        width: min(100vw, 100%);
+    }
+
+    .invite-drawer-tab {
+        width: 36px;
+        min-height: 110px;
+        /* Keep tab fully on-screen; do not nest under overflow clip */
+        right: 0;
+    }
+
+    .invite-drawer-tab.is-open {
+        right: 0;
+        opacity: 0;
+        pointer-events: none;
+    }
 }

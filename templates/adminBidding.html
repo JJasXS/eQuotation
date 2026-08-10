@@ -16,7 +16,7 @@
 
     <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
 
-    <link rel="stylesheet" href="/static/css/adminBidding.css?v=20260810_award_colors">
+    <link rel="stylesheet" href="/static/css/adminBidding.css?v=20260810_invite_drawer2">
 
     <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515_admin_blue">
 
@@ -24,7 +24,7 @@
 
 <body class="equotation-icy-theme admin-bidding-page">
 
-    <div class="container bidding-page" style="min-height: 100vh; max-width: none;">
+    <div class="container bidding-page">
 
         <div class="main-content">
 
@@ -34,6 +34,7 @@
 
             {% set page_header_right %}
 
+            <button class="btn secondary" type="button" id="invite-drawer-open-btn" onclick="setInviteDrawerOpen(true)">Invited</button>
             <button class="btn" type="button" onclick="loadRequests()">Refresh PR</button>
 
             {% endset %}
@@ -104,71 +105,21 @@
 
 
 
-                <div class="bidding-col-stack" aria-label="Comparison and invitations">
+                <section class="bidding-col" aria-label="Supplier cost comparison">
 
-                    <section class="bidding-col" aria-label="Supplier cost comparison">
+                    <div class="bidding-col-head">
 
-                        <div class="bidding-col-head">
+                        <h2>Supplier cost comparison</h2>
 
-                            <h2>Supplier cost comparison</h2>
+                    </div>
 
-                        </div>
+                    <div class="bidding-col-body" id="compare-wrap">
 
-                        <div class="bidding-col-body" id="compare-wrap">
+                        <div class="bidding-placeholder">Select a purchase request to compare supplier totals.</div>
 
-                            <div class="bidding-placeholder">Select a purchase request to compare supplier totals.</div>
+                    </div>
 
-                        </div>
-
-                    </section>
-
-
-
-                    <section class="bidding-col" aria-label="Invited suppliers">
-
-                        <div class="bidding-col-head">
-
-                            <h2>Invited suppliers</h2>
-
-                            <div class="toolbar">
-
-                                <button class="btn secondary" type="button" onclick="loadSuppliers()">Load suppliers</button>
-
-                                <button class="btn" type="button" id="invite-btn" onclick="saveInvitations()" disabled>Save invitations</button>
-
-                            </div>
-
-                        </div>
-
-                        <div class="bidding-col-body supplier-list-wrap">
-
-                            <div class="muted" style="margin-bottom:4px;">Already invited for selected PR</div>
-
-                            <div id="invited-suppliers-table-wrap" class="invited-table-wrap">
-
-                                <div class="bidding-placeholder">Select a purchase request to view invited suppliers.</div>
-
-                            </div>
-
-                            <div class="supplier-invite-tools">
-
-                                <label>
-
-                                    <input type="checkbox" id="supplier-select-all" />
-
-                                    Select all suppliers
-
-                                </label>
-
-                            </div>
-
-                            <div id="supplier-list" class="supplier-list"></div>
-
-                        </div>
-
-                    </section>
-
-                </div>
+                </section>
 
             </div>
 
@@ -176,7 +127,35 @@
 
     </div>
 
-
+    <div id="invite-drawer-backdrop" class="invite-drawer-backdrop" hidden></div>
+    <button type="button" class="invite-drawer-tab" id="invite-drawer-tab" aria-expanded="false" aria-controls="invite-drawer-panel" title="Invited suppliers">
+        <span class="invite-drawer-tab-label">Invited</span>
+    </button>
+    <aside id="invite-drawer" class="invite-drawer" aria-label="Invited suppliers drawer" aria-hidden="true">
+        <section id="invite-drawer-panel" class="invite-drawer-panel" role="dialog" aria-modal="true" aria-labelledby="invite-drawer-title">
+            <div class="bidding-col-head invite-drawer-head">
+                <h2 id="invite-drawer-title">Invited suppliers</h2>
+                <div class="toolbar">
+                    <button class="btn secondary" type="button" onclick="loadSuppliers()">Load suppliers</button>
+                    <button class="btn" type="button" id="invite-btn" onclick="saveInvitations()" disabled>Save invitations</button>
+                    <button class="btn secondary invite-drawer-close" type="button" id="invite-drawer-close" aria-label="Close invited suppliers">&times;</button>
+                </div>
+            </div>
+            <div class="bidding-col-body supplier-list-wrap invite-drawer-body">
+                <div class="muted" style="margin-bottom:4px;">Already invited for selected PR</div>
+                <div id="invited-suppliers-table-wrap" class="invited-table-wrap">
+                    <div class="bidding-placeholder">Select a purchase request to view invited suppliers.</div>
+                </div>
+                <div class="supplier-invite-tools">
+                    <label>
+                        <input type="checkbox" id="supplier-select-all" />
+                        Select all suppliers
+                    </label>
+                </div>
+                <div id="supplier-list" class="supplier-list"></div>
+            </div>
+        </section>
+    </aside>
 
     <script src="/static/js/hamburger_menu.js"></script>
 
@@ -200,7 +179,46 @@
 
         let lineAwardsLocked = false;
 
+        function isInviteDrawerOpen() {
+            return document.getElementById('invite-drawer')?.classList.contains('is-open');
+        }
 
+        function setInviteDrawerOpen(open) {
+            const drawer = document.getElementById('invite-drawer');
+            const backdrop = document.getElementById('invite-drawer-backdrop');
+            const tab = document.getElementById('invite-drawer-tab');
+            const headerBtn = document.getElementById('invite-drawer-open-btn');
+            if (!drawer) return;
+            const next = !!open;
+            drawer.classList.toggle('is-open', next);
+            drawer.setAttribute('aria-hidden', next ? 'false' : 'true');
+            document.body.classList.toggle('invite-drawer-open', next);
+            if (backdrop) {
+                backdrop.hidden = !next;
+                backdrop.classList.toggle('is-visible', next);
+            }
+            if (tab) {
+                tab.setAttribute('aria-expanded', next ? 'true' : 'false');
+                tab.classList.toggle('is-open', next);
+            }
+            if (headerBtn) headerBtn.setAttribute('aria-expanded', next ? 'true' : 'false');
+            if (next) {
+                document.getElementById('invite-drawer-close')?.focus({ preventScroll: true });
+            }
+        }
+
+        function toggleInviteDrawer() {
+            setInviteDrawerOpen(!isInviteDrawerOpen());
+        }
+
+        document.getElementById('invite-drawer-tab')?.addEventListener('click', toggleInviteDrawer);
+        document.getElementById('invite-drawer-close')?.addEventListener('click', () => setInviteDrawerOpen(false));
+        document.getElementById('invite-drawer-backdrop')?.addEventListener('click', () => setInviteDrawerOpen(false));
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && isInviteDrawerOpen()) {
+                setInviteDrawerOpen(false);
+            }
+        });
 
         const BIDDING_STATUS_FILTERS = ['ALL', 'APPROVED', 'PENDING', 'CANCELLED'];
 
