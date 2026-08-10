@@ -4478,53 +4478,70 @@ def api_admin_procurement_stock_card_breakdown():
 
 
 def _fetch_all_suppliers_from_sql_api_uncached():
-    """Walk the paginated /supplier API once. Used through the TTL cache below."""
+    """Walk the paginated /supplier API once. Used through the TTL cache below.
+
+    On upstream/auth failure return [] so Firebird merge can still populate Create e-PR.
+    """
     print(
-        f"[PROCUREMENT SUPPLIERS] Fetching from {FASTAPI_BASE_URL}/supplier (cache miss) …",
+        f"[PROCUREMENT SUPPLIERS] Fetching from {FASTAPI_BASE_URL}/supplier (cache miss) ...",
         flush=True,
     )
     headers = _build_sql_api_auth_headers()
     all_suppliers = []
     offset = 0
     limit = 100
-    while True:
-        payload, _resp = http_request_json(
-            'GET',
-            f"{FASTAPI_BASE_URL}/supplier",
-            params={'offset': offset, 'limit': limit},
-            headers=headers or None,
-        )
-        rows = payload.get('data', []) if isinstance(payload, dict) else []
-        if not isinstance(rows, list) or not rows:
+    try:
+        while True:
+            payload, _resp = http_request_json(
+                'GET',
+                f"{FASTAPI_BASE_URL}/supplier",
+                params={'offset': offset, 'limit': limit},
+                headers=headers or None,
+            )
+            rows = payload.get('data', []) if isinstance(payload, dict) else []
+            if not isinstance(rows, list) or not rows:
+                print(
+                    f"[PROCUREMENT SUPPLIERS] Page offset={offset}: no rows (stop)",
+                    flush=True,
+                )
+                break
+            all_suppliers.extend(rows)
+            sample = [
+                str((r or {}).get('code') or (r or {}).get('CODE') or '').strip()
+                for r in rows[:3]
+                if isinstance(r, dict)
+            ]
             print(
-                f"[PROCUREMENT SUPPLIERS] Page offset={offset}: no rows (stop)",
+                f"[PROCUREMENT SUPPLIERS] Page offset={offset}: +{len(rows)} rows"
+                f"{f' (e.g. {sample})' if sample else ''}",
                 flush=True,
             )
-            break
-        all_suppliers.extend(rows)
-        sample = [
-            str((r or {}).get('code') or (r or {}).get('CODE') or '').strip()
-            for r in rows[:3]
-            if isinstance(r, dict)
-        ]
+            pagination = payload.get('pagination', {})
+            if isinstance(pagination, dict) and pagination.get('count') is not None:
+                try:
+                    total_count = int(pagination.get('count'))
+                except (TypeError, ValueError):
+                    total_count = None
+            else:
+                total_count = None
+            offset += limit
+            if len(rows) < limit:
+                break
+            if total_count is not None and offset >= total_count:
+                break
+    except requests.exceptions.HTTPError as e:
+        st = e.response.status_code if e.response is not None else '?'
         print(
-            f"[PROCUREMENT SUPPLIERS] Page offset={offset}: +{len(rows)} rows"
-            f"{f' (e.g. {sample})' if sample else ''}",
+            f"[PROCUREMENT SUPPLIERS] SQL API unavailable (HTTP {st}); using Firebird only",
             flush=True,
         )
-        pagination = payload.get('pagination', {})
-        if isinstance(pagination, dict) and pagination.get('count') is not None:
-            try:
-                total_count = int(pagination.get('count'))
-            except (TypeError, ValueError):
-                total_count = None
-        else:
-            total_count = None
-        offset += limit
-        if len(rows) < limit:
-            break
-        if total_count is not None and offset >= total_count:
-            break
+        return []
+    except requests.exceptions.RequestException as e:
+        print(
+            f"[PROCUREMENT SUPPLIERS] SQL API request failed ({e}); using Firebird only",
+            flush=True,
+        )
+        return []
     print(
         f"[PROCUREMENT SUPPLIERS] Fetched {len(all_suppliers)} supplier(s) from SQL API",
         flush=True,
@@ -4544,16 +4561,19 @@ def _fetch_all_suppliers_from_sql_api():
 @app.route('/api/admin/procurement/suppliers')
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_procurement_suppliers():
-    """Proxy full supplier list from SQL API GET /supplier (emails from udf_email01..15 on the row)."""
+    """Supplier list for Create e-PR: SQL API when available, merged with Firebird."""
     try:
         from utils.sql_api_supplier import enrich_supplier_row_for_procurement
 
-        cache_key = ('sql_api', 'supplier', 'all_v3')
         cache_hits_before = sql_api_master_cache.hits
-        sql_rows = _fetch_all_suppliers_from_sql_api()
+        try:
+            sql_rows = _fetch_all_suppliers_from_sql_api()
+        except Exception as sql_exc:
+            print(f"[PROCUREMENT SUPPLIERS] SQL API fetch error: {sql_exc}", flush=True)
+            sql_rows = []
         from_cache = sql_api_master_cache.hits > cache_hits_before
         fb_rows = _fetch_all_suppliers_from_firebird()
-        rows = _merge_procurement_supplier_lists(sql_rows, fb_rows)
+        rows = _merge_procurement_supplier_lists(sql_rows or [], fb_rows or [])
         data = [
             enrich_supplier_row_for_procurement(r)
             for r in (rows or [])
@@ -4566,20 +4586,15 @@ def api_admin_procurement_suppliers():
         ]
         print(
             f"[PROCUREMENT SUPPLIERS] UI request: returning {len(data)} supplier(s)"
-            f" ({'cache hit' if from_cache else 'fresh fetch'})"
-            f"{f' — sample codes: {sample_codes}' if sample_codes else ''}",
+            f" ({'cache hit' if from_cache else 'fresh fetch'}; sql={len(sql_rows or [])} fb={len(fb_rows or [])})"
+            f"{f' sample codes: {sample_codes}' if sample_codes else ''}",
             flush=True,
         )
         return jsonify({'success': True, 'data': data})
-    except requests.exceptions.HTTPError as e:
-        st = e.response.status_code if e.response is not None else 502
-        return jsonify({'success': False, 'error': f'Supplier API returned {st}'}), 502
     except requests.exceptions.Timeout:
         return jsonify({'success': False, 'error': 'Supplier list request timed out'}), 504
     except requests.exceptions.ConnectionError:
         return jsonify({'success': False, 'error': 'Cannot reach accounting API for supplier list'}), 503
-    except (requests.exceptions.RequestException, ValueError) as e:
-        return jsonify({'success': False, 'error': str(e)}), 502
     except Exception as exc:
         print(f"[PROCUREMENT SUPPLIERS] Error: {exc}", flush=True)
         return jsonify({'success': False, 'error': str(exc)}), 500
@@ -5414,7 +5429,7 @@ def _fetch_all_suppliers_from_firebird() -> list[dict]:
     rows = list(merged.values())
     print(
         f"[PROCUREMENT SUPPLIERS] Firebird: {len(rows)} supplier(s)"
-        f" — codes: {[r.get('code') for r in rows[:8]]}",
+        f" - codes: {[r.get('code') for r in rows[:8]]}",
         flush=True,
     )
     return rows

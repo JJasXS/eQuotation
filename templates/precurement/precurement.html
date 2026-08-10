@@ -1,4 +1,4 @@
-﻿
+
 
 
 
@@ -142,8 +142,217 @@
 
 
 
-    <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260604_tabs_size">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=20260603_report_search_color">
+    <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260810_tabs_phone_v3">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=20260810_report_drawer_v1">
+    <style id="pr-report-phone-layout">
+    /* Report settings: phone drawer (slides in from right) */
+    .stock-report-settings-bar,
+    .stock-report-settings-drawer-head,
+    .stock-report-settings-backdrop {
+      display: none;
+    }
+    @media (max-width: 900px) {
+      body.procurement-warm-ui .procurement-module-tabs.eq-line-tabs {
+        flex-wrap: nowrap !important;
+        margin: 6px 6px 0 !important;
+        padding: 2px 2px 0 !important;
+      }
+      body.procurement-warm-ui .procurement-module-tabs .eq-line-tab {
+        flex: 1 1 0 !important;
+        min-width: 0 !important;
+        padding: 10px 4px !important;
+        font-size: 12px !important;
+        white-space: nowrap !important;
+      }
+
+      #panel-report .stock-report-settings-bar {
+        display: block !important;
+        width: 100%;
+        margin: 0 0 8px;
+        box-sizing: border-box;
+      }
+      #panel-report .stock-report-settings-open-btn {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid #b8d4e8;
+        background: #3b8fc4;
+        color: #fff;
+        border-radius: 10px;
+        padding: 11px 14px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        text-align: center;
+      }
+
+      #panel-report .stock-report-settings-backdrop {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 2400;
+        background: rgba(20, 40, 60, 0.45);
+        border: none;
+        padding: 0;
+        margin: 0;
+      }
+      #panel-report .stock-report-settings-backdrop.is-open {
+        display: block !important;
+      }
+
+      #panel-report .stock-report-settings-drawer-head {
+        display: flex !important;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin: 0 0 12px;
+        padding: 0 0 10px;
+        border-bottom: 1px solid #d5e6f2;
+        flex: 0 0 auto !important;
+        width: 100% !important;
+      }
+      #panel-report .stock-report-settings-drawer-head strong {
+        font-size: 15px;
+        color: #1a4d6e;
+      }
+      #panel-report .stock-report-settings-close-btn {
+        border: 1px solid #b8d4e8;
+        background: #eef6fc;
+        color: #1a4d6e;
+        width: 2.25rem;
+        height: 2.25rem;
+        border-radius: 8px;
+        font-size: 1.35rem;
+        line-height: 1;
+        cursor: pointer;
+      }
+
+      #panel-report .location-filter-shell.location-filter-shell--below-cutoff {
+        position: fixed !important;
+        top: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        left: auto !important;
+        width: min(100vw, 22.5rem) !important;
+        max-width: 100vw !important;
+        height: 100vh !important;
+        height: 100dvh !important;
+        margin: 0 !important;
+        padding: 14px 14px 24px !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        z-index: 2401 !important;
+        border-radius: 14px 0 0 14px !important;
+        box-shadow: -8px 0 28px rgba(20, 40, 60, 0.22) !important;
+        background: #f7fbff !important;
+        border: 1px solid #b8d4e8 !important;
+        border-right: none !important;
+        transform: translateX(105%) !important;
+        transition: transform 0.28s ease !important;
+        -webkit-overflow-scrolling: touch;
+        box-sizing: border-box !important;
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 0 !important;
+      }
+      #panel-report .location-filter-shell.location-filter-shell--below-cutoff.is-open {
+        transform: translateX(0) !important;
+      }
+      body.stock-report-settings-drawer-open {
+        overflow: hidden !important;
+      }
+
+      #panel-report .location-filter-shell--below-cutoff .location-filter-locations {
+        display: flex !important;
+        flex-direction: column !important;
+        flex-wrap: nowrap !important;
+        align-items: stretch !important;
+        gap: 12px !important;
+        width: 100% !important;
+      }
+      #panel-report .location-filter-shell--below-cutoff .location-filter-locations__main,
+      #panel-report .location-filter-shell--below-cutoff .location-filter-locations__settings,
+      #panel-report .location-filter-shell--below-cutoff .stock-column-filter-panel,
+      #panel-report .location-filter-shell--below-cutoff .stock-report-advanced-settings,
+      #panel-report .location-filter-shell--below-cutoff .stock-report-settings-group,
+      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip,
+      #panel-report .stock-dashboard-cutoff-strip__left,
+      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip__main {
+        display: flex !important;
+        flex-direction: column !important;
+        flex-wrap: nowrap !important;
+        align-items: stretch !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        flex: 0 0 auto !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+        padding-left: 0 !important;
+        border-left: none !important;
+        box-sizing: border-box !important;
+      }
+      #panel-report .stock-column-filter-chips {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 8px 12px !important;
+        width: 100% !important;
+      }
+      #panel-report .stock-card-uom-toggle {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: stretch !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+        gap: 8px !important;
+        padding: 8px 10px !important;
+      }
+      #panel-report .stock-card-uom-option {
+        width: 100% !important;
+        justify-content: flex-start !important;
+      }
+      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip {
+        justify-content: stretch !important;
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+        margin: 4px 0 0 0 !important;
+      }
+      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip .location-filter-date-field {
+        display: flex !important;
+        flex-direction: column !important;
+        width: 100% !important;
+        max-width: none !important;
+        margin: 0 !important;
+        gap: 4px !important;
+      }
+      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip .location-filter-date-field input,
+      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip .location-filter-date-field input[type="date"] {
+        display: block !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        max-width: none !important;
+        box-sizing: border-box !important;
+      }
+      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip__date-actions {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: stretch !important;
+        width: 100% !important;
+        gap: 8px !important;
+      }
+      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip__date-actions .view-pr-refresh-btn,
+      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip__date-actions .location-buy-btn {
+        display: block !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+        text-align: center !important;
+        padding: 10px 12px !important;
+        font-size: 13px !important;
+      }
+    }
+    </style>
 
 
 
@@ -497,29 +706,22 @@
 
 
 
-                                    <div class="stock-dashboard-report-pane">
+                                                                        <div class="stock-dashboard-report-pane">
 
+                                        <div class="stock-report-settings-bar" id="stock-report-settings-bar">
+                                            <button type="button" class="stock-report-settings-open-btn" id="stock-report-settings-open" aria-controls="stock-report-settings-panel" aria-expanded="false" onclick="openStockReportSettingsDrawer()">
+                                                Report settings
+                                            </button>
+                                        </div>
 
+                                        <div class="stock-report-settings-backdrop" id="stock-report-settings-backdrop" hidden onclick="closeStockReportSettingsDrawer()"></div>
 
+                                        <div class="location-filter-shell location-filter-shell--below-cutoff" id="stock-report-settings-panel" role="dialog" aria-modal="true" aria-labelledby="stock-report-settings-title">
 
-
-
-
-
-
-
-
-                                        <div class="location-filter-shell location-filter-shell--below-cutoff">
-
-
-
-
-
-
-
-
-
-
+                                            <div class="stock-report-settings-drawer-head">
+                                                <strong id="stock-report-settings-title">Report settings</strong>
+                                                <button type="button" class="stock-report-settings-close-btn" id="stock-report-settings-close" aria-label="Close settings" onclick="closeStockReportSettingsDrawer()">×</button>
+                                            </div>
 
                                             <div class="location-filter-locations">
 
@@ -4075,6 +4277,10 @@
 
 
 
+                                                <th class="pr-col-item-code">Item Code</th>
+
+
+
                                                 <th class="pr-col-description">Description <em>*</em></th>
 
                                                 <th>Thickness</th>
@@ -4346,7 +4552,33 @@
 
 
 
-                                    <section class="pr-create-panel" aria-label="Invite suppliers">
+                                    </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                
+
+<section class="pr-create-panel" aria-label="Invite suppliers">
 
 
 
@@ -4828,41 +5060,7 @@
 
                                     </section>
 
-
-
-
-
-
-
-
-
-
-
-                                </div>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-                                <div class="pr-create-footer">
+<div class="pr-create-footer">
 
 
 
@@ -7207,7 +7405,41 @@
 
 
 
+
+        function openStockReportSettingsDrawer() {
+            const panel = document.getElementById('stock-report-settings-panel');
+            const backdrop = document.getElementById('stock-report-settings-backdrop');
+            const openBtn = document.getElementById('stock-report-settings-open');
+            if (!panel) return;
+            panel.classList.add('is-open');
+            if (backdrop) {
+                backdrop.hidden = false;
+                backdrop.classList.add('is-open');
+            }
+            if (openBtn) openBtn.setAttribute('aria-expanded', 'true');
+            document.body.classList.add('stock-report-settings-drawer-open');
+        }
+
+        function closeStockReportSettingsDrawer() {
+            const panel = document.getElementById('stock-report-settings-panel');
+            const backdrop = document.getElementById('stock-report-settings-backdrop');
+            const openBtn = document.getElementById('stock-report-settings-open');
+            if (panel) panel.classList.remove('is-open');
+            if (backdrop) {
+                backdrop.classList.remove('is-open');
+                backdrop.hidden = true;
+            }
+            if (openBtn) openBtn.setAttribute('aria-expanded', 'false');
+            document.body.classList.remove('stock-report-settings-drawer-open');
+        }
+
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') closeStockReportSettingsDrawer();
+        });
+
         function showTab(tabName) {
+            try { closeStockReportSettingsDrawer(); } catch (e) {}
+
 
 
 
@@ -32112,6 +32344,8 @@
         }
 
         function goToCreateProcurement() {
+            try { closeStockReportSettingsDrawer(); } catch (e) {}
+
 
 
 
@@ -42486,6 +42720,8 @@
 
 
         function applyStockCardDateFilter() {
+            try { closeStockReportSettingsDrawer(); } catch (e) {}
+
 
 
 
@@ -42534,6 +42770,8 @@
 
 
         function clearStockCardDateFilter() {
+            try { closeStockReportSettingsDrawer(); } catch (e) {}
+
 
 
 
@@ -48757,6 +48995,10 @@
 
 
 
+
+                        <td class="pr-item-code-cell">
+                            <span class="pr-item-code-readonly" title="${escapeHtml(item.itemCode || '')}">${escapeHtml(item.itemCode || '-')}</span>
+                        </td>
 
                         <td class="pr-code-cell">
                             ${isEditMode

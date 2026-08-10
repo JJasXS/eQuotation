@@ -1388,13 +1388,27 @@ def fetch_procurement_stock_card_data(
         if location_code:
             locations.append(location_code)
 
-    cur.execute("SELECT CODE FROM ST_ITEM ORDER BY CODE")
-    item_rows = cur.fetchall() or []
+    # Report tab: only stock items with truthy ST_ITEM.UDF_DIRECT (Create tab stays unfiltered).
+    st_item_cols = _get_table_columns(cur, "ST_ITEM")
     item_codes = []
-    for row in item_rows:
-        code = _clean_str(row[0] if row and len(row) > 0 else None)
-        if code:
-            item_codes.append(code)
+    if "UDF_DIRECT" in st_item_cols:
+        cur.execute("SELECT CODE, UDF_DIRECT FROM ST_ITEM ORDER BY CODE")
+        item_rows = cur.fetchall() or []
+        for row in item_rows:
+            code = _clean_str(row[0] if row and len(row) > 0 else None)
+            if code and _truthy(row[1] if row and len(row) > 1 else None):
+                item_codes.append(code)
+    else:
+        print(
+            "[PROCUREMENT STOCK CARD] ST_ITEM.UDF_DIRECT missing; showing all items",
+            flush=True,
+        )
+        cur.execute("SELECT CODE FROM ST_ITEM ORDER BY CODE")
+        item_rows = cur.fetchall() or []
+        for row in item_rows:
+            code = _clean_str(row[0] if row and len(row) > 0 else None)
+            if code:
+                item_codes.append(code)
 
     date_params = tuple(value for value in (normalized_from, normalized_to) if value is not None)
 

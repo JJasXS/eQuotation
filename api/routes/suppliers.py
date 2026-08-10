@@ -93,9 +93,11 @@ def list_suppliers(
     last_detail = "Supplier API unavailable"
     for path in _external_supplier_list_paths():
         url = _external_supplier_list_url(path)
-        print(
-            f"[SQL API SUPPLIER] GET list offset={offset} limit={limit} → {url}",
-            flush=True,
+        logger.info(
+            "[SQL API SUPPLIER] GET list offset=%s limit=%s -> %s",
+            offset,
+            limit,
+            url,
         )
         try:
             resp = _make_sigv4_get(url, params)
@@ -119,21 +121,26 @@ def list_suppliers(
                     for r in rows[:3]
                     if isinstance(r, dict)
                 ]
-                print(
-                    f"[SQL API SUPPLIER] OK {url} → {len(rows)} row(s)"
-                    f"{f' (e.g. {sample})' if sample else ''}",
-                    flush=True,
+                logger.info(
+                    "[SQL API SUPPLIER] OK %s -> %s row(s)%s",
+                    url,
+                    len(rows),
+                    f" (e.g. {sample})" if sample else "",
                 )
                 return body
             if isinstance(rows, list) and not rows:
-                print(f"[SQL API SUPPLIER] OK {url} → empty data[], try next path", flush=True)
+                logger.info("[SQL API SUPPLIER] OK %s -> empty data[], try next path", url)
                 continue
             return body
 
         last_status = resp.status_code
         last_detail = f"Supplier API {url} returned {resp.status_code}"
-        print(f"[SQL API SUPPLIER] FAIL {url} → HTTP {resp.status_code}", flush=True)
-        logger.warning("Supplier list %s -> %s: %s", url, resp.status_code, resp.text[:200])
+        logger.warning(
+            "[SQL API SUPPLIER] FAIL %s -> HTTP %s: %s",
+            url,
+            resp.status_code,
+            resp.text[:200],
+        )
 
-    print(f"[SQL API SUPPLIER] All list paths failed (last HTTP {last_status})", flush=True)
+    logger.warning("[SQL API SUPPLIER] All list paths failed (last HTTP %s)", last_status)
     raise HTTPException(status_code=502, detail=last_detail)

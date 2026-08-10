@@ -68,6 +68,25 @@ body.procurement-warm-ui .procurement-module-tabs .eq-line-tab {
     text-align: center;
 }
 
+/* Phone: keep Dashboard / View / Create on one row */
+@media (max-width: 900px) {
+    body.procurement-warm-ui .procurement-module-tabs.eq-line-tabs {
+        flex-wrap: nowrap;
+        justify-content: stretch;
+        margin: 6px 6px 0;
+        padding: 2px 2px 0;
+        gap: 0;
+    }
+
+    body.procurement-warm-ui .procurement-module-tabs .eq-line-tab {
+        flex: 1 1 0;
+        min-width: 0;
+        padding: 10px 4px;
+        font-size: 12px;
+        white-space: nowrap;
+    }
+}
+
 /* View e-PR approval filters (Draft / Approved / Pending / Cancelled) */
 body.procurement-warm-ui #panel-view .pr-view-filter-tabs.eq-line-tabs {
     margin: 0;
