@@ -143,7 +143,7 @@
 
 
     <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260810_tabs_phone_v3">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=20260811_bulk_scope1">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=20260811_confirm_modal1">
     <style id="pr-report-phone-layout">
     /* Report settings: phone drawer (slides in from right) */
     .stock-report-settings-bar,
@@ -1895,7 +1895,8 @@
                                             <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="CANCELLED" aria-selected="false" onclick="toggleViewStatusFilter('CANCELLED')">Cancelled</button>
                                         </nav>
                                         <div class="pr-view-toolbar-actions view-pr-actions-right view-pr-actions-right--toolbar">
-                                            <button type="button" class="view-pr-refresh-btn view-pr-bulk-transfer-toggle" id="view-bulk-transfer-toggle" onclick="toggleViewBulkTransferPanel()" aria-pressed="false">Bulk Transfer to PO</button>
+                                            <button type="button" class="view-pr-refresh-btn view-pr-bulk-transfer-toggle" id="view-bulk-transfer-toggle" onclick="onBulkTransferToolbarClick()" aria-pressed="false" title="Transfer selected lines on the open/checked PR(s) — same as Transfer to Purchase Order">Bulk Transfer to PO</button>
+                                            <button type="button" class="view-pr-refresh-btn view-pr-refresh-btn--ghost" onclick="toggleViewBulkTransferPanel(true)" title="Open multi-PR consolidate workspace">Consolidate…</button>
                                             <button type="button" class="view-pr-refresh-btn view-pr-refresh-btn--ghost" onclick="loadViewPurchaseRequests(true, { bustCache: true })">Refresh</button>
                                             <button type="button" class="view-pr-refresh-btn view-pr-update-availability-btn" hidden aria-hidden="true" id="view-pr-update-btn" onclick="saveViewDetailApprovals()" disabled title="Check and update item availability before transferring this PR.">Update</button>
                                         </div>
@@ -5422,6 +5423,22 @@
 
     </div>
 
+    <div id="pr-confirm-modal" class="pr-confirm-modal" hidden role="dialog" aria-modal="true" aria-labelledby="pr-confirm-modal-title">
+        <div class="pr-confirm-modal__backdrop" onclick="resolveProcurementConfirmModal(false)"></div>
+        <div class="pr-confirm-modal__dialog">
+            <div class="pr-confirm-modal__icon" aria-hidden="true">PO</div>
+            <h2 id="pr-confirm-modal-title" class="pr-confirm-modal__title">Confirm transfer</h2>
+            <p id="pr-confirm-modal-body" class="pr-confirm-modal__body"></p>
+            <ul id="pr-confirm-modal-list" class="pr-confirm-modal__list"></ul>
+            <p id="pr-confirm-modal-note" class="pr-confirm-modal__note"></p>
+            <div class="pr-confirm-modal__actions">
+                <button type="button" class="pr-confirm-modal__btn pr-confirm-modal__btn--ghost" id="pr-confirm-modal-cancel" onclick="resolveProcurementConfirmModal(false)">Cancel</button>
+                <button type="button" class="pr-confirm-modal__btn pr-confirm-modal__btn--primary" id="pr-confirm-modal-ok" onclick="resolveProcurementConfirmModal(true)">Transfer</button>
+            </div>
+        </div>
+    </div>
+
+
 
 
 
@@ -6972,6 +6989,197 @@
             el.hidden = !msg;
         }
 
+
+
+        let _procurementConfirmResolver = null;
+
+        function resolveProcurementConfirmModal(ok) {
+            const modal = document.getElementById('pr-confirm-modal');
+            if (modal) {
+                modal.hidden = true;
+                modal.setAttribute('aria-hidden', 'true');
+            }
+            const resolver = _procurementConfirmResolver;
+            _procurementConfirmResolver = null;
+            if (typeof resolver === 'function') resolver(Boolean(ok));
+        }
+
+        function showProcurementConfirmModal(options) {
+            const opts = options || {};
+            const modal = document.getElementById('pr-confirm-modal');
+            const titleEl = document.getElementById('pr-confirm-modal-title');
+            const bodyEl = document.getElementById('pr-confirm-modal-body');
+            const listEl = document.getElementById('pr-confirm-modal-list');
+            const noteEl = document.getElementById('pr-confirm-modal-note');
+            const okBtn = document.getElementById('pr-confirm-modal-ok');
+            const cancelBtn = document.getElementById('pr-confirm-modal-cancel');
+            if (!modal || !listEl) {
+                return Promise.resolve(window.confirm(String(opts.body || opts.title || 'Confirm?')));
+            }
+            if (titleEl) titleEl.textContent = String(opts.title || 'Confirm');
+            if (bodyEl) bodyEl.textContent = String(opts.body || '');
+            if (noteEl) noteEl.textContent = String(opts.note || '');
+            if (okBtn) okBtn.textContent = String(opts.confirmLabel || 'Confirm');
+            if (cancelBtn) cancelBtn.textContent = String(opts.cancelLabel || 'Cancel');
+            const items = Array.isArray(opts.items) ? opts.items : [];
+            listEl.innerHTML = items.map((item) => {
+                const left = escapeHtml(String((item && item.label) || ''));
+                const right = escapeHtml(String((item && item.meta) || ''));
+                return `<li><strong>${left}</strong><span>${right}</span></li>`;
+            }).join('');
+            listEl.hidden = !items.length;
+            modal.hidden = false;
+            modal.setAttribute('aria-hidden', 'false');
+            try { (okBtn || cancelBtn)?.focus(); } catch (e) {}
+            return new Promise((resolve) => {
+                _procurementConfirmResolver = resolve;
+            });
+        }
+
+        function onBulkTransferToolbarClick() {
+            if (document.body.classList.contains('procurement-hide-transfer')) {
+                alert('Transfer is disabled for this account.');
+                return;
+            }
+            // If the advanced consolidate panel is open, Exit closes it.
+            if (viewBulkTransferOpen) {
+                toggleViewBulkTransferPanel(false);
+                return;
+            }
+            runBulkTransferLikeDetailButton();
+        }
+
+        function getBulkTransferTargetHeaders() {
+            const headers = [];
+            const seen = new Set();
+            const pushId = (rawId) => {
+                const id = Number(rawId || 0);
+                if (!id || seen.has(id)) return;
+                const row = (viewPurchaseRequests || []).find((r) => Number(r.id || 0) === id);
+                if (!row) return;
+                seen.add(id);
+                headers.push(row);
+            };
+            if (viewBulkSelectedHeaderIds && viewBulkSelectedHeaderIds.size) {
+                for (const id of viewBulkSelectedHeaderIds) pushId(id);
+            } else if (viewSelectedHeaderId != null) {
+                pushId(viewSelectedHeaderId);
+            }
+            return headers;
+        }
+
+        async function runBulkTransferLikeDetailButton() {
+            if (bulkTransferSubmitting) return;
+            let headers = getBulkTransferTargetHeaders();
+            if (!headers.length) {
+                alert('Open a purchase request (or tick PR checkboxes on the left), then click Bulk Transfer to PO.');
+                return;
+            }
+
+            bulkTransferSubmitting = true;
+            try {
+                for (const header of headers) {
+                    if (!Array.isArray(header.details) || !header.details.length) {
+                        try {
+                            await fetchViewPurchaseRequestDetail(header, false);
+                        } catch (e) {
+                            console.warn('[BULK TRANSFER] detail load failed', header && header.id, e);
+                        }
+                    }
+                }
+                // Refresh references after detail hydrate.
+                headers = getBulkTransferTargetHeaders();
+
+                const jobs = [];
+                for (const header of headers) {
+                    const selectedDetails = getSelectedTransferDetails(header)
+                        .filter((detail) => Number(detail.id || 0) > 0)
+                        .map((detail) => ({
+                            detailId: Number(detail.id || 0),
+                            quantity: getDetailTransferQuantity(detail),
+                            transferable: isDetailChecked(detail),
+                        }))
+                        .filter((line) => line.quantity > 0 && line.transferable);
+                    if (!selectedDetails.length) continue;
+                    if (!isPurchaseRequestTransferReady(header)) continue;
+                    jobs.push({
+                        headerId: Number(header.id || 0),
+                        requestNumber: String(header.requestNumber || ''),
+                        selectedDetails,
+                    });
+                }
+
+                if (!jobs.length) {
+                    alert('No transferable selected lines on the chosen PR(s). Open the PR, keep approved lines selected with qty > 0, then try again.');
+                    return;
+                }
+
+                                const confirmItems = jobs.map((job) => ({
+                    label: job.requestNumber || String(job.headerId),
+                    meta: `${job.selectedDetails.length} line(s)`,
+                }));
+                const ok = await showProcurementConfirmModal({
+                    title: 'Transfer to Purchase Order',
+                    body: 'Transfer selected lines to Purchase Order?',
+                    note: 'Same action as the detail Transfer to Purchase Order button.',
+                    items: confirmItems,
+                    confirmLabel: 'Transfer',
+                    cancelLabel: 'Cancel',
+                });
+                if (!ok) return;
+
+                const poNumbers = [];
+                const errors = [];
+                for (const job of jobs) {
+                    viewTransferSavingHeaderIds.add(Number(job.headerId));
+                    try {
+                        const res = await fetch('/api/admin/procurement/purchase-requests/transfer-to-po', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                requestId: Number(job.headerId),
+                                requestNumber: String(job.requestNumber || ''),
+                                transferLines: job.selectedDetails,
+                            }),
+                        });
+                        const data = await res.json().catch(() => ({}));
+                        if (!res.ok || !data.success) {
+                            throw new Error(data.error || `Transfer failed (HTTP ${res.status})`);
+                        }
+                        const nums = Array.isArray(data?.data?.poNumbers)
+                            ? data.data.poNumbers.filter(Boolean)
+                            : [];
+                        if (nums.length) {
+                            poNumbers.push(...nums);
+                        } else if (data?.data?.poNumber) {
+                            poNumbers.push(data.data.poNumber);
+                        }
+                        invalidateViewDetailCache(job.headerId);
+                    } catch (err) {
+                        errors.push(`${job.requestNumber || job.headerId}: ${err.message || 'failed'}`);
+                    } finally {
+                        viewTransferSavingHeaderIds.delete(Number(job.headerId));
+                    }
+                }
+
+                try {
+                    await loadViewPurchaseRequests(true, { bustCache: true });
+                } catch (e) {}
+
+                if (poNumbers.length) {
+                    const uniquePos = Array.from(new Set(poNumbers.map((v) => String(v))));
+                    let msg = `Transfer completed. Purchase Order(s): ${uniquePos.join(', ')}`;
+                    if (errors.length) msg += `\n\nSome failed:\n${errors.join('\n')}`;
+                    alert(msg);
+                } else {
+                    alert(errors.length ? `Transfer failed.\n${errors.join('\n')}` : 'Transfer failed.');
+                }
+            } finally {
+                bulkTransferSubmitting = false;
+                try { renderFilteredViewPurchaseRequests(); } catch (e) {}
+            }
+        }
+
         function toggleViewBulkTransferPanel(forceOpen) {
             if (document.body.classList.contains('procurement-hide-transfer')) {
                 setBulkTransferMessage('Transfer is disabled for this account.', true);
@@ -7601,12 +7809,18 @@
                 g.prs.add(row.requestNumber || String(row.requestId));
                 g.lines += 1;
             }
-            const previewText = Array.from(previewGroups.values()).map((g) => (
-                `- ${g.supplierCode} (${g.currencyCode}): ${g.lines} line(s) from ${Array.from(g.prs).join(', ')}`
-            )).join('\n');
-            const ok = window.confirm(
-                `Create ${info.poCount} purchase order(s) from ${info.lineCount} line(s) across ${info.prCount} PR(s)?\n\n${previewText}`
-            );
+                        const confirmItems = Array.from(previewGroups.values()).map((g) => ({
+                label: `${g.supplierCode} (${g.currencyCode})`,
+                meta: `${g.lines} line(s) · ${Array.from(g.prs).join(', ')}`,
+            }));
+            const ok = await showProcurementConfirmModal({
+                title: 'Create purchase orders',
+                body: `Create ${info.poCount} purchase order(s) from ${info.lineCount} line(s) across ${info.prCount} PR(s)?`,
+                note: 'One purchase order is created per supplier and currency.',
+                items: confirmItems,
+                confirmLabel: 'Create POs',
+                cancelLabel: 'Cancel',
+            });
             if (!ok) return;
 
             bulkTransferSubmitting = true;
