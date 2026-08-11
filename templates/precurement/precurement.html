@@ -143,7 +143,7 @@
 
 
     <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260810_tabs_phone_v3">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=20260811_confirm_big1">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=20260811_phone_drawer2">
     <style id="pr-report-phone-layout">
     /* Report settings: phone drawer (slides in from right) */
     .stock-report-settings-bar,
@@ -2214,7 +2214,12 @@
 
 
 
+                                    <div id="view-pr-detail-drawer-backdrop" class="view-pr-detail-drawer-backdrop" hidden onclick="closeViewPrDetailDrawer()" aria-hidden="true"></div>
                                     <div class="quotation-detail-pane pr-view-quotation-detail" id="view-pr-items-panel" aria-label="Line items for selected request">
+                                        <div class="view-pr-detail-drawer-chrome" id="view-pr-detail-drawer-chrome">
+                                            <strong class="view-pr-detail-drawer-title">Purchase request</strong>
+                                            <button type="button" class="view-pr-detail-drawer-close" onclick="closeViewPrDetailDrawer()" aria-label="Close purchase request details">&times;</button>
+                                        </div>
 
 
 
@@ -2238,7 +2243,7 @@
 
 
 
-                                            <div class="view-pr-detail-panel-empty view-pr-detail-panel-empty--hero quotation-detail-empty"><p><strong>No purchase request selected</strong></p><p class="view-pr-detail-empty-hint">Choose a PR from the list on the left to view details and line items.</p></div>
+                                            <div class="view-pr-detail-panel-empty view-pr-detail-panel-empty--hero quotation-detail-empty"><p><strong>No purchase request selected</strong></p><p class="view-pr-detail-empty-hint">Tap a purchase request card to open details.</p></div>
 
 
 
@@ -22008,18 +22013,10 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
 
             if (!selectedId) {
-
-
-
-
-
-
-
-
-
-
-
-                panel.innerHTML = '<div class="view-pr-detail-panel-empty view-pr-detail-panel-empty--hero"><p><strong>No purchase request selected</strong></p><p class="view-pr-detail-empty-hint">Choose a PR from the list on the left to view date, supplier, amount, and line items.</p></div>';
+                document.body.classList.remove('view-pr-detail-drawer-open');
+                const _backdrop = document.getElementById('view-pr-detail-drawer-backdrop');
+                if (_backdrop) _backdrop.hidden = true;
+                panel.innerHTML = '<div class="view-pr-detail-panel-empty view-pr-detail-panel-empty--hero"><p><strong>No purchase request selected</strong></p><p class="view-pr-detail-empty-hint">Tap a purchase request card to open details.</p></div>';
 
 
 
@@ -22620,6 +22617,42 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
 
 
+
+
+        function isViewPrPhoneLayout() {
+            try {
+                return window.matchMedia && window.matchMedia('(max-width: 900px)').matches;
+            } catch (e) {
+                return window.innerWidth <= 900;
+            }
+        }
+
+        function openViewPrDetailDrawer() {
+            if (!isViewPrPhoneLayout()) {
+                document.body.classList.remove('view-pr-detail-drawer-open');
+                const backdrop = document.getElementById('view-pr-detail-drawer-backdrop');
+                if (backdrop) backdrop.hidden = true;
+                return;
+            }
+            document.body.classList.add('view-pr-detail-drawer-open');
+            const backdrop = document.getElementById('view-pr-detail-drawer-backdrop');
+            if (backdrop) backdrop.hidden = false;
+            const panel = document.getElementById('view-pr-items-panel');
+            if (panel) {
+                try { panel.scrollTop = 0; } catch (e) {}
+            }
+        }
+
+        function closeViewPrDetailDrawer() {
+            document.body.classList.remove('view-pr-detail-drawer-open');
+            const backdrop = document.getElementById('view-pr-detail-drawer-backdrop');
+            if (backdrop) backdrop.hidden = true;
+            if (viewSelectedHeaderId != null) {
+                viewSelectedHeaderId = null;
+                try { renderFilteredViewPurchaseRequests(); } catch (e) {}
+                try { syncViewPrToUrl(); } catch (e) {}
+            }
+        }
 
         function onViewPrCardActivate(event, headerId) {
 
@@ -24031,71 +24064,20 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
 
             if (viewSelectedHeaderId != null && Number(viewSelectedHeaderId) === id) {
-
-
-
-
-
-
-
-
-
-
-
                 viewSelectedHeaderId = null;
-
-
-
-
-
-
-
-
-
-
-
                 renderFilteredViewPurchaseRequests();
                 if (!opts.fromUrl) {
                     syncViewPrToUrl();
                 }
-
+                if (isViewPrPhoneLayout()) {
+                    document.body.classList.remove('view-pr-detail-drawer-open');
+                    const _bd = document.getElementById('view-pr-detail-drawer-backdrop');
+                    if (_bd) _bd.hidden = true;
+                }
                 return;
-
-
-
-
-
-
-
-
-
-
-
             }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
             viewSelectedHeaderId = id;
+            openViewPrDetailDrawer();
 
 
 

@@ -7612,3 +7612,231 @@ body.procurement-warm-ui .pr-view-pr-card.view-pr-card-skeleton {
         padding: 16px 12px 14px;
     }
 }
+
+/* View e-PR phone: organized chrome + detail drawer */
+.view-pr-detail-drawer-backdrop {
+    display: none;
+}
+
+.view-pr-detail-drawer-chrome {
+    display: none;
+}
+
+@media (max-width: 900px) {
+    /* Module tabs stay compact (already handled in template); organize View toolbar */
+    body.procurement-warm-ui #panel-view .pr-view-page-header--compact .pr-view-toolbar {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 8px;
+        padding: 8px 10px 6px;
+        align-items: stretch;
+    }
+
+    body.procurement-warm-ui #panel-view .pr-view-page-header--compact .pr-view-page-title {
+        font-size: 1.05rem;
+        white-space: normal;
+        padding: 0 2px;
+    }
+
+    body.procurement-warm-ui #panel-view .pr-view-page-header--compact .pr-view-filter-tabs.eq-line-tabs {
+        display: flex;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        gap: 0;
+        padding: 0;
+        margin: 0 -2px;
+        border-bottom: 1px solid #e2cfab;
+    }
+
+    body.procurement-warm-ui #panel-view .pr-view-page-header--compact .pr-view-filter-tabs.eq-line-tabs::-webkit-scrollbar {
+        display: none;
+    }
+
+    body.procurement-warm-ui #panel-view .pr-view-page-header--compact .pr-view-filter-tabs .eq-line-tab {
+        flex: 0 0 auto;
+        padding: 8px 12px;
+        font-size: 12px;
+        white-space: nowrap;
+    }
+
+    body.procurement-warm-ui #panel-view .pr-view-page-header--compact .pr-view-toolbar-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+        width: 100%;
+        margin-left: 0;
+        flex-wrap: wrap;
+    }
+
+    body.procurement-warm-ui #panel-view .pr-view-page-header--compact .pr-view-toolbar-actions > button {
+        width: 100%;
+        min-height: 38px;
+        padding: 8px 10px;
+        font-size: 12px;
+        border-radius: 8px;
+        box-sizing: border-box;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    body.procurement-warm-ui #panel-view .pr-view-page-header--compact .pr-view-toolbar-actions > button:last-child:nth-child(odd) {
+        grid-column: 1 / -1;
+    }
+
+    /* Bulk selection bar: compact row, not stacked giant buttons */
+    body.procurement-warm-ui #panel-view .pr-view-page-header--compact > .view-pr-bulk-pending-bar {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+        padding: 8px 10px;
+        margin: 0 8px 6px;
+    }
+
+    body.procurement-warm-ui #panel-view .pr-view-page-header--compact > .view-pr-bulk-pending-bar .view-pr-bulk-selection-count {
+        font-size: 12px;
+        line-height: 1.3;
+    }
+
+    body.procurement-warm-ui #panel-view .pr-view-page-header--compact > .view-pr-bulk-pending-bar .view-pr-bulk-pending-bar__actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+        width: 100%;
+    }
+
+    body.procurement-warm-ui #panel-view .pr-view-page-header--compact > .view-pr-bulk-pending-bar .view-pr-bulk-btn {
+        width: 100%;
+        min-height: 36px;
+        padding: 7px 8px;
+        font-size: 12px;
+        border-radius: 8px;
+        box-sizing: border-box;
+    }
+
+    body.procurement-warm-ui #panel-view .pr-view-page-header--compact > .view-pr-bulk-pending-bar .view-pr-bulk-btn--primary {
+        grid-column: 1 / -1;
+    }
+
+    /* Split: list fills screen; detail becomes off-canvas drawer */
+    body.procurement-warm-ui #panel-view .quotation-split-wrap.pr-procurement-split {
+        display: block !important;
+        grid-template-columns: unset !important;
+        height: auto;
+        min-height: calc(100dvh - 220px);
+        max-height: none;
+        position: relative;
+    }
+
+    body.procurement-warm-ui #panel-view .quotation-list-pane.pr-view-left-pane {
+        display: block !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        min-height: calc(100dvh - 240px);
+        max-height: none !important;
+        height: auto;
+    }
+
+    .view-pr-detail-drawer-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 2450;
+        background: rgba(30, 24, 18, 0.42);
+        border: none;
+        padding: 0;
+        margin: 0;
+        cursor: pointer;
+    }
+
+    .view-pr-detail-drawer-backdrop[hidden] {
+        display: none !important;
+    }
+
+    body.procurement-warm-ui #panel-view .quotation-detail-pane.pr-view-quotation-detail,
+    body.procurement-warm-ui #panel-view #view-pr-items-panel {
+        position: fixed !important;
+        top: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        left: auto !important;
+        width: min(100vw, 26rem) !important;
+        max-width: 100vw !important;
+        height: 100vh !important;
+        height: 100dvh !important;
+        margin: 0 !important;
+        min-height: 0 !important;
+        z-index: 2451 !important;
+        border-radius: 14px 0 0 14px !important;
+        box-shadow: -8px 0 28px rgba(40, 28, 16, 0.22) !important;
+        background: #fffaf3 !important;
+        border: 1px solid #e2cfab !important;
+        border-right: none !important;
+        transform: translateX(105%);
+        transition: transform 0.28s ease;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch;
+        display: flex !important;
+        flex-direction: column !important;
+        box-sizing: border-box !important;
+        padding: 0 !important;
+        pointer-events: none;
+        visibility: hidden;
+    }
+
+    body.view-pr-detail-drawer-open #panel-view #view-pr-items-panel,
+    body.view-pr-detail-drawer-open #panel-view .quotation-detail-pane.pr-view-quotation-detail {
+        transform: translateX(0);
+        pointer-events: auto;
+        visibility: visible;
+    }
+
+    body.view-pr-detail-drawer-open {
+        overflow: hidden !important;
+    }
+
+    .view-pr-detail-drawer-chrome {
+        display: flex !important;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex: 0 0 auto;
+        padding: 12px 14px 10px;
+        border-bottom: 1px solid #e8dcc4;
+        background: #fff7eb;
+        position: sticky;
+        top: 0;
+        z-index: 2;
+    }
+
+    .view-pr-detail-drawer-title {
+        font-size: 14px;
+        font-weight: 650;
+        color: #3d2e1f;
+    }
+
+    .view-pr-detail-drawer-close {
+        border: 1px solid #d7c4a4;
+        background: #fff;
+        color: #3d2e1f;
+        width: 2.25rem;
+        height: 2.25rem;
+        border-radius: 8px;
+        font-size: 1.45rem;
+        line-height: 1;
+        cursor: pointer;
+        flex: 0 0 auto;
+    }
+
+    body.procurement-warm-ui #panel-view #view-pr-detail-panel {
+        flex: 1 1 auto;
+        min-height: 0;
+        padding: 10px 12px 24px;
+        overflow: visible;
+    }
+}
+
