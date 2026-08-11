@@ -80,16 +80,20 @@ function isAvqPhoneLayout() {
 
 function setAvqFiltersDrawerOpen(open) {
     const next = !!open;
+    const tab = document.getElementById('avq-filters-edge-tab');
+    const drawer = document.getElementById('avq-filter-drawer');
     if (!isAvqPhoneLayout()) {
         document.body.classList.remove('avq-filters-drawer-open');
         const backdrop = document.getElementById('avq-filters-backdrop');
         if (backdrop) backdrop.hidden = true;
-        const btn = document.getElementById('avq-filters-open-btn');
-        if (btn) btn.setAttribute('aria-expanded', 'false');
+        if (tab) {
+            tab.classList.remove('is-open');
+            tab.setAttribute('aria-expanded', 'false');
+        }
+        if (drawer) drawer.style.transform = '';
         return;
     }
     if (next) {
-        // Avoid two drawers fighting for the screen
         document.body.classList.remove('avq-detail-drawer-open');
         const detailBackdrop = document.getElementById('quotation-detail-drawer-backdrop');
         if (detailBackdrop) detailBackdrop.hidden = true;
@@ -97,14 +101,96 @@ function setAvqFiltersDrawerOpen(open) {
     document.body.classList.toggle('avq-filters-drawer-open', next);
     const backdrop = document.getElementById('avq-filters-backdrop');
     if (backdrop) backdrop.hidden = !next;
-    const btn = document.getElementById('avq-filters-open-btn');
-    if (btn) btn.setAttribute('aria-expanded', next ? 'true' : 'false');
-    if (next) {
-        const drawer = document.getElementById('avq-filter-drawer');
-        if (drawer) {
+    if (tab) {
+        tab.classList.toggle('is-open', next);
+        tab.setAttribute('aria-expanded', next ? 'true' : 'false');
+        tab.title = next ? 'Close filters' : 'Open filters';
+    }
+    if (drawer) {
+        drawer.style.transform = '';
+        if (next) {
             try { drawer.scrollTop = 0; } catch (e) { /* ignore */ }
         }
     }
+}
+
+function toggleAvqFiltersDrawer() {
+    const open = document.body.classList.contains('avq-filters-drawer-open');
+    setAvqFiltersDrawerOpen(!open);
+}
+
+/** Press the edge tab to open; drag left/right to open/close. */
+function setupAvqFiltersDrawerDrag() {
+    const tab = document.getElementById('avq-filters-edge-tab');
+    const drawer = document.getElementById('avq-filter-drawer');
+    if (!tab || !drawer || tab.dataset.dragBound === '1') return;
+    tab.dataset.dragBound = '1';
+
+    let dragging = false;
+    let startX = 0;
+    let startOpen = false;
+    let moved = false;
+    let suppressClick = false;
+    const drawerWidth = () => Math.min(window.innerWidth, Math.round(22.5 * 16));
+
+    tab.addEventListener('click', (e) => {
+        if (suppressClick) {
+            e.preventDefault();
+            e.stopPropagation();
+            suppressClick = false;
+            return;
+        }
+        if (!isAvqPhoneLayout()) return;
+        toggleAvqFiltersDrawer();
+    });
+
+    tab.addEventListener('pointerdown', (e) => {
+        if (!isAvqPhoneLayout()) return;
+        dragging = true;
+        moved = false;
+        suppressClick = false;
+        startX = e.clientX;
+        startOpen = document.body.classList.contains('avq-filters-drawer-open');
+        drawer.style.transition = 'none';
+        try { tab.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+    });
+
+    tab.addEventListener('pointermove', (e) => {
+        if (!dragging) return;
+        const dx = e.clientX - startX;
+        if (Math.abs(dx) > 8) moved = true;
+        const w = drawerWidth();
+        const tx = startOpen ? Math.max(0, Math.min(w, dx)) : Math.max(0, Math.min(w, w + dx));
+        drawer.style.transform = `translateX(${tx}px)`;
+        if (!startOpen && dx < -10) {
+            const backdrop = document.getElementById('avq-filters-backdrop');
+            if (backdrop) backdrop.hidden = false;
+        }
+    });
+
+    const endDrag = (e) => {
+        if (!dragging) return;
+        dragging = false;
+        drawer.style.transition = '';
+        const dx = e.clientX - startX;
+        const w = drawerWidth();
+        try { tab.releasePointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+
+        if (!moved) {
+            drawer.style.transform = '';
+            return;
+        }
+
+        suppressClick = true;
+        if (startOpen) {
+            setAvqFiltersDrawerOpen(dx < w * 0.28);
+        } else {
+            setAvqFiltersDrawerOpen(dx < -w * 0.2);
+        }
+    };
+
+    tab.addEventListener('pointerup', endDrag);
+    tab.addEventListener('pointercancel', endDrag);
 }
 
 function openQuotationDetailDrawer() {
@@ -272,9 +358,9 @@ function buildViewQuotationsShellHtml(showAdminFilters) {
         : '';
     const filterBlock = showAdminFilters
         ? `
-                    <div class="avq-filters-open-bar">
-                        <button type="button" class="avq-filters-open-btn" id="avq-filters-open-btn" onclick="setAvqFiltersDrawerOpen(true)" aria-expanded="false" aria-controls="avq-filter-drawer">Filters</button>
-                    </div>
+                    <button type="button" class="avq-filters-edge-tab" id="avq-filters-edge-tab" aria-expanded="false" aria-controls="avq-filter-drawer" title="Open filters">
+                        <span class="avq-filters-edge-tab-label">Filters</span>
+                    </button>
                     <div id="avq-filters-backdrop" class="avq-filters-backdrop" hidden onclick="setAvqFiltersDrawerOpen(false)" aria-hidden="true"></div>
                     <div class="quotation-page-header-controls avq-filter-bar" id="avq-filter-drawer" aria-label="Quotation filters">
                         <div class="avq-filters-drawer-head">
@@ -828,6 +914,7 @@ async function loadQuotations() {
         content.innerHTML = html;
         if (!mine) {
             setupDateFilter();
+            setupAvqFiltersDrawerDrag();
         } else {
             adminDateFrom = '';
             adminDateTo = '';

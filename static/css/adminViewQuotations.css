@@ -1131,8 +1131,9 @@ body.customer-my-quotations-page .quotation-detail-actions .edit-button {
     }
 }
 
-/* Filters drawer chrome — desktop keeps inline filters; phone uses slide-in */
+/* Filters drawer chrome — desktop keeps inline filters; phone uses edge tab + slide-in */
 .avq-filters-open-bar,
+.avq-filters-edge-tab,
 .avq-filters-backdrop,
 .avq-filters-drawer-head {
     display: none;
@@ -1153,26 +1154,42 @@ body.customer-my-quotations-page .quotation-detail-actions .edit-button {
 }
 
 @media (max-width: 900px) {
-    body.admin-quotations-view-page .avq-filters-open-bar {
-        display: block;
-        width: 100%;
-        padding: 8px 10px 0;
-        box-sizing: border-box;
+    body.admin-quotations-view-page .avq-filters-edge-tab {
+        position: fixed;
+        top: 50%;
+        right: 0;
+        z-index: 2462;
+        transform: translateY(-50%);
+        width: 38px;
+        min-height: 128px;
+        margin: 0;
+        padding: 14px 0;
+        border: 1px solid var(--ice-border, #b8d4e8);
+        border-right: none;
+        border-radius: 10px 0 0 10px;
+        background: linear-gradient(180deg, var(--ice-accent, #3b8fc4) 0%, #2f7aad 100%);
+        color: #fff;
+        box-shadow: -2px 2px 12px rgba(30, 80, 120, 0.22);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
     }
 
-    body.admin-quotations-view-page .avq-filters-open-btn {
-        display: block;
-        width: 100%;
-        box-sizing: border-box;
-        border: 1px solid var(--ice-border, #b8d4e8);
-        background: var(--ice-accent, #3b8fc4);
-        color: #fff;
-        border-radius: 10px;
-        padding: 11px 14px;
-        font-size: 14px;
-        font-weight: 600;
-        cursor: pointer;
-        text-align: center;
+    body.admin-quotations-view-page .avq-filters-edge-tab.is-open {
+        right: min(22.5rem, 100vw);
+    }
+
+    body.admin-quotations-view-page .avq-filters-edge-tab-label {
+        writing-mode: vertical-rl;
+        transform: rotate(180deg);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
     }
 
     body.admin-quotations-view-page .avq-filters-backdrop {
@@ -1222,7 +1239,7 @@ body.customer-my-quotations-page .quotation-detail-actions .edit-button {
         display: flex !important;
         flex-direction: column !important;
         align-items: stretch !important;
-        gap: 12px !important;
+        gap: 14px !important;
         padding: 14px 14px 24px !important;
         box-sizing: border-box !important;
     }
@@ -1269,11 +1286,13 @@ body.customer-my-quotations-page .quotation-detail-actions .edit-button {
         width: 100%;
     }
 
-    body.admin-quotations-view-page .avq-filter-group--dates .avq-filter-group-fields {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 8px;
-        align-items: end;
+    /* Stack filter fields cleanly inside the drawer */
+    body.admin-quotations-view-page .avq-filter-group--dates .avq-filter-group-fields,
+    body.admin-quotations-view-page .avq-filter-group--company .avq-filter-group-fields {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 8px !important;
     }
 
     body.admin-quotations-view-page .avq-filter-group--dates .quotation-filter-label {
@@ -1283,40 +1302,23 @@ body.customer-my-quotations-page .quotation-detail-actions .edit-button {
         gap: 4px;
         white-space: normal;
         min-width: 0;
-    }
-
-    body.admin-quotations-view-page .avq-filter-group--dates .quotation-filter-input {
         width: 100%;
-        min-width: 0;
+    }
+
+    body.admin-quotations-view-page .avq-filter-group--dates .quotation-filter-input,
+    body.admin-quotations-view-page .quotation-company-select,
+    body.admin-quotations-view-page .avq-filter-group--dates .quotation-filter-btn,
+    body.admin-quotations-view-page .avq-filter-group--company .quotation-filter-btn {
+        width: 100% !important;
+        min-width: 0 !important;
+        max-width: none !important;
         box-sizing: border-box;
+        min-height: 40px;
     }
 
-    body.admin-quotations-view-page .avq-filter-group--dates .quotation-filter-btn {
-        min-height: 38px;
-        width: 100%;
-        box-sizing: border-box;
-    }
-
-    body.admin-quotations-view-page .avq-filter-group--dates #quotation-date-apply {
-        grid-column: 1;
-    }
-
+    body.admin-quotations-view-page .avq-filter-group--dates #quotation-date-apply,
     body.admin-quotations-view-page .avq-filter-group--dates #quotation-date-clear {
-        grid-column: 2;
-    }
-
-    body.admin-quotations-view-page .avq-filter-group--company .avq-filter-group-fields {
-        display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 8px;
-        align-items: center;
-    }
-
-    body.admin-quotations-view-page .quotation-company-select {
-        min-width: 0;
-        max-width: none;
-        width: 100%;
-        box-sizing: border-box;
+        grid-column: auto;
     }
 
     body.admin-quotations-view-page .avq-status-tabs.eq-line-tabs {
