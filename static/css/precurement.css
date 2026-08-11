@@ -4259,9 +4259,9 @@ body.procurement-warm-ui .pr-form {
 }
 
 body.procurement-warm-ui .pr-create-panel {
-    background: #fffef9;
-    border: 1px solid #dccfb8;
-    box-shadow: 0 2px 14px rgba(42, 36, 27, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+    background: var(--ice-surface, #f7fbff);
+    border: 1px solid var(--ice-border, #b8d4e8);
+    box-shadow: 0 2px 14px rgba(20, 40, 60, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 
 .pr-create-panel--suppliers .pr-create-panel-head {
@@ -4276,8 +4276,8 @@ body.procurement-warm-ui .pr-create-panel {
 }
 
 body.procurement-warm-ui .pr-create-panel-head {
-    border-bottom: 1px solid #ebe3d4;
-    background: linear-gradient(180deg, #fffbf5 0%, #faf6ee 100%);
+    border-bottom: 1px solid var(--ice-border, #b8d4e8);
+    background: linear-gradient(180deg, var(--ice-surface, #f7fbff) 0%, var(--ice-surface-alt, #eef6fc) 100%);
 }
 
 .pr-create-panel-title {
@@ -4290,7 +4290,7 @@ body.procurement-warm-ui .pr-create-panel-head {
 }
 
 body.procurement-warm-ui .pr-create-panel-title {
-    color: #5c4a32;
+    color: var(--ice-heading, #1a4d6e);
 }
 
 .pr-create-panel-body {
@@ -4766,8 +4766,8 @@ body.procurement-warm-ui .procurement-panel > .panel-content {
 }
 
 body.procurement-warm-ui .pr-supplier-invite-card {
-    border-color: #dccfb8;
-    background: #faf6ee;
+    border-color: var(--ice-border, #b8d4e8);
+    background: var(--ice-surface, #f7fbff);
     box-shadow: none;
 }
 
@@ -4777,31 +4777,48 @@ body.procurement-warm-ui .pr-supplier-invite-title {
 }
 
 body.procurement-warm-ui .pr-supplier-invite-hint {
-    color: #7a6a52;
+    color: var(--ice-text-muted, #5a7a94);
 }
 
 body.procurement-warm-ui .pr-supplier-picker-label {
-    color: #7a6a52;
+    color: var(--ice-text-muted, #5a7a94);
 }
 
 body.procurement-warm-ui .pr-supplier-invite-card .pr-supplier-add-row {
-    border-color: #dccfb8;
-    background: #fff;
+    border-color: var(--ice-border, #b8d4e8);
+    background: #ffffff;
 }
 
 body.procurement-warm-ui .pr-supplier-invite-card .pr-supplier-add-row:focus-within {
-    border-color: #8b7355;
-    box-shadow: 0 0 0 3px rgba(139, 115, 85, 0.15);
+    border-color: var(--ice-accent, #3b8fc4);
+    box-shadow: 0 0 0 3px rgba(59, 143, 196, 0.18);
 }
 
 body.procurement-warm-ui .pr-supplier-picker-icon {
-    color: #9a8570;
+    color: var(--ice-text-muted, #5a7a94);
 }
 
 body.procurement-warm-ui .pr-supplier-invite-card .pr-supplier-add-row input {
     border: none;
-    background: transparent;
-    color: #2a241b;
+    background: #ffffff;
+    color: var(--ice-text, #1e3a52);
+    -webkit-text-fill-color: var(--ice-text, #1e3a52);
+}
+
+body.procurement-warm-ui .pr-supplier-invite-card .pr-supplier-add-row input::placeholder {
+    color: var(--ice-text-muted, #5a7a94);
+    opacity: 1;
+}
+
+/* Stop browser autofill from painting the search box yellow */
+body.procurement-warm-ui .pr-supplier-invite-card .pr-supplier-add-row input:-webkit-autofill,
+body.procurement-warm-ui .pr-supplier-invite-card .pr-supplier-add-row input:-webkit-autofill:hover,
+body.procurement-warm-ui .pr-supplier-invite-card .pr-supplier-add-row input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 1000px #ffffff inset;
+    box-shadow: 0 0 0 1000px #ffffff inset;
+    -webkit-text-fill-color: var(--ice-text, #1e3a52);
+    caret-color: var(--ice-text, #1e3a52);
+    transition: background-color 99999s ease-out;
 }
 
 body.procurement-warm-ui .supplier-dropdown-item .pr-supplier-pick-code {
@@ -5452,7 +5469,7 @@ body.procurement-warm-ui .pr-panel-view-quotation-like .quotation-page-header {
     box-shadow: none;
 }
 
-/* View e-PR — single-row toolbar (title + status tabs + actions) */
+/* View e-PR — organized desktop chrome (title/actions, then tabs, then bulk) */
 body.procurement-warm-ui .pr-view-page-header--compact {
     display: flex;
     flex-direction: column;
@@ -5461,55 +5478,74 @@ body.procurement-warm-ui .pr-view-page-header--compact {
 }
 
 body.procurement-warm-ui .pr-view-page-header--compact .pr-view-toolbar {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto;
+    grid-template-areas:
+        "title . actions"
+        "tabs tabs tabs";
     align-items: center;
-    gap: 6px 10px;
-    padding: 6px 10px 0;
+    column-gap: 16px;
+    row-gap: 0;
+    padding: 10px 14px 0;
     min-height: 0;
 }
 
 body.procurement-warm-ui .pr-view-page-header--compact .pr-view-page-title {
+    grid-area: title;
     margin: 0;
     flex: 0 0 auto;
-    font-size: 0.95rem;
-    font-weight: 600;
+    font-size: 1.05rem;
+    font-weight: 650;
     letter-spacing: -0.01em;
     color: #3d2e1f;
-    line-height: 1.2;
+    line-height: 1.25;
     white-space: nowrap;
 }
 
 body.procurement-warm-ui .pr-view-page-header--compact .pr-view-filter-tabs.eq-line-tabs {
+    grid-area: tabs;
     flex: 1 1 auto;
     min-width: 0;
-    margin: 0;
-    padding: 0 4px;
+    width: 100%;
+    margin: 8px 0 0;
+    padding: 0;
     border: none;
     border-bottom: 1px solid #e2cfab;
     background: transparent;
 }
 
 body.procurement-warm-ui .pr-view-page-header--compact .pr-view-filter-tabs .eq-line-tab {
-    padding: 9px 16px;
+    padding: 10px 16px;
     font-size: 13px;
 }
 
 body.procurement-warm-ui .pr-view-page-header--compact .pr-view-toolbar-actions {
+    grid-area: actions;
     display: flex;
     flex-wrap: nowrap;
     align-items: center;
-    gap: 6px;
+    justify-content: flex-end;
+    gap: 8px;
     flex: 0 0 auto;
-    margin-left: auto;
+    margin-left: 0;
+}
+
+body.procurement-warm-ui .pr-view-page-header--compact .pr-view-toolbar-actions > button {
+    min-height: 34px;
+    padding: 6px 12px;
+    font-size: 12px;
+    line-height: 1.2;
+    border-radius: 8px;
+    white-space: nowrap;
+    box-sizing: border-box;
 }
 
 body.procurement-warm-ui .pr-view-page-header--compact .view-pr-refresh-btn--ghost {
     border-color: #c5dce9;
-    background: transparent;
+    background: #fff;
     color: #2f5f7a;
-    padding: 3px 8px;
-    font-size: 11px;
+    padding: 6px 12px;
+    font-size: 12px;
     font-weight: 500;
 }
 
@@ -5518,9 +5554,13 @@ body.procurement-warm-ui .pr-view-page-header--compact .view-pr-refresh-btn--gho
     border-color: #9ecae8;
 }
 
+body.procurement-warm-ui .pr-view-page-header--compact .view-pr-bulk-transfer-toggle {
+    font-weight: 600;
+}
+
 body.procurement-warm-ui .pr-view-page-header--compact .view-pr-list-perf--inline {
     margin: 0;
-    padding: 2px 10px 4px;
+    padding: 2px 14px 4px;
     font-size: 10px;
 }
 
@@ -6522,24 +6562,34 @@ body.procurement-warm-ui #panel-view .pr-view-pr-card__controls .view-pr-udf-sta
     color: var(--ice-text, #1e3a52);
 }
 
-/* Second header strip under status tabs — not a floating card */
+/* Second header strip under status tabs — aligned with toolbar padding */
 .pr-view-page-header--compact > .view-pr-bulk-pending-bar {
     margin: 0;
-    padding: 0.45rem 10px 0.55rem;
+    padding: 8px 14px;
+    min-height: 50px;
     border: none;
     border-top: 1px solid var(--ice-border, #b8d4e8);
     border-radius: 0;
     background: linear-gradient(180deg, var(--ice-surface, #f7fbff) 0%, var(--ice-surface-alt, #e8f2fa) 100%);
     box-shadow: none;
+    box-sizing: border-box;
 }
 
 body.procurement-warm-ui .pr-view-page-header--compact > .view-pr-bulk-pending-bar {
     border-top-color: var(--ice-border, #b8d4e8);
     color: var(--ice-text, #1e3a52);
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px 16px;
 }
 
 body.procurement-warm-ui .pr-view-page-header--compact > .view-pr-bulk-pending-bar .view-pr-bulk-selection-count {
     color: var(--ice-heading, #1a4d6e);
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 13px;
 }
 
 .view-pr-bulk-pending-bar[hidden] {
@@ -6553,9 +6603,34 @@ body.procurement-warm-ui .pr-view-page-header--compact > .view-pr-bulk-pending-b
 
 .view-pr-bulk-pending-bar__actions {
     display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem 0.5rem;
+    flex-wrap: nowrap;
+    gap: 8px;
     align-items: center;
+    justify-content: flex-end;
+    flex: 0 0 auto;
+    margin-left: auto;
+}
+
+body.procurement-warm-ui .pr-view-page-header--compact > .view-pr-bulk-pending-bar .view-pr-bulk-btn {
+    min-height: 34px;
+    padding: 6px 12px;
+    font-size: 12px;
+    line-height: 1.2;
+    border-radius: 8px;
+    white-space: nowrap;
+    box-sizing: border-box;
+}
+
+body.procurement-warm-ui .pr-view-page-header--compact > .view-pr-bulk-pending-bar .view-pr-bulk-btn:not(.view-pr-bulk-btn--primary) {
+    border-color: #c5dce9;
+    background: #fff;
+    color: #2f5f7a;
+    font-weight: 500;
+}
+
+body.procurement-warm-ui .pr-view-page-header--compact > .view-pr-bulk-pending-bar .view-pr-bulk-btn:not(.view-pr-bulk-btn--primary):hover:not(:disabled) {
+    background: #e8f4fc;
+    border-color: #9ecae8;
 }
 
 .view-pr-bulk-btn--primary {
@@ -7627,7 +7702,13 @@ body.procurement-warm-ui .pr-view-pr-card.view-pr-card-skeleton {
     body.procurement-warm-ui #panel-view .pr-view-page-header--compact .pr-view-toolbar {
         display: grid;
         grid-template-columns: 1fr;
+        grid-template-areas:
+            "title"
+            "tabs"
+            "actions";
         gap: 8px;
+        column-gap: 8px;
+        row-gap: 8px;
         padding: 8px 10px 6px;
         align-items: stretch;
     }
