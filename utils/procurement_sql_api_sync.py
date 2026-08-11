@@ -28,7 +28,8 @@ def _api_root_url(path_env: str, default_path: str) -> str:
     path = (os.getenv(path_env) or default_path).strip() or default_path
     if not path.startswith("/"):
         path = "/" + path
-    return f"{scheme}://{host}{quote(path.rstrip("/"), safe='/:?&=%')}"
+    cleaned = path.rstrip("/")
+    return f"{scheme}://{host}{quote(cleaned, safe='/:?&=%')}"
 
 
 def _document_root(parsed: Any) -> dict[str, Any] | None:

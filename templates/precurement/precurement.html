@@ -143,7 +143,7 @@
 
 
     <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260810_tabs_phone_v3">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=20260810_list_bulk1">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=20260811_bulk_filter_popup1">
     <style id="pr-report-phone-layout">
     /* Report settings: phone drawer (slides in from right) */
     .stock-report-settings-bar,
@@ -1895,121 +1895,26 @@
                                             <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="CANCELLED" aria-selected="false" onclick="toggleViewStatusFilter('CANCELLED')">Cancelled</button>
                                         </nav>
                                         <div class="pr-view-toolbar-actions view-pr-actions-right view-pr-actions-right--toolbar">
+                                            <button type="button" class="view-pr-refresh-btn view-pr-bulk-transfer-toggle" id="view-bulk-transfer-toggle" onclick="toggleViewBulkTransferPanel()" aria-pressed="false">Bulk Transfer to PO</button>
                                             <button type="button" class="view-pr-refresh-btn view-pr-refresh-btn--ghost" onclick="loadViewPurchaseRequests(true, { bustCache: true })">Refresh</button>
                                             <button type="button" class="view-pr-refresh-btn view-pr-update-availability-btn" hidden aria-hidden="true" id="view-pr-update-btn" onclick="saveViewDetailApprovals()" disabled title="Check and update item availability before transferring this PR.">Update</button>
                                         </div>
                                     </div>
-                                    <p id="view-pr-list-perf" class="view-pr-list-perf view-pr-list-perf--inline" aria-live="polite" hidden></p>
-
                                     <div id="view-pr-bulk-pending-bar" class="view-pr-bulk-pending-bar" hidden>
-
-
-
-
-
-
-
-
-
-
-
                                         <span id="view-pr-bulk-selection-count" class="view-pr-bulk-selection-count">No PRs selected.</span>
-
-
-
-
-
-
-
-
-
-
-
                                         <div class="view-pr-bulk-pending-bar__actions">
-
-
-
-
-
-
-
-
-
-
-
                                             <button type="button" class="view-pr-refresh-btn view-pr-bulk-btn" onclick="viewPrBulkSelectAllPending()">Select all</button>
-
-
-
-
-
-
-
-
-
-
-
                                             <button type="button" class="view-pr-refresh-btn view-pr-bulk-btn" onclick="viewPrBulkClearSelection()">Clear selection</button>
-
-
-
-
-
-
-
-
-
-
-
                                             <button type="button" class="view-pr-refresh-btn view-pr-bulk-btn view-pr-bulk-btn--primary" id="view-pr-bulk-approve-btn" onclick="viewPrBulkQueueApproveSelected()" disabled>Update selected</button>
-
-
-
-
-
-
-
-
-
-
-
                                         </div>
-
-
-
-
-
-
-
-
-
-
-
                                     </div>
-
-
-
-
-
-
-
-
-
-
-
+                                    <p id="view-pr-list-perf" class="view-pr-list-perf view-pr-list-perf--inline" aria-live="polite" hidden></p>
                                 </div>
 
 
 
 
-
-
-
-
-
-
-
-                                <div class="quotation-split-wrap pr-procurement-split">
+                                <div id="view-pr-split-workspace" class="quotation-split-wrap pr-procurement-split">
 
 
 
@@ -2392,7 +2297,99 @@
 
 
 
-                            <div id="pr-edit-modal" class="pr-edit-modal" style="display:none;">
+                            
+                                <div id="view-bulk-transfer-panel" class="view-bulk-transfer-panel" hidden>
+                                    <div class="view-bulk-transfer-panel__head">
+                                        <div class="view-bulk-transfer-panel__title-row">
+                                            <h3 class="view-bulk-transfer-panel__title">Bulk Transfer to Purchase Order</h3>
+                                            <button type="button" class="view-pr-refresh-btn view-pr-refresh-btn--ghost" onclick="toggleViewBulkTransferPanel(false)">Back to list</button>
+                                        </div>
+                                        <p class="view-bulk-transfer-panel__hint">Select approved PR lines across multiple requests. One Purchase Order is created per supplier (and currency), consolidating lines from every selected PR.</p>
+                                    </div>
+                                    <div class="view-bulk-transfer-toolbar">
+                                        <button type="button" class="view-pr-refresh-btn" id="bulk-transfer-filter-open-btn" onclick="openBulkTransferFilterPopup()">
+                                            Filters
+                                        </button>
+                                        <span id="bulk-transfer-filter-chip" class="view-bulk-transfer-filter-chip">All suppliers · All locations · All items</span>
+                                        <label class="view-bulk-transfer-filter view-bulk-transfer-filter--search">
+                                            <span class="visually-hidden">Search</span>
+                                            <input type="search" id="bulk-transfer-filter-search" placeholder="Search PR code / item..." oninput="onBulkTransferFilterChange()" />
+                                        </label>
+                                        <button type="button" class="view-pr-refresh-btn" onclick="loadBulkTransferCandidates(true)">Refresh lines</button>
+                                    </div>
+
+                                    <div id="bulk-transfer-filter-popup" class="view-bulk-transfer-filter-popup" hidden>
+                                        <div class="view-bulk-transfer-filter-popup__backdrop" onclick="closeBulkTransferFilterPopup()"></div>
+                                        <div class="view-bulk-transfer-filter-popup__dialog" role="dialog" aria-modal="true" aria-labelledby="bulk-transfer-filter-popup-title">
+                                            <div class="view-bulk-transfer-filter-popup__head">
+                                                <h4 id="bulk-transfer-filter-popup-title">Filter by supplier, location &amp; item</h4>
+                                                <button type="button" class="view-pr-refresh-btn view-pr-refresh-btn--ghost" onclick="closeBulkTransferFilterPopup()">Close</button>
+                                            </div>
+                                            <div class="view-bulk-transfer-filter-popup__body">
+                                                <label class="view-bulk-transfer-filter">
+                                                    <span>Supplier</span>
+                                                    <select id="bulk-transfer-filter-supplier">
+                                                        <option value="">All suppliers</option>
+                                                    </select>
+                                                </label>
+                                                <label class="view-bulk-transfer-filter">
+                                                    <span>Location</span>
+                                                    <select id="bulk-transfer-filter-location">
+                                                        <option value="">All locations</option>
+                                                    </select>
+                                                </label>
+                                                <label class="view-bulk-transfer-filter">
+                                                    <span>Item</span>
+                                                    <select id="bulk-transfer-filter-item">
+                                                        <option value="">All items</option>
+                                                    </select>
+                                                </label>
+                                            </div>
+                                            <div class="view-bulk-transfer-filter-popup__actions">
+                                                <button type="button" class="view-pr-refresh-btn" onclick="clearBulkTransferFilterPopup()">Clear filters</button>
+                                                <button type="button" class="view-pr-refresh-btn view-pr-bulk-btn--primary" onclick="applyBulkTransferFilterPopup()">Apply filters</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div id="bulk-transfer-message" class="view-bulk-transfer-message" aria-live="polite"></div>
+                                    <div id="bulk-transfer-result" class="view-bulk-transfer-result" hidden>
+                                        <div class="view-bulk-transfer-result__head">
+                                            <h4 class="view-bulk-transfer-result__title">Transfer summary</h4>
+                                            <button type="button" class="view-pr-refresh-btn view-pr-refresh-btn--ghost" onclick="clearBulkTransferResultSummary()">Dismiss</button>
+                                        </div>
+                                        <p id="bulk-transfer-result-lede" class="view-bulk-transfer-result__lede"></p>
+                                        <div class="view-bulk-transfer-result__table-wrap">
+                                            <table class="view-bulk-transfer-result__table" aria-label="Created purchase orders">
+                                                <thead>
+                                                    <tr>
+                                                        <th scope="col">PO No.</th>
+                                                        <th scope="col">Supplier</th>
+                                                        <th scope="col">Currency</th>
+                                                        <th scope="col">Lines</th>
+                                                        <th scope="col">Qty</th>
+                                                        <th scope="col">From PR</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="bulk-transfer-result-body"></tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                    <div class="view-bulk-transfer-table-wrap">
+                                        <div id="bulk-transfer-table-host" class="view-bulk-transfer-table-host">
+                                            <div class="view-bulk-transfer-empty">Open Bulk Transfer to load eligible approved lines.</div>
+                                        </div>
+                                    </div>
+                                    <div class="view-bulk-transfer-footer">
+                                        <div id="bulk-transfer-summary" class="view-bulk-transfer-summary">No lines selected.</div>
+                                        <div class="view-bulk-transfer-footer__actions">
+                                            <button type="button" class="view-pr-refresh-btn view-pr-bulk-btn" onclick="bulkTransferSelectAllVisible()">Select all visible</button>
+                                            <button type="button" class="view-pr-refresh-btn view-pr-bulk-btn" onclick="bulkTransferClearSelection()">Clear</button>
+                                            <button type="button" class="view-pr-refresh-btn view-pr-bulk-btn view-pr-bulk-btn--primary" id="bulk-transfer-submit-btn" onclick="confirmBulkTransferToPo()" disabled>Transfer selected to PO</button>
+                                        </div>
+                                    </div>
+                                </div>
+
+<div id="pr-edit-modal" class="pr-edit-modal" style="display:none;">
 
 
 
@@ -6948,6 +6945,561 @@
 
 
         let viewBulkSelectedHeaderIds = new Set();
+
+        /** Bulk PR→PO consolidation workspace state */
+        let viewBulkTransferOpen = false;
+        let bulkTransferLines = [];
+        let bulkTransferFilterOptions = { suppliers: [], locations: [], items: [] };
+        let bulkTransferSelectedLines = new Map(); // key `${requestId}:${detailId}` -> { requestId, detailId, quantity, remainingQty, ... }
+        let bulkTransferLoading = false;
+        let bulkTransferSubmitting = false;
+
+        function bulkTransferLineKey(requestId, detailId) {
+            return `${Number(requestId) || 0}:${Number(detailId) || 0}`;
+        }
+
+        function setBulkTransferMessage(text, isError) {
+            const el = document.getElementById('bulk-transfer-message');
+            if (!el) return;
+            const msg = String(text || '').trim();
+            el.textContent = msg;
+            el.classList.toggle('is-error', !!isError && !!msg);
+            el.hidden = !msg;
+        }
+
+        function toggleViewBulkTransferPanel(forceOpen) {
+            if (document.body.classList.contains('procurement-hide-transfer')) {
+                setBulkTransferMessage('Transfer is disabled for this account.', true);
+                return;
+            }
+            const wasOpen = !!viewBulkTransferOpen;
+            const open = typeof forceOpen === 'boolean' ? forceOpen : !wasOpen;
+            viewBulkTransferOpen = open;
+            const split = document.getElementById('view-pr-split-workspace');
+            const panel = document.getElementById('view-bulk-transfer-panel');
+            const toggle = document.getElementById('view-bulk-transfer-toggle');
+            const bulkBar = document.getElementById('view-pr-bulk-pending-bar');
+            if (split) split.hidden = open;
+            if (panel) panel.hidden = !open;
+            if (toggle) {
+                toggle.textContent = open ? 'Exit bulk transfer' : 'Bulk Transfer to PO';
+                toggle.classList.toggle('is-active', open);
+                toggle.setAttribute('aria-pressed', open ? 'true' : 'false');
+            }
+            if (bulkBar && open) bulkBar.hidden = true;
+            // Clear prior transfer summary only when opening from closed.
+            if (open && !wasOpen) clearBulkTransferResultSummary();
+            if (open) {
+                loadBulkTransferCandidates(false);
+            } else {
+                setBulkTransferMessage('');
+                closeBulkTransferFilterPopup();
+            }
+        }
+
+
+        function updateBulkTransferFilterChip() {
+            const chip = document.getElementById('bulk-transfer-filter-chip');
+            const openBtn = document.getElementById('bulk-transfer-filter-open-btn');
+            if (!chip) return;
+            const filters = getBulkTransferFilterValues();
+            const parts = [
+                filters.supplier || 'All suppliers',
+                filters.location || 'All locations',
+                filters.item || 'All items',
+            ];
+            chip.textContent = parts.join(' · ');
+            const activeCount = [filters.supplier, filters.location, filters.item].filter(Boolean).length;
+            chip.classList.toggle('is-active', activeCount > 0);
+            if (openBtn) {
+                openBtn.textContent = activeCount > 0 ? `Filters (${activeCount})` : 'Filters';
+                openBtn.classList.toggle('is-active', activeCount > 0);
+            }
+        }
+
+        function openBulkTransferFilterPopup() {
+            const popup = document.getElementById('bulk-transfer-filter-popup');
+            if (!popup) return;
+            popup.hidden = false;
+            try {
+                document.getElementById('bulk-transfer-filter-supplier')?.focus();
+            } catch (e) {}
+        }
+
+        function closeBulkTransferFilterPopup() {
+            const popup = document.getElementById('bulk-transfer-filter-popup');
+            if (popup) popup.hidden = true;
+        }
+
+        function clearBulkTransferFilterPopup() {
+            const supplier = document.getElementById('bulk-transfer-filter-supplier');
+            const location = document.getElementById('bulk-transfer-filter-location');
+            const item = document.getElementById('bulk-transfer-filter-item');
+            if (supplier) supplier.value = '';
+            if (location) location.value = '';
+            if (item) item.value = '';
+            updateBulkTransferFilterChip();
+            loadBulkTransferCandidates(true);
+            closeBulkTransferFilterPopup();
+        }
+
+        function applyBulkTransferFilterPopup() {
+            updateBulkTransferFilterChip();
+            loadBulkTransferCandidates(true);
+            closeBulkTransferFilterPopup();
+        }
+
+        function getBulkTransferFilterValues() {
+            return {
+                supplier: String(document.getElementById('bulk-transfer-filter-supplier')?.value || '').trim(),
+                location: String(document.getElementById('bulk-transfer-filter-location')?.value || '').trim(),
+                item: String(document.getElementById('bulk-transfer-filter-item')?.value || '').trim(),
+                search: String(document.getElementById('bulk-transfer-filter-search')?.value || '').trim(),
+            };
+        }
+
+        function fillBulkTransferFilterSelect(selectId, values, selectedValue, allLabel) {
+            const el = document.getElementById(selectId);
+            if (!el) return;
+            const selected = String(selectedValue || '');
+            const opts = [`<option value="">${escapeHtml(allLabel)}</option>`];
+            for (const value of values || []) {
+                const v = String(value || '').trim();
+                if (!v) continue;
+                opts.push(`<option value="${escapeHtml(v)}"${v === selected ? ' selected' : ''}>${escapeHtml(v)}</option>`);
+            }
+            el.innerHTML = opts.join('');
+        }
+
+        async function loadBulkTransferCandidates(force) {
+            if (bulkTransferLoading) return;
+            if (!viewBulkTransferOpen && !force) return;
+            bulkTransferLoading = true;
+            const host = document.getElementById('bulk-transfer-table-host');
+            if (host) host.innerHTML = '<div class="view-bulk-transfer-empty">Loading eligible lines...</div>';
+            setBulkTransferMessage('');
+            try {
+                const filters = getBulkTransferFilterValues();
+                const params = new URLSearchParams();
+                params.set('limit', '1000');
+                if (filters.supplier) params.set('supplier', filters.supplier);
+                if (filters.location) params.set('location', filters.location);
+                if (filters.item) params.set('item', filters.item);
+                if (filters.search) params.set('search', filters.search);
+                const res = await fetch(`/api/admin/procurement/purchase-requests/transfer-candidates?${params.toString()}`, {
+                    headers: { 'Accept': 'application/json' },
+                });
+                const body = await res.json().catch(() => ({}));
+                if (!res.ok || !body.success) {
+                    throw new Error(body.error || `Failed to load candidates (${res.status})`);
+                }
+                const data = body.data || {};
+                bulkTransferLines = Array.isArray(data.lines) ? data.lines : [];
+                bulkTransferFilterOptions = data.filters || { suppliers: [], locations: [], items: [] };
+                fillBulkTransferFilterSelect('bulk-transfer-filter-supplier', bulkTransferFilterOptions.suppliers, filters.supplier, 'All suppliers');
+                fillBulkTransferFilterSelect('bulk-transfer-filter-location', bulkTransferFilterOptions.locations, filters.location, 'All locations');
+                fillBulkTransferFilterSelect('bulk-transfer-filter-item', bulkTransferFilterOptions.items, filters.item, 'All items');
+                updateBulkTransferFilterChip();
+                // Drop selections that are no longer eligible.
+                const validKeys = new Set(
+                    bulkTransferLines.map((line) => bulkTransferLineKey(line.requestId, line.detailId))
+                );
+                for (const key of Array.from(bulkTransferSelectedLines.keys())) {
+                    if (!validKeys.has(key)) bulkTransferSelectedLines.delete(key);
+                }
+                renderBulkTransferTable();
+                setBulkTransferMessage(`${bulkTransferLines.length} eligible line(s) loaded.`);
+            } catch (err) {
+                bulkTransferLines = [];
+                if (host) host.innerHTML = `<div class="view-bulk-transfer-empty">${escapeHtml(err.message || 'Failed to load lines')}</div>`;
+                setBulkTransferMessage(err.message || 'Failed to load lines', true);
+                updateBulkTransferSummary();
+            } finally {
+                bulkTransferLoading = false;
+            }
+        }
+
+        function onBulkTransferFilterChange() {
+            loadBulkTransferCandidates(true);
+        }
+
+        function getVisibleBulkTransferLines() {
+            return Array.isArray(bulkTransferLines) ? bulkTransferLines : [];
+        }
+
+        function groupBulkTransferLines(lines) {
+            const groups = new Map();
+            for (const line of lines) {
+                const supplierCode = String(line.supplierCode || '').trim() || 'UNKNOWN';
+                const currencyCode = String(line.currencyCode || 'MYR').trim() || 'MYR';
+                const key = `${supplierCode}||${currencyCode}`;
+                if (!groups.has(key)) {
+                    groups.set(key, {
+                        supplierCode,
+                        supplierName: String(line.supplierName || supplierCode).trim() || supplierCode,
+                        currencyCode,
+                        lines: [],
+                    });
+                }
+                groups.get(key).lines.push(line);
+            }
+            return Array.from(groups.values()).sort((a, b) => {
+                const left = `${a.supplierCode} ${a.currencyCode}`.toUpperCase();
+                const right = `${b.supplierCode} ${b.currencyCode}`.toUpperCase();
+                return left.localeCompare(right);
+            });
+        }
+
+        function renderBulkTransferTable() {
+            const host = document.getElementById('bulk-transfer-table-host');
+            if (!host) return;
+            const lines = getVisibleBulkTransferLines();
+            if (!lines.length) {
+                host.innerHTML = '<div class="view-bulk-transfer-empty">No eligible approved lines match the current filters.</div>';
+                updateBulkTransferSummary();
+                return;
+            }
+            const groups = groupBulkTransferLines(lines);
+            const parts = ['<div class="view-bulk-transfer-groups">'];
+            for (const group of groups) {
+                const groupKey = `${group.supplierCode}||${group.currencyCode}`;
+                const selectedInGroup = group.lines.filter((line) => (
+                    bulkTransferSelectedLines.has(bulkTransferLineKey(line.requestId, line.detailId))
+                )).length;
+                const allSelected = selectedInGroup === group.lines.length && group.lines.length > 0;
+                parts.push(`
+                    <section class="view-bulk-transfer-group" data-group-key="${escapeHtml(groupKey)}">
+                        <header class="view-bulk-transfer-group__head">
+                            <label class="view-bulk-transfer-group__select">
+                                <input type="checkbox" ${allSelected ? 'checked' : ''} onchange="onBulkTransferGroupSelectAll(this.checked, '${escapeHtml(group.supplierCode)}', '${escapeHtml(group.currencyCode)}')" />
+                                <span>${escapeHtml(group.supplierName)} <span class="muted">(${escapeHtml(group.supplierCode)} · ${escapeHtml(group.currencyCode)})</span></span>
+                            </label>
+                            <span class="view-bulk-transfer-group__meta">${selectedInGroup}/${group.lines.length} selected · ${group.lines.length} line(s)</span>
+                        </header>
+                        <div class="view-bulk-transfer-table-scroll">
+                            <table class="view-bulk-transfer-table">
+                                <thead>
+                                    <tr>
+                                        <th class="col-check"></th>
+                                        <th>PR</th>
+                                        <th>Item</th>
+                                        <th>Description</th>
+                                        <th>Location</th>
+                                        <th>UOM</th>
+                                        <th>Remaining</th>
+                                        <th>Transfer qty</th>
+                                        <th>Unit price</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                `);
+                for (const line of group.lines) {
+                    const key = bulkTransferLineKey(line.requestId, line.detailId);
+                    const selected = bulkTransferSelectedLines.get(key);
+                    const checked = !!selected;
+                    const remaining = Number(line.remainingQty || 0);
+                    const qty = checked ? Number(selected.quantity || remaining) : remaining;
+                    parts.push(`
+                        <tr class="view-bulk-transfer-row${checked ? ' is-selected' : ''}" data-key="${escapeHtml(key)}">
+                            <td class="col-check">
+                                <input type="checkbox" ${checked ? 'checked' : ''} onchange="onBulkTransferLineCheck(${Number(line.requestId)}, ${Number(line.detailId)}, this.checked)" />
+                            </td>
+                            <td>${escapeHtml(line.requestNumber || '-')}</td>
+                            <td>${escapeHtml(line.itemCode || '-')}</td>
+                            <td class="col-desc">${escapeHtml(line.description || '-')}</td>
+                            <td>${escapeHtml(line.locationCode || '-')}</td>
+                            <td>${escapeHtml(line.uom || 'UNIT')}</td>
+                            <td>${escapeHtml(String(remaining))}</td>
+                            <td>
+                                <input type="number" class="view-bulk-transfer-qty" min="0" step="any" max="${escapeHtml(String(remaining))}"
+                                    value="${escapeHtml(String(qty))}"
+                                    ${checked ? '' : 'disabled'}
+                                    onchange="onBulkTransferQtyChange(${Number(line.requestId)}, ${Number(line.detailId)}, this.value)"
+                                    oninput="onBulkTransferQtyChange(${Number(line.requestId)}, ${Number(line.detailId)}, this.value)" />
+                            </td>
+                            <td>${escapeHtml(String(line.unitPrice ?? 0))}</td>
+                        </tr>
+                    `);
+                }
+                parts.push('</tbody></table></div></section>');
+            }
+            parts.push('</div>');
+            host.innerHTML = parts.join('');
+            updateBulkTransferSummary();
+        }
+
+        function onBulkTransferLineCheck(requestId, detailId, checked) {
+            const key = bulkTransferLineKey(requestId, detailId);
+            const line = (bulkTransferLines || []).find((row) => (
+                Number(row.requestId) === Number(requestId) && Number(row.detailId) === Number(detailId)
+            ));
+            if (!line) return;
+            if (checked) {
+                const remaining = Number(line.remainingQty || 0);
+                const existing = bulkTransferSelectedLines.get(key);
+                bulkTransferSelectedLines.set(key, {
+                    requestId: Number(requestId),
+                    detailId: Number(detailId),
+                    quantity: existing ? Number(existing.quantity || remaining) : remaining,
+                    remainingQty: remaining,
+                    supplierCode: line.supplierCode,
+                    currencyCode: line.currencyCode,
+                    requestNumber: line.requestNumber,
+                });
+            } else {
+                bulkTransferSelectedLines.delete(key);
+            }
+            renderBulkTransferTable();
+        }
+
+        function onBulkTransferQtyChange(requestId, detailId, rawValue) {
+            const key = bulkTransferLineKey(requestId, detailId);
+            const selected = bulkTransferSelectedLines.get(key);
+            if (!selected) return;
+            const remaining = Number(selected.remainingQty || 0);
+            let qty = Number(rawValue);
+            if (!Number.isFinite(qty) || qty < 0) qty = 0;
+            if (qty > remaining) qty = remaining;
+            selected.quantity = qty;
+            bulkTransferSelectedLines.set(key, selected);
+            updateBulkTransferSummary();
+        }
+
+        function onBulkTransferGroupSelectAll(checked, supplierCode, currencyCode) {
+            const lines = getVisibleBulkTransferLines().filter((line) => (
+                String(line.supplierCode || '').trim() === String(supplierCode || '').trim()
+                && String(line.currencyCode || 'MYR').trim() === String(currencyCode || 'MYR').trim()
+            ));
+            for (const line of lines) {
+                const key = bulkTransferLineKey(line.requestId, line.detailId);
+                if (checked) {
+                    const remaining = Number(line.remainingQty || 0);
+                    const existing = bulkTransferSelectedLines.get(key);
+                    bulkTransferSelectedLines.set(key, {
+                        requestId: Number(line.requestId),
+                        detailId: Number(line.detailId),
+                        quantity: existing ? Number(existing.quantity || remaining) : remaining,
+                        remainingQty: remaining,
+                        supplierCode: line.supplierCode,
+                        currencyCode: line.currencyCode,
+                        requestNumber: line.requestNumber,
+                    });
+                } else {
+                    bulkTransferSelectedLines.delete(key);
+                }
+            }
+            renderBulkTransferTable();
+        }
+
+        function bulkTransferSelectAllVisible() {
+            for (const line of getVisibleBulkTransferLines()) {
+                const key = bulkTransferLineKey(line.requestId, line.detailId);
+                const remaining = Number(line.remainingQty || 0);
+                const existing = bulkTransferSelectedLines.get(key);
+                bulkTransferSelectedLines.set(key, {
+                    requestId: Number(line.requestId),
+                    detailId: Number(line.detailId),
+                    quantity: existing ? Number(existing.quantity || remaining) : remaining,
+                    remainingQty: remaining,
+                    supplierCode: line.supplierCode,
+                    currencyCode: line.currencyCode,
+                    requestNumber: line.requestNumber,
+                });
+            }
+            renderBulkTransferTable();
+        }
+
+        function bulkTransferClearSelection() {
+            bulkTransferSelectedLines.clear();
+            renderBulkTransferTable();
+        }
+
+        function summarizeBulkTransferSelection() {
+            const selected = Array.from(bulkTransferSelectedLines.values()).filter((row) => Number(row.quantity) > 0);
+            const prIds = new Set(selected.map((row) => Number(row.requestId)));
+            const poKeys = new Set(selected.map((row) => `${String(row.supplierCode || '').toUpperCase()}||${String(row.currencyCode || 'MYR').toUpperCase()}`));
+            return {
+                selected,
+                lineCount: selected.length,
+                prCount: prIds.size,
+                poCount: poKeys.size,
+            };
+        }
+
+        function updateBulkTransferSummary() {
+            const summary = document.getElementById('bulk-transfer-summary');
+            const btn = document.getElementById('bulk-transfer-submit-btn');
+            const info = summarizeBulkTransferSelection();
+            if (summary) {
+                if (!info.lineCount) {
+                    summary.textContent = 'No lines selected.';
+                } else {
+                    summary.textContent = `${info.lineCount} line(s) from ${info.prCount} PR(s), creating ${info.poCount} purchase order(s).`;
+                }
+            }
+            if (btn) btn.disabled = !info.lineCount || bulkTransferSubmitting || document.body.classList.contains('procurement-hide-transfer');
+        }
+
+
+        function clearBulkTransferResultSummary() {
+            const box = document.getElementById('bulk-transfer-result');
+            const body = document.getElementById('bulk-transfer-result-body');
+            const lede = document.getElementById('bulk-transfer-result-lede');
+            if (body) body.innerHTML = '';
+            if (lede) lede.textContent = '';
+            if (box) box.hidden = true;
+        }
+
+        function formatBulkTransferQty(value) {
+            const n = Number(value);
+            if (!Number.isFinite(n)) return '-';
+            if (Math.abs(n - Math.round(n)) < 1e-9) return String(Math.round(n));
+            return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+        }
+
+        function renderBulkTransferResultSummary(data) {
+            const box = document.getElementById('bulk-transfer-result');
+            const body = document.getElementById('bulk-transfer-result-body');
+            const lede = document.getElementById('bulk-transfer-result-lede');
+            if (!box || !body) return;
+            const groups = Array.isArray(data && data.groups) ? data.groups : [];
+            const poNumbers = Array.isArray(data && data.poNumbers)
+                ? data.poNumbers.map((v) => String(v || '').trim()).filter(Boolean)
+                : [];
+            const totalLines = Number(data && data.lineCount);
+            const totalQty = Number(data && data.transferredQty);
+            const poCount = groups.length || poNumbers.length || 1;
+            if (lede) {
+                const lineBit = Number.isFinite(totalLines) && totalLines > 0 ? ` · ${totalLines} line(s)` : '';
+                const qtyBit = Number.isFinite(totalQty) && totalQty > 0 ? ` · qty ${formatBulkTransferQty(totalQty)}` : '';
+                lede.textContent = `Created ${poCount} purchase order(s)${lineBit}${qtyBit}.`;
+            }
+
+            const rows = [];
+            if (groups.length) {
+                groups.forEach((g, idx) => {
+                    const po = String((g && g.poNumber) || poNumbers[idx] || '-').trim() || '-';
+                    const supplierName = String((g && (g.supplierName || g.supplierCode)) || '').trim() || '-';
+                    const supplierCode = String((g && g.supplierCode) || '').trim();
+                    const currency = String((g && g.currencyCode) || 'MYR').trim() || 'MYR';
+                    const prs = Array.isArray(g && g.requestNumbers)
+                        ? g.requestNumbers.map((v) => String(v || '').trim()).filter(Boolean)
+                        : [];
+                    const lines = Number(g && g.lineCount);
+                    const qty = Number(g && g.transferredQty);
+                    const supplierLabel = supplierCode && supplierName && supplierName !== supplierCode
+                        ? `${supplierName} (${supplierCode})`
+                        : supplierName;
+                    rows.push({
+                        po,
+                        supplierLabel,
+                        currency,
+                        lines: Number.isFinite(lines) ? String(lines) : '-',
+                        qty: formatBulkTransferQty(qty),
+                        prs: prs.length ? prs.join(', ') : '-',
+                    });
+                });
+            } else {
+                poNumbers.forEach((po) => {
+                    rows.push({
+                        po,
+                        supplierLabel: '-',
+                        currency: '-',
+                        lines: '-',
+                        qty: '-',
+                        prs: '-',
+                    });
+                });
+            }
+
+            body.innerHTML = rows.map((row) => (
+                `<tr>
+                    <td class="view-bulk-transfer-result__po-cell">${escapeHtml(row.po)}</td>
+                    <td>${escapeHtml(row.supplierLabel)}</td>
+                    <td>${escapeHtml(row.currency)}</td>
+                    <td>${escapeHtml(row.lines)}</td>
+                    <td>${escapeHtml(row.qty)}</td>
+                    <td>${escapeHtml(row.prs)}</td>
+                </tr>`
+            )).join('');
+
+            box.hidden = false;
+            try { box.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) {}
+        }
+
+        async function confirmBulkTransferToPo() {
+            if (document.body.classList.contains('procurement-hide-transfer')) {
+                alert('Transfer is disabled for this account.');
+                return;
+            }
+            if (bulkTransferSubmitting) return;
+            const info = summarizeBulkTransferSelection();
+            if (!info.lineCount) {
+                alert('Select at least one line to transfer.');
+                return;
+            }
+            const previewGroups = new Map();
+            for (const row of info.selected) {
+                const key = `${row.supplierCode || ''}||${row.currencyCode || 'MYR'}`;
+                if (!previewGroups.has(key)) {
+                    previewGroups.set(key, {
+                        supplierCode: row.supplierCode || '',
+                        currencyCode: row.currencyCode || 'MYR',
+                        prs: new Set(),
+                        lines: 0,
+                    });
+                }
+                const g = previewGroups.get(key);
+                g.prs.add(row.requestNumber || String(row.requestId));
+                g.lines += 1;
+            }
+            const previewText = Array.from(previewGroups.values()).map((g) => (
+                `- ${g.supplierCode} (${g.currencyCode}): ${g.lines} line(s) from ${Array.from(g.prs).join(', ')}`
+            )).join('\n');
+            const ok = window.confirm(
+                `Create ${info.poCount} purchase order(s) from ${info.lineCount} line(s) across ${info.prCount} PR(s)?\n\n${previewText}`
+            );
+            if (!ok) return;
+
+            bulkTransferSubmitting = true;
+            updateBulkTransferSummary();
+            setBulkTransferMessage('Transferring selected lines...');
+            try {
+                const res = await fetch('/api/admin/procurement/purchase-requests/bulk-transfer-to-po', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({
+                        lines: info.selected.map((row) => ({
+                            requestId: Number(row.requestId),
+                            detailId: Number(row.detailId),
+                            quantity: Number(row.quantity),
+                        })),
+                    }),
+                });
+                const body = await res.json().catch(() => ({}));
+                if (!res.ok || !body.success) {
+                    throw new Error(body.error || `Bulk transfer failed (${res.status})`);
+                }
+                const data = body.data || {};
+                const poNumbers = Array.isArray(data.poNumbers) ? data.poNumbers.filter(Boolean) : [];
+                bulkTransferSelectedLines.clear();
+                renderBulkTransferResultSummary(data);
+                await loadBulkTransferCandidates(true);
+                try {
+                    await loadViewPurchaseRequests(true, { bustCache: true });
+                } catch (e) {}
+                const poCount = poNumbers.length || (Array.isArray(data.groups) ? data.groups.length : 0) || 1;
+                setBulkTransferMessage(`Transfer complete — created ${poCount} purchase order(s). See summary below.`);
+            } catch (err) {
+                setBulkTransferMessage(err.message || 'Bulk transfer failed', true);
+                alert(err.message || 'Bulk transfer failed');
+            } finally {
+                bulkTransferSubmitting = false;
+                updateBulkTransferSummary();
+            }
+        }
+
+
 
 
 
@@ -22339,8 +22891,8 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
 
                 
-                let cardSelectedCount = Number(header.selectedLineCount || 0);
-                let cardLineCount = Number(header.lineCount || 0);
+                let cardSelectedCount = (header.selectedLineCount == null || header.selectedLineCount === '') ? null : Number(header.selectedLineCount);
+                let cardLineCount = (header.lineCount == null || header.lineCount === '') ? null : Number(header.lineCount);
                 if (Array.isArray(header.details) && header.details.length) {
                     const selectable = header.details.filter((d) => Number(d && d.id ? d.id : 0) > 0);
                     cardLineCount = selectable.length;
@@ -22348,9 +22900,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
                     header.selectedLineCount = cardSelectedCount;
                     header.lineCount = cardLineCount;
                 }
-                const selectionCardHtml = cardLineCount > 0
-                    ? `<div class="pr-view-pr-card__selection${cardSelectedCount > 0 ? (cardSelectedCount >= cardLineCount ? ' is-all' : ' is-partial') : ''}" title="Selected line items">SELECTED ${cardSelectedCount}/${cardLineCount}</div>`
-                    : '';
+                const selectionCardHtml = buildViewPrSelectionBadgeHtml(cardSelectedCount, cardLineCount);
 
 
                 const approvalBadgeHtml = udfLocked
@@ -26148,19 +26698,8 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             renderFilteredViewPurchaseRequests();
             selectViewPrFromUrlIfPresent();
-
             syncViewPrLoadMoreUi();
-
-
-
-
-
-
-
-
-
-
-
+            scheduleViewPrLineSelectionCountsEnrich(rows);
         }
 
 
@@ -26184,6 +26723,120 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
 
 
+
+
+        function buildViewPrListSkeletonHtml() {
+            const n = Math.max(1, Math.min(Number(VIEW_PR_LIST_PAGE_SIZE) || 15, 15));
+            let cards = '';
+            for (let i = 0; i < n; i += 1) {
+                cards += `
+            <div class="pr-view-pr-card view-pr-card-skeleton" aria-hidden="true">
+                <div class="pr-view-pr-card__stack">
+                <div class="pr-view-pr-card__main">
+                    <div class="pr-view-pr-card__topline">
+                        <span class="view-pr-skel-bar view-pr-skel-bar--code"></span>
+                        <span class="view-pr-skel-bar view-pr-skel-bar--amt"></span>
+                    </div>
+                    <div class="view-pr-skel-bar view-pr-skel-bar--date"></div>
+                </div>
+                <div class="pr-view-pr-card__controls">
+                    <span class="view-pr-skel-bar view-pr-skel-bar--pill"></span>
+                    <span class="view-pr-skel-bar view-pr-skel-bar--pill"></span>
+                </div>
+                </div>
+            </div>`;
+            }
+            return `<div class="view-pr-skeleton" aria-busy="true" aria-label="Loading purchase requests">${cards}</div>`;
+        }
+
+        function buildViewPrSelectionBadgeHtml(selected, total) {
+            const selectedN = Number(selected);
+            const totalN = Number(total);
+            if (!(Number.isFinite(totalN) && totalN > 0)) {
+                return '';
+            }
+            const selectedSafe = Number.isFinite(selectedN) ? Math.max(0, selectedN) : 0;
+            const cls = selectedSafe > 0
+                ? (selectedSafe >= totalN ? ' is-all' : ' is-partial')
+                : '';
+            return `<div class="pr-view-pr-card__selection${cls}" title="Selected line items">SELECTED ${selectedSafe}/${totalN}</div>`;
+        }
+
+        function patchViewPrCardSelectionBadge(headerId, selected, total) {
+            const id = Number(headerId || 0);
+            if (!id) return;
+            const card = document.querySelector(`.pr-view-pr-card[data-header-id="${id}"]`);
+            if (!card) return;
+            const main = card.querySelector('.pr-view-pr-card__main');
+            if (!main) return;
+            let badge = main.querySelector('.pr-view-pr-card__selection');
+            const html = buildViewPrSelectionBadgeHtml(selected, total);
+            if (!html) {
+                if (badge) badge.remove();
+                return;
+            }
+            if (badge) {
+                badge.outerHTML = html;
+            } else {
+                main.insertAdjacentHTML('beforeend', html);
+            }
+        }
+
+        function scheduleViewPrLineSelectionCountsEnrich(rows) {
+            try {
+                const list = Array.isArray(rows) ? rows : (viewPurchaseRequests || []);
+                const missing = [];
+                list.forEach((row) => {
+                    const id = Number(row && row.id ? row.id : 0);
+                    if (!id) return;
+                    if (row.lineCount == null || row.selectedLineCount == null) {
+                        missing.push(id);
+                    }
+                });
+                if (!missing.length) return Promise.resolve();
+                const url = `/api/admin/procurement/purchase-requests/line-selection-counts?ids=${missing.join(',')}`;
+                return fetch(url)
+                    .then((res) => res.json())
+                    .then((payload) => {
+                        if (!payload || !payload.success || !payload.data) return;
+                        const data = payload.data || {};
+                        (viewPurchaseRequests || []).forEach((row) => {
+                            const id = Number(row && row.id ? row.id : 0);
+                            if (!id) return;
+                            const entry = data[String(id)] || data[id];
+                            if (!entry) return;
+                            const selected = Number(entry.selected || 0);
+                            const total = Number(entry.total || 0);
+                            row.selectedLineCount = selected;
+                            row.lineCount = total;
+                            patchViewPrCardSelectionBadge(id, selected, total);
+                        });
+                        try {
+                            const raw = sessionStorage.getItem(VIEW_PR_LIST_CACHE_KEY);
+                            if (raw) {
+                                const cached = JSON.parse(raw);
+                                if (cached && cached.payload && Array.isArray(cached.payload.data)) {
+                                    const byId = new Map((viewPurchaseRequests || []).map((r) => [Number(r.id || 0), r]));
+                                    cached.payload.data.forEach((row) => {
+                                        const live = byId.get(Number(row.id || 0));
+                                        if (!live) return;
+                                        if (live.selectedLineCount != null) row.selectedLineCount = live.selectedLineCount;
+                                        if (live.lineCount != null) row.lineCount = live.lineCount;
+                                    });
+                                    cached.at = Date.now();
+                                    sessionStorage.setItem(VIEW_PR_LIST_CACHE_KEY, JSON.stringify(cached));
+                                }
+                            }
+                        } catch (e) { /* ignore */ }
+                    })
+                    .catch((err) => {
+                        console.warn('[VIEW PR] line-selection-counts enrich failed', err);
+                    });
+            } catch (e) {
+                console.warn('[VIEW PR] line-selection-counts schedule failed', e);
+                return Promise.resolve();
+            }
+        }
 
         function paintCachedViewPrListForInstantLoad() {
 
@@ -27007,29 +27660,8 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
 
                     updateViewApprovalButtonState();
-
-
-
-
-
-
-
-
-
-
-
                     renderFilteredViewPurchaseRequests();
-
-
-
-
-
-
-
-
-
-
-
+                    scheduleViewPrLineSelectionCountsEnrich(rows);
                 })
 
 
@@ -27285,7 +27917,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
 
 
-                insertBeforeViewPrLoadMore('<div class="view-pr-empty">Loading e-Purchase Request records...</div>');
+                insertBeforeViewPrLoadMore(buildViewPrListSkeletonHtml());
 
 
 

@@ -59,6 +59,7 @@ from utils.procurement_purchase_request import (
 from utils.procurement_purchase_order_transfer import (
     PurchaseOrderTransferValidationError,
     transfer_purchase_request_to_po,
+    transfer_purchase_requests_to_single_po,
 )
 from utils.procurement_bidding import (
     apply_awarded_lines_to_request,
@@ -5071,8 +5072,11 @@ def _list_selected_suppliers(request_dockey, request_no=None):
             con.close()
 
 
-def _map_selected_suppliers_by_request_ids(request_dockeys):
-    """Batch-read PR_SELECTED_SUPPLIER for View e-PR list/detail (Awaiting has no awards yet)."""
+def _map_selected_suppliers_by_request_ids(request_dockeys, enrich=True):
+    """Batch-read PR_SELECTED_SUPPLIER for View e-PR list/detail (Awaiting has no awards yet).
+
+    When enrich=False (fast list path), skip SQL API supplier-master lookups.
+    """
     ids = []
     for raw in request_dockeys or []:
         try:
@@ -5118,8 +5122,9 @@ def _map_selected_suppliers_by_request_ids(request_dockeys):
                     'name': str((row[2] if len(row) > 2 else '') or '').strip(),
                     'email': str((row[3] if len(row) > 3 else '') or '').strip(),
                 })
-        for rid, rows in list(out.items()):
-            out[rid] = _enrich_supplier_display_rows(rows)
+        if enrich:
+            for rid, rows in list(out.items()):
+                out[rid] = _enrich_supplier_display_rows(rows)
         return out
     except Exception as exc:
         print(f"[PROCUREMENT SELECTED SUPPLIERS] map warning: {exc}", flush=True)
@@ -5131,9 +5136,33 @@ def _map_selected_suppliers_by_request_ids(request_dockeys):
             con.close()
 
 
+_PH_PQDTL_LINE_COUNT_COLS_CACHE = None
+
+
+def _resolve_ph_pqdtl_line_count_columns(cur):
+    """Cache PH_PQDTL key/transferable column names (avoid RDB$ on every list call)."""
+    global _PH_PQDTL_LINE_COUNT_COLS_CACHE
+    if isinstance(_PH_PQDTL_LINE_COUNT_COLS_CACHE, dict):
+        return _PH_PQDTL_LINE_COUNT_COLS_CACHE
+    cur.execute(
+        """
+        SELECT TRIM(RF.RDB$FIELD_NAME)
+        FROM RDB$RELATION_FIELDS RF
+        WHERE RF.RDB$RELATION_NAME = 'PH_PQDTL'
+        """
+    )
+    cols = {str(r[0]).strip().upper() for r in (cur.fetchall() or []) if r and r[0]}
+    key_col = 'DOCKEY' if 'DOCKEY' in cols else ('PQKEY' if 'PQKEY' in cols else '')
+    transferable_col = 'TRANSFERABLE' if 'TRANSFERABLE' in cols else ''
+    _PH_PQDTL_LINE_COUNT_COLS_CACHE = {
+        'key_col': key_col,
+        'transferable_col': transferable_col,
+    }
+    return _PH_PQDTL_LINE_COUNT_COLS_CACHE
+
 
 def _map_line_selection_counts_by_request_ids(request_dockeys):
-    """Return {dockey: {'selected': n, 'total': n}} from PH_PQDTL.TRANSFERABLE."""
+    """Return {dockey: {'selected': n, 'total': n}} from PH_PQDTL via aggregate COUNT/SUM."""
     ids = []
     for raw in request_dockeys or []:
         try:
@@ -5150,18 +5179,10 @@ def _map_line_selection_counts_by_request_ids(request_dockeys):
     try:
         con = get_db_connection()
         cur = con.cursor()
-        cur.execute(
-            """
-            SELECT TRIM(RF.RDB$FIELD_NAME)
-            FROM RDB$RELATION_FIELDS RF
-            WHERE RF.RDB$RELATION_NAME = 'PH_PQDTL'
-            """
-        )
-        cols = {str(r[0]).strip().upper() for r in (cur.fetchall() or []) if r and r[0]}
-        key_col = 'DOCKEY' if 'DOCKEY' in cols else ('PQKEY' if 'PQKEY' in cols else '')
-        dtl_col = 'DTLKEY' if 'DTLKEY' in cols else ('PQDTLKEY' if 'PQDTLKEY' in cols else ('ID' if 'ID' in cols else ''))
-        transferable_col = 'TRANSFERABLE' if 'TRANSFERABLE' in cols else ''
-        if not key_col or not dtl_col:
+        meta = _resolve_ph_pqdtl_line_count_columns(cur)
+        key_col = str(meta.get('key_col') or '').strip()
+        transferable_col = str(meta.get('transferable_col') or '').strip()
+        if not key_col:
             return {}
 
         out = {rid: {'selected': 0, 'total': 0} for rid in ids}
@@ -5170,54 +5191,49 @@ def _map_line_selection_counts_by_request_ids(request_dockeys):
             chunk = ids[i:i + chunk_size]
             placeholders = ', '.join(['?'] * len(chunk))
             if transferable_col:
+                # Firebird TRANSFERABLE may be SMALLINT/CHAR — avoid type-specific IS TRUE.
                 cur.execute(
                     f"""
-                    SELECT {key_col}, {dtl_col}, {transferable_col}
-                    FROM PH_PQDTL
-                    WHERE {key_col} IN ({placeholders})
-                    """,
-                    tuple(chunk),
-                )
-                for row in cur.fetchall() or []:
-                    if not row:
-                        continue
-                    try:
-                        rid = int(row[0])
-                    except Exception:
-                        continue
-                    bucket = out.setdefault(rid, {'selected': 0, 'total': 0})
-                    bucket['total'] = int(bucket.get('total') or 0) + 1
-                    flag = row[2]
-                    is_selected = False
-                    if isinstance(flag, bool):
-                        is_selected = flag
-                    else:
-                        text = str(flag if flag is not None else '').strip().upper()
-                        is_selected = text in {'1', 'TRUE', 'T', 'Y', 'YES'}
-                    if is_selected:
-                        bucket['selected'] = int(bucket.get('selected') or 0) + 1
-            else:
-                cur.execute(
-                    f"""
-                    SELECT {key_col}, COUNT(*)
+                    SELECT {key_col},
+                           COUNT(*),
+                           SUM(
+                             CASE
+                               WHEN CAST({transferable_col} AS VARCHAR(16)) IN ('1', 'T', 'TRUE', 'Y', 'YES', 'true', 'True') THEN 1
+                               ELSE 0
+                             END
+                           )
                     FROM PH_PQDTL
                     WHERE {key_col} IN ({placeholders})
                     GROUP BY {key_col}
                     """,
                     tuple(chunk),
                 )
-                for row in cur.fetchall() or []:
-                    if not row:
-                        continue
-                    try:
-                        rid = int(row[0])
-                    except Exception:
-                        continue
-                    try:
-                        total = int(row[1] or 0)
-                    except Exception:
-                        total = 0
-                    out[rid] = {'selected': 0, 'total': max(0, total)}
+            else:
+                cur.execute(
+                    f"""
+                    SELECT {key_col}, COUNT(*), 0
+                    FROM PH_PQDTL
+                    WHERE {key_col} IN ({placeholders})
+                    GROUP BY {key_col}
+                    """,
+                    tuple(chunk),
+                )
+            for row in cur.fetchall() or []:
+                if not row:
+                    continue
+                try:
+                    rid = int(row[0])
+                except Exception:
+                    continue
+                try:
+                    total = int(row[1] or 0)
+                except Exception:
+                    total = 0
+                try:
+                    selected = int(row[2] or 0)
+                except Exception:
+                    selected = 0
+                out[rid] = {'selected': max(0, selected), 'total': max(0, total)}
 
         return out
     except Exception as exc:
@@ -6091,6 +6107,39 @@ def _sql_api_pr_requester_id(row: dict) -> str:
     return ''
 
 
+@app.route('/api/admin/procurement/purchase-requests/line-selection-counts', methods=['GET'])
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_purchase_request_line_selection_counts():
+    """Cheap PH_PQDTL selection counts for View e-PR badges (deferred after fast list paint)."""
+    raw_ids = str(request.args.get('ids') or '').strip()
+    ids = []
+    for part in raw_ids.replace(';', ',').split(','):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            rid = int(part)
+        except Exception:
+            continue
+        if rid > 0 and rid not in ids:
+            ids.append(rid)
+    if not ids:
+        return jsonify({'success': False, 'error': 'ids is required'}), 400
+    try:
+        counts = _map_line_selection_counts_by_request_ids(ids)
+        data = {
+            str(rid): {
+                'selected': int((counts.get(rid) or {}).get('selected') or 0),
+                'total': int((counts.get(rid) or {}).get('total') or 0),
+            }
+            for rid in ids
+        }
+        return jsonify({'success': True, 'data': data})
+    except Exception as exc:
+        print(f"[PROCUREMENT LINE SELECTION COUNTS] error: {exc}", flush=True)
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
 @app.route('/api/admin/procurement/purchase-requests', methods=['GET'])
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_list_purchase_requests():
@@ -6372,7 +6421,8 @@ def api_admin_list_purchase_requests():
             awarded_suppliers = {}
         try:
             selected_suppliers_map = _map_selected_suppliers_by_request_ids(
-                [int(r['id']) for r in records if r.get('id')]
+                [int(r['id']) for r in records if r.get('id')],
+                enrich=not fast_mode,
             )
         except Exception as selected_exc:
             print(f"[PROCUREMENT LIST PR] selected supplier lookup warning: {selected_exc}", flush=True)
@@ -6436,21 +6486,29 @@ def api_admin_list_purchase_requests():
                 })
         supplier_ms = round((time.perf_counter() - supplier_started) * 1000, 1)
 
-        try:
-            line_selection_map = _map_line_selection_counts_by_request_ids(
-                [int(r['id']) for r in records if r.get('id')]
-            )
-        except Exception as line_sel_exc:
-            print(f"[PROCUREMENT LIST PR] line selection lookup warning: {line_sel_exc}", flush=True)
-            line_selection_map = {}
-        for rec in records:
+        line_selection_ms = 0.0
+        if fast_mode:
+            for rec in records:
+                rec['selectedLineCount'] = None
+                rec['lineCount'] = None
+        else:
+            line_sel_started = time.perf_counter()
             try:
-                key = int(rec.get('id') or 0)
-            except Exception:
-                continue
-            counts = line_selection_map.get(key) or {}
-            rec['selectedLineCount'] = int(counts.get('selected') or 0)
-            rec['lineCount'] = int(counts.get('total') or 0)
+                line_selection_map = _map_line_selection_counts_by_request_ids(
+                    [int(r['id']) for r in records if r.get('id')]
+                )
+            except Exception as line_sel_exc:
+                print(f"[PROCUREMENT LIST PR] line selection lookup warning: {line_sel_exc}", flush=True)
+                line_selection_map = {}
+            for rec in records:
+                try:
+                    key = int(rec.get('id') or 0)
+                except Exception:
+                    continue
+                counts = line_selection_map.get(key) or {}
+                rec['selectedLineCount'] = int(counts.get('selected') or 0)
+                rec['lineCount'] = int(counts.get('total') or 0)
+            line_selection_ms = round((time.perf_counter() - line_sel_started) * 1000, 1)
 
 
         if not fast_mode:
@@ -6491,7 +6549,7 @@ def api_admin_list_purchase_requests():
                     needs_name_enrich = True
             enrich_started = time.perf_counter()
             api_master = {}
-            if supplier_codes and (needs_name_enrich or not fast_mode):
+            if supplier_codes and not fast_mode:
                 api_master = _fetch_supplier_master_from_sql_api(list(supplier_codes))
                 for rec in records:
                     for code in _split_supplier_codes_field(rec.get('supplierId')):
@@ -6517,7 +6575,8 @@ def api_admin_list_purchase_requests():
         print(
             f"[PROCUREMENT LIST PR PERF] total_ms={total_ms} upstream_ms={upstream_ms} "
             f"sql_api_data_ms={sql_api_perf.get('dataQueryMs')} sql_api_count_ms={sql_api_perf.get('countQueryMs')} "
-            f"qty_ms={qty_ms} supplier_ms={supplier_ms} enrich_ms={enrich_ms} map_ms={records_map_ms} "
+            f"qty_ms={qty_ms} supplier_ms={supplier_ms} line_selection_ms={line_selection_ms} "
+            f"enrich_ms={enrich_ms} map_ms={records_map_ms} "
             f"rows={len(records)} fast_mode={int(fast_mode)} include_qty={int(should_load_qty)}",
             flush=True
         )
@@ -6534,6 +6593,7 @@ def api_admin_list_purchase_requests():
                 'upstreamMs': upstream_ms,
                 'qtyMs': qty_ms,
                 'supplierMs': supplier_ms,
+                'lineSelectionMs': line_selection_ms,
                 'supplierEnrichMs': enrich_ms,
                 'includeQty': bool(should_load_qty),
                 'fastMode': bool(fast_mode),
@@ -7181,17 +7241,49 @@ def _resolve_local_purchase_request_header(raw_request_id, request_no):
             item_code_loc = str(detail.get('itemcode') or '').strip()
             stored_desc_loc = str(detail.get('description3') or detail.get('description') or '').strip()
             resolved_desc_loc = resolve_pr_line_description(item_code_loc, stored_desc_loc)
+            detail_key = detail.get('dtlkey') or detail.get('pqdtlkey') or detail.get('id') or idx
+            qty_val = float(detail.get('qty') or detail.get('quantity') or 0)
+            unit_price_val = float(detail.get('unitprice') or 0)
+            tax_val = float(detail.get('taxamt') or detail.get('tax') or 0)
+            location_val = str(
+                detail.get('location')
+                or detail.get('loc')
+                or detail.get('stocklocation')
+                or detail.get('storelocation')
+                or ''
+            ).strip()
             mapped_details.append({
-                'id': detail.get('dtlkey') or detail.get('pqdtlkey') or detail.get('id') or idx,
+                'id': detail_key,
+                'dtlkey': detail_key,
                 'seq': detail.get('seq') or detail.get('lineno') or detail.get('line_no') or idx,
                 'itemCode': item_code_loc,
+                'itemcode': item_code_loc,
                 'itemName': str(detail.get('itemname') or detail.get('description2') or resolved_desc_loc or '').strip(),
                 'description': resolved_desc_loc,
-                'locationCode': str(detail.get('location') or detail.get('loc') or detail.get('stocklocation') or detail.get('storelocation') or '').strip(),
+                'description2': str(detail.get('description2') or '').strip(),
+                'description3': detail.get('description3'),
+                'location': location_val,
+                'locationCode': location_val,
+                'project': str(detail.get('project') or header.get('project') or '').strip() or '----',
                 'deliverydate': detail.get('deliverydate') or detail.get('delivery_date'),
-                'quantity': float(detail.get('qty') or detail.get('quantity') or 0),
-                'unitPrice': float(detail.get('unitprice') or 0),
-                'tax': float(detail.get('taxamt') or detail.get('tax') or 0),
+                'qty': qty_val,
+                'quantity': qty_val,
+                'uom': str(detail.get('uom') or 'UNIT').strip() or 'UNIT',
+                'rate': detail.get('rate') if detail.get('rate') is not None else 1,
+                'suomqty': detail.get('suomqty') if detail.get('suomqty') is not None else 0,
+                'offsetqty': detail.get('offsetqty') if detail.get('offsetqty') is not None else 0,
+                'unitprice': unit_price_val,
+                'unitPrice': unit_price_val,
+                'tax': tax_val,
+                'taxamt': tax_val,
+                'amount': float(detail.get('amount') or 0),
+                'disc': str(detail.get('disc') or '').strip(),
+                'printable': detail.get('printable') if detail.get('printable') is not None else True,
+                'transferable': detail.get('transferable'),
+                'udf_pqapproved': detail.get('udf_pqapproved'),
+                'batch': str(detail.get('batch') or '').strip(),
+                'remark1': str(detail.get('remark1') or '').strip(),
+                'remark2': str(detail.get('remark2') or '').strip(),
             })
 
         doc_date_raw = header.get('docdate') or header.get('requestdate')
@@ -7211,7 +7303,18 @@ def _resolve_local_purchase_request_header(raw_request_id, request_no):
             'dockey': resolved_dockey,
             'docno': str(header.get('docno') or request_no_clean or '').strip(),
             'code': str(header.get('code') or header.get('supplierid') or '').strip(),
+            'companyname': str(header.get('companyname') or '').strip(),
+            'docdate': doc_date_str,
             'docDate': doc_date_str,
+            'currencycode': str(header.get('currencycode') or header.get('currency') or 'MYR').strip() or 'MYR',
+            'currencyrate': header.get('currencyrate') if header.get('currencyrate') is not None else 1,
+            'project': str(header.get('project') or '').strip() or '----',
+            'area': str(header.get('area') or '').strip() or '----',
+            'shipper': str(header.get('shipper') or '').strip() or '----',
+            'businessunit': str(header.get('businessunit') or '').strip(),
+            'udf_status': str(header.get('udf_status') or '').strip(),
+            'udfStatus': str(header.get('udf_status') or '').strip(),
+            'transferable': header.get('transferable') if header.get('transferable') is not None else True,
             'sdsdocdetail': mapped_details,
             '_localFallback': True,
         }
@@ -7819,6 +7922,578 @@ def api_admin_reject_bid(request_id, bid_id):
         return jsonify({'success': False, 'error': str(exc)}), 400
     except Exception as exc:
         print(f"[PROCUREMENT BIDDING REJECT] error: {exc}", flush=True)
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
+@app.route('/api/admin/procurement/purchase-requests/transfer-candidates', methods=['GET'])
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_purchase_request_transfer_candidates():
+    """Flatten eligible APPROVED PR lines for bulk transfer (filter by supplier/location/item)."""
+    supplier_filter = str(request.args.get('supplier') or '').strip().upper()
+    location_filter = str(request.args.get('location') or '').strip().upper()
+    item_filter = str(request.args.get('item') or '').strip().upper()
+    search_filter = str(request.args.get('search') or '').strip().upper()
+    try:
+        limit = int(str(request.args.get('limit') or '500').strip() or 500)
+    except ValueError:
+        return jsonify({'success': False, 'error': 'limit must be an integer'}), 400
+    limit = max(1, min(limit, 2000))
+
+    def _num(value):
+        if value is None:
+            return 0.0
+        try:
+            return float(str(value).replace(',', '').strip() or 0)
+        except Exception:
+            return 0.0
+
+    def _truthy(value):
+        if value is True or value == 1:
+            return True
+        text = str(value or '').strip().lower()
+        return text in {'1', 'true', 't', 'y', 'yes'}
+
+    def _fmt_date(raw):
+        if raw is None:
+            return ''
+        try:
+            if hasattr(raw, 'strftime'):
+                return raw.strftime('%Y-%m-%d')
+            if hasattr(raw, 'isoformat'):
+                return str(raw.isoformat())[:10]
+            return str(raw).strip()[:10]
+        except Exception:
+            return str(raw or '').strip()[:10]
+
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        from utils.procurement_purchase_request import _get_table_columns, _pick_existing
+
+        header_cols = _get_table_columns(cur, 'PH_PQ')
+        detail_cols = _get_table_columns(cur, 'PH_PQDTL')
+        xtrans_cols = _get_table_columns(cur, 'ST_XTRANS')
+        if not header_cols or not detail_cols:
+            return jsonify({'success': False, 'error': 'Purchase request tables are unavailable'}), 503
+
+        h_key = _pick_existing(header_cols, 'DOCKEY', 'PQKEY', 'ID')
+        h_docno = _pick_existing(header_cols, 'DOCNO')
+        h_docdate = _pick_existing(header_cols, 'DOCDATE')
+        h_code = _pick_existing(header_cols, 'CODE', 'SUPPLIERID', 'AGENT')
+        h_company = _pick_existing(header_cols, 'COMPANYNAME')
+        h_currency = _pick_existing(header_cols, 'CURRENCYCODE')
+        h_udf = _pick_existing(header_cols, 'UDF_STATUS')
+        h_transferable = _pick_existing(header_cols, 'TRANSFERABLE')
+
+        d_key = _pick_existing(detail_cols, 'DTLKEY', 'ID')
+        d_fk = _pick_existing(detail_cols, 'DOCKEY')
+        d_item = _pick_existing(detail_cols, 'ITEMCODE')
+        d_desc = _pick_existing(detail_cols, 'DESCRIPTION')
+        d_desc3 = _pick_existing(detail_cols, 'DESCRIPTION3')
+        d_uom = _pick_existing(detail_cols, 'UOM')
+        d_loc = _pick_existing(detail_cols, 'LOCATION')
+        d_project = _pick_existing(detail_cols, 'PROJECT')
+        d_qty = _pick_existing(detail_cols, 'QTY')
+        d_price = _pick_existing(detail_cols, 'UNITPRICE')
+        d_transferable = _pick_existing(detail_cols, 'TRANSFERABLE')
+        d_approved = _pick_existing(detail_cols, 'UDF_PQAPPROVED')
+
+        if not (h_key and h_docno and h_udf and d_key and d_fk and d_qty):
+            return jsonify({'success': False, 'error': 'Purchase request schema is missing required columns'}), 503
+
+        qty_col = _pick_existing(xtrans_cols, 'QTY')
+        sqty_col = _pick_existing(xtrans_cols, 'SQTY')
+        suom_col = _pick_existing(xtrans_cols, 'SUOMQTY')
+        if suom_col and sqty_col and qty_col:
+            quantity_expr = (
+                f"COALESCE(NULLIF({suom_col}, 0), NULLIF({sqty_col}, 0), COALESCE({qty_col}, 0), 0)"
+            )
+        elif sqty_col and qty_col:
+            quantity_expr = f"COALESCE(NULLIF({sqty_col}, 0), COALESCE({qty_col}, 0), 0)"
+        else:
+            quantity_expr = suom_col or sqty_col or qty_col or '0'
+
+        if d_desc3 and d_desc:
+            desc_expr = f"COALESCE(D.{d_desc3}, D.{d_desc})"
+        elif d_desc:
+            desc_expr = f"D.{d_desc}"
+        else:
+            desc_expr = "NULL"
+
+        select_bits = [
+            f"H.{h_key} AS REQUEST_ID",
+            f"H.{h_docno} AS REQUEST_NO",
+            f"H.{h_docdate} AS REQUEST_DATE" if h_docdate else "NULL AS REQUEST_DATE",
+            f"H.{h_code} AS HEADER_SUPPLIER" if h_code else "NULL AS HEADER_SUPPLIER",
+            f"H.{h_company} AS HEADER_SUPPLIER_NAME" if h_company else "NULL AS HEADER_SUPPLIER_NAME",
+            f"H.{h_currency} AS CURRENCY_CODE" if h_currency else "'MYR' AS CURRENCY_CODE",
+            f"D.{d_key} AS DETAIL_ID",
+            f"D.{d_item} AS ITEM_CODE" if d_item else "NULL AS ITEM_CODE",
+            f"{desc_expr} AS DESCRIPTION",
+            f"D.{d_uom} AS UOM" if d_uom else "'UNIT' AS UOM",
+            f"D.{d_loc} AS LOCATION_CODE" if d_loc else "NULL AS LOCATION_CODE",
+            f"D.{d_project} AS PROJECT" if d_project else "NULL AS PROJECT",
+            f"CAST(COALESCE(D.{d_qty}, 0) AS DOUBLE PRECISION) AS QTY",
+            f"CAST(COALESCE(D.{d_price}, 0) AS DOUBLE PRECISION) AS UNIT_PRICE" if d_price else "0 AS UNIT_PRICE",
+            f"D.{d_transferable} AS LINE_TRANSFERABLE" if d_transferable else "NULL AS LINE_TRANSFERABLE",
+            f"D.{d_approved} AS LINE_APPROVED" if d_approved else "NULL AS LINE_APPROVED",
+            f"H.{h_transferable} AS HEADER_TRANSFERABLE" if h_transferable else "NULL AS HEADER_TRANSFERABLE",
+            f"CAST(COALESCE(T.TRANSFERRED_QTY, 0) AS DOUBLE PRECISION) AS TRANSFERRED_QTY",
+        ]
+
+        sql = f"""
+            SELECT FIRST {int(limit)}
+                {', '.join(select_bits)}
+            FROM PH_PQ H
+            JOIN PH_PQDTL D ON D.{d_fk} = H.{h_key}
+            LEFT JOIN (
+                SELECT FROMDOCKEY,
+                       FROMDTLKEY,
+                       CAST(SUM(CAST({quantity_expr} AS DOUBLE PRECISION)) AS DOUBLE PRECISION) AS TRANSFERRED_QTY
+                FROM ST_XTRANS
+                WHERE TRIM(UPPER(COALESCE(FROMDOCTYPE, ''))) IN ('PQ', 'PH_PQ')
+                GROUP BY FROMDOCKEY, FROMDTLKEY
+            ) T ON T.FROMDOCKEY = H.{h_key} AND T.FROMDTLKEY = D.{d_key}
+            WHERE TRIM(UPPER(COALESCE(H.{h_udf}, ''))) IN ('APPROVED', 'ACTIVE')
+              AND CAST(COALESCE(D.{d_qty}, 0) AS DOUBLE PRECISION)
+                  > CAST(COALESCE(T.TRANSFERRED_QTY, 0) AS DOUBLE PRECISION)
+            ORDER BY H.{h_docno}, D.{d_key}
+        """
+        cur.execute(sql)
+        rows = cur.fetchall() or []
+        colnames = [str(col[0] or '').strip().upper() for col in (cur.description or [])]
+
+        raw_lines = []
+        request_ids = []
+        for row in rows:
+            mapped = {colnames[i]: row[i] for i in range(min(len(colnames), len(row)))}
+            try:
+                request_id = int(mapped.get('REQUEST_ID'))
+                detail_id = int(mapped.get('DETAIL_ID'))
+            except Exception:
+                continue
+            if request_id <= 0 or detail_id <= 0:
+                continue
+
+            line_transferable = mapped.get('LINE_TRANSFERABLE')
+            line_approved = mapped.get('LINE_APPROVED')
+            header_transferable = mapped.get('HEADER_TRANSFERABLE')
+            if header_transferable is not None and not _truthy(header_transferable):
+                continue
+            if line_transferable is not None and not _truthy(line_transferable):
+                if line_approved is not None and not _truthy(line_approved):
+                    continue
+                if line_approved is None:
+                    continue
+
+            qty = _num(mapped.get('QTY'))
+            transferred = _num(mapped.get('TRANSFERRED_QTY'))
+            remaining = max(0.0, qty - transferred)
+            if remaining <= 0:
+                continue
+
+            raw_lines.append({
+                'requestId': request_id,
+                'requestNumber': str(mapped.get('REQUEST_NO') or '').strip(),
+                'requestDate': _fmt_date(mapped.get('REQUEST_DATE')),
+                'detailId': detail_id,
+                'itemCode': str(mapped.get('ITEM_CODE') or '').strip(),
+                'description': str(mapped.get('DESCRIPTION') or '').strip(),
+                'uom': str(mapped.get('UOM') or 'UNIT').strip() or 'UNIT',
+                'locationCode': str(mapped.get('LOCATION_CODE') or '').strip(),
+                'project': str(mapped.get('PROJECT') or '').strip() or '----',
+                'quantity': qty,
+                'transferredQty': transferred,
+                'remainingQty': remaining,
+                'unitPrice': _num(mapped.get('UNIT_PRICE')),
+                'headerSupplierCode': str(mapped.get('HEADER_SUPPLIER') or '').strip(),
+                'headerSupplierName': str(mapped.get('HEADER_SUPPLIER_NAME') or '').strip(),
+                'currencyCode': str(mapped.get('CURRENCY_CODE') or 'MYR').strip() or 'MYR',
+            })
+            if request_id not in request_ids:
+                request_ids.append(request_id)
+
+        awards_by_request = {}
+        for request_id in request_ids:
+            try:
+                awards = get_line_awards_for_request(int(request_id)) or []
+            except Exception:
+                awards = []
+            award_map = {}
+            for award in awards:
+                if not isinstance(award, dict):
+                    continue
+                try:
+                    detail_id = int(award.get('detailId') or 0)
+                except Exception:
+                    continue
+                if detail_id > 0:
+                    award_map[detail_id] = award
+            awards_by_request[int(request_id)] = award_map
+
+        lines = []
+        suppliers = set()
+        locations = set()
+        items = set()
+        for line in raw_lines:
+            request_id = int(line['requestId'])
+            detail_id = int(line['detailId'])
+            award = (awards_by_request.get(request_id) or {}).get(detail_id)
+            supplier_code = str((award or {}).get('supplierCode') or line.get('headerSupplierCode') or '').strip()
+            supplier_name = str((award or {}).get('supplierName') or line.get('headerSupplierName') or '').strip()
+            if award and award.get('unitPrice') is not None:
+                try:
+                    awarded_price = float(award.get('unitPrice') or 0)
+                    if awarded_price > 0:
+                        line['unitPrice'] = awarded_price
+                except Exception:
+                    pass
+
+            if supplier_filter and supplier_code.upper() != supplier_filter:
+                continue
+            location_code = str(line.get('locationCode') or '').strip()
+            if location_filter and location_code.upper() != location_filter:
+                continue
+            item_code = str(line.get('itemCode') or '').strip()
+            if item_filter and item_code.upper() != item_filter:
+                continue
+            if search_filter:
+                hay = ' '.join([
+                    str(line.get('requestNumber') or ''),
+                    item_code,
+                    str(line.get('description') or ''),
+                    supplier_code,
+                    supplier_name,
+                ]).upper()
+                if search_filter not in hay:
+                    continue
+
+            if not supplier_code:
+                continue
+
+            out_line = {
+                'requestId': request_id,
+                'requestNumber': line.get('requestNumber') or '',
+                'requestDate': line.get('requestDate') or '',
+                'detailId': detail_id,
+                'itemCode': item_code,
+                'description': line.get('description') or '',
+                'uom': line.get('uom') or 'UNIT',
+                'locationCode': location_code,
+                'project': line.get('project') or '----',
+                'quantity': line.get('quantity') or 0,
+                'transferredQty': line.get('transferredQty') or 0,
+                'remainingQty': line.get('remainingQty') or 0,
+                'unitPrice': line.get('unitPrice') or 0,
+                'supplierCode': supplier_code,
+                'supplierName': supplier_name or supplier_code,
+                'currencyCode': line.get('currencyCode') or 'MYR',
+            }
+            lines.append(out_line)
+            suppliers.add(supplier_code)
+            if location_code:
+                locations.add(location_code)
+            if item_code:
+                items.add(item_code)
+
+        return jsonify({
+            'success': True,
+            'data': {
+                'lines': lines,
+                'filters': {
+                    'suppliers': sorted(suppliers),
+                    'locations': sorted(locations),
+                    'items': sorted(items),
+                },
+                'count': len(lines),
+            },
+        })
+    except Exception as exc:
+        print(f"[PROCUREMENT TRANSFER CANDIDATES] error: {exc}", flush=True)
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(exc)}), 500
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
+
+
+@app.route('/api/admin/procurement/purchase-requests/bulk-transfer-to-po', methods=['POST'])
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_bulk_transfer_purchase_requests_to_po():
+    """Consolidate selected lines from multiple APPROVED PRs into one PO per supplier/currency."""
+    payload = request.get_json(silent=True) or {}
+    lines = payload.get('lines') if isinstance(payload.get('lines'), list) else []
+    transfer_date = payload.get('transferDate')
+    actor = (session.get('user_email') or session.get('user_name') or 'admin').strip()
+
+    if not lines:
+        return jsonify({'success': False, 'error': 'lines[] is required'}), 400
+
+    lines_by_request = {}
+    for row in lines:
+        if not isinstance(row, dict):
+            continue
+        try:
+            request_id = int(row.get('requestId') or row.get('fromdockey') or 0)
+            detail_id = int(row.get('detailId') or row.get('fromdtlkey') or row.get('dtlkey') or 0)
+        except Exception:
+            continue
+        if request_id <= 0 or detail_id <= 0:
+            continue
+        try:
+            quantity = float(row.get('quantity') if row.get('quantity') is not None else row.get('qty') or 0)
+        except Exception:
+            quantity = 0.0
+        if quantity <= 0:
+            continue
+        lines_by_request.setdefault(request_id, []).append({
+            'detailId': detail_id,
+            'quantity': quantity,
+            'transferable': row.get('transferable') if 'transferable' in row else True,
+        })
+
+    if not lines_by_request:
+        return jsonify({'success': False, 'error': 'No valid transfer lines found'}), 400
+
+    try:
+        headers = _build_sql_api_auth_headers()
+
+        def _resolve_supplier_master(selected_code, fallback_name=''):
+            code = str(selected_code or '').strip()
+            if not code:
+                return {}
+            try:
+                from utils.sql_api_supplier import (
+                    fetch_supplier_row_by_code,
+                    supplier_master_document_fields,
+                )
+
+                row = fetch_supplier_row_by_code(code)
+                if row:
+                    return supplier_master_document_fields(row)
+            except Exception:
+                pass
+            name = str(fallback_name or '').strip()
+            return {'code': code, 'companyname': name or code}
+
+        prepared_by_request = {}
+        for request_id, transfer_lines in lines_by_request.items():
+            request_header, last_status = _resolve_purchase_request_header(
+                str(request_id), '', headers, timeout=12
+            )
+            if not request_header:
+                request_header = _resolve_local_purchase_request_header(str(request_id), '')
+            if not request_header:
+                return jsonify({
+                    'success': False,
+                    'error': f'Purchase request {request_id} not found',
+                }), 404 if last_status in (200, 404) else 502
+
+            details = request_header.get('sdsdocdetail') if isinstance(request_header.get('sdsdocdetail'), list) else []
+            has_dtlkey = any(
+                isinstance(d, dict) and (d.get('dtlkey') is not None or d.get('DTLKEY') is not None)
+                for d in details
+            )
+            local_header = _resolve_local_purchase_request_header(str(request_id), '')
+            if local_header and (not has_dtlkey or request_header.get('_localFallback')):
+                merged = dict(request_header)
+                for key in (
+                    'dockey', 'docno', 'code', 'companyname', 'docdate', 'docDate',
+                    'currencycode', 'currencyrate', 'project', 'area', 'shipper',
+                    'businessunit', 'udf_status', 'udfStatus', 'transferable', 'sdsdocdetail',
+                ):
+                    if local_header.get(key) is not None:
+                        merged[key] = local_header.get(key)
+                request_header = merged
+            elif local_header:
+                # Always prefer local UDF/transferable when available.
+                for key in ('udf_status', 'udfStatus', 'transferable'):
+                    if local_header.get(key) is not None:
+                        request_header[key] = local_header.get(key)
+
+            udf_status_text = str(
+                request_header.get('udf_status')
+                or request_header.get('udfStatus')
+                or request_header.get('UDF_STATUS')
+                or ''
+            ).strip().upper()
+            if udf_status_text == 'ACTIVE':
+                udf_status_text = 'APPROVED'
+            elif udf_status_text == 'INACTIVE':
+                udf_status_text = 'CANCELLED'
+            try:
+                local_udf = str(get_pr_udf_status_local(int(request_id)) or '').strip().upper()
+                if local_udf:
+                    udf_status_text = 'APPROVED' if local_udf == 'ACTIVE' else local_udf
+                    request_header['udf_status'] = udf_status_text
+            except Exception:
+                pass
+            if udf_status_text != 'APPROVED':
+                docno = str(request_header.get('docno') or request_id).strip()
+                return jsonify({
+                    'success': False,
+                    'error': f'Transfer is allowed only when purchase request {docno} UDF status is APPROVED',
+                }), 400
+
+            awarded_lines = validate_transfer_against_line_awards(int(request_id), transfer_lines)
+            request_for_transfer = apply_awarded_lines_to_request(request_header, awarded_lines)
+            prepared_by_request[int(request_id)] = {
+                'header': request_for_transfer,
+                'transfer_lines': transfer_lines,
+                'awarded_lines': awarded_lines,
+            }
+
+        buckets = {}
+        for request_id, prepared in prepared_by_request.items():
+            header = prepared['header']
+            transfer_lines = prepared['transfer_lines']
+            awarded_lines = prepared['awarded_lines']
+            currency_code = str(
+                header.get('currencycode')
+                or header.get('currencyCode')
+                or header.get('currency')
+                or 'MYR'
+            ).strip().upper() or 'MYR'
+
+            if awarded_lines:
+                award_by_detail = {
+                    int(line.get('detailId')): line
+                    for line in awarded_lines
+                    if isinstance(line, dict) and str(line.get('detailId') or '').strip()
+                }
+                for row in transfer_lines:
+                    detail_id = int(row.get('detailId'))
+                    award = award_by_detail.get(detail_id)
+                    if not award:
+                        continue
+                    supplier_code = str(award.get('supplierCode') or '').strip()
+                    supplier_name = str(award.get('supplierName') or '').strip()
+                    if not supplier_code:
+                        return jsonify({
+                            'success': False,
+                            'error': f'No supplier code found for awarded detail {detail_id}',
+                        }), 400
+                    key = (supplier_code.upper(), currency_code)
+                    bucket = buckets.setdefault(key, {
+                        'supplierCode': supplier_code,
+                        'supplierName': supplier_name,
+                        'currencyCode': currency_code,
+                        'request_lines': {},
+                    })
+                    bucket['request_lines'].setdefault(int(request_id), []).append(row)
+            else:
+                supplier_code = str(header.get('code') or header.get('supplierid') or '').strip()
+                supplier_name = str(header.get('companyname') or '').strip()
+                if not supplier_code:
+                    docno = str(header.get('docno') or request_id).strip()
+                    return jsonify({
+                        'success': False,
+                        'error': f'Supplier code is required for transfer of {docno}',
+                    }), 400
+                key = (supplier_code.upper(), currency_code)
+                bucket = buckets.setdefault(key, {
+                    'supplierCode': supplier_code,
+                    'supplierName': supplier_name,
+                    'currencyCode': currency_code,
+                    'request_lines': {},
+                })
+                bucket['request_lines'][int(request_id)] = list(transfer_lines)
+
+        if not buckets:
+            return jsonify({'success': False, 'error': 'No transferable awarded lines found'}), 400
+
+        transfer_results = []
+        groups_out = []
+        total_transferred_qty = 0.0
+        total_line_count = 0
+
+        for _bucket_key, bucket in buckets.items():
+            supplier_code = str(bucket.get('supplierCode') or '').strip()
+            supplier_name = str(bucket.get('supplierName') or '').strip()
+            currency_code = str(bucket.get('currencyCode') or 'MYR').strip() or 'MYR'
+            request_lines = bucket.get('request_lines') if isinstance(bucket.get('request_lines'), dict) else {}
+            if not request_lines:
+                continue
+
+            request_groups = []
+            contributing_prs = []
+            line_count_group = 0
+            for request_id, group_lines in request_lines.items():
+                prepared = prepared_by_request.get(int(request_id))
+                if not prepared or not group_lines:
+                    continue
+                header = dict(prepared['header'])
+                if not str(header.get('currencycode') or '').strip():
+                    header['currencycode'] = currency_code
+                request_groups.append({
+                    'purchase_request': header,
+                    'transfer_lines': group_lines,
+                })
+                contributing_prs.append(str(header.get('docno') or request_id).strip())
+                line_count_group += len(group_lines)
+
+            if not request_groups:
+                continue
+
+            supplier_master = _resolve_supplier_master(supplier_code, supplier_name)
+            if not str(supplier_master.get('currencycode') or supplier_master.get('currencyCode') or '').strip():
+                supplier_master['currencycode'] = currency_code
+
+            result = transfer_purchase_requests_to_single_po(
+                request_groups=request_groups,
+                supplier=supplier_master,
+                created_by=actor,
+                transfer_date=transfer_date,
+            )
+            transfer_results.append(result)
+            total_transferred_qty += float(result.get('transferredQty') or 0.0)
+            total_line_count += int(result.get('lineCount') or 0)
+            groups_out.append({
+                'supplierCode': supplier_code,
+                'supplierName': supplier_name or supplier_code,
+                'currencyCode': currency_code,
+                'poNumber': result.get('poNumber'),
+                'poDockey': result.get('poDockey'),
+                'requestNumbers': result.get('sourceRequestNumbers') or contributing_prs,
+                'lineCount': int(result.get('lineCount') or line_count_group),
+                'transferredQty': float(result.get('transferredQty') or 0.0),
+            })
+
+        if not transfer_results:
+            return jsonify({'success': False, 'error': 'No purchase order created from selected lines'}), 400
+
+        return jsonify({
+            'success': True,
+            'message': 'Purchase requests transferred to purchase order successfully',
+            'data': {
+                'poNumber': transfer_results[0].get('poNumber'),
+                'poDockey': transfer_results[0].get('poDockey'),
+                'poNumbers': [
+                    str(r.get('poNumber') or '').strip()
+                    for r in transfer_results
+                    if str(r.get('poNumber') or '').strip()
+                ],
+                'results': transfer_results,
+                'groups': groups_out,
+                'lineCount': total_line_count,
+                'transferredQty': total_transferred_qty,
+            },
+        })
+    except BiddingValidationError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+    except PurchaseOrderTransferValidationError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+    except requests.exceptions.Timeout:
+        return jsonify({'success': False, 'error': 'Purchase request lookup timed out'}), 504
+    except requests.exceptions.ConnectionError:
+        return jsonify({'success': False, 'error': 'Cannot reach SQL API for purchase request lookup'}), 503
+    except Exception as exc:
+        print(f"[PROCUREMENT PR BULK TRANSFER] error: {exc}", flush=True)
+        traceback.print_exc()
         return jsonify({'success': False, 'error': str(exc)}), 500
 
 

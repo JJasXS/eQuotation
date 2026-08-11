@@ -240,6 +240,166 @@ def _fit_string_values(row: dict[str, Any], string_lengths: dict[str, int]) -> d
     return fitted
 
 
+def _detail_map_from_request(purchase_request: dict[str, Any]) -> dict[int, dict[str, Any]]:
+    source_details = purchase_request.get("sdsdocdetail")
+    if not isinstance(source_details, list) or not source_details:
+        raise PurchaseOrderTransferValidationError("purchase_request.sdsdocdetail is required")
+    detail_map: dict[int, dict[str, Any]] = {}
+    for row in source_details:
+        if not isinstance(row, dict):
+            continue
+        try:
+            detail_id = int(row.get("dtlkey"))
+        except Exception:
+            continue
+        detail_map[detail_id] = row
+    return detail_map
+
+
+def _normalize_transfer_line_rows(
+    transfer_lines: list[dict[str, Any]],
+    detail_map: dict[int, dict[str, Any]],
+    *,
+    request_dockey: int | None = None,
+) -> list[dict[str, Any]]:
+    """Normalize transfer payload rows to {detailId, quantity} (+ requestDockey when provided)."""
+    normalized: list[dict[str, Any]] = []
+    for line in transfer_lines:
+        if not isinstance(line, dict):
+            continue
+        raw_detail_id = line.get("fromdtlkey", line.get("dtlkey", line.get("detailId")))
+        raw_quantity = line.get("qty", line.get("quantity", line.get("transferQty")))
+        try:
+            detail_id = int(raw_detail_id)
+        except Exception as exc:
+            raise PurchaseOrderTransferValidationError("each transfer line requires a valid detail id") from exc
+
+        quantity = _money(_as_decimal(raw_quantity, "0"))
+        if quantity <= 0:
+            raise PurchaseOrderTransferValidationError(f"transfer quantity must be > 0 for detail {detail_id}")
+        if detail_id not in detail_map:
+            raise PurchaseOrderTransferValidationError(f"purchase request detail {detail_id} was not found")
+
+        row: dict[str, Any] = {"detailId": detail_id, "quantity": quantity}
+        if request_dockey is not None:
+            row["requestDockey"] = int(request_dockey)
+        normalized.append(row)
+    return normalized
+
+
+def _build_po_detail_and_xtrans(
+    *,
+    source: dict[str, Any],
+    purchase_request: dict[str, Any],
+    request_dockey: int,
+    detail_id: int,
+    quantity: Decimal,
+    already_transferred: Decimal,
+    transferable_override: bool | None,
+    line_index: int,
+    effective_date: str,
+    po_dockey: int,
+    po_detail_key: int,
+    po_detail_key_col: str,
+    po_detail_fk_col: str,
+    xtrans_key: int,
+    xtrans_key_col: str,
+    xtrans_cols: set[str],
+    supplier_code: str,
+    po_status_value: Any,
+) -> tuple[dict[str, Any], dict[str, Any], Decimal]:
+    """Validate one PR line and build PH_PODTL + ST_XTRANS rows. Returns (detail, xtrans, amount)."""
+    if not _detail_is_transferable(
+        source,
+        override=transferable_override,
+        header_udf_status=_normalize_udf_status(purchase_request.get("udf_status")),
+    ):
+        raise PurchaseOrderTransferValidationError(
+            f"purchase request detail {detail_id} is not transferable"
+        )
+
+    source_qty = _money(_as_decimal(source.get("qty"), "0"))
+    if source_qty <= 0:
+        raise PurchaseOrderTransferValidationError(
+            f"purchase request detail {detail_id} has invalid qty"
+        )
+
+    remaining_qty = _money(source_qty - already_transferred)
+    if quantity > remaining_qty:
+        raise PurchaseOrderTransferValidationError(
+            f"transfer quantity exceeds remaining qty for detail {detail_id}"
+        )
+
+    unit_price = _money(_as_decimal(source.get("unitprice"), "0"))
+    line_tax = Decimal("0")
+    source_tax = _money(_as_decimal(source.get("taxamt"), "0"))
+    if source_qty > 0 and source_tax != 0:
+        line_tax = _money((source_tax / source_qty) * quantity)
+    amount = _money((unit_price * quantity) + line_tax)
+
+    detail_values = {
+        po_detail_key_col: po_detail_key,
+        po_detail_fk_col: po_dockey,
+        "SEQ": source.get("seq") if source.get("seq") is not None else line_index * 1000,
+        "ITEMCODE": _clean_text(source.get("itemcode")),
+        "LOCATION": _clean_text(source.get("location")),
+        "BATCH": _clean_text(source.get("batch")),
+        "PROJECT": _clean_text(source.get("project")) or _clean_text(purchase_request.get("project")) or "----",
+        "DESCRIPTION": _clean_text(source.get("description")),
+        "DESCRIPTION2": _clean_text(source.get("description2")),
+        "DESCRIPTION3": source.get("description3"),
+        "PERMITNO": _clean_text(source.get("permitno")),
+        "QTY": float(quantity),
+        "UOM": _clean_text(source.get("uom")) or "UNIT",
+        "RATE": float(_as_decimal(source.get("rate"), "1")),
+        "SQTY": float(quantity),
+        "SUOMQTY": float(
+            _money(_as_decimal(source.get("suomqty"), "0"))
+            or float(quantity)
+        ),
+        "OFFSETQTY": float(_as_decimal(source.get("offsetqty"), "0")),
+        "UNITPRICE": float(unit_price),
+        "DELIVERYDATE": _normalize_transfer_date(source.get("deliverydate") or effective_date),
+        "DISC": _clean_text(source.get("disc")),
+        "TAX": _clean_text(source.get("tax")),
+        "TARIFF": _clean_text(source.get("tariff")),
+        "TAXEXEMPTIONREASON": _clean_text(source.get("taxexemptionreason")),
+        "IRBM_CLASSIFICATION": _clean_text(source.get("irbm_classification")),
+        "TAXRATE": _clean_text(source.get("taxrate")),
+        "TAXAMT": float(line_tax),
+        "LOCALTAXAMT": float(line_tax),
+        "EXEMPTED_TAXRATE": _clean_text(source.get("exempted_taxrate")),
+        "EXEMPTED_TAXAMT": float(_as_decimal(source.get("exempted_taxamt"), "0")),
+        "TAXINCLUSIVE": bool(source.get("taxinclusive") or False),
+        "AMOUNT": float(amount),
+        "LOCALAMOUNT": float(amount),
+        "PRINTABLE": bool(source.get("printable") if source.get("printable") is not None else True),
+        "FROMDOCTYPE": "PQ",
+        "FROMDOCKEY": request_dockey,
+        "FROMDTLKEY": detail_id,
+        "TRANSFERABLE": True,
+        "REMARK1": _clean_text(source.get("remark1")),
+        "REMARK2": _clean_text(source.get("remark2")),
+    }
+
+    x_row: dict[str, Any] = {
+        xtrans_key_col: xtrans_key,
+        "CODE": supplier_code,
+        "FROMDOCTYPE": "PQ",
+        "TODOCTYPE": "PO",
+        "FROMDOCKEY": request_dockey,
+        "TODOCKEY": po_dockey,
+        "FROMDTLKEY": detail_id,
+        "TODTLKEY": po_detail_key,
+        "QTY": float(quantity),
+        "SQTY": float(quantity),
+        "TOSTATUS": po_status_value,
+    }
+    if "SUOMQTY" in xtrans_cols:
+        x_row["SUOMQTY"] = float(quantity)
+    return detail_values, x_row, amount
+
+
 def transfer_purchase_request_to_po(
     purchase_request: dict[str, Any],
     transfer_lines: list[dict[str, Any]],
@@ -248,38 +408,106 @@ def transfer_purchase_request_to_po(
     transfer_date: Any = None,
 ) -> dict[str, Any]:
     """Create PH_PO, PH_PODTL, and ST_XTRANS rows from approved PR detail lines."""
-    if not isinstance(purchase_request, dict):
-        raise PurchaseOrderTransferValidationError("purchase_request must be an object")
-    if not isinstance(transfer_lines, list) or not transfer_lines:
-        raise PurchaseOrderTransferValidationError("transfer_lines[] is required")
+    return transfer_purchase_requests_to_single_po(
+        [{"purchase_request": purchase_request, "transfer_lines": transfer_lines}],
+        supplier=supplier,
+        created_by=created_by,
+        transfer_date=transfer_date,
+    )
+
+
+def transfer_purchase_requests_to_single_po(
+    request_groups: list[dict[str, Any]],
+    supplier: dict[str, Any] | None = None,
+    created_by: str = "system",
+    transfer_date: Any = None,
+) -> dict[str, Any]:
+    """Create one PH_PO whose lines may originate from multiple purchase requests.
+
+    Each entry in request_groups must be:
+      { "purchase_request": {...}, "transfer_lines": [...] }
+    Lines keep per-PR FROMDOCKEY / FROMDTLKEY on PH_PODTL and ST_XTRANS.
+    """
+    del created_by  # reserved for audit / future use
+    if not isinstance(request_groups, list) or not request_groups:
+        raise PurchaseOrderTransferValidationError("request_groups[] is required")
     if supplier is None:
         supplier = {}
     if not isinstance(supplier, dict):
         raise PurchaseOrderTransferValidationError("supplier must be an object")
 
-    request_dockey = purchase_request.get("dockey")
-    try:
-        request_dockey = int(request_dockey)
-    except Exception as exc:
-        raise PurchaseOrderTransferValidationError("purchase_request.dockey is required") from exc
+    prepared_groups: list[dict[str, Any]] = []
+    seen_pairs: set[tuple[int, int]] = set()
+    for group in request_groups:
+        if not isinstance(group, dict):
+            raise PurchaseOrderTransferValidationError("each request group must be an object")
+        purchase_request = group.get("purchase_request")
+        transfer_lines = group.get("transfer_lines")
+        if not isinstance(purchase_request, dict):
+            raise PurchaseOrderTransferValidationError("purchase_request must be an object")
+        if not isinstance(transfer_lines, list) or not transfer_lines:
+            raise PurchaseOrderTransferValidationError("transfer_lines[] is required")
 
-    request_docno = _clean_text(purchase_request.get("docno")) or f"PQ-{request_dockey}"
-    if not _coerce_bool(purchase_request.get("transferable", True)):
-        raise PurchaseOrderTransferValidationError("purchase request is not transferable")
-    if _normalize_udf_status(purchase_request.get("udf_status")) != "APPROVED":
-        raise PurchaseOrderTransferValidationError("purchase request UDF status must be APPROVED before transfer")
+        try:
+            request_dockey = int(purchase_request.get("dockey"))
+        except Exception as exc:
+            raise PurchaseOrderTransferValidationError("purchase_request.dockey is required") from exc
+
+        request_docno = _clean_text(purchase_request.get("docno")) or f"PQ-{request_dockey}"
+        if not _coerce_bool(purchase_request.get("transferable", True)):
+            raise PurchaseOrderTransferValidationError(
+                f"purchase request {request_docno} is not transferable"
+            )
+        if _normalize_udf_status(purchase_request.get("udf_status")) != "APPROVED":
+            raise PurchaseOrderTransferValidationError(
+                f"purchase request {request_docno} UDF status must be APPROVED before transfer"
+            )
+
+        detail_map = _detail_map_from_request(purchase_request)
+        normalized = _normalize_transfer_line_rows(
+            transfer_lines, detail_map, request_dockey=request_dockey
+        )
+        if not normalized:
+            raise PurchaseOrderTransferValidationError(
+                f"transfer_lines[] is required for purchase request {request_docno}"
+            )
+        for line in normalized:
+            pair = (request_dockey, int(line["detailId"]))
+            if pair in seen_pairs:
+                raise PurchaseOrderTransferValidationError(
+                    f"duplicate transfer line for request {request_dockey} detail {line['detailId']}"
+                )
+            seen_pairs.add(pair)
+
+        prepared_groups.append(
+            {
+                "purchase_request": purchase_request,
+                "request_dockey": request_dockey,
+                "request_docno": request_docno,
+                "detail_map": detail_map,
+                "normalized_transfers": normalized,
+                "transferable_overrides": _transferable_override_map(transfer_lines),
+            }
+        )
+
+    # Primary PR (lowest dockey) supplies header-only fields like PROJECT/AREA.
+    prepared_groups.sort(key=lambda g: int(g["request_dockey"]))
+    primary = prepared_groups[0]
+    primary_request = primary["purchase_request"]
+    source_request_dockeys = [int(g["request_dockey"]) for g in prepared_groups]
+    source_request_numbers = [str(g["request_docno"]) for g in prepared_groups]
 
     supplier_code = _clean_text(
         supplier.get("code")
         or supplier.get("supplierId")
-        or purchase_request.get("code")
-        or purchase_request.get("supplierid")
-        or purchase_request.get("agent")
+        or primary_request.get("code")
+        or primary_request.get("supplierid")
+        or primary_request.get("agent")
     )
     supplier_name = _clean_text(
         supplier.get("companyname")
         or supplier.get("companyName")
-        or purchase_request.get("companyname")
+        or primary_request.get("companyname")
     )
     supplier_currency_code = _clean_text(
         supplier.get("currencycode")
@@ -298,43 +526,6 @@ def transfer_purchase_request_to_po(
         raise PurchaseOrderTransferValidationError(
             "supplier name is missing on purchase request (PH_PQ.COMPANYNAME)"
         )
-
-    source_details = purchase_request.get("sdsdocdetail")
-    if not isinstance(source_details, list) or not source_details:
-        raise PurchaseOrderTransferValidationError("purchase_request.sdsdocdetail is required")
-
-    detail_map: dict[int, dict[str, Any]] = {}
-    for row in source_details:
-        if not isinstance(row, dict):
-            continue
-        try:
-            detail_id = int(row.get("dtlkey"))
-        except Exception:
-            continue
-        detail_map[detail_id] = row
-
-    transferable_overrides = _transferable_override_map(transfer_lines)
-
-    normalized_transfers: list[dict[str, Any]] = []
-    requested_detail_ids: list[int] = []
-    for line in transfer_lines:
-        if not isinstance(line, dict):
-            continue
-        raw_detail_id = line.get("fromdtlkey", line.get("dtlkey", line.get("detailId")))
-        raw_quantity = line.get("qty", line.get("quantity", line.get("transferQty")))
-        try:
-            detail_id = int(raw_detail_id)
-        except Exception as exc:
-            raise PurchaseOrderTransferValidationError("each transfer line requires a valid detail id") from exc
-
-        quantity = _money(_as_decimal(raw_quantity, "0"))
-        if quantity <= 0:
-            raise PurchaseOrderTransferValidationError(f"transfer quantity must be > 0 for detail {detail_id}")
-        if detail_id not in detail_map:
-            raise PurchaseOrderTransferValidationError(f"purchase request detail {detail_id} was not found")
-
-        normalized_transfers.append({"detailId": detail_id, "quantity": quantity})
-        requested_detail_ids.append(detail_id)
 
     con = _connect_db()
     try:
@@ -355,7 +546,14 @@ def transfer_purchase_request_to_po(
         if not po_header_key_col or not po_detail_key_col or not po_detail_fk_col or not xtrans_key_col:
             raise PurchaseOrderTransferValidationError("purchase order table schema is missing required key columns")
 
-        existing_qty_map = _fetch_existing_transfer_qty_map(cur, request_dockey, requested_detail_ids, xtrans_cols)
+        existing_qty_by_request: dict[int, dict[int, Decimal]] = {}
+        for group in prepared_groups:
+            dockey = int(group["request_dockey"])
+            detail_ids = [int(line["detailId"]) for line in group["normalized_transfers"]]
+            existing_qty_by_request[dockey] = _fetch_existing_transfer_qty_map(
+                cur, dockey, detail_ids, xtrans_cols
+            )
+
         po_header_gens = ["PH_PO", "GEN_PH_PO_ID", "GEN_PH_PO_DOCKEY", "GEN_PH_PO", "SEQ_PH_PO_DOCKEY"]
         po_detail_gens = ["PH_PODTL", "GEN_PH_PODTL_ID", "GEN_PH_PODTL_DTLKEY", "GEN_PH_PODTL", "SEQ_PH_PODTL_DTLKEY"]
         xtrans_gens = ["ST_XTRANS", "GEN_ST_XTRANS_ID", "GEN_ST_XTRANS_DOCKEY", "GEN_ST_XTRANS", "SEQ_ST_XTRANS_DOCKEY"]
@@ -369,120 +567,64 @@ def transfer_purchase_request_to_po(
 
         status_is_numeric = bool(po_status_col and _column_is_numeric(cur, "PH_PO", po_status_col))
         po_status_value = _encode_status("DRAFT", status_is_numeric)
-        effective_date = _normalize_transfer_date(transfer_date or purchase_request.get("docdate"))
+        effective_date = _normalize_transfer_date(transfer_date or primary_request.get("docdate"))
         total_doc_amount = Decimal("0")
-        inserted_detail_keys: list[int] = []
+        transferred_qty_total = Decimal("0")
+        detail_inserts: list[dict[str, Any]] = []
         xtrans_rows: list[dict[str, Any]] = []
 
-        detail_inserts: list[dict[str, Any]] = []
-        for line_index, line in enumerate(normalized_transfers, start=1):
-            detail_id = line["detailId"]
-            source = detail_map[detail_id]
-            if not _detail_is_transferable(
-                source,
-                override=transferable_overrides.get(detail_id),
-                header_udf_status=_normalize_udf_status(purchase_request.get("udf_status")),
-            ):
-                raise PurchaseOrderTransferValidationError(
-                    f"purchase request detail {detail_id} is not transferable"
+        line_index = 0
+        for group in prepared_groups:
+            purchase_request = group["purchase_request"]
+            request_dockey = int(group["request_dockey"])
+            detail_map = group["detail_map"]
+            transferable_overrides = group["transferable_overrides"]
+            existing_qty_map = existing_qty_by_request.get(request_dockey) or {}
+
+            for line in group["normalized_transfers"]:
+                line_index += 1
+                detail_id = int(line["detailId"])
+                quantity = line["quantity"]
+                transferred_qty_total += quantity
+
+                po_detail_key = _next_key(cur, "PH_PODTL", po_detail_key_col, po_detail_gens)
+                xtrans_key = _next_key(cur, "ST_XTRANS", xtrans_key_col, xtrans_gens)
+                detail_values, x_row, amount = _build_po_detail_and_xtrans(
+                    source=detail_map[detail_id],
+                    purchase_request=purchase_request,
+                    request_dockey=request_dockey,
+                    detail_id=detail_id,
+                    quantity=quantity,
+                    already_transferred=_money(
+                        _as_decimal(existing_qty_map.get(detail_id, Decimal("0")), "0")
+                    ),
+                    transferable_override=transferable_overrides.get(detail_id),
+                    line_index=line_index,
+                    effective_date=effective_date,
+                    po_dockey=po_dockey,
+                    po_detail_key=po_detail_key,
+                    po_detail_key_col=po_detail_key_col,
+                    po_detail_fk_col=po_detail_fk_col,
+                    xtrans_key=xtrans_key,
+                    xtrans_key_col=xtrans_key_col,
+                    xtrans_cols=xtrans_cols,
+                    supplier_code=supplier_code,
+                    po_status_value=po_status_value,
                 )
+                total_doc_amount += amount
+                detail_inserts.append(detail_values)
+                xtrans_rows.append(x_row)
 
-            source_qty = _money(_as_decimal(source.get("qty"), "0"))
-            if source_qty <= 0:
-                raise PurchaseOrderTransferValidationError(
-                    f"purchase request detail {line['detailId']} has invalid qty"
-                )
+        if not detail_inserts:
+            raise PurchaseOrderTransferValidationError("No transferable lines found")
 
-            already_transferred = _money(_as_decimal(existing_qty_map.get(line["detailId"], Decimal("0")), "0"))
-            remaining_qty = _money(source_qty - already_transferred)
-            if line["quantity"] > remaining_qty:
-                raise PurchaseOrderTransferValidationError(
-                    f"transfer quantity exceeds remaining qty for detail {line['detailId']}"
-                )
-
-            unit_price = _money(_as_decimal(source.get("unitprice"), "0"))
-            line_tax = Decimal("0")
-            source_tax = _money(_as_decimal(source.get("taxamt"), "0"))
-            if source_qty > 0 and source_tax != 0:
-                line_tax = _money((source_tax / source_qty) * line["quantity"])
-            amount = _money((unit_price * line["quantity"]) + line_tax)
-            total_doc_amount += amount
-
-            po_detail_key = _next_key(
-                cur,
-                "PH_PODTL",
-                po_detail_key_col,
-                po_detail_gens,
-            )
-            inserted_detail_keys.append(po_detail_key)
-
-            detail_values = {
-                po_detail_key_col: po_detail_key,
-                po_detail_fk_col: po_dockey,
-                "SEQ": source.get("seq") if source.get("seq") is not None else line_index * 1000,
-                "ITEMCODE": _clean_text(source.get("itemcode")),
-                "LOCATION": _clean_text(source.get("location")),
-                "BATCH": _clean_text(source.get("batch")),
-                "PROJECT": _clean_text(source.get("project")) or _clean_text(purchase_request.get("project")) or "----",
-                "DESCRIPTION": _clean_text(source.get("description")),
-                "DESCRIPTION2": _clean_text(source.get("description2")),
-                "DESCRIPTION3": source.get("description3"),
-                "PERMITNO": _clean_text(source.get("permitno")),
-                "QTY": float(line["quantity"]),
-                "UOM": _clean_text(source.get("uom")) or "UNIT",
-                "RATE": float(_as_decimal(source.get("rate"), "1")),
-                "SQTY": float(line["quantity"]),
-                "SUOMQTY": float(
-                    _money(_as_decimal(source.get("suomqty"), "0"))
-                    or float(line["quantity"])
-                ),
-                "OFFSETQTY": float(_as_decimal(source.get("offsetqty"), "0")),
-                "UNITPRICE": float(unit_price),
-                "DELIVERYDATE": _normalize_transfer_date(source.get("deliverydate") or effective_date),
-                "DISC": _clean_text(source.get("disc")),
-                "TAX": _clean_text(source.get("tax")),
-                "TARIFF": _clean_text(source.get("tariff")),
-                "TAXEXEMPTIONREASON": _clean_text(source.get("taxexemptionreason")),
-                "IRBM_CLASSIFICATION": _clean_text(source.get("irbm_classification")),
-                "TAXRATE": _clean_text(source.get("taxrate")),
-                "TAXAMT": float(line_tax),
-                "LOCALTAXAMT": float(line_tax),
-                "EXEMPTED_TAXRATE": _clean_text(source.get("exempted_taxrate")),
-                "EXEMPTED_TAXAMT": float(_as_decimal(source.get("exempted_taxamt"), "0")),
-                "TAXINCLUSIVE": bool(source.get("taxinclusive") or False),
-                "AMOUNT": float(amount),
-                "LOCALAMOUNT": float(amount),
-                "PRINTABLE": bool(source.get("printable") if source.get("printable") is not None else True),
-                "FROMDOCTYPE": "PQ",
-                "FROMDOCKEY": request_dockey,
-                "FROMDTLKEY": line["detailId"],
-                "TRANSFERABLE": True,
-                "REMARK1": _clean_text(source.get("remark1")),
-                "REMARK2": _clean_text(source.get("remark2")),
-            }
-            detail_inserts.append(detail_values)
-
-            x_row: dict[str, Any] = {
-                xtrans_key_col: _next_key(
-                    cur,
-                    "ST_XTRANS",
-                    xtrans_key_col,
-                    xtrans_gens,
-                ),
-                "CODE": supplier_code,
-                "FROMDOCTYPE": "PQ",
-                "TODOCTYPE": "PO",
-                "FROMDOCKEY": request_dockey,
-                "TODOCKEY": po_dockey,
-                "FROMDTLKEY": line["detailId"],
-                "TODTLKEY": po_detail_key,
-                "QTY": float(line["quantity"]),
-                "SQTY": float(line["quantity"]),
-                "TOSTATUS": po_status_value,
-            }
-            if "SUOMQTY" in xtrans_cols:
-                x_row["SUOMQTY"] = float(line["quantity"])
-            xtrans_rows.append(x_row)
+        description = _clean_text(supplier.get("description"))
+        if not description:
+            if len(source_request_numbers) == 1:
+                description = f"Purchase Order - {source_request_numbers[0]}"
+            else:
+                joined = ", ".join(source_request_numbers)
+                description = f"Purchase Order - {joined}"
 
         header_values = {
             po_header_key_col: po_dockey,
@@ -505,21 +647,21 @@ def transfer_purchase_request_to_po(
             "MOBILE": _clean_text(supplier.get("mobile")),
             "FAX1": _clean_text(supplier.get("fax1")),
             "ATTENTION": _clean_text(supplier.get("attention")),
-            "AREA": _clean_text(purchase_request.get("area")) or "----",
+            "AREA": _clean_text(primary_request.get("area")) or "----",
             "AGENT": supplier_code,
-            "PROJECT": _clean_text(purchase_request.get("project")) or "----",
+            "PROJECT": _clean_text(primary_request.get("project")) or "----",
             "TERMS": _clean_text(supplier.get("terms")),
-            "CURRENCYCODE": supplier_currency_code or _clean_text(purchase_request.get("currencycode")) or "MYR",
+            "CURRENCYCODE": supplier_currency_code or _clean_text(primary_request.get("currencycode")) or "MYR",
             "CURRENCYRATE": float(
                 _as_decimal(
                     supplier_currency_rate_raw
                     if supplier_currency_rate_raw is not None
-                    else purchase_request.get("currencyrate"),
+                    else primary_request.get("currencyrate"),
                     "1",
                 )
             ),
-            "SHIPPER": _clean_text(purchase_request.get("shipper")) or "----",
-            "DESCRIPTION": _clean_text(supplier.get("description")) or f"Purchase Order - {request_docno}",
+            "SHIPPER": _clean_text(primary_request.get("shipper")) or "----",
+            "DESCRIPTION": description,
             "CANCELLED": False,
             "STATUS": po_status_value,
             "DOCAMT": float(_money(total_doc_amount)),
@@ -547,7 +689,7 @@ def transfer_purchase_request_to_po(
             "SIC": _clean_text(supplier.get("sic")),
             "INCOTERMS": _clean_text(supplier.get("incoterms")),
             "SUBMISSIONTYPE": int(_as_decimal(supplier.get("submissiontype"), "0")),
-            "BUSINESSUNIT": _clean_text(purchase_request.get("businessunit")),
+            "BUSINESSUNIT": _clean_text(primary_request.get("businessunit")),
             "TRANSFERABLE": True,
             "UPDATECOUNT": 0,
             "PRINTCOUNT": 0,
@@ -563,10 +705,8 @@ def transfer_purchase_request_to_po(
                 header_values[po_header_key_col] = po_dockey
                 header_values["DOCNO"] = docno
                 header_values["DOCNOEX"] = docno
-                inserted_detail_keys = []
                 for detail_row, x_row in zip(detail_inserts, xtrans_rows):
                     po_detail_key = _next_key(cur, "PH_PODTL", po_detail_key_col, po_detail_gens)
-                    inserted_detail_keys.append(po_detail_key)
                     detail_row[po_detail_key_col] = po_detail_key
                     detail_row[po_detail_fk_col] = po_dockey
                     x_row[xtrans_key_col] = _next_key(cur, "ST_XTRANS", xtrans_key_col, xtrans_gens)
@@ -621,10 +761,12 @@ def transfer_purchase_request_to_po(
         return {
             "poDockey": po_dockey,
             "poNumber": docno,
-            "sourceRequestDockey": request_dockey,
-            "sourceRequestNumber": request_docno,
+            "sourceRequestDockey": source_request_dockeys[0],
+            "sourceRequestNumber": source_request_numbers[0],
+            "sourceRequestDockeys": source_request_dockeys,
+            "sourceRequestNumbers": source_request_numbers,
             "lineCount": len(detail_inserts),
-            "transferredQty": float(sum((line["quantity"] for line in normalized_transfers), Decimal("0"))),
+            "transferredQty": float(transferred_qty_total),
             "sqlPurchaseOrderSync": sql_po_sync,
         }
     except Exception:

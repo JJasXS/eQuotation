@@ -22,6 +22,7 @@ $files = @(
     'utils\sql_api_customer.py',
     'utils\procurement_pr_sql_api.py',
     'utils\procurement_purchase_request.py',
+    'utils\procurement_purchase_order_transfer.py',
     'utils\procurement_bidding.py',
     'utils\procurement_pr_split.py',
     'utils\procurement_sql_api_sync.py',
