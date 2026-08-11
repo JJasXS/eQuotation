@@ -668,6 +668,14 @@ body.admin-quotations-view-page #quotation-tab-content {
     box-shadow: 0 1px 4px rgba(26, 77, 110, 0.06);
 }
 
+#quotation-detail-pane-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
 .quotation-detail-pane-layout {
     flex: 1;
     min-height: 0;
@@ -1120,5 +1128,463 @@ body.customer-my-quotations-page .quotation-detail-actions .edit-button {
 @media (max-width: 640px) {
     .quotation-card__info-grid {
         grid-template-columns: 1fr;
+    }
+}
+
+/* Filters drawer chrome — desktop keeps inline filters; phone uses slide-in */
+.avq-filters-open-bar,
+.avq-filters-backdrop,
+.avq-filters-drawer-head {
+    display: none;
+}
+
+/* Phone: organized filters/tabs + list-first detail drawer */
+.quotation-detail-drawer-backdrop {
+    display: none;
+}
+
+.quotation-detail-drawer-chrome {
+    display: none;
+}
+
+.quotation-items-scroll {
+    width: 100%;
+    overflow: visible;
+}
+
+@media (max-width: 900px) {
+    body.admin-quotations-view-page .avq-filters-open-bar {
+        display: block;
+        width: 100%;
+        padding: 8px 10px 0;
+        box-sizing: border-box;
+    }
+
+    body.admin-quotations-view-page .avq-filters-open-btn {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid var(--ice-border, #b8d4e8);
+        background: var(--ice-accent, #3b8fc4);
+        color: #fff;
+        border-radius: 10px;
+        padding: 11px 14px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        text-align: center;
+    }
+
+    body.admin-quotations-view-page .avq-filters-backdrop {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 2460;
+        background: rgba(20, 40, 60, 0.45);
+        border: none;
+        padding: 0;
+        margin: 0;
+        cursor: pointer;
+    }
+
+    body.admin-quotations-view-page.avq-filters-drawer-open .avq-filters-backdrop,
+    body.admin-quotations-view-page .avq-filters-backdrop:not([hidden]) {
+        display: block !important;
+    }
+
+    body.admin-quotations-view-page .avq-filters-backdrop[hidden] {
+        display: none !important;
+    }
+
+    body.admin-quotations-view-page .quotation-page-header-controls.avq-filter-bar,
+    body.admin-quotations-view-page #avq-filter-drawer.avq-filter-bar {
+        position: fixed !important;
+        top: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        left: auto !important;
+        width: min(100vw, 22.5rem) !important;
+        max-width: 100vw !important;
+        height: 100vh !important;
+        height: 100dvh !important;
+        margin: 0 !important;
+        z-index: 2461 !important;
+        border-radius: 14px 0 0 14px !important;
+        box-shadow: -8px 0 28px rgba(20, 40, 60, 0.22) !important;
+        background: var(--ice-surface, #f7fbff) !important;
+        border: 1px solid var(--ice-border, #b8d4e8) !important;
+        border-right: none !important;
+        transform: translateX(105%);
+        transition: transform 0.28s ease;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 12px !important;
+        padding: 14px 14px 24px !important;
+        box-sizing: border-box !important;
+    }
+
+    body.admin-quotations-view-page.avq-filters-drawer-open #avq-filter-drawer.avq-filter-bar {
+        transform: translateX(0);
+    }
+
+    body.admin-quotations-view-page.avq-filters-drawer-open {
+        overflow: hidden !important;
+    }
+
+    body.admin-quotations-view-page .avq-filters-drawer-head {
+        display: flex !important;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex: 0 0 auto;
+        margin: 0 0 4px;
+        padding: 0 0 10px;
+        border-bottom: 1px solid var(--ice-border, #b8d4e8);
+    }
+
+    body.admin-quotations-view-page .avq-filters-drawer-title {
+        font-size: 15px;
+        font-weight: 650;
+        color: var(--ice-heading, #1a4d6e);
+    }
+
+    body.admin-quotations-view-page .avq-filters-close-btn {
+        border: 1px solid var(--ice-border, #b8d4e8);
+        background: #fff;
+        color: var(--ice-heading, #1a4d6e);
+        width: 2.25rem;
+        height: 2.25rem;
+        border-radius: 8px;
+        font-size: 1.45rem;
+        line-height: 1;
+        cursor: pointer;
+        flex: 0 0 auto;
+    }
+
+    body.admin-quotations-view-page .avq-filter-group {
+        width: 100%;
+    }
+
+    body.admin-quotations-view-page .avq-filter-group--dates .avq-filter-group-fields {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        align-items: end;
+    }
+
+    body.admin-quotations-view-page .avq-filter-group--dates .quotation-filter-label {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 4px;
+        white-space: normal;
+        min-width: 0;
+    }
+
+    body.admin-quotations-view-page .avq-filter-group--dates .quotation-filter-input {
+        width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+    }
+
+    body.admin-quotations-view-page .avq-filter-group--dates .quotation-filter-btn {
+        min-height: 38px;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    body.admin-quotations-view-page .avq-filter-group--dates #quotation-date-apply {
+        grid-column: 1;
+    }
+
+    body.admin-quotations-view-page .avq-filter-group--dates #quotation-date-clear {
+        grid-column: 2;
+    }
+
+    body.admin-quotations-view-page .avq-filter-group--company .avq-filter-group-fields {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px;
+        align-items: center;
+    }
+
+    body.admin-quotations-view-page .quotation-company-select {
+        min-width: 0;
+        max-width: none;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    body.admin-quotations-view-page .avq-status-tabs.eq-line-tabs {
+        display: flex;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        gap: 0;
+        padding: 0 8px;
+        margin: 0;
+    }
+
+    body.admin-quotations-view-page .avq-status-tabs.eq-line-tabs::-webkit-scrollbar {
+        display: none;
+    }
+
+    body.admin-quotations-view-page .avq-status-tabs .eq-line-tab {
+        flex: 0 0 auto;
+        padding: 10px 14px;
+        font-size: 12px;
+        white-space: nowrap;
+    }
+
+    body.admin-quotations-view-page .quotation-list-toolbar,
+    body.admin-quotations-view-page .active-tab-controls {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px !important;
+    }
+
+    /*
+     * Phone scroll fix: nested overflow:hidden + flex heights often trap touch
+     * scrolling on mobile. Use normal document scroll for the list instead.
+     */
+    html body.admin-quotations-view-page {
+        height: auto !important;
+        min-height: 100% !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    body.admin-quotations-view-page .container,
+    body.admin-quotations-view-page .main-content {
+        display: flex !important;
+        flex-direction: column !important;
+        height: auto !important;
+        max-height: none !important;
+        min-height: 100dvh !important;
+        overflow: visible !important;
+    }
+
+    body.admin-quotations-view-page .tab-content.active,
+    body.admin-quotations-view-page #quotation-content,
+    body.admin-quotations-view-page .admin-quotations-view,
+    body.admin-quotations-view-page #quotation-tab-content {
+        display: flex !important;
+        flex-direction: column !important;
+        flex: 0 0 auto !important;
+        height: auto !important;
+        max-height: none !important;
+        min-height: 0 !important;
+        overflow: visible !important;
+    }
+
+    body.admin-quotations-view-page .quotation-page-header {
+        flex: 0 0 auto;
+        position: sticky;
+        top: 0;
+        z-index: 20;
+    }
+
+    body.admin-quotations-view-page .quotation-split-wrap {
+        display: block !important;
+        grid-template-columns: unset !important;
+        flex: 0 0 auto !important;
+        height: auto !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        overflow: visible !important;
+        position: relative;
+    }
+
+    body.admin-quotations-view-page .quotation-list-pane {
+        display: block !important;
+        width: 100%;
+        max-width: 100%;
+        height: auto !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        overflow: visible !important;
+    }
+
+    body.admin-quotations-view-page .quotation-list-scroll {
+        display: block !important;
+        height: auto !important;
+        max-height: none !important;
+        min-height: 0 !important;
+        overflow: visible !important;
+        overscroll-behavior: auto;
+        touch-action: manipulation;
+    }
+
+    body.admin-quotations-view-page .quotation-list-scroll .quotation-list-table thead,
+    body.admin-quotations-view-page .quotation-list-toolbar {
+        position: static !important;
+        top: auto !important;
+    }
+
+    body.admin-quotations-view-page .quotation-list-scroll:has(.quotation-list-toolbar) .quotation-list-table thead {
+        top: auto !important;
+    }
+
+    body.admin-quotations-view-page .quotation-detail-drawer-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 2450;
+        background: rgba(20, 40, 60, 0.42);
+        border: none;
+        padding: 0;
+        margin: 0;
+        cursor: pointer;
+    }
+
+    body.admin-quotations-view-page .quotation-detail-drawer-backdrop[hidden] {
+        display: none !important;
+    }
+
+    /* Closed drawer: fully removed so it cannot steal height or block touch */
+    body.admin-quotations-view-page #quotation-detail-pane.quotation-detail-pane {
+        position: fixed !important;
+        top: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        left: auto !important;
+        width: min(100vw, 26rem) !important;
+        max-width: 100vw !important;
+        height: 100vh !important;
+        height: 100dvh !important;
+        margin: 0 !important;
+        min-height: 0 !important;
+        z-index: 2451 !important;
+        border-radius: 14px 0 0 14px !important;
+        box-shadow: -8px 0 28px rgba(20, 40, 60, 0.22) !important;
+        background: var(--ice-surface, #f7fbff) !important;
+        border: 1px solid var(--ice-border, #b8d4e8) !important;
+        border-right: none !important;
+        transform: translateX(105%);
+        transition: transform 0.28s ease, visibility 0.28s ease;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch;
+        display: none !important;
+        flex-direction: column !important;
+        box-sizing: border-box !important;
+        padding: 0 !important;
+        pointer-events: none;
+        visibility: hidden;
+        flex: none !important;
+    }
+
+    body.avq-detail-drawer-open #quotation-detail-pane.quotation-detail-pane {
+        display: flex !important;
+        transform: translateX(0);
+        pointer-events: auto;
+        visibility: visible;
+    }
+
+    body.avq-detail-drawer-open {
+        overflow: hidden !important;
+        height: 100dvh !important;
+        touch-action: none;
+    }
+
+    body.avq-detail-drawer-open .container,
+    body.avq-detail-drawer-open .main-content {
+        overflow: hidden !important;
+        touch-action: none;
+    }
+
+    body.admin-quotations-view-page .quotation-detail-drawer-chrome {
+        display: flex !important;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex: 0 0 auto;
+        padding: 12px 14px 10px;
+        border-bottom: 1px solid var(--ice-border, #b8d4e8);
+        background: var(--ice-surface-alt, #eef6fc);
+        position: sticky;
+        top: 0;
+        z-index: 2;
+    }
+
+    body.admin-quotations-view-page .quotation-detail-drawer-title {
+        font-size: 14px;
+        font-weight: 650;
+        color: var(--ice-heading, #1a4d6e);
+    }
+
+    body.admin-quotations-view-page .quotation-detail-drawer-close {
+        border: 1px solid var(--ice-border, #b8d4e8);
+        background: #fff;
+        color: var(--ice-heading, #1a4d6e);
+        width: 2.25rem;
+        height: 2.25rem;
+        border-radius: 8px;
+        font-size: 1.45rem;
+        line-height: 1;
+        cursor: pointer;
+        flex: 0 0 auto;
+    }
+
+    body.admin-quotations-view-page #quotation-detail-pane-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        padding: 12px 14px 24px;
+        overflow-x: hidden;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        display: flex;
+        flex-direction: column;
+    }
+
+    body.admin-quotations-view-page .quotation-detail-pane-layout {
+        overflow: visible;
+        min-height: 0;
+    }
+
+    body.admin-quotations-view-page .quotation-detail-actions {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: var(--ice-surface, #f7fbff);
+        padding-bottom: 8px;
+        margin-bottom: 10px;
+    }
+
+    body.admin-quotations-view-page .quotation-detail-items {
+        overflow: visible;
+        min-height: 0;
+    }
+
+    body.admin-quotations-view-page .quotation-items-scroll {
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior-x: contain;
+    }
+
+    body.admin-quotations-view-page .quotation-items-scroll .quotation-items-table {
+        min-width: 600px;
+        width: max-content;
+        max-width: none;
+    }
+
+    body.admin-quotations-view-page .quotation-items-scroll .quotation-items-table th,
+    body.admin-quotations-view-page .quotation-items-scroll .quotation-items-table td {
+        white-space: nowrap;
+    }
+
+    body.admin-quotations-view-page .quotation-items-scroll .quotation-items-table td:first-child,
+    body.admin-quotations-view-page .quotation-items-scroll .quotation-items-table th:first-child {
+        white-space: normal;
+        min-width: 140px;
     }
 }

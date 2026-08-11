@@ -33,6 +33,7 @@ $files = @(
     'templates\adminBidding.html',
     'templates\supplierBidding.html',
     'templates\createQuotation.html',
+    'templates\adminViewQuotations.html',
     'templates\components\hamburger_menu.html',
 
     # Static CSS / JS
@@ -40,6 +41,7 @@ $files = @(
     'static\css\precurement.css',
     'static\css\supplierBidding.css',
     'static\css\adminBidding.css',
+    'static\css\adminViewQuotations.css',
     'static\css\hamburger_menu.css',
     'static\js\hamburger_menu.js',
     'static\js\orderQuotation.js',

@@ -70,6 +70,80 @@ function syncRowSelectionHighlight() {
     });
 }
 
+function isAvqPhoneLayout() {
+    try {
+        return window.matchMedia && window.matchMedia('(max-width: 900px)').matches;
+    } catch (e) {
+        return window.innerWidth <= 900;
+    }
+}
+
+function setAvqFiltersDrawerOpen(open) {
+    const next = !!open;
+    if (!isAvqPhoneLayout()) {
+        document.body.classList.remove('avq-filters-drawer-open');
+        const backdrop = document.getElementById('avq-filters-backdrop');
+        if (backdrop) backdrop.hidden = true;
+        const btn = document.getElementById('avq-filters-open-btn');
+        if (btn) btn.setAttribute('aria-expanded', 'false');
+        return;
+    }
+    if (next) {
+        // Avoid two drawers fighting for the screen
+        document.body.classList.remove('avq-detail-drawer-open');
+        const detailBackdrop = document.getElementById('quotation-detail-drawer-backdrop');
+        if (detailBackdrop) detailBackdrop.hidden = true;
+    }
+    document.body.classList.toggle('avq-filters-drawer-open', next);
+    const backdrop = document.getElementById('avq-filters-backdrop');
+    if (backdrop) backdrop.hidden = !next;
+    const btn = document.getElementById('avq-filters-open-btn');
+    if (btn) btn.setAttribute('aria-expanded', next ? 'true' : 'false');
+    if (next) {
+        const drawer = document.getElementById('avq-filter-drawer');
+        if (drawer) {
+            try { drawer.scrollTop = 0; } catch (e) { /* ignore */ }
+        }
+    }
+}
+
+function openQuotationDetailDrawer() {
+    if (!isAvqPhoneLayout()) {
+        document.body.classList.remove('avq-detail-drawer-open');
+        const backdrop = document.getElementById('quotation-detail-drawer-backdrop');
+        if (backdrop) backdrop.hidden = true;
+        return;
+    }
+    setAvqFiltersDrawerOpen(false);
+    document.body.classList.add('avq-detail-drawer-open');
+    const backdrop = document.getElementById('quotation-detail-drawer-backdrop');
+    if (backdrop) backdrop.hidden = false;
+    const panel = document.getElementById('quotation-detail-pane');
+    if (panel) {
+        try { panel.scrollTop = 0; } catch (e) { /* ignore */ }
+    }
+    const bodyEl = document.getElementById('quotation-detail-pane-body');
+    if (bodyEl) {
+        try { bodyEl.scrollTop = 0; } catch (e) { /* ignore */ }
+    }
+}
+
+function closeQuotationDetailDrawer() {
+    document.body.classList.remove('avq-detail-drawer-open');
+    const backdrop = document.getElementById('quotation-detail-drawer-backdrop');
+    if (backdrop) backdrop.hidden = true;
+    if (selectedQuotationDockey != null) {
+        const activeTab = getActiveQuotationTab();
+        selectedQuotationDockey = null;
+        selectedDockeyByTab[activeTab] = null;
+        syncRowSelectionHighlight();
+        const body = document.getElementById('quotation-detail-pane-body');
+        if (body) {
+            body.innerHTML = '<div class="quotation-detail-empty">Select a quotation to view details.</div>';
+        }
+    }
+}
+
 /** Date filter (YYYY-MM-DD from input type=date) */
 let adminDateFrom = '';
 let adminDateTo = '';
@@ -197,7 +271,18 @@ function buildViewQuotationsShellHtml(showAdminFilters) {
                     `
         : '';
     const filterBlock = showAdminFilters
-        ? `<div class="quotation-page-header-controls avq-filter-bar">${filterInner}</div>`
+        ? `
+                    <div class="avq-filters-open-bar">
+                        <button type="button" class="avq-filters-open-btn" id="avq-filters-open-btn" onclick="setAvqFiltersDrawerOpen(true)" aria-expanded="false" aria-controls="avq-filter-drawer">Filters</button>
+                    </div>
+                    <div id="avq-filters-backdrop" class="avq-filters-backdrop" hidden onclick="setAvqFiltersDrawerOpen(false)" aria-hidden="true"></div>
+                    <div class="quotation-page-header-controls avq-filter-bar" id="avq-filter-drawer" aria-label="Quotation filters">
+                        <div class="avq-filters-drawer-head">
+                            <strong class="avq-filters-drawer-title">Filters</strong>
+                            <button type="button" class="avq-filters-close-btn" onclick="setAvqFiltersDrawerOpen(false)" aria-label="Close filters">&times;</button>
+                        </div>
+                        ${filterInner}
+                    </div>`
         : '';
     return `
             <div class="admin-quotations-view">
@@ -488,6 +573,7 @@ async function setupCompanyFilter() {
         companyFilter = dropdown.value;
         listVisibleLimit = { drafts: 5, pending: 5, reviewed: 5, cancelled: 5 };
         refreshQuotationListView();
+        setAvqFiltersDrawerOpen(false);
     };
 
     clearBtn.onclick = function() {
@@ -495,6 +581,7 @@ async function setupCompanyFilter() {
         dropdown.value = '';
         listVisibleLimit = { drafts: 5, pending: 5, reviewed: 5, cancelled: 5 };
         refreshQuotationListView();
+        setAvqFiltersDrawerOpen(false);
     };
 }
 
@@ -510,6 +597,7 @@ function setupDateFilter() {
         adminDateTo = toEl.value || '';
         listVisibleLimit = { drafts: 5, pending: 5, reviewed: 5, cancelled: 5 };
         refreshQuotationListView();
+        setAvqFiltersDrawerOpen(false);
     };
     clearBtn.onclick = function() {
         fromEl.value = '';
@@ -518,6 +606,7 @@ function setupDateFilter() {
         adminDateTo = '';
         listVisibleLimit = { drafts: 5, pending: 5, reviewed: 5, cancelled: 5 };
         refreshQuotationListView();
+        setAvqFiltersDrawerOpen(false);
     };
 
     fromEl.value = adminDateFrom || '';
@@ -608,12 +697,20 @@ function refreshQuotationListView() {
                     ${listFooter}
                 </div>
             </div>
-            <div class="quotation-detail-pane" id="quotation-detail-pane">
-                <div class="quotation-detail-empty">Select a quotation to view details.</div>
+            <div id="quotation-detail-drawer-backdrop" class="quotation-detail-drawer-backdrop" hidden onclick="closeQuotationDetailDrawer()" aria-hidden="true"></div>
+            <div class="quotation-detail-pane" id="quotation-detail-pane" aria-label="Quotation details">
+                <div class="quotation-detail-drawer-chrome" id="quotation-detail-drawer-chrome">
+                    <strong class="quotation-detail-drawer-title">Quotation details</strong>
+                    <button type="button" class="quotation-detail-drawer-close" onclick="closeQuotationDetailDrawer()" aria-label="Close quotation details">&times;</button>
+                </div>
+                <div id="quotation-detail-pane-body">
+                    <div class="quotation-detail-empty">Select a quotation to view details.</div>
+                </div>
             </div>
         </div>
     `;
     tabContent.innerHTML = html;
+    document.body.classList.remove('avq-detail-drawer-open');
 
     document.querySelectorAll('.quotation-card').forEach((card) => {
         card.addEventListener('click', function (e) {
@@ -625,10 +722,20 @@ function refreshQuotationListView() {
                 && !e.target.closest('.quotation-checkbox-pending')
             ) {
                 const filterTab = this.dataset.filterTab || getActiveQuotationTab();
-                selectedQuotationDockey = Number(this.dataset.dockey);
+                const dockey = Number(this.dataset.dockey);
+                if (
+                    isAvqPhoneLayout()
+                    && selectedQuotationDockey != null
+                    && Number(selectedQuotationDockey) === dockey
+                    && document.body.classList.contains('avq-detail-drawer-open')
+                ) {
+                    closeQuotationDetailDrawer();
+                    return;
+                }
+                selectedQuotationDockey = dockey;
                 selectedDockeyByTab[filterTab] = selectedQuotationDockey;
                 syncRowSelectionHighlight();
-                renderQuotationDetail(visibleList);
+                renderQuotationDetail(visibleList, { openDrawer: true });
             }
         });
     });
@@ -902,7 +1009,8 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
 
 async function renderQuotationDetail(currentList, options = {}) {
     const panel = document.getElementById('quotation-detail-pane');
-    if (!panel) return;
+    const body = document.getElementById('quotation-detail-pane-body') || panel;
+    if (!body) return;
 
     const activeTab = getActiveQuotationTab();
     const selected = (currentList || []).find(
@@ -911,7 +1019,12 @@ async function renderQuotationDetail(currentList, options = {}) {
             && (row._filterTab || activeTab) === activeTab,
     );
     if (!selected) {
-        panel.innerHTML = '<div class="quotation-detail-empty">Select a quotation to view details.</div>';
+        body.innerHTML = '<div class="quotation-detail-empty">Select a quotation to view details.</div>';
+        if (isAvqPhoneLayout()) {
+            document.body.classList.remove('avq-detail-drawer-open');
+            const backdrop = document.getElementById('quotation-detail-drawer-backdrop');
+            if (backdrop) backdrop.hidden = true;
+        }
         return;
     }
 
@@ -933,7 +1046,7 @@ async function renderQuotationDetail(currentList, options = {}) {
     const customerCode = selected.CODE || '';
 
     const showSubmitterInMeta = !isCustomerMyQuotationsPage();
-    panel.innerHTML = `
+    body.innerHTML = `
         <div class="quotation-detail-pane-layout">
             <div class="quotation-detail-pane-top">
                 <div class="quotation-detail-head">
@@ -957,6 +1070,9 @@ async function renderQuotationDetail(currentList, options = {}) {
         </div>
     `;
 
+    if (options.openDrawer) {
+        openQuotationDetailDrawer();
+    }
     const detailContainer = document.getElementById('quotation-detail-items');
     try {
         const cacheKey = quotationDetailCacheKey(selected);
@@ -981,7 +1097,7 @@ async function renderQuotationDetail(currentList, options = {}) {
             return;
         }
 
-        let itemsHtml = '<table class="quotation-items-table">';
+        let itemsHtml = '<div class="quotation-items-scroll"><table class="quotation-items-table">';
         itemsHtml += '<colgroup><col style="width:30%" /><col style="width:12%" /><col style="width:10%" /><col style="width:10%" /><col style="width:12%" /><col style="width:16%" /></colgroup>';
         itemsHtml += '<thead><tr>';
         itemsHtml += '<th scope="col">Item</th><th scope="col">Price</th><th scope="col">Qty</th><th scope="col">S/U Qty</th><th scope="col">Discount</th><th scope="col">Subtotal</th>';
@@ -1014,7 +1130,7 @@ async function renderQuotationDetail(currentList, options = {}) {
             itemsHtml += '</tr>';
         });
         itemsHtml += `<tr class="quotation-items-total"><td colspan="5">TOTAL</td><td>RM ${total.toFixed(2)}</td></tr>`;
-        itemsHtml += '</tbody></table>';
+        itemsHtml += '</tbody></table></div>';
         detailContainer.innerHTML = itemsHtml;
     } catch (error) {
         console.error('Error loading quotation detail items:', error);
