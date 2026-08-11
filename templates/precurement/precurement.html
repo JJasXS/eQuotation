@@ -143,7 +143,7 @@
 
 
     <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260810_tabs_phone_v3">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=20260811_confirm_modal1">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=20260811_confirm_big1">
     <style id="pr-report-phone-layout">
     /* Report settings: phone drawer (slides in from right) */
     .stock-report-settings-bar,
@@ -7022,10 +7022,68 @@
             if (okBtn) okBtn.textContent = String(opts.confirmLabel || 'Confirm');
             if (cancelBtn) cancelBtn.textContent = String(opts.cancelLabel || 'Cancel');
             const items = Array.isArray(opts.items) ? opts.items : [];
-            listEl.innerHTML = items.map((item) => {
-                const left = escapeHtml(String((item && item.label) || ''));
-                const right = escapeHtml(String((item && item.meta) || ''));
-                return `<li><strong>${left}</strong><span>${right}</span></li>`;
+            listEl.className = 'pr-confirm-modal__list' + (items.some((it) => Array.isArray(it && it.children) && it.children.length) ? ' pr-confirm-modal__list--accordion' : '');
+            listEl.innerHTML = items.map((item, idx) => {
+                const label = escapeHtml(String((item && item.label) || ''));
+                const meta = escapeHtml(String((item && item.meta) || ''));
+                const children = Array.isArray(item && item.children) ? item.children : [];
+                if (!children.length) {
+                    return `<li class="pr-confirm-modal__row"><strong>${label}</strong><span>${meta}</span></li>`;
+                }
+                const hasTableCols = children.some((child) => child && (child.item || child.qty || child.description));
+                let childHtml = '';
+                if (hasTableCols) {
+                    const rows = children.map((child) => {
+                        const item = escapeHtml(String((child && (child.item || child.title || child.label)) || '-'));
+                        const desc = escapeHtml(String((child && (child.description || child.detail || '')) || '-'));
+                        const qty = escapeHtml(String((child && child.qty) || '-'));
+                        const uom = escapeHtml(String((child && child.uom) || ''));
+                        const price = escapeHtml(String((child && child.price) || '-'));
+                        return `<tr>
+                            <td class="col-item">${item}</td>
+                            <td class="col-desc">${desc}</td>
+                            <td class="col-qty">${qty}</td>
+                            <td class="col-uom">${uom || '-'}</td>
+                            <td class="col-price">${price}</td>
+                        </tr>`;
+                    }).join('');
+                    childHtml = `<div class="pr-confirm-modal__table-wrap">
+                        <table class="pr-confirm-modal__table">
+                            <thead>
+                                <tr>
+                                    <th>Item</th>
+                                    <th>Description</th>
+                                    <th>Qty</th>
+                                    <th>UOM</th>
+                                    <th>Unit price</th>
+                                </tr>
+                            </thead>
+                            <tbody>${rows}</tbody>
+                        </table>
+                    </div>`;
+                } else {
+                    childHtml = children.map((child) => {
+                        const title = escapeHtml(String((child && (child.title || child.label)) || '-'));
+                        const detail = escapeHtml(String((child && (child.detail || child.meta)) || ''));
+                        return `<div class="pr-confirm-modal__line">
+                            <div class="pr-confirm-modal__line-title">${title}</div>
+                            <div class="pr-confirm-modal__line-detail">${detail}</div>
+                        </div>`;
+                    }).join('');
+                }
+                const openAttr = idx === 0 ? ' open' : '';
+                return `<li class="pr-confirm-modal__group${openAttr === ' open' ? ' is-open' : ''}">
+                    <button type="button" class="pr-confirm-modal__group-toggle" aria-expanded="${idx === 0 ? 'true' : 'false'}" onclick="toggleProcurementConfirmGroup(this)">
+                        <span class="pr-confirm-modal__group-main">
+                            <span class="pr-confirm-modal__chevron" aria-hidden="true"></span>
+                            <strong>${label}</strong>
+                        </span>
+                        <span class="pr-confirm-modal__group-meta">${meta}</span>
+                    </button>
+                    <div class="pr-confirm-modal__group-body"${idx === 0 ? '' : ' hidden'}>
+                        ${childHtml}
+                    </div>
+                </li>`;
             }).join('');
             listEl.hidden = !items.length;
             modal.hidden = false;
@@ -7036,7 +7094,18 @@
             });
         }
 
-        function onBulkTransferToolbarClick() {
+        function toggleProcurementConfirmGroup(btn) {
+            if (!btn) return;
+            const group = btn.closest('.pr-confirm-modal__group');
+            if (!group) return;
+            const body = group.querySelector('.pr-confirm-modal__group-body');
+            const willOpen = !group.classList.contains('is-open');
+            group.classList.toggle('is-open', willOpen);
+            btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+            if (body) body.hidden = !willOpen;
+        }
+
+function onBulkTransferToolbarClick() {
             if (document.body.classList.contains('procurement-hide-transfer')) {
                 alert('Transfer is disabled for this account.');
                 return;
@@ -7092,20 +7161,37 @@
 
                 const jobs = [];
                 for (const header of headers) {
-                    const selectedDetails = getSelectedTransferDetails(header)
-                        .filter((detail) => Number(detail.id || 0) > 0)
-                        .map((detail) => ({
-                            detailId: Number(detail.id || 0),
-                            quantity: getDetailTransferQuantity(detail),
-                            transferable: isDetailChecked(detail),
-                        }))
-                        .filter((line) => line.quantity > 0 && line.transferable);
-                    if (!selectedDetails.length) continue;
+                    const selectedRows = getSelectedTransferDetails(header)
+                        .filter((detail) => Number(detail.id || 0) > 0 && isDetailChecked(detail) && getDetailTransferQuantity(detail) > 0);
+                    if (!selectedRows.length) continue;
                     if (!isPurchaseRequestTransferReady(header)) continue;
+                    const selectedDetails = selectedRows.map((detail) => ({
+                        detailId: Number(detail.id || 0),
+                        quantity: getDetailTransferQuantity(detail),
+                        transferable: true,
+                    }));
+                    const displayLines = selectedRows.map((detail) => {
+                        const qty = getDetailTransferQuantity(detail);
+                        const code = String(detail.itemCode || detail.itemName || '-').trim() || '-';
+                        const desc = String(detail.description || detail.itemName || '').trim() || '-';
+                        const uom = String(detail.uom || '').trim();
+                        const price = detail.unitPrice != null ? Number(detail.unitPrice) : null;
+                        const priceText = Number.isFinite(price)
+                            ? (typeof formatMoney === 'function' ? formatMoney(price) : String(price))
+                            : '-';
+                        return {
+                            item: code,
+                            description: desc,
+                            qty: String(qty),
+                            uom: uom || '-',
+                            price: priceText,
+                        };
+                    });
                     jobs.push({
                         headerId: Number(header.id || 0),
                         requestNumber: String(header.requestNumber || ''),
                         selectedDetails,
+                        displayLines,
                     });
                 }
 
@@ -7114,9 +7200,10 @@
                     return;
                 }
 
-                                const confirmItems = jobs.map((job) => ({
+                const confirmItems = jobs.map((job) => ({
                     label: job.requestNumber || String(job.headerId),
                     meta: `${job.selectedDetails.length} line(s)`,
+                    children: job.displayLines || [],
                 }));
                 const ok = await showProcurementConfirmModal({
                     title: 'Transfer to Purchase Order',
@@ -7811,7 +7898,11 @@
             }
                         const confirmItems = Array.from(previewGroups.values()).map((g) => ({
                 label: `${g.supplierCode} (${g.currencyCode})`,
-                meta: `${g.lines} line(s) · ${Array.from(g.prs).join(', ')}`,
+                meta: `${g.lines} line(s)`,
+                children: Array.from(g.prs).map((pr) => ({
+                    title: pr,
+                    detail: 'Included in this purchase order',
+                })),
             }));
             const ok = await showProcurementConfirmModal({
                 title: 'Create purchase orders',

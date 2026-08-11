@@ -7362,7 +7362,7 @@ body.procurement-warm-ui .pr-view-pr-card.view-pr-card-skeleton {
     position: relative;
     z-index: 1;
     width: 100%;
-    max-width: 440px;
+    max-width: min(860px, 96vw);
     border-radius: 14px;
     padding: 22px 22px 18px;
     background: linear-gradient(180deg, #f7fbff 0%, #e8f2fa 100%);
@@ -7403,7 +7403,7 @@ body.procurement-warm-ui .pr-view-pr-card.view-pr-card-skeleton {
     list-style: none;
     margin: 0 0 12px;
     padding: 0;
-    max-height: 220px;
+    max-height: min(58vh, 480px);
     overflow: auto;
     border: 1px solid #c5dceb;
     border-radius: 10px;
@@ -7459,4 +7459,156 @@ body.procurement-warm-ui .pr-view-pr-card.view-pr-card-skeleton {
 .pr-confirm-modal__btn:focus-visible {
     outline: 2px solid #7ec8ff;
     outline-offset: 2px;
+}
+
+
+/* Confirm modal accordion groups */
+.pr-confirm-modal__list--accordion {
+    padding: 0;
+    overflow: auto;
+}
+.pr-confirm-modal__list--accordion > li {
+    display: block;
+    padding: 0;
+    border-bottom: 1px solid #e2eef6;
+}
+.pr-confirm-modal__list--accordion > li:last-child {
+    border-bottom: none;
+}
+.pr-confirm-modal__row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+}
+.pr-confirm-modal__group-toggle {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 11px 12px;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+    color: #2f4f66;
+    font: inherit;
+}
+.pr-confirm-modal__group-toggle:hover {
+    background: #eef6fc;
+}
+.pr-confirm-modal__group-main {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+.pr-confirm-modal__chevron {
+    width: 0;
+    height: 0;
+    border-top: 5px solid transparent;
+    border-bottom: 5px solid transparent;
+    border-left: 6px solid #3b8fc4;
+    transition: transform 0.15s ease;
+    flex: 0 0 auto;
+}
+.pr-confirm-modal__group.is-open .pr-confirm-modal__chevron {
+    transform: rotate(90deg);
+}
+.pr-confirm-modal__group-meta {
+    font-size: 12px;
+    color: #5a7a94;
+    white-space: nowrap;
+}
+.pr-confirm-modal__group-body {
+    padding: 0 12px 10px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.pr-confirm-modal__group-body[hidden] {
+    display: none !important;
+}
+.pr-confirm-modal__line {
+    padding: 8px 10px;
+    border: 1px solid #d7e7f2;
+    border-radius: 8px;
+    background: #fff;
+}
+.pr-confirm-modal__line-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #14527a;
+    margin-bottom: 2px;
+}
+.pr-confirm-modal__line-detail {
+    font-size: 12px;
+    color: #5a7a94;
+    line-height: 1.35;
+}
+
+
+.pr-confirm-modal__dialog {
+    max-height: min(92vh, 820px);
+    display: flex;
+    flex-direction: column;
+}
+.pr-confirm-modal__list {
+    flex: 1 1 auto;
+}
+.pr-confirm-modal__group-body {
+    padding: 0 12px 12px 12px !important;
+}
+.pr-confirm-modal__table-wrap {
+    overflow: auto;
+    border: 1px solid #d7e7f2;
+    border-radius: 8px;
+    background: #fff;
+}
+.pr-confirm-modal__table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 560px;
+    font-size: 12px;
+}
+.pr-confirm-modal__table th,
+.pr-confirm-modal__table td {
+    padding: 8px 10px;
+    text-align: left;
+    border-bottom: 1px solid #e2eef6;
+    vertical-align: top;
+    color: #2f4f66;
+}
+.pr-confirm-modal__table th {
+    position: sticky;
+    top: 0;
+    background: #edf5fb;
+    color: #14527a;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.pr-confirm-modal__table tbody tr:last-child td {
+    border-bottom: none;
+}
+.pr-confirm-modal__table .col-item {
+    font-weight: 700;
+    color: #14527a;
+    white-space: nowrap;
+}
+.pr-confirm-modal__table .col-desc {
+    min-width: 180px;
+    line-height: 1.35;
+}
+.pr-confirm-modal__table .col-qty,
+.pr-confirm-modal__table .col-uom,
+.pr-confirm-modal__table .col-price {
+    white-space: nowrap;
+}
+@media (max-width: 720px) {
+    .pr-confirm-modal__dialog {
+        max-width: 96vw;
+        padding: 16px 12px 14px;
+    }
 }
