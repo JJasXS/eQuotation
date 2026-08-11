@@ -1343,6 +1343,67 @@ body.customer-my-quotations-page .quotation-detail-actions .edit-button {
         white-space: nowrap;
     }
 
+    /* Phone list: QT code, Date, Department, Amount only */
+    body.admin-quotations-view-page .quotation-list-col--chk,
+    body.admin-quotations-view-page .quotation-list-th--chk,
+    body.admin-quotations-view-page .quotation-card__cell--chk,
+    body.admin-quotations-view-page .quotation-list-col--creator,
+    body.admin-quotations-view-page .quotation-list-th--creator,
+    body.admin-quotations-view-page .quotation-card__cell--creator,
+    body.admin-quotations-view-page .quotation-list-col--actions,
+    body.admin-quotations-view-page .quotation-list-th--actions,
+    body.admin-quotations-view-page .quotation-card__cell--actions {
+        display: none !important;
+    }
+
+    body.admin-quotations-view-page .quotation-bulk-select-label,
+    body.admin-quotations-view-page .quotation-list-toolbar .quotation-bulk-checkbox,
+    body.admin-quotations-view-page .btn-bulk-review-pending,
+    body.admin-quotations-view-page .quotation-bulk-selected-count {
+        display: none !important;
+    }
+
+    body.admin-quotations-view-page .quotation-list-toolbar.active-tab-controls {
+        display: none !important;
+    }
+
+    body.admin-quotations-view-page .quotation-list-table {
+        table-layout: fixed;
+        width: 100%;
+    }
+
+    body.admin-quotations-view-page .quotation-list-col--doc {
+        width: 28%;
+    }
+
+    body.admin-quotations-view-page .quotation-list-col--date {
+        width: 24%;
+    }
+
+    body.admin-quotations-view-page .quotation-list-col--department {
+        width: 24%;
+    }
+
+    body.admin-quotations-view-page .quotation-list-col--amount {
+        width: 24%;
+    }
+
+    body.admin-quotations-view-page .quotation-card__cell--doc,
+    body.admin-quotations-view-page .quotation-card__cell--date,
+    body.admin-quotations-view-page .quotation-card__cell--department,
+    body.admin-quotations-view-page .quotation-card__cell--amount {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 0;
+    }
+
+    body.admin-quotations-view-page .quotation-card__amount {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
     body.admin-quotations-view-page .quotation-list-toolbar,
     body.admin-quotations-view-page .active-tab-controls {
         display: flex;
