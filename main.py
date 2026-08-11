@@ -7965,6 +7965,35 @@ def api_admin_purchase_request_transfer_candidates():
         except Exception:
             return str(raw or '').strip()[:10]
 
+    def _fb_text(value):
+        """Decode Firebird CHAR/BLOB values that arrive as bytes (avoid b'...' UI text)."""
+        if value is None:
+            return ''
+        if isinstance(value, memoryview):
+            value = value.tobytes()
+        if isinstance(value, (bytes, bytearray)):
+            for enc in ('utf-8', 'cp1252', 'latin-1'):
+                try:
+                    return value.decode(enc).strip()
+                except Exception:
+                    continue
+            return bytes(value).decode('latin-1', errors='replace').strip()
+        text = str(value).strip()
+        # Repair values already stringified as Python bytes repr.
+        if len(text) >= 3 and ((text.startswith("b'") and text.endswith("'")) or (text.startswith('b"') and text.endswith('"'))):
+            inner = text[2:-1]
+            try:
+                return bytes(inner, 'utf-8').decode('unicode_escape').strip()
+            except Exception:
+                return inner.strip()
+        return text
+
+    def _normalize_currency(value):
+        text = _fb_text(value).upper()
+        if not text or text in {'----', '-', 'N/A', 'NA', 'NONE', 'NULL'}:
+            return 'MYR'
+        return text
+
     con = None
     cur = None
     try:
@@ -8096,21 +8125,21 @@ def api_admin_purchase_request_transfer_candidates():
 
             raw_lines.append({
                 'requestId': request_id,
-                'requestNumber': str(mapped.get('REQUEST_NO') or '').strip(),
+                'requestNumber': _fb_text(mapped.get('REQUEST_NO')),
                 'requestDate': _fmt_date(mapped.get('REQUEST_DATE')),
                 'detailId': detail_id,
-                'itemCode': str(mapped.get('ITEM_CODE') or '').strip(),
-                'description': str(mapped.get('DESCRIPTION') or '').strip(),
-                'uom': str(mapped.get('UOM') or 'UNIT').strip() or 'UNIT',
-                'locationCode': str(mapped.get('LOCATION_CODE') or '').strip(),
-                'project': str(mapped.get('PROJECT') or '').strip() or '----',
+                'itemCode': _fb_text(mapped.get('ITEM_CODE')),
+                'description': _fb_text(mapped.get('DESCRIPTION')),
+                'uom': _fb_text(mapped.get('UOM')) or 'UNIT',
+                'locationCode': _fb_text(mapped.get('LOCATION_CODE')),
+                'project': _fb_text(mapped.get('PROJECT')) or '----',
                 'quantity': qty,
                 'transferredQty': transferred,
                 'remainingQty': remaining,
                 'unitPrice': _num(mapped.get('UNIT_PRICE')),
-                'headerSupplierCode': str(mapped.get('HEADER_SUPPLIER') or '').strip(),
-                'headerSupplierName': str(mapped.get('HEADER_SUPPLIER_NAME') or '').strip(),
-                'currencyCode': str(mapped.get('CURRENCY_CODE') or 'MYR').strip() or 'MYR',
+                'headerSupplierCode': _fb_text(mapped.get('HEADER_SUPPLIER')),
+                'headerSupplierName': _fb_text(mapped.get('HEADER_SUPPLIER_NAME')),
+                'currencyCode': _normalize_currency(mapped.get('CURRENCY_CODE')),
             })
             if request_id not in request_ids:
                 request_ids.append(request_id)
@@ -8141,8 +8170,8 @@ def api_admin_purchase_request_transfer_candidates():
             request_id = int(line['requestId'])
             detail_id = int(line['detailId'])
             award = (awards_by_request.get(request_id) or {}).get(detail_id)
-            supplier_code = str((award or {}).get('supplierCode') or line.get('headerSupplierCode') or '').strip()
-            supplier_name = str((award or {}).get('supplierName') or line.get('headerSupplierName') or '').strip()
+            supplier_code = _fb_text((award or {}).get('supplierCode') or line.get('headerSupplierCode') or '')
+            supplier_name = _fb_text((award or {}).get('supplierName') or line.get('headerSupplierName') or '')
             if award and award.get('unitPrice') is not None:
                 try:
                     awarded_price = float(award.get('unitPrice') or 0)
@@ -8153,10 +8182,10 @@ def api_admin_purchase_request_transfer_candidates():
 
             if supplier_filter and supplier_code.upper() != supplier_filter:
                 continue
-            location_code = str(line.get('locationCode') or '').strip()
+            location_code = _fb_text(line.get('locationCode') or '')
             if location_filter and location_code.upper() != location_filter:
                 continue
-            item_code = str(line.get('itemCode') or '').strip()
+            item_code = _fb_text(line.get('itemCode') or '')
             if item_filter and item_code.upper() != item_filter:
                 continue
             if search_filter:
@@ -8189,7 +8218,7 @@ def api_admin_purchase_request_transfer_candidates():
                 'unitPrice': line.get('unitPrice') or 0,
                 'supplierCode': supplier_code,
                 'supplierName': supplier_name or supplier_code,
-                'currencyCode': line.get('currencyCode') or 'MYR',
+                'currencyCode': _normalize_currency(line.get('currencyCode')),
             }
             lines.append(out_line)
             suppliers.add(supplier_code)
@@ -8358,6 +8387,8 @@ def api_admin_bulk_transfer_purchase_requests_to_po():
                 or header.get('currency')
                 or 'MYR'
             ).strip().upper() or 'MYR'
+            if currency_code in {'----', '-', 'N/A', 'NA', 'NONE', 'NULL'}:
+                currency_code = 'MYR'
 
             if awarded_lines:
                 award_by_detail = {

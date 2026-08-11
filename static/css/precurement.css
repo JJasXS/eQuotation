@@ -6906,6 +6906,20 @@ body.procurement-warm-ui .pr-view-pr-card__selection.is-all {
     text-overflow: ellipsis;
 }
 
+.view-bulk-transfer-scope-chip {
+    font-size: 12px;
+    font-weight: 600;
+    color: #1a4d6e;
+    max-width: min(360px, 100%);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.view-bulk-transfer-scope-chip.is-scoped {
+    color: #14527a;
+}
+
 .view-bulk-transfer-filter-chip.is-active {
     color: #1a4d6e;
     font-weight: 600;

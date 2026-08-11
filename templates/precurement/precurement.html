@@ -143,7 +143,7 @@
 
 
     <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260810_tabs_phone_v3">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=20260811_bulk_filter_popup1">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=20260811_bulk_scope1">
     <style id="pr-report-phone-layout">
     /* Report settings: phone drawer (slides in from right) */
     .stock-report-settings-bar,
@@ -2304,12 +2304,14 @@
                                             <h3 class="view-bulk-transfer-panel__title">Bulk Transfer to Purchase Order</h3>
                                             <button type="button" class="view-pr-refresh-btn view-pr-refresh-btn--ghost" onclick="toggleViewBulkTransferPanel(false)">Back to list</button>
                                         </div>
-                                        <p class="view-bulk-transfer-panel__hint">Select approved PR lines across multiple requests. One Purchase Order is created per supplier (and currency), consolidating lines from every selected PR.</p>
+                                        <p class="view-bulk-transfer-panel__hint">For a single PR, use <strong>Transfer to Purchase Order</strong> on the detail panel. This Bulk page consolidates lines across PRs (one PO per supplier). It opens scoped to the PR you were viewing or checked on the left — confirm before anything is created.</p>
                                     </div>
                                     <div class="view-bulk-transfer-toolbar">
                                         <button type="button" class="view-pr-refresh-btn" id="bulk-transfer-filter-open-btn" onclick="openBulkTransferFilterPopup()">
                                             Filters
                                         </button>
+                                        <span id="bulk-transfer-scope-chip" class="view-bulk-transfer-scope-chip">Scoped to selected PR</span>
+                                        <button type="button" class="view-pr-refresh-btn view-pr-refresh-btn--ghost" id="bulk-transfer-scope-toggle" onclick="setBulkTransferScopeAll(bulkTransferScopeAll ? false : true)">Show all eligible</button>
                                         <span id="bulk-transfer-filter-chip" class="view-bulk-transfer-filter-chip">All suppliers · All locations · All items</span>
                                         <label class="view-bulk-transfer-filter view-bulk-transfer-filter--search">
                                             <span class="visually-hidden">Search</span>
@@ -2384,7 +2386,7 @@
                                         <div class="view-bulk-transfer-footer__actions">
                                             <button type="button" class="view-pr-refresh-btn view-pr-bulk-btn" onclick="bulkTransferSelectAllVisible()">Select all visible</button>
                                             <button type="button" class="view-pr-refresh-btn view-pr-bulk-btn" onclick="bulkTransferClearSelection()">Clear</button>
-                                            <button type="button" class="view-pr-refresh-btn view-pr-bulk-btn view-pr-bulk-btn--primary" id="bulk-transfer-submit-btn" onclick="confirmBulkTransferToPo()" disabled>Transfer selected to PO</button>
+                                            <button type="button" class="view-pr-refresh-btn view-pr-bulk-btn view-pr-bulk-btn--primary" id="bulk-transfer-submit-btn" onclick="confirmBulkTransferToPo()" disabled>Transfer to PO</button>
                                         </div>
                                     </div>
                                 </div>
@@ -6953,6 +6955,9 @@
         let bulkTransferSelectedLines = new Map(); // key `${requestId}:${detailId}` -> { requestId, detailId, quantity, remainingQty, ... }
         let bulkTransferLoading = false;
         let bulkTransferSubmitting = false;
+        let bulkTransferScopeAll = false; // true = show every eligible line
+        let bulkTransferAllLines = []; // unscoped cache from last fetch
+
 
         function bulkTransferLineKey(requestId, detailId) {
             return `${Number(requestId) || 0}:${Number(detailId) || 0}`;
@@ -6988,7 +6993,11 @@
             }
             if (bulkBar && open) bulkBar.hidden = true;
             // Clear prior transfer summary only when opening from closed.
-            if (open && !wasOpen) clearBulkTransferResultSummary();
+            if (open && !wasOpen) {
+                clearBulkTransferResultSummary();
+                // Default: scope to checked/open PR so one-PR transfer does not dump every eligible line.
+                bulkTransferScopeAll = false;
+            }
             if (open) {
                 loadBulkTransferCandidates(false);
             } else {
@@ -6997,6 +7006,89 @@
             }
         }
 
+
+
+        function getBulkTransferScopeTargets() {
+            const ids = new Set();
+            const numbers = new Set();
+            if (viewBulkSelectedHeaderIds && viewBulkSelectedHeaderIds.size) {
+                for (const rawId of viewBulkSelectedHeaderIds) {
+                    const id = Number(rawId || 0);
+                    if (!id) continue;
+                    ids.add(id);
+                    const row = (viewPurchaseRequests || []).find((r) => Number(r.id || 0) === id);
+                    const num = String((row && row.requestNumber) || '').trim().toUpperCase();
+                    if (num) numbers.add(num);
+                }
+            } else if (viewSelectedHeaderId != null) {
+                const id = Number(viewSelectedHeaderId || 0);
+                if (id) {
+                    ids.add(id);
+                    const row = (viewPurchaseRequests || []).find((r) => Number(r.id || 0) === id);
+                    const num = String((row && row.requestNumber) || '').trim().toUpperCase();
+                    if (num) numbers.add(num);
+                }
+            }
+            return { ids, numbers };
+        }
+
+        function applyBulkTransferScope(lines) {
+            const all = Array.isArray(lines) ? lines : [];
+            bulkTransferAllLines = all.slice();
+            if (bulkTransferScopeAll) {
+                bulkTransferLines = all.slice();
+                return { scoped: false, label: 'all eligible' };
+            }
+            const scope = getBulkTransferScopeTargets();
+            if (!scope.ids.size && !scope.numbers.size) {
+                bulkTransferLines = all.slice();
+                return { scoped: false, label: 'all eligible' };
+            }
+            bulkTransferLines = all.filter((line) => {
+                const id = Number(line && line.requestId ? line.requestId : 0);
+                const num = String((line && line.requestNumber) || '').trim().toUpperCase();
+                return (id && scope.ids.has(id)) || (num && scope.numbers.has(num));
+            });
+            const labels = Array.from(scope.numbers);
+            return {
+                scoped: true,
+                label: labels.length ? labels.join(', ') : `${scope.ids.size} selected PR(s)`,
+            };
+        }
+
+        function setBulkTransferScopeAll(showAll) {
+            bulkTransferScopeAll = !!showAll;
+            const scopeInfo = applyBulkTransferScope(bulkTransferAllLines.length ? bulkTransferAllLines : bulkTransferLines);
+            // Pre-select only currently visible scoped lines.
+            bulkTransferSelectedLines.clear();
+            bulkTransferSelectAllVisible();
+            renderBulkTransferTable();
+            updateBulkTransferSummary();
+            updateBulkTransferScopeChip(scopeInfo);
+            setBulkTransferMessage(
+                scopeInfo.scoped
+                    ? `${bulkTransferLines.length} line(s) for ${scopeInfo.label}.`
+                    : `${bulkTransferLines.length} eligible line(s) loaded.`
+            );
+        }
+
+        function updateBulkTransferScopeChip(scopeInfo) {
+            const chip = document.getElementById('bulk-transfer-scope-chip');
+            const btn = document.getElementById('bulk-transfer-scope-toggle');
+            if (!chip && !btn) return;
+            const info = scopeInfo || { scoped: !bulkTransferScopeAll && (getBulkTransferScopeTargets().ids.size > 0), label: '' };
+            if (chip) {
+                chip.textContent = info.scoped
+                    ? `Scoped to ${info.label || 'selected PR(s)'}`
+                    : 'Showing all eligible lines';
+                chip.classList.toggle('is-scoped', !!info.scoped);
+            }
+            if (btn) {
+                btn.hidden = false;
+                btn.textContent = info.scoped ? 'Show all eligible' : 'Use selected PR only';
+                btn.disabled = !info.scoped && !(getBulkTransferScopeTargets().ids.size || getBulkTransferScopeTargets().numbers.size);
+            }
+        }
 
         function updateBulkTransferFilterChip() {
             const chip = document.getElementById('bulk-transfer-filter-chip');
@@ -7094,21 +7186,41 @@
                     throw new Error(body.error || `Failed to load candidates (${res.status})`);
                 }
                 const data = body.data || {};
-                bulkTransferLines = Array.isArray(data.lines) ? data.lines : [];
+                const fetchedLines = Array.isArray(data.lines) ? data.lines : [];
                 bulkTransferFilterOptions = data.filters || { suppliers: [], locations: [], items: [] };
                 fillBulkTransferFilterSelect('bulk-transfer-filter-supplier', bulkTransferFilterOptions.suppliers, filters.supplier, 'All suppliers');
                 fillBulkTransferFilterSelect('bulk-transfer-filter-location', bulkTransferFilterOptions.locations, filters.location, 'All locations');
                 fillBulkTransferFilterSelect('bulk-transfer-filter-item', bulkTransferFilterOptions.items, filters.item, 'All items');
                 updateBulkTransferFilterChip();
-                // Drop selections that are no longer eligible.
+                const scopeInfo = applyBulkTransferScope(fetchedLines);
+                // Prefer scoped lines as the working selection.
+                bulkTransferSelectedLines.clear();
                 const validKeys = new Set(
                     bulkTransferLines.map((line) => bulkTransferLineKey(line.requestId, line.detailId))
                 );
-                for (const key of Array.from(bulkTransferSelectedLines.keys())) {
-                    if (!validKeys.has(key)) bulkTransferSelectedLines.delete(key);
+                for (const line of bulkTransferLines) {
+                    const key = bulkTransferLineKey(line.requestId, line.detailId);
+                    if (!validKeys.has(key)) continue;
+                    bulkTransferSelectedLines.set(key, {
+                        requestId: Number(line.requestId),
+                        detailId: Number(line.detailId),
+                        quantity: Number(line.remainingQty || line.quantity || 0),
+                        remainingQty: Number(line.remainingQty || line.quantity || 0),
+                        requestNumber: line.requestNumber,
+                        supplierCode: line.supplierCode,
+                        supplierName: line.supplierName,
+                        currencyCode: normalizeBulkTransferCurrency(line.currencyCode),
+                        itemCode: line.itemCode,
+                    });
                 }
                 renderBulkTransferTable();
-                setBulkTransferMessage(`${bulkTransferLines.length} eligible line(s) loaded.`);
+                updateBulkTransferSummary();
+                updateBulkTransferScopeChip(scopeInfo);
+                setBulkTransferMessage(
+                    scopeInfo.scoped
+                        ? `${bulkTransferLines.length} line(s) for ${scopeInfo.label}. Use Show all eligible to include every PR.`
+                        : `${bulkTransferLines.length} eligible line(s) loaded.`
+                );
             } catch (err) {
                 bulkTransferLines = [];
                 if (host) host.innerHTML = `<div class="view-bulk-transfer-empty">${escapeHtml(err.message || 'Failed to load lines')}</div>`;
@@ -7127,11 +7239,29 @@
             return Array.isArray(bulkTransferLines) ? bulkTransferLines : [];
         }
 
+
+        function normalizeBulkTransferCurrency(value) {
+            const text = String(value == null ? '' : value).trim().toUpperCase();
+            if (!text || text === '----' || text === '-' || text === 'N/A' || text === 'NA' || text === 'NONE' || text === 'NULL') {
+                return 'MYR';
+            }
+            return text;
+        }
+
+        function cleanBulkTransferDisplayText(value) {
+            if (value == null) return '';
+            let text = String(value).trim();
+            if ((text.startsWith("b'") && text.endsWith("'")) || (text.startsWith('b"') && text.endsWith('"'))) {
+                text = text.slice(2, -1);
+            }
+            return text;
+        }
+
         function groupBulkTransferLines(lines) {
             const groups = new Map();
             for (const line of lines) {
                 const supplierCode = String(line.supplierCode || '').trim() || 'UNKNOWN';
-                const currencyCode = String(line.currencyCode || 'MYR').trim() || 'MYR';
+                const currencyCode = normalizeBulkTransferCurrency(line.currencyCode);
                 const key = `${supplierCode}||${currencyCode}`;
                 if (!groups.has(key)) {
                     groups.set(key, {
@@ -7206,7 +7336,7 @@
                             </td>
                             <td>${escapeHtml(line.requestNumber || '-')}</td>
                             <td>${escapeHtml(line.itemCode || '-')}</td>
-                            <td class="col-desc">${escapeHtml(line.description || '-')}</td>
+                            <td class="col-desc">${escapeHtml(cleanBulkTransferDisplayText(line.description) || '-')}</td>
                             <td>${escapeHtml(line.locationCode || '-')}</td>
                             <td>${escapeHtml(line.uom || 'UNIT')}</td>
                             <td>${escapeHtml(String(remaining))}</td>
@@ -7330,14 +7460,23 @@
             const summary = document.getElementById('bulk-transfer-summary');
             const btn = document.getElementById('bulk-transfer-submit-btn');
             const info = summarizeBulkTransferSelection();
+            const eligibleCount = (getVisibleBulkTransferLines() || []).length;
+            const transferCount = info.lineCount || eligibleCount;
             if (summary) {
-                if (!info.lineCount) {
-                    summary.textContent = 'No lines selected.';
+                if (info.lineCount) {
+                    summary.textContent = `${info.lineCount} line(s) selected from ${info.prCount} PR(s) → ${info.poCount} PO(s). Confirm before transfer.`;
+                } else if (eligibleCount) {
+                    summary.textContent = `No lines ticked — Transfer to PO will use all ${eligibleCount} eligible line(s). Confirmation required.`;
                 } else {
-                    summary.textContent = `${info.lineCount} line(s) from ${info.prCount} PR(s), creating ${info.poCount} purchase order(s).`;
+                    summary.textContent = 'No eligible lines loaded.';
                 }
             }
-            if (btn) btn.disabled = !info.lineCount || bulkTransferSubmitting || document.body.classList.contains('procurement-hide-transfer');
+            if (btn) {
+                btn.disabled = !transferCount || bulkTransferSubmitting || document.body.classList.contains('procurement-hide-transfer');
+                btn.textContent = info.lineCount
+                    ? `Transfer selected to PO (${info.lineCount})`
+                    : (eligibleCount ? `Transfer all eligible to PO (${eligibleCount})` : 'Transfer to PO');
+            }
         }
 
 
@@ -7433,18 +7572,27 @@
                 return;
             }
             if (bulkTransferSubmitting) return;
-            const info = summarizeBulkTransferSelection();
+            let info = summarizeBulkTransferSelection();
             if (!info.lineCount) {
-                alert('Select at least one line to transfer.');
-                return;
+                const eligible = getVisibleBulkTransferLines() || [];
+                if (!eligible.length) {
+                    alert('No eligible lines to transfer.');
+                    return;
+                }
+                bulkTransferSelectAllVisible();
+                info = summarizeBulkTransferSelection();
+                if (!info.lineCount) {
+                    alert('No eligible lines to transfer.');
+                    return;
+                }
             }
             const previewGroups = new Map();
             for (const row of info.selected) {
-                const key = `${row.supplierCode || ''}||${row.currencyCode || 'MYR'}`;
+                const key = `${row.supplierCode || ''}||${normalizeBulkTransferCurrency(row.currencyCode)}`;
                 if (!previewGroups.has(key)) {
                     previewGroups.set(key, {
                         supplierCode: row.supplierCode || '',
-                        currencyCode: row.currencyCode || 'MYR',
+                        currencyCode: normalizeBulkTransferCurrency(row.currencyCode),
                         prs: new Set(),
                         lines: 0,
                     });
