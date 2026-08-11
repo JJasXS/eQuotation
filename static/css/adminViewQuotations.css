@@ -1402,37 +1402,56 @@ body.customer-my-quotations-page .quotation-detail-actions .edit-button {
         max-width: 100%;
         overflow: hidden;
         text-overflow: ellipsis;
+        font-size: 11px;
+        padding: 3px 7px;
     }
 
-    body.admin-quotations-view-page .quotation-list-toolbar,
-    body.admin-quotations-view-page .active-tab-controls {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 10px !important;
+    /* Compact list rows */
+    body.admin-quotations-view-page .quotation-card__cell {
+        padding: 6px 6px !important;
+    }
+
+    body.admin-quotations-view-page .quotation-list-th {
+        padding: 6px 6px !important;
+        font-size: 11px;
+    }
+
+    body.admin-quotations-view-page .quotation-list-cell-center {
+        min-height: 24px !important;
+    }
+
+    body.admin-quotations-view-page .quotation-card__doc-value {
+        font-size: 12px;
+    }
+
+    body.admin-quotations-view-page .quotation-card__date-value,
+    body.admin-quotations-view-page .quotation-card__cell--department {
+        font-size: 11px;
+    }
+
+    body.admin-quotations-view-page .quotation-list-footer {
+        padding: 4px 8px;
+        font-size: 11px;
     }
 
     /*
-     * Phone scroll fix: nested overflow:hidden + flex heights often trap touch
-     * scrolling on mobile. Use normal document scroll for the list instead.
+     * Phone split: top half = QT list, bottom half = item lines.
+     * Bounded flex height so each pane scrolls independently.
      */
     html body.admin-quotations-view-page {
-        height: auto !important;
-        min-height: 100% !important;
-        overflow-x: hidden !important;
-        overflow-y: auto !important;
-        -webkit-overflow-scrolling: touch;
+        height: 100% !important;
+        max-height: 100dvh !important;
+        overflow: hidden !important;
     }
 
     body.admin-quotations-view-page .container,
     body.admin-quotations-view-page .main-content {
         display: flex !important;
         flex-direction: column !important;
-        height: auto !important;
-        max-height: none !important;
-        min-height: 100dvh !important;
-        overflow: visible !important;
+        height: 100dvh !important;
+        max-height: 100dvh !important;
+        min-height: 0 !important;
+        overflow: hidden !important;
     }
 
     body.admin-quotations-view-page .tab-content.active,
@@ -1441,166 +1460,118 @@ body.customer-my-quotations-page .quotation-detail-actions .edit-button {
     body.admin-quotations-view-page #quotation-tab-content {
         display: flex !important;
         flex-direction: column !important;
-        flex: 0 0 auto !important;
+        flex: 1 1 auto !important;
         height: auto !important;
         max-height: none !important;
         min-height: 0 !important;
-        overflow: visible !important;
+        overflow: hidden !important;
     }
 
     body.admin-quotations-view-page .quotation-page-header {
         flex: 0 0 auto;
-        position: sticky;
-        top: 0;
-        z-index: 20;
+        position: relative;
+        top: auto;
+        z-index: 5;
     }
 
     body.admin-quotations-view-page .quotation-split-wrap {
-        display: block !important;
+        display: flex !important;
+        flex-direction: column !important;
         grid-template-columns: unset !important;
-        flex: 0 0 auto !important;
-        height: auto !important;
+        flex: 1 1 auto !important;
         min-height: 0 !important;
+        height: auto !important;
         max-height: none !important;
-        overflow: visible !important;
+        overflow: hidden !important;
         position: relative;
+        gap: 0;
     }
 
     body.admin-quotations-view-page .quotation-list-pane {
-        display: block !important;
+        display: flex !important;
+        flex-direction: column !important;
+        flex: 1 1 50% !important;
         width: 100%;
         max-width: 100%;
-        height: auto !important;
         min-height: 0 !important;
         max-height: none !important;
-        overflow: visible !important;
+        height: auto !important;
+        overflow: hidden !important;
+        border-radius: 10px 10px 0 0;
     }
 
     body.admin-quotations-view-page .quotation-list-scroll {
         display: block !important;
+        flex: 1 1 auto !important;
+        min-height: 0 !important;
         height: auto !important;
         max-height: none !important;
-        min-height: 0 !important;
-        overflow: visible !important;
-        overscroll-behavior: auto;
-        touch-action: manipulation;
-    }
-
-    body.admin-quotations-view-page .quotation-list-scroll .quotation-list-table thead,
-    body.admin-quotations-view-page .quotation-list-toolbar {
-        position: static !important;
-        top: auto !important;
-    }
-
-    body.admin-quotations-view-page .quotation-list-scroll:has(.quotation-list-toolbar) .quotation-list-table thead {
-        top: auto !important;
-    }
-
-    body.admin-quotations-view-page .quotation-detail-drawer-backdrop {
-        display: block;
-        position: fixed;
-        inset: 0;
-        z-index: 2450;
-        background: rgba(20, 40, 60, 0.42);
-        border: none;
-        padding: 0;
-        margin: 0;
-        cursor: pointer;
-    }
-
-    body.admin-quotations-view-page .quotation-detail-drawer-backdrop[hidden] {
-        display: none !important;
-    }
-
-    /* Closed drawer: fully removed so it cannot steal height or block touch */
-    body.admin-quotations-view-page #quotation-detail-pane.quotation-detail-pane {
-        position: fixed !important;
-        top: 0 !important;
-        right: 0 !important;
-        bottom: 0 !important;
-        left: auto !important;
-        width: min(100vw, 26rem) !important;
-        max-width: 100vw !important;
-        height: 100vh !important;
-        height: 100dvh !important;
-        margin: 0 !important;
-        min-height: 0 !important;
-        z-index: 2451 !important;
-        border-radius: 14px 0 0 14px !important;
-        box-shadow: -8px 0 28px rgba(20, 40, 60, 0.22) !important;
-        background: var(--ice-surface, #f7fbff) !important;
-        border: 1px solid var(--ice-border, #b8d4e8) !important;
-        border-right: none !important;
-        transform: translateX(105%);
-        transition: transform 0.28s ease, visibility 0.28s ease;
         overflow-x: hidden !important;
         overflow-y: auto !important;
         -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+        touch-action: pan-y;
+    }
+
+    body.admin-quotations-view-page .quotation-list-scroll .quotation-list-table thead {
+        position: sticky !important;
+        top: 0 !important;
+        z-index: 2;
+    }
+
+    body.admin-quotations-view-page .quotation-list-toolbar {
         display: none !important;
+    }
+
+    /* Bottom half: always-visible item lines panel (not a side drawer) */
+    body.admin-quotations-view-page .quotation-detail-drawer-backdrop {
+        display: none !important;
+    }
+
+    body.admin-quotations-view-page .quotation-detail-drawer-chrome {
+        display: none !important;
+    }
+
+    body.admin-quotations-view-page #quotation-detail-pane.quotation-detail-pane {
+        position: relative !important;
+        top: auto !important;
+        right: auto !important;
+        bottom: auto !important;
+        left: auto !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        height: auto !important;
+        min-height: 0 !important;
+        margin: 0 !important;
+        z-index: 1 !important;
+        border-radius: 0 0 10px 10px !important;
+        box-shadow: none !important;
+        background: var(--ice-surface, #f7fbff) !important;
+        border: 1px solid var(--ice-border, #b8d4e8) !important;
+        border-top: 2px solid var(--ice-accent, #3b8fc4) !important;
+        transform: none !important;
+        transition: none !important;
+        overflow: hidden !important;
+        display: flex !important;
         flex-direction: column !important;
         box-sizing: border-box !important;
         padding: 0 !important;
-        pointer-events: none;
-        visibility: hidden;
-        flex: none !important;
+        pointer-events: auto !important;
+        visibility: visible !important;
+        flex: 1 1 50% !important;
     }
 
     body.avq-detail-drawer-open #quotation-detail-pane.quotation-detail-pane {
         display: flex !important;
-        transform: translateX(0);
-        pointer-events: auto;
-        visibility: visible;
-    }
-
-    body.avq-detail-drawer-open {
-        overflow: hidden !important;
-        height: 100dvh !important;
-        touch-action: none;
-    }
-
-    body.avq-detail-drawer-open .container,
-    body.avq-detail-drawer-open .main-content {
-        overflow: hidden !important;
-        touch-action: none;
-    }
-
-    body.admin-quotations-view-page .quotation-detail-drawer-chrome {
-        display: flex !important;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        flex: 0 0 auto;
-        padding: 12px 14px 10px;
-        border-bottom: 1px solid var(--ice-border, #b8d4e8);
-        background: var(--ice-surface-alt, #eef6fc);
-        position: sticky;
-        top: 0;
-        z-index: 2;
-    }
-
-    body.admin-quotations-view-page .quotation-detail-drawer-title {
-        font-size: 14px;
-        font-weight: 650;
-        color: var(--ice-heading, #1a4d6e);
-    }
-
-    body.admin-quotations-view-page .quotation-detail-drawer-close {
-        border: 1px solid var(--ice-border, #b8d4e8);
-        background: #fff;
-        color: var(--ice-heading, #1a4d6e);
-        width: 2.25rem;
-        height: 2.25rem;
-        border-radius: 8px;
-        font-size: 1.45rem;
-        line-height: 1;
-        cursor: pointer;
-        flex: 0 0 auto;
+        transform: none !important;
+        pointer-events: auto !important;
+        visibility: visible !important;
     }
 
     body.admin-quotations-view-page #quotation-detail-pane-body {
         flex: 1 1 auto;
         min-height: 0;
-        padding: 12px 14px 24px;
+        padding: 8px 10px 12px;
         overflow-x: hidden;
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
@@ -1611,6 +1582,39 @@ body.customer-my-quotations-page .quotation-detail-actions .edit-button {
     body.admin-quotations-view-page .quotation-detail-pane-layout {
         overflow: visible;
         min-height: 0;
+        flex: 1 1 auto;
+        display: flex;
+        flex-direction: column;
+    }
+
+    body.admin-quotations-view-page .quotation-detail-pane-top {
+        flex: 0 0 auto;
+    }
+
+    body.admin-quotations-view-page .quotation-detail-head {
+        gap: 8px;
+        margin-bottom: 6px;
+    }
+
+    body.admin-quotations-view-page .quotation-detail-title {
+        font-size: 14px;
+    }
+
+    body.admin-quotations-view-page .quotation-detail-sub {
+        font-size: 12px;
+    }
+
+    body.admin-quotations-view-page .quotation-detail-amount {
+        font-size: 12px;
+        padding: 5px 10px;
+    }
+
+    body.admin-quotations-view-page .quotation-detail-meta {
+        grid-template-columns: 1fr 1fr;
+        gap: 4px 10px;
+        padding: 8px 10px;
+        margin-bottom: 8px;
+        font-size: 11px;
     }
 
     body.admin-quotations-view-page .quotation-detail-actions {
@@ -1618,13 +1622,16 @@ body.customer-my-quotations-page .quotation-detail-actions .edit-button {
         top: 0;
         z-index: 1;
         background: var(--ice-surface, #f7fbff);
-        padding-bottom: 8px;
-        margin-bottom: 10px;
+        padding-bottom: 6px;
+        margin-bottom: 6px;
+        gap: 6px;
     }
 
     body.admin-quotations-view-page .quotation-detail-items {
-        overflow: visible;
+        flex: 1 1 auto;
         min-height: 0;
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
     }
 
     body.admin-quotations-view-page .quotation-items-scroll {
@@ -1635,7 +1642,7 @@ body.customer-my-quotations-page .quotation-detail-actions .edit-button {
     }
 
     body.admin-quotations-view-page .quotation-items-scroll .quotation-items-table {
-        min-width: 600px;
+        min-width: 560px;
         width: max-content;
         max-width: none;
     }
@@ -1643,11 +1650,13 @@ body.customer-my-quotations-page .quotation-detail-actions .edit-button {
     body.admin-quotations-view-page .quotation-items-scroll .quotation-items-table th,
     body.admin-quotations-view-page .quotation-items-scroll .quotation-items-table td {
         white-space: nowrap;
+        padding: 6px 8px;
+        font-size: 11px;
     }
 
     body.admin-quotations-view-page .quotation-items-scroll .quotation-items-table td:first-child,
     body.admin-quotations-view-page .quotation-items-scroll .quotation-items-table th:first-child {
         white-space: normal;
-        min-width: 140px;
+        min-width: 120px;
     }
 }

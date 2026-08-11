@@ -194,27 +194,21 @@ function setupAvqFiltersDrawerDrag() {
 }
 
 function openQuotationDetailDrawer() {
-    if (!isAvqPhoneLayout()) {
-        document.body.classList.remove('avq-detail-drawer-open');
-        const backdrop = document.getElementById('quotation-detail-drawer-backdrop');
-        if (backdrop) backdrop.hidden = true;
-        return;
-    }
-    setAvqFiltersDrawerOpen(false);
-    document.body.classList.add('avq-detail-drawer-open');
+    // Phone uses a fixed bottom half panel; desktop shows detail inline.
+    document.body.classList.remove('avq-detail-drawer-open');
     const backdrop = document.getElementById('quotation-detail-drawer-backdrop');
-    if (backdrop) backdrop.hidden = false;
-    const panel = document.getElementById('quotation-detail-pane');
-    if (panel) {
-        try { panel.scrollTop = 0; } catch (e) { /* ignore */ }
-    }
-    const bodyEl = document.getElementById('quotation-detail-pane-body');
-    if (bodyEl) {
-        try { bodyEl.scrollTop = 0; } catch (e) { /* ignore */ }
+    if (backdrop) backdrop.hidden = true;
+    if (isAvqPhoneLayout()) {
+        setAvqFiltersDrawerOpen(false);
+        const bodyEl = document.getElementById('quotation-detail-pane-body');
+        if (bodyEl) {
+            try { bodyEl.scrollTop = 0; } catch (e) { /* ignore */ }
+        }
     }
 }
 
 function closeQuotationDetailDrawer() {
+    // Detail pane stays visible on phone (bottom half); only clear selection.
     document.body.classList.remove('avq-detail-drawer-open');
     const backdrop = document.getElementById('quotation-detail-drawer-backdrop');
     if (backdrop) backdrop.hidden = true;
@@ -809,19 +803,16 @@ function refreshQuotationListView() {
             ) {
                 const filterTab = this.dataset.filterTab || getActiveQuotationTab();
                 const dockey = Number(this.dataset.dockey);
-                if (
-                    isAvqPhoneLayout()
-                    && selectedQuotationDockey != null
-                    && Number(selectedQuotationDockey) === dockey
-                    && document.body.classList.contains('avq-detail-drawer-open')
-                ) {
-                    closeQuotationDetailDrawer();
-                    return;
-                }
                 selectedQuotationDockey = dockey;
                 selectedDockeyByTab[filterTab] = selectedQuotationDockey;
                 syncRowSelectionHighlight();
-                renderQuotationDetail(visibleList, { openDrawer: true });
+                renderQuotationDetail(visibleList, {});
+                if (isAvqPhoneLayout()) {
+                    const bodyEl = document.getElementById('quotation-detail-pane-body');
+                    if (bodyEl) {
+                        try { bodyEl.scrollTop = 0; } catch (err) { /* ignore */ }
+                    }
+                }
             }
         });
     });
@@ -1157,8 +1148,10 @@ async function renderQuotationDetail(currentList, options = {}) {
         </div>
     `;
 
-    if (options.openDrawer) {
+    if (options.openDrawer && !isAvqPhoneLayout()) {
         openQuotationDetailDrawer();
+    } else if (isAvqPhoneLayout()) {
+        setAvqFiltersDrawerOpen(false);
     }
     const detailContainer = document.getElementById('quotation-detail-items');
     try {
