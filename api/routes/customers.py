@@ -10,6 +10,7 @@ from api.adapters import COMConnectionError
 from api.clients import SqlAccountingApiError
 from api.models import APIResponse, CustomerRequest
 from api.services import COMOperationError, CustomerConfigurationError, CustomerService
+from utils.db_utils import build_firebird_dsn
 
 router = APIRouter(prefix="/customers", tags=["Customers"])
 compat_router = APIRouter(tags=["Customers"])
@@ -130,7 +131,7 @@ def list_customers_compat(
     con = None
     cur = None
     try:
-        con = fdb.connect(dsn=f"{DB_HOST}:{DB_PATH}", user=DB_USER, password=DB_PASSWORD, charset='UTF8')
+        con = fdb.connect(dsn=build_firebird_dsn(DB_PATH, DB_HOST), user=DB_USER, password=DB_PASSWORD, charset='UTF8')
         cur = con.cursor()
 
         # Detail mode: /customer?code=300-R0005

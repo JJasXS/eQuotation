@@ -7,7 +7,14 @@ from decimal import Decimal
 from typing import Any
 
 from utils.db_utils import get_db_connection
-from utils.procurement_purchase_request import _as_decimal, _clean_text, _get_table_columns, _money, _pick_existing
+from utils.firebird_helpers import (
+    _as_decimal,
+    _clean_text,
+    _get_table_columns,
+    _money,
+    _pick_existing,
+    _table_exists,
+)
 
 
 class BiddingValidationError(ValueError):
@@ -44,15 +51,6 @@ def format_display_date(value: Any) -> str | None:
     if ymd:
         return f"{int(ymd.group(3)):02d}-{int(ymd.group(2)):02d}-{ymd.group(1)}"
     return head or raw
-
-
-def _table_exists(cur: Any, table_name: str) -> bool:   
-    cur.execute(
-        "SELECT COUNT(*) FROM RDB$RELATIONS WHERE RDB$RELATION_NAME = ?",
-        (table_name.upper(),),
-    )
-    row = cur.fetchone()
-    return bool(row and int(row[0] or 0) > 0)
 
 
 def _generator_exists(cur: Any, generator_name: str) -> bool:

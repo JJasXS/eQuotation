@@ -7,18 +7,21 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from utils.procurement_purchase_request import (
+from utils.firebird_helpers import (
     _as_decimal,
     _clean_text,
+    _get_table_columns,
+    _money,
+    _pick_existing,
+    _table_exists,
+)
+from utils.procurement_purchase_request import (
     _connect_db,
     _decode_status,
     _encode_status,
-    _get_table_columns,
     _insert_dynamic,
-    _money,
     _next_key,
     _next_request_number,
-    _pick_existing,
     _request_number_exists,
     _column_is_numeric,
     set_purchase_request_header_supplier,
@@ -419,15 +422,6 @@ def _repoint_line_awards(
         """,
         tuple([int(to_dockey), int(from_dockey), *detail_ids]),
     )
-
-
-def _table_exists(cur: Any, table_name: str) -> bool:
-    cur.execute(
-        "SELECT COUNT(*) FROM RDB$RELATIONS WHERE RDB$RELATION_NAME = ?",
-        (table_name.upper(),),
-    )
-    row = cur.fetchone()
-    return bool(row and int(row[0] or 0) > 0)
 
 
 def _detail_rows_for_sql_post(cur: Any, request_dockey: int, detail_ids: list[int]) -> list[dict[str, Any]]:

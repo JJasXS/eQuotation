@@ -13,12 +13,7 @@ from utils.sql_api_supplier import (
     supplier_master_document_fields,
     supplier_sdsbranch_for_document_put,
 )
-
-
-def _clean_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
+from utils.firebird_helpers import _clean_text
 
 
 def _api_root_url(path_env: str, default_path: str) -> str:
@@ -324,7 +319,7 @@ def sync_purchase_request_supplier_sql_api(
 def _linked_po_dockeys_for_request(request_dockey: int) -> list[int]:
     """PO dockeys already linked to a purchase request via ST_XTRANS (PQ → PO)."""
     from utils.db_utils import get_db_connection
-    from utils.procurement_purchase_request import _get_table_columns, _pick_existing
+    from utils.firebird_helpers import _get_table_columns, _pick_existing
 
     dockey = int(request_dockey or 0)
     if dockey <= 0:
@@ -492,7 +487,7 @@ def _local_pqdtl_pricing_by_dtlkey(
     if not keep_dtlkeys:
         return {}
     from utils.db_utils import get_db_connection
-    from utils.procurement_purchase_request import _as_decimal, _get_table_columns, _money, _pick_existing
+    from utils.firebird_helpers import _as_decimal, _get_table_columns, _money, _pick_existing
 
     con = get_db_connection()
     try:
@@ -593,7 +588,7 @@ def _local_pqdtl_udfs_by_dtlkey(
     if not keep_dtlkeys:
         return {}
     from utils.db_utils import get_db_connection
-    from utils.procurement_purchase_request import _get_table_columns, _pick_existing
+    from utils.firebird_helpers import _get_table_columns, _pick_existing
 
     con = get_db_connection()
     try:

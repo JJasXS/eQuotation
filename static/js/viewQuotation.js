@@ -32,6 +32,9 @@ function consumeTabQueryFromUrl() {
 }
 
 function escapeHtml(s) {
+    if (window.EQCore && typeof window.EQCore.escapeHtml === 'function') {
+        return window.EQCore.escapeHtml(s);
+    }
     if (s == null) return '';
     return String(s)
         .replace(/&/g, '&amp;')

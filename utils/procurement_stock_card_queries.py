@@ -6,6 +6,12 @@ from calendar import monthrange
 from datetime import date
 from typing import Any
 
+from utils.firebird_helpers import (
+    _clean_str,
+    _get_table_columns,
+    _pick_existing,
+    _to_float,
+)
 from utils.role_permissions import _truthy
 
 
@@ -69,19 +75,6 @@ def _iv_header_not_cancelled_sql(header_cols: set[str], alias: str = "H") -> str
     return ""
 
 
-def _clean_str(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
-
-
-def _to_float(value: Any) -> float:
-    try:
-        return float(value or 0)
-    except Exception:
-        return 0.0
-
-
 def _parse_iso_date(value: Any) -> date | None:
     text = _clean_str(value)
     if not text:
@@ -134,25 +127,6 @@ def _fetch_grouped_qty_pair_map(
         sqty_result[item_code][location_code] = q_sq
         suom_result[item_code][location_code] = q_su
     return sqty_result, suom_result
-
-
-def _get_table_columns(cur: Any, table_name: str) -> set[str]:
-    cur.execute(
-        """
-        SELECT TRIM(RF.RDB$FIELD_NAME)
-        FROM RDB$RELATION_FIELDS RF
-        WHERE RF.RDB$RELATION_NAME = ?
-        """,
-        (table_name.upper(),),
-    )
-    return {str(row[0]).strip().upper() for row in (cur.fetchall() or []) if row and row[0]}
-
-
-def _pick_existing(columns: set[str], *candidates: str) -> str:
-    for name in candidates:
-        if name.upper() in columns:
-            return name.upper()
-    return ""
 
 
 def _env_column_override(columns: set[str], *env_keys: str) -> str:

@@ -1,0 +1,14 @@
+{
+  "name": "equotation",
+  "private": true,
+  "type": "module",
+  "description": "Dev tooling only — no bundler. Frontend is served as static files.",
+  "scripts": {
+    "lint:js": "eslint static/js --max-warnings 0",
+    "lint:js:report": "eslint static/js"
+  },
+  "devDependencies": {
+    "eslint": "^9.16.0",
+    "globals": "^15.13.0"
+  }
+}

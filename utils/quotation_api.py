@@ -11,6 +11,7 @@ import requests
 
 from api.clients import SqlAccountingApiClient, SqlAccountingApiError
 from api.config import load_sql_accounting_api_settings
+from utils.firebird_helpers import _as_decimal, _safe_float as _safe_float_quotation_email
 
 
 _QT_DOCNO_RE = re.compile(r"^QT-(\d{5})$")
@@ -538,13 +539,6 @@ def _decode_php_json_response(response, endpoint_path):
         }
 
 
-def _as_decimal(value, default="0.00"):
-    try:
-        return Decimal(str(value))
-    except (InvalidOperation, TypeError, ValueError):
-        return Decimal(default)
-
-
 def _fmt_money(value: Decimal) -> str:
     return f"{value.quantize(Decimal('0.01'))}"
 
@@ -622,21 +616,6 @@ def _read_sl_qt_header_for_sales_api(dockey: int) -> dict:
         if con:
             con.close()
     return out
-
-
-def _safe_float_quotation_email(value, default: float = 0.0) -> float:
-    """Convert a value to float for quotation email payloads (comma-safe)."""
-    if value is None:
-        return default
-    if isinstance(value, (int, float)):
-        return float(value)
-    text = str(value).strip().replace(",", "")
-    if not text:
-        return default
-    try:
-        return float(text)
-    except Exception:
-        return default
 
 
 def fetch_quotation_details_for_email(dockey: int) -> dict:

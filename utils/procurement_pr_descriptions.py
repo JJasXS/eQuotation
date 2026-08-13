@@ -59,7 +59,7 @@ def resolve_pr_line_description(
 
 def lookup_st_item_descriptions(cur: Any, item_codes: list[str]) -> dict[str, str]:
     """Batch CODE → DESCRIPTION from ST_ITEM."""
-    from utils.procurement_purchase_request import _get_table_columns, _pick_existing
+    from utils.firebird_helpers import _get_table_columns, _pick_existing
 
     codes = [str(c or "").strip() for c in item_codes if str(c or "").strip()]
     if not codes or not cur:
@@ -93,7 +93,7 @@ def persist_normalized_pr_header_description(
     source_description: Any = None,
 ) -> str:
     """Write normalized header DESCRIPTION on PH_PQ (primary + split child PRs)."""
-    from utils.procurement_purchase_request import _get_table_columns, _pick_existing
+    from utils.firebird_helpers import _get_table_columns, _pick_existing
 
     if not request_dockey:
         return DEFAULT_PR_HEADER_DESCRIPTION
@@ -126,7 +126,7 @@ def refresh_placeholder_line_descriptions(
     detail_ids: list[int] | None = None,
 ) -> int:
     """Rewrite PH_PQDTL DESCRIPTION when it is an Overall Report placeholder."""
-    from utils.procurement_purchase_request import _clean_text, _get_table_columns, _pick_existing
+    from utils.firebird_helpers import _clean_text, _get_table_columns, _pick_existing
 
     if not request_dockey:
         return 0

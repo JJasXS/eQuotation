@@ -8,6 +8,7 @@ from typing import Any
 
 from api.clients import SqlAccountingApiClient, SqlAccountingApiError
 from api.config import load_sql_accounting_api_settings
+from utils.firebird_helpers import _clean_text
 
 logger = logging.getLogger(__name__)
 
@@ -18,12 +19,6 @@ _batch_cache_at: float = 0.0
 
 class SqlApiBatchError(RuntimeError):
     """SQL API batch list/create could not complete."""
-
-
-def _clean_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
 
 
 def _normalize_dim_part(value: Any) -> str:

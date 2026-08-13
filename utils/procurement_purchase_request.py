@@ -11,29 +11,23 @@ from typing import Any
 import requests
 
 from utils.db_utils import get_db_connection
+from utils.firebird_helpers import (
+    _as_decimal,
+    _clean_text,
+    _get_table_columns,
+    _money,
+    _pick_existing,
+)
 
 
 class PurchaseRequestValidationError(ValueError):
     """Raised when purchase request payload fails validation."""
 
 
-def _clean_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
-
-
 def _normalize_pr_header_description_field(value: Any) -> str:
     from utils.procurement_pr_descriptions import normalize_pr_header_description
 
     return normalize_pr_header_description(_clean_text(value))
-
-
-def _as_decimal(value: Any, default: str = "0") -> Decimal:
-    try:
-        return Decimal(str(value if value is not None else default))
-    except (InvalidOperation, TypeError, ValueError):
-        return Decimal(default)
 
 
 def _as_date(value: Any) -> date | None:
@@ -44,10 +38,6 @@ def _as_date(value: Any) -> date | None:
         return date.fromisoformat(text)
     except ValueError:
         return None
-
-
-def _money(value: Decimal) -> Decimal:
-    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 def _normalize_supplier_id_for_header(value: Any) -> str:
@@ -80,18 +70,6 @@ def _invited_supplier_codes_from_payload(payload: dict[str, Any]) -> list[str]:
 
 def _connect_db():
     return get_db_connection()
-
-
-def _get_table_columns(cur: Any, table_name: str) -> set[str]:
-    cur.execute(
-        """
-        SELECT TRIM(RF.RDB$FIELD_NAME)
-        FROM RDB$RELATION_FIELDS RF
-        WHERE RF.RDB$RELATION_NAME = ?
-        """,
-        (table_name.upper(),),
-    )
-    return {str(row[0]).strip().upper() for row in (cur.fetchall() or []) if row and row[0]}
 
 
 def _column_is_numeric(cur: Any, table_name: str, column_name: str) -> bool:
@@ -141,13 +119,6 @@ def _decode_status(raw_status: Any) -> str:
         4: "CANCELLED",
     }
     return reverse.get(numeric, str(numeric))
-
-
-def _pick_existing(columns: set[str], *candidates: str) -> str:
-    for name in candidates:
-        if name.upper() in columns:
-            return name.upper()
-    return ""
 
 
 def _normalize_stock_qty_uom(value: Any) -> str:

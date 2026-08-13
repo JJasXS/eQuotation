@@ -1,0 +1,51 @@
+# Ruff config for eQuotation — complexity / nesting / simplicity focus.
+# Baseline per-file-ignores keep day-one green; remove entries as files are refactored.
+
+target-version = "py311"
+line-length = 120
+src = [".", "utils", "api", "routes"]
+
+[lint]
+select = [
+    "E",      # pycodestyle errors
+    "F",      # pyflakes
+    "B",      # bugbear
+    "C901",   # complex structure (McCabe)
+    "PLR0912",# too many branches
+    "PLR0915",# too many statements
+]
+ignore = [
+    "E501",   # line length — enforced separately via line-length for formatter only
+    "B008",   # function calls in defaults (FastAPI Depends)
+]
+
+[lint.mccabe]
+max-complexity = 15
+
+[lint.pylint]
+max-branches = 12
+max-statements = 60
+
+[lint.per-file-ignores]
+# Monolith baseline — shrink this list as Phase 3/4 land.
+"main.py" = ["C901", "PLR0912", "PLR0915", "E402", "F401", "F841"]
+"utils/procurement_bidding.py" = ["C901", "PLR0912", "PLR0915"]
+"utils/procurement_stock_card_queries.py" = ["C901", "PLR0912", "PLR0915"]
+"utils/quotation_api.py" = ["C901", "PLR0912", "PLR0915"]
+"utils/procurement_purchase_request.py" = ["C901", "PLR0912", "PLR0915"]
+"utils/procurement_sql_api_sync.py" = ["C901", "PLR0912", "PLR0915"]
+"utils/procurement_purchase_order_transfer.py" = ["C901", "PLR0912", "PLR0915"]
+"utils/procurement_pr_split.py" = ["C901", "PLR0912", "PLR0915"]
+"db_initializer.py" = ["C901", "PLR0912", "PLR0915", "E402"]
+"api/routes/*.py" = ["B008"]
+"tests/**" = ["F401", "F841"]
+"scripts/**" = ["E402", "F401"]
+"_staged_unused_review/**" = ["ALL"]
+"check_*.py" = ["E402"]
+"create_sample_pr.py" = ["E402"]
+"task_script*.py" = ["E402", "F401"]
+"validationSignIn.py" = ["E402"]
+
+[format]
+quote-style = "double"
+indent-style = "space"

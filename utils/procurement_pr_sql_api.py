@@ -2,28 +2,12 @@
 from __future__ import annotations
 
 from datetime import date
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import Decimal
 from typing import Any
 
 from utils.customer_display import _format_currency_display_value
+from utils.firebird_helpers import _as_decimal, _clean_text, _money
 from utils.sql_api_supplier import sql_api_currency_and_code, supplier_master_document_fields
-
-
-def _clean_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
-
-
-def _as_decimal(value: Any, default: str = "0") -> Decimal:
-    try:
-        return Decimal(str(value if value is not None else default))
-    except (InvalidOperation, TypeError, ValueError):
-        return Decimal(default)
-
-
-def _money(value: Decimal) -> Decimal:
-    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 def _normalize_pr_header_description_for_api(value: Any) -> str:

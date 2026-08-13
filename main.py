@@ -129,6 +129,17 @@ from utils.stock_items_catalog import derive_stock_prices_from_catalog
 from utils.sql_api_reference_lists import fetch_area_codes_sql_api, fetch_currency_codes_sql_api
 
 from utils.appsettings_env import apply_appsettings_to_environ
+from utils.firebird_helpers import _safe_float
+from utils.pr_route_helpers import (
+    _fb_text,
+    _fmt_date,
+    _normalize_currency,
+    _num,
+    _resolve_supplier_master,
+    _status_text,
+    _to_bool_or_none,
+    _truthy,
+)
 
 apply_appsettings_to_environ()
 
@@ -243,21 +254,6 @@ set_db_config(DB_PATH, DB_USER, DB_PASSWORD, DB_HOST)
 # Helper configuration (moved up to ensure ENDPOINT_PATHS is defined before use)
 from config.endpoints_config import ENDPOINT_PATHS
 set_api_config(BASE_API_URL, ENDPOINT_PATHS)
-
-
-def _safe_float(value, default=0.0):
-    """Convert a value to float, stripping commas; returns default on None/empty/error."""
-    if value is None:
-        return default
-    if isinstance(value, (int, float)):
-        return float(value)
-    text = str(value).strip().replace(',', '')
-    if not text:
-        return default
-    try:
-        return float(text)
-    except Exception:
-        return default
 
 
 def _quotation_line_item_fields_for_select(dtl_columns: set) -> list:
@@ -1346,6 +1342,27 @@ from routes.quotation_routes_approved import quotation_approved_bp, send_quotati
 app.register_blueprint(quotation_bp)
 app.register_blueprint(quotation_approved_bp)
 
+from routes.php_proxy_routes import register_php_proxy_routes
+from routes.auth_routes import register_auth_routes
+from routes.procurement_routes import register_procurement_routes
+
+register_auth_routes(app)
+register_php_proxy_routes(
+    app,
+    proxy_post=proxy_post_with_auth,
+    proxy_get=proxy_get_with_auth,
+    http_request_json=http_request_json,
+    base_api_url=BASE_API_URL,
+    endpoint_paths=ENDPOINT_PATHS,
+    require_api_auth=require_api_auth,
+)
+register_procurement_routes(
+    app,
+    require_page_access=require_page_access,
+    render_protected_template=render_protected_template,
+    procurement_ui_path=PROCUREMENT_UI_PATH,
+)
+
 @app.after_request
 def add_no_cache_headers(response):
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
@@ -1742,15 +1759,6 @@ def qt_iv_conversion_report():
 # ============================================
 # ROUTE: Delete Order Detail
 # ============================================
-@app.route('/php/deleteOrderDetail.php', methods=['POST'])
-def proxy_delete_order_detail():
-    """Proxy endpoint to delete order detail via XAMPP PHP."""
-    return proxy_post_with_auth(
-        '/php/deleteOrderDetail.php',
-        error_message='Failed to delete order detail',
-        log_context='deleteOrderDetail'
-    )
-
 def _coerce_bool_quotation_cancelled(value):
     if isinstance(value, bool):
         return value
@@ -2479,42 +2487,6 @@ def get_area_codes():
 # AUTHENTICATION FUNCTIONS
 # ============================================
 
-@app.route('/login')
-def login():
-    """Show login page"""
-    if 'user_email' in session:
-        if session.get('user_type') == 'admin':
-            return redirect('/admin')
-        return redirect('/create-quotation')
-    return render_template('login.html')
-
-
-@app.route('/signInGuest')
-def sign_in_guest():
-    """Show minimal guest sign-in page (code + companyname)."""
-    countries = []
-    try:
-        csv_path = os.path.join(os.path.dirname(__file__), 'csv', 'CountryCodeWNames.csv')
-        with open(csv_path, 'r', encoding='utf-8-sig', newline='') as f:
-            reader = csv.DictReader(f)
-            seen = set()
-            for row in reader:
-                name = (row.get('name') or '').strip()
-                alpha2 = (row.get('alpha-2') or '').strip().upper()
-                if not name or not alpha2 or name in seen:
-                    continue
-                seen.add(name)
-                countries.append({'name': name, 'alpha2': alpha2})
-    except Exception as e:
-        print(f"[WARN] Failed to load countries CSV for signInGuest: {e}")
-
-    return render_template('newSignInGuest.html', countries=countries)
-
-
-_POSTCODE_LOOKUP_CACHE = None
-_COUNTRY_ALPHA2_CACHE = None
-
-
 def _build_postcode_lookup():
     """
     Build a lookup structure from json/all.json.
@@ -2982,13 +2954,6 @@ def api_verify_otp():
         print(f"Error verifying OTP: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/logout')
-def logout():
-    """Logout user"""
-    session.clear()
-    return redirect('/login')
-
-
 @app.route('/api/guide_capture_login', methods=['POST'])
 def api_guide_capture_login():
     """Dev-only session seed for user-guide screenshots. Requires EQ_GUIDE_CAPTURE=1."""
@@ -3028,110 +2993,6 @@ def api_guide_capture_login():
     print(f"[GUIDE CAPTURE] seeded session role={role} email={email!r} -> {redirect_url}", flush=True)
     return jsonify({'success': True, 'role': role, 'redirect': redirect_url}), 200
 
-
-@app.route('/php/getOrdersByStatus.php')
-def proxy_get_orders_by_status():
-    """Proxy endpoint to forward requests to XAMPP PHP with customer code filtering for non-admin users"""
-    auth_error = require_api_auth()
-    if auth_error:
-        return auth_error
-    
-    status = request.args.get('status')
-    if not status:
-        return jsonify({'success': False, 'error': 'status parameter required'}), 400
-    
-    try:
-        # Build URL with status
-        url = f"{BASE_API_URL}{ENDPOINT_PATHS['getordersbystatus']}?status={status}"
-        
-        # For non-admin users, enforce customer code filtering server-side
-        user_type = session.get('user_type', 'user')
-        if user_type != 'admin':
-            customer_code = session.get('customer_code')
-            if customer_code:
-                url += f"&customerCode={customer_code}"
-        
-        body, resp = http_request_json('GET', url)
-        return jsonify(body), resp.status_code
-    except Exception as e:
-        print(f"Error proxying to XAMPP: {e}")
-        return jsonify({'success': False, 'error': 'Failed to fetch orders from database'}), 500
-
-
-@app.route('/php/updateOrderStatus.php', methods=['POST'])
-def proxy_update_order_status():
-    """Proxy endpoint to update order status via XAMPP PHP."""
-    return proxy_post_with_auth(
-        ENDPOINT_PATHS['updateorderstatus'],
-        admin_only=True,
-        error_message='Failed to update order status',
-        log_context='status update'
-    )
-
-
-@app.route('/php/getOrderDetails.php')
-def proxy_get_order_details():
-    """Proxy endpoint to fetch order details via XAMPP PHP."""
-    orderid = request.args.get('orderid')
-    if not orderid:
-        return jsonify({'success': False, 'error': 'orderid parameter required'}), 400
-
-    return proxy_get_with_auth(
-        ENDPOINT_PATHS['getorderdetails'],
-        params={'orderid': orderid},
-        error_message='Failed to fetch order details',
-        log_context='getOrderDetails'
-    )
-
-
-@app.route('/php/updateOrderDetail.php', methods=['POST'])
-def proxy_update_order_detail():
-    """Proxy endpoint to update order detail via XAMPP PHP."""
-    return proxy_post_with_auth(
-        ENDPOINT_PATHS['updateorderdetail'],
-        admin_only=True,
-        error_message='Failed to update order detail',
-        log_context='updateOrderDetail'
-    )
-
-
-@app.route('/php/insertOrderDetail.php', methods=['POST'])
-def proxy_insert_order_detail():
-    """Proxy endpoint to insert order detail via XAMPP PHP."""
-    return proxy_post_with_auth(
-        ENDPOINT_PATHS['insertorderdetail'],
-        admin_only=True,
-        error_message='Failed to insert order detail',
-        log_context='insertOrderDetail'
-    )
-
-
-@app.route('/php/requestOrderChange.php', methods=['POST'])
-def proxy_request_order_change():
-    """Proxy endpoint to submit order change request."""
-    return proxy_post_with_auth(
-        '/php/requestOrderChange.php',
-        error_message='Failed to submit change request',
-        log_context='change request',
-        timeout_message='Request timed out. Please check if XAMPP is running.',
-        connection_message='Cannot connect to database server. Please ensure XAMPP is running.',
-        include_exception_detail=True,
-    )
-
-
-@app.route('/php/getOrderRemarks.php')
-def proxy_get_order_remarks():
-    """Proxy endpoint to get order remarks."""
-    orderid = request.args.get('orderid')
-    if not orderid:
-        return jsonify({'success': False, 'error': 'orderid parameter required'}), 400
-
-    return proxy_get_with_auth(
-        '/php/getOrderRemarks.php',
-        params={'orderid': orderid},
-        error_message='Failed to fetch remarks',
-        log_context='getOrderRemarks'
-    )
 
 @app.route('/admin')
 def admin():
@@ -3263,65 +3124,6 @@ def admin_pricing_priority_rules():
         require_full_management_admin=True,
         user_type=session.get('user_type', 'admin')
     )
-
-@app.route('/admin/procurement')
-def admin_procurement_module():
-    """Procurement module — canonical URL (tab=report|create|view)."""
-    page_error = require_page_access()
-    if page_error:
-        return page_error
-    if not can_access_purchase_menu(session):
-        return redirect('/admin' if can_access_admin_dashboard(session) else '/create-quotation')
-    ctx = {'user_type': session.get('user_type', ''), 'user_email': session.get('user_email', '')}
-    ctx.update(template_permission_context(session))
-    return render_template('precurement/precurement.html', **ctx)
-
-
-@app.route('/admin/precurement/precurement')
-def admin_procurement_legacy_typo_redirect():
-    """Permanent redirect from legacy typo URL to /admin/procurement."""
-    page_error = require_page_access()
-    if page_error:
-        return page_error
-    if not can_access_purchase_menu(session):
-        return redirect('/admin' if can_access_admin_dashboard(session) else '/create-quotation')
-    tab = request.args.get('tab') or 'report'
-    return redirect(f'{PROCUREMENT_UI_PATH}?tab={quote(str(tab), safe="")}', code=308)
-@app.route('/admin/procurement/bidding')
-def admin_procurement_bidding_page():
-    """Display admin supplier bidding management page."""
-    page_error = require_page_access(require_admin=True)
-    if page_error:
-        return page_error
-    if not can_access_purchase_menu(session) and not can_access_admin_dashboard(session):
-        return redirect('/create-quotation')
-    return render_protected_template(
-        'adminBidding.html',
-        require_admin=False,
-        user_type=session.get('user_type', 'admin'),
-        user_name=session.get('user_email', ''),
-    )
-
-
-@app.route('/supplier/bidding')
-def supplier_bidding_page():
-    """Supplier RFQ bidding portal (supplier tier only)."""
-    page_error = require_page_access()
-    if page_error:
-        return page_error
-    if infer_access_tier_from_session(session) != ACCESS_TIER_SUPPLIER:
-        if can_access_purchase_menu(session):
-            return redirect(f'{PROCUREMENT_UI_PATH}?tab=view')
-        return redirect('/create-quotation')
-    return render_protected_template(
-        'supplierBidding.html',
-        block_admin=True,
-        admin_redirect=PROCUREMENT_UI_PATH,
-        user_type=session.get('user_type', 'user'),
-        supplier_code=session.get('supplier_code') or session.get('customer_code', ''),
-        user_name=session.get('user_email', ''),
-    )
-
 
 @app.route('/admin/invoice-aging')
 def admin_invoice_aging():
@@ -3544,6 +3346,21 @@ def index():
 
 @app.route('/chat', methods=['POST'])
 @api_login_required(unauth_message='Unauthorized')
+def _format_chat_section(items, fields=None, numbered=False):
+    """Flat list formatter for chat context blocks (no nested def inside chat_api)."""
+    if not items:
+        return ""
+    lines = []
+    for i, item in enumerate(items):
+        prefix = f"{i + 1}. " if numbered else "- "
+        if fields:
+            vals = [str(item.get(f, "-")) for f in fields]
+            lines.append(prefix + " | ".join(vals))
+        else:
+            lines.append(prefix + str(item))
+    return "\n".join(lines)
+
+
 def chat_api():
     user_email = (session.get('user_email') or session.get('user_name') or '').strip()
     user_input = request.json.get('message')
@@ -3567,28 +3384,16 @@ def chat_api():
     stockitems = _fetch_stock_items_cached()
     stockitemprices = derive_stock_prices_from_catalog(stockitems)
     if not stockitems or not stockitemprices:
-        con_fb = None
-        cur_fb = None
         try:
-            con_fb = get_db_connection()
-            cur_fb = con_fb.cursor()
-            if not stockitems:
-                stockitems = fetch_stock_items(cur_fb)
-            if not stockitemprices:
-                stockitemprices = fetch_stock_item_prices_for_chat(cur_fb)
+            from utils.db_utils import db_connection
+            with db_connection() as con_fb:
+                cur_fb = con_fb.cursor()
+                if not stockitems:
+                    stockitems = fetch_stock_items(cur_fb)
+                if not stockitemprices:
+                    stockitemprices = fetch_stock_item_prices_for_chat(cur_fb)
         except Exception as e:
             print(f"[chat] stock data DB fallback: {e}", flush=True)
-        finally:
-            try:
-                if cur_fb:
-                    cur_fb.close()
-            except Exception:
-                pass
-            try:
-                if con_fb:
-                    con_fb.close()
-            except Exception:
-                pass
 
     price_lookup_by_desc = {
         (item.get('DESCRIPTION', '') or '').lower(): item.get('STOCKVALUE')
@@ -3601,21 +3406,8 @@ def chat_api():
         formatted_item['STOCKVALUE'] = format_rm(item.get('STOCKVALUE'))
         formatted_stockitemprices.append(formatted_item)
 
-    def format_section(items, fields=None, numbered=False):
-        if not items:
-            return ""
-        lines = []
-        for i, item in enumerate(items):
-            if fields:
-                vals = [str(item.get(f, '-')) for f in fields]
-                line = (f"{i+1}. " if numbered else "- ") + " | ".join(vals)
-            else:
-                line = (f"{i+1}. " if numbered else "- ") + str(item)
-            lines.append(line)
-        return "\n".join(lines)
-
-    stock_items_block = format_section(stockitems, ['DESCRIPTION', 'STOCKGROUP'], numbered=True)
-    stock_prices_block = format_section(formatted_stockitemprices, ['CODE', 'STOCKVALUE'])
+    stock_items_block = _format_chat_section(stockitems, ['DESCRIPTION', 'STOCKGROUP'], numbered=True)
+    stock_prices_block = _format_chat_section(formatted_stockitemprices, ['CODE', 'STOCKVALUE'])
     stock_groups = sorted({
         str(item.get('STOCKGROUP', '') or '').strip()
         for item in stockitems
@@ -5963,6 +5755,29 @@ def _send_bidding_invitations_for_pr(request_dockey, request_no, actor):
     return result
 
 
+def _rfq_invite_recipients(target: dict) -> list[str]:
+    """Flatten invite target email fields into a de-duplicated recipient list."""
+    recipients: list[str] = []
+    seen: set[str] = set()
+    if isinstance(target.get("emails"), list):
+        for em in target["emails"]:
+            p = str(em or "").strip()
+            if p and p.lower() not in seen:
+                seen.add(p.lower())
+                recipients.append(p)
+    if recipients:
+        return recipients
+    raw_to = str(target.get("email") or "").strip()
+    if not raw_to:
+        return []
+    for p in re.split(r"[,;]+", raw_to):
+        part = p.strip()
+        if part and part.lower() not in seen:
+            seen.add(part.lower())
+            recipients.append(part)
+    return recipients
+
+
 def _send_rfq_invitation_emails_background(
     invite_targets, req_no, req_required_date, req_lines, request_dockey=None,
 ):
@@ -6011,16 +5826,7 @@ def _send_rfq_invitation_emails_background(
     )
 
     for target in invite_targets:
-        recipients: list[str] = []
-        if isinstance(target.get('emails'), list):
-            for em in target['emails']:
-                p = str(em or '').strip()
-                if p:
-                    recipients.append(p)
-        if not recipients:
-            raw_to = str(target.get('email') or '').strip()
-            if raw_to:
-                recipients = [p.strip() for p in re.split(r'[,;]+', raw_to) if p.strip()]
+        recipients = _rfq_invite_recipients(target if isinstance(target, dict) else {})
         if not recipients:
             continue
 
@@ -6332,30 +6138,6 @@ def api_admin_list_purchase_requests():
     offset = max(0, offset)
     # SQL API pagination typically expects smaller pages; keep this conservative.
     limit = max(1, min(limit, 50))
-
-    def _status_text(raw_status):
-        text = str(raw_status).strip().upper() if raw_status is not None else ''
-        if text in {'DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED', 'CANCELLED'}:
-            return text
-        try:
-            status_num = int(raw_status)
-        except Exception:
-            return text or 'DRAFT'
-        return {
-            0: 'DRAFT',
-            1: 'SUBMITTED',
-            2: 'APPROVED',
-            3: 'REJECTED',
-            4: 'CANCELLED',
-        }.get(status_num, str(status_num))
-
-    def _num(value):
-        if value is None:
-            return 0.0
-        try:
-            return float(str(value).replace(',', '').strip() or 0)
-        except Exception:
-            return 0.0
 
     def _fetch_pr_balance_qty_map(request_ids):
         if not request_ids:
@@ -6802,14 +6584,6 @@ def api_admin_list_purchase_requests():
 def api_admin_purchase_request_details(request_id):
     """Get one eProcurement purchase request detail rows from SQL API."""
 
-    def _num(value):
-        if value is None:
-            return 0.0
-        try:
-            return float(str(value).replace(',', '').strip() or 0)
-        except Exception:
-            return 0.0
-
     try:
         headers = _build_sql_api_auth_headers()
         try:
@@ -6925,14 +6699,6 @@ def api_admin_purchase_request_details_fallback():
 
     if not raw_request_id and not request_no:
         return jsonify({'success': False, 'error': 'request_id or request_no is required'}), 400
-
-    def _num(value):
-        if value is None:
-            return 0.0
-        try:
-            return float(str(value).replace(',', '').strip() or 0)
-        except Exception:
-            return 0.0
 
     def _fetch_transferred_qty_map(request_id, detail_ids):
         if not request_id or not detail_ids:
@@ -8119,61 +7885,6 @@ def api_admin_purchase_request_transfer_candidates():
         return jsonify({'success': False, 'error': 'limit must be an integer'}), 400
     limit = max(1, min(limit, 2000))
 
-    def _num(value):
-        if value is None:
-            return 0.0
-        try:
-            return float(str(value).replace(',', '').strip() or 0)
-        except Exception:
-            return 0.0
-
-    def _truthy(value):
-        if value is True or value == 1:
-            return True
-        text = str(value or '').strip().lower()
-        return text in {'1', 'true', 't', 'y', 'yes'}
-
-    def _fmt_date(raw):
-        if raw is None:
-            return ''
-        try:
-            if hasattr(raw, 'strftime'):
-                return raw.strftime('%Y-%m-%d')
-            if hasattr(raw, 'isoformat'):
-                return str(raw.isoformat())[:10]
-            return str(raw).strip()[:10]
-        except Exception:
-            return str(raw or '').strip()[:10]
-
-    def _fb_text(value):
-        """Decode Firebird CHAR/BLOB values that arrive as bytes (avoid b'...' UI text)."""
-        if value is None:
-            return ''
-        if isinstance(value, memoryview):
-            value = value.tobytes()
-        if isinstance(value, (bytes, bytearray)):
-            for enc in ('utf-8', 'cp1252', 'latin-1'):
-                try:
-                    return value.decode(enc).strip()
-                except Exception:
-                    continue
-            return bytes(value).decode('latin-1', errors='replace').strip()
-        text = str(value).strip()
-        # Repair values already stringified as Python bytes repr.
-        if len(text) >= 3 and ((text.startswith("b'") and text.endswith("'")) or (text.startswith('b"') and text.endswith('"'))):
-            inner = text[2:-1]
-            try:
-                return bytes(inner, 'utf-8').decode('unicode_escape').strip()
-            except Exception:
-                return inner.strip()
-        return text
-
-    def _normalize_currency(value):
-        text = _fb_text(value).upper()
-        if not text or text in {'----', '-', 'N/A', 'NA', 'NONE', 'NULL'}:
-            return 'MYR'
-        return text
-
     con = None
     cur = None
     try:
@@ -8471,24 +8182,6 @@ def api_admin_bulk_transfer_purchase_requests_to_po():
     try:
         headers = _build_sql_api_auth_headers()
 
-        def _resolve_supplier_master(selected_code, fallback_name=''):
-            code = str(selected_code or '').strip()
-            if not code:
-                return {}
-            try:
-                from utils.sql_api_supplier import (
-                    fetch_supplier_row_by_code,
-                    supplier_master_document_fields,
-                )
-
-                row = fetch_supplier_row_by_code(code)
-                if row:
-                    return supplier_master_document_fields(row)
-            except Exception:
-                pass
-            name = str(fallback_name or '').strip()
-            return {'code': code, 'companyname': name or code}
-
         prepared_by_request = {}
         for request_id, transfer_lines in lines_by_request.items():
             request_header, last_status = _resolve_purchase_request_header(
@@ -8757,24 +8450,6 @@ def api_admin_transfer_purchase_request_to_po():
 
         # Resolve supplier master data (especially currency) from cached supplier list.
         # Previously page-walked /supplier API on every transfer request.
-        def _resolve_supplier_master(selected_code: str, fallback_name: str = ''):
-            code = str(selected_code or '').strip()
-            if not code:
-                return {}
-            try:
-                from utils.sql_api_supplier import (
-                    fetch_supplier_row_by_code,
-                    supplier_master_document_fields,
-                )
-
-                row = fetch_supplier_row_by_code(code)
-                if row:
-                    return supplier_master_document_fields(row)
-            except Exception:
-                pass
-            name = str(fallback_name or '').strip()
-            return {"code": code, "companyname": name or code}
-
         supplier_groups: dict[str, dict[str, object]] = {}
         if awarded_lines:
             award_by_detail = {
@@ -10191,15 +9866,6 @@ def api_admin_get_all_quotations():
     if limit > 2000:
         limit = 2000
 
-    def _to_bool_or_none(value):
-        if value is None:
-            return None
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return int(value) != 0
-        return str(value).strip().lower() in ('1', 'true', 't', 'yes', 'y')
-
     try:
         con = None
         cur = None
@@ -11067,6 +10733,171 @@ def _merge_session_login_customer_udf_meta(payload):
 
 @app.route('/api/get_user_info')
 @api_login_required(unauth_message='Unauthorized')
+def _normalize_customer_info(payload, customer_code=''):
+    if isinstance(payload, list) and payload:
+        first = payload[0]
+        if isinstance(first, dict):
+            payload = first
+    if not isinstance(payload, dict):
+        return None
+
+    source = payload
+    if isinstance(payload.get('data'), dict):
+        source = payload.get('data')
+    elif isinstance(payload.get('data'), list) and payload.get('data'):
+        first = payload.get('data')[0]
+        if isinstance(first, dict):
+            source = first
+    elif isinstance(payload.get('result'), dict):
+        source = payload.get('result')
+    elif isinstance(payload.get('customer'), dict):
+        source = payload.get('customer')
+
+    if not isinstance(source, dict):
+        return None
+
+    address_obj = source.get('address') if isinstance(source.get('address'), dict) else None
+    first_address = None
+    if isinstance(source.get('addresses'), list) and source.get('addresses'):
+        candidate = source.get('addresses')[0]
+        if isinstance(candidate, dict):
+            first_address = candidate
+
+    # SQL API sample uses sdsbranch[] with address/phone/email fields.
+    branch_obj = None
+    if isinstance(source.get('sdsbranch'), list) and source.get('sdsbranch'):
+        billing_branch = next(
+            (
+                b for b in source.get('sdsbranch', [])
+                if isinstance(b, dict) and str(b.get('branchtype', '')).strip().upper() == 'B'
+            ),
+            None,
+        )
+        if isinstance(billing_branch, dict):
+            branch_obj = billing_branch
+        else:
+            first_branch = source.get('sdsbranch')[0]
+            if isinstance(first_branch, dict):
+                branch_obj = first_branch
+
+    def normalize_key(key):
+        return ''.join(ch.lower() for ch in str(key) if ch.isalnum())
+
+    def build_normalized_map(obj):
+        if not isinstance(obj, dict):
+            return {}
+        normalized = {}
+        for k, v in obj.items():
+            normalized[normalize_key(k)] = v
+        return normalized
+
+    source_map = build_normalized_map(source)
+    address_map = build_normalized_map(address_obj)
+    first_address_map = build_normalized_map(first_address)
+    branch_map = build_normalized_map(branch_obj)
+
+    def pick_from(obj, obj_map, *keys, default=''):
+        if not isinstance(obj, dict):
+            return default
+        for key in keys:
+            value = obj.get(key)
+            if value is None:
+                value = obj_map.get(normalize_key(key))
+            if value is None:
+                continue
+            value_str = str(value).strip()
+            if value_str:
+                return value_str
+        return default
+
+    def pick(*keys, default=''):
+        value = pick_from(source, source_map, *keys, default='')
+        if value:
+            return value
+        value = pick_from(address_obj, address_map, *keys, default='')
+        if value:
+            return value
+        value = pick_from(first_address, first_address_map, *keys, default='')
+        if value:
+            return value
+        return pick_from(branch_obj, branch_map, *keys, default=default)
+
+    legacy = {
+        'CODE': pick('CODE', 'code', default=customer_code),
+        'COMPANYNAME': pick(
+            'COMPANYNAME', 'companyName', 'companyname', 'DESCRIPTION', 'description',
+            'CompanyName', 'custname', 'CUSTNAME', default='',
+        ),
+        'CREDITTERM': pick(
+            'CREDITTERM', 'creditTerm', 'creditterm', 'TERMS', 'terms', 'CnTerms', 'CNTERMS',
+            default='',
+        ),
+        'ADDRESS1': pick(
+            'ADDRESS1', 'address1', 'addr1', 'line1', 'street1', 'ADDR1', 'Add1',
+            'BillAddr1', 'billaddr1', 'BILLADDRESS1', 'Street1', default='',
+        ),
+        'ADDRESS2': pick(
+            'ADDRESS2', 'address2', 'addr2', 'line2', 'street2', 'ADDR2', 'BillAddr2', 'billaddr2',
+            'BILLADDRESS2', default='',
+        ),
+        'ADDRESS3': pick(
+            'ADDRESS3', 'address3', 'addr3', 'line3', 'city', 'ADDR3', 'BillAddr3', 'Postcode', 'POSTCODE',
+            default='',
+        ),
+        'ADDRESS4': pick(
+            'ADDRESS4', 'address4', 'addr4', 'line4', 'state', 'country', 'ADDR4', 'BillAddr4',
+            'Region', 'STATE', default='',
+        ),
+        'PHONE1': pick(
+            'PHONE1', 'phone', 'phone1', 'tel', 'telephone', 'TEL', 'MOBILE', 'mobile',
+            'FAX1', 'fax1', 'HP', 'Hp', 'CONTACT', 'Contact', 'PHONENO', 'PhoneNo', default='',
+        ),
+        'UDF_EMAIL': pick('UDF_EMAIL', 'udf_email', 'EMAIL', 'email', default=''),
+        'AGENT': pick('AGENT', 'agent', default=''),
+        'AREA': pick('AREA', 'area', default=''),
+        'ATTENTION': (
+            pick_from(branch_obj, branch_map, 'ATTENTION', 'attention', default='')
+            or pick('ATTENTION', 'attention', default='')
+        ),
+        'MOBILE': (
+            pick_from(branch_obj, branch_map, 'MOBILE', 'mobile', default='')
+            or pick('MOBILE', 'mobile', default='')
+        ),
+        'CURRENCYCODE': pick('CURRENCYCODE', 'currencycode', 'currencyCode', default=''),
+        'TIN': pick('TIN', 'tin', default=''),
+        'COUNTRY': (
+            pick_from(branch_obj, branch_map, 'COUNTRY', 'country', default='')
+            or pick('COUNTRY', 'country', default='')
+        ),
+    }
+    from utils.customer_display import flatten_customer_record, merge_legacy_customer_payload
+
+    display_fields, customer_scalars = flatten_customer_record(source, branch_obj=branch_obj)
+    return merge_legacy_customer_payload(
+        legacy,
+        display_fields=display_fields,
+        customer_scalars=customer_scalars,
+    )
+
+def _debug_log_user_info_payload(source, payload):
+    if not isinstance(payload, dict):
+        print(f"[DEBUG] get_user_info: Final payload source={source} is not a dict", flush=True)
+        return
+    summary = {
+        'CODE': payload.get('CODE'),
+        'COMPANYNAME': payload.get('COMPANYNAME'),
+        'ADDRESS1': payload.get('ADDRESS1'),
+        'ADDRESS2': payload.get('ADDRESS2'),
+        'ADDRESS3': payload.get('ADDRESS3'),
+        'ADDRESS4': payload.get('ADDRESS4'),
+        'PHONE1': payload.get('PHONE1'),
+        'CREDITTERM': payload.get('CREDITTERM'),
+        'CURRENCYCODE': payload.get('CURRENCYCODE'),
+        'UDF_EMAIL': payload.get('UDF_EMAIL'),
+    }
+    print(f"[DEBUG] get_user_info: Final payload source={source} summary={summary}", flush=True)
+
+
 def api_get_user_info():
     """Return customer info for create-quotation: SQL API when configured, else local Firebird AR_* tables."""
     customer_code = get_current_customer_code(resolve_missing=True)
@@ -11088,170 +10919,6 @@ def api_get_user_info():
             return jsonify({'success': True, 'data': placeholder, 'source': 'internal_staff_placeholder'})
         print("[DEBUG] get_user_info: customer_code not in session", flush=True)
         return jsonify({'success': False, 'error': 'Customer code not found'}), 400
-
-    def _normalize_customer_info(payload):
-        if isinstance(payload, list) and payload:
-            first = payload[0]
-            if isinstance(first, dict):
-                payload = first
-        if not isinstance(payload, dict):
-            return None
-
-        source = payload
-        if isinstance(payload.get('data'), dict):
-            source = payload.get('data')
-        elif isinstance(payload.get('data'), list) and payload.get('data'):
-            first = payload.get('data')[0]
-            if isinstance(first, dict):
-                source = first
-        elif isinstance(payload.get('result'), dict):
-            source = payload.get('result')
-        elif isinstance(payload.get('customer'), dict):
-            source = payload.get('customer')
-
-        if not isinstance(source, dict):
-            return None
-
-        address_obj = source.get('address') if isinstance(source.get('address'), dict) else None
-        first_address = None
-        if isinstance(source.get('addresses'), list) and source.get('addresses'):
-            candidate = source.get('addresses')[0]
-            if isinstance(candidate, dict):
-                first_address = candidate
-
-        # SQL API sample uses sdsbranch[] with address/phone/email fields.
-        branch_obj = None
-        if isinstance(source.get('sdsbranch'), list) and source.get('sdsbranch'):
-            billing_branch = next(
-                (
-                    b for b in source.get('sdsbranch', [])
-                    if isinstance(b, dict) and str(b.get('branchtype', '')).strip().upper() == 'B'
-                ),
-                None,
-            )
-            if isinstance(billing_branch, dict):
-                branch_obj = billing_branch
-            else:
-                first_branch = source.get('sdsbranch')[0]
-                if isinstance(first_branch, dict):
-                    branch_obj = first_branch
-
-        def normalize_key(key):
-            return ''.join(ch.lower() for ch in str(key) if ch.isalnum())
-
-        def build_normalized_map(obj):
-            if not isinstance(obj, dict):
-                return {}
-            normalized = {}
-            for k, v in obj.items():
-                normalized[normalize_key(k)] = v
-            return normalized
-
-        source_map = build_normalized_map(source)
-        address_map = build_normalized_map(address_obj)
-        first_address_map = build_normalized_map(first_address)
-        branch_map = build_normalized_map(branch_obj)
-
-        def pick_from(obj, obj_map, *keys, default=''):
-            if not isinstance(obj, dict):
-                return default
-            for key in keys:
-                value = obj.get(key)
-                if value is None:
-                    value = obj_map.get(normalize_key(key))
-                if value is None:
-                    continue
-                value_str = str(value).strip()
-                if value_str:
-                    return value_str
-            return default
-
-        def pick(*keys, default=''):
-            value = pick_from(source, source_map, *keys, default='')
-            if value:
-                return value
-            value = pick_from(address_obj, address_map, *keys, default='')
-            if value:
-                return value
-            value = pick_from(first_address, first_address_map, *keys, default='')
-            if value:
-                return value
-            return pick_from(branch_obj, branch_map, *keys, default=default)
-
-        legacy = {
-            'CODE': pick('CODE', 'code', default=customer_code),
-            'COMPANYNAME': pick(
-                'COMPANYNAME', 'companyName', 'companyname', 'DESCRIPTION', 'description',
-                'CompanyName', 'custname', 'CUSTNAME', default='',
-            ),
-            'CREDITTERM': pick(
-                'CREDITTERM', 'creditTerm', 'creditterm', 'TERMS', 'terms', 'CnTerms', 'CNTERMS',
-                default='',
-            ),
-            'ADDRESS1': pick(
-                'ADDRESS1', 'address1', 'addr1', 'line1', 'street1', 'ADDR1', 'Add1',
-                'BillAddr1', 'billaddr1', 'BILLADDRESS1', 'Street1', default='',
-            ),
-            'ADDRESS2': pick(
-                'ADDRESS2', 'address2', 'addr2', 'line2', 'street2', 'ADDR2', 'BillAddr2', 'billaddr2',
-                'BILLADDRESS2', default='',
-            ),
-            'ADDRESS3': pick(
-                'ADDRESS3', 'address3', 'addr3', 'line3', 'city', 'ADDR3', 'BillAddr3', 'Postcode', 'POSTCODE',
-                default='',
-            ),
-            'ADDRESS4': pick(
-                'ADDRESS4', 'address4', 'addr4', 'line4', 'state', 'country', 'ADDR4', 'BillAddr4',
-                'Region', 'STATE', default='',
-            ),
-            'PHONE1': pick(
-                'PHONE1', 'phone', 'phone1', 'tel', 'telephone', 'TEL', 'MOBILE', 'mobile',
-                'FAX1', 'fax1', 'HP', 'Hp', 'CONTACT', 'Contact', 'PHONENO', 'PhoneNo', default='',
-            ),
-            'UDF_EMAIL': pick('UDF_EMAIL', 'udf_email', 'EMAIL', 'email', default=''),
-            'AGENT': pick('AGENT', 'agent', default=''),
-            'AREA': pick('AREA', 'area', default=''),
-            'ATTENTION': (
-                pick_from(branch_obj, branch_map, 'ATTENTION', 'attention', default='')
-                or pick('ATTENTION', 'attention', default='')
-            ),
-            'MOBILE': (
-                pick_from(branch_obj, branch_map, 'MOBILE', 'mobile', default='')
-                or pick('MOBILE', 'mobile', default='')
-            ),
-            'CURRENCYCODE': pick('CURRENCYCODE', 'currencycode', 'currencyCode', default=''),
-            'TIN': pick('TIN', 'tin', default=''),
-            'COUNTRY': (
-                pick_from(branch_obj, branch_map, 'COUNTRY', 'country', default='')
-                or pick('COUNTRY', 'country', default='')
-            ),
-        }
-        from utils.customer_display import flatten_customer_record, merge_legacy_customer_payload
-
-        display_fields, customer_scalars = flatten_customer_record(source, branch_obj=branch_obj)
-        return merge_legacy_customer_payload(
-            legacy,
-            display_fields=display_fields,
-            customer_scalars=customer_scalars,
-        )
-
-    def _debug_log_user_info_payload(source, payload):
-        if not isinstance(payload, dict):
-            print(f"[DEBUG] get_user_info: Final payload source={source} is not a dict", flush=True)
-            return
-        summary = {
-            'CODE': payload.get('CODE'),
-            'COMPANYNAME': payload.get('COMPANYNAME'),
-            'ADDRESS1': payload.get('ADDRESS1'),
-            'ADDRESS2': payload.get('ADDRESS2'),
-            'ADDRESS3': payload.get('ADDRESS3'),
-            'ADDRESS4': payload.get('ADDRESS4'),
-            'PHONE1': payload.get('PHONE1'),
-            'CREDITTERM': payload.get('CREDITTERM'),
-            'CURRENCYCODE': payload.get('CURRENCYCODE'),
-            'UDF_EMAIL': payload.get('UDF_EMAIL'),
-        }
-        print(f"[DEBUG] get_user_info: Final payload source={source} summary={summary}", flush=True)
 
     try:
         # 1) Preferred path: SQL API customer details endpoint (example: /customer/*?code=...)
@@ -11361,7 +11028,7 @@ def api_get_user_info():
                 elif isinstance(sql_json, list):
                     print(f"[DEBUG] get_user_info: SQL JSON list length: {len(sql_json)}", flush=True)
 
-                normalized = _normalize_customer_info(sql_json)
+                normalized = _normalize_customer_info(sql_json, customer_code)
                 if not normalized or not _customer_info_has_meaningful_data(normalized):
                     continue
 

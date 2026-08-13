@@ -677,6 +677,9 @@ function renderCustomerAllFields(displayFields) {
 }
 
 function escapeHtml(text) {
+    if (window.EQCore && typeof window.EQCore.escapeHtml === 'function') {
+        return window.EQCore.escapeHtml(text);
+    }
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;

@@ -238,6 +238,9 @@ function formatCurrency(amount) {
 }
 
 function escapeHtml(text) {
+    if (window.EQCore && typeof window.EQCore.escapeHtml === 'function') {
+        return window.EQCore.escapeHtml(text);
+    }
     if (!text) return '';
     const div = document.createElement('div');
     div.textContent = text;

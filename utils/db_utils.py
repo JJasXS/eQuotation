@@ -1,4 +1,5 @@
 """Database utility functions for Firebird database operations."""
+from contextlib import contextmanager
 from datetime import datetime
 
 import fdb
@@ -45,65 +46,67 @@ def get_db_connection():
     )
 
 
+@contextmanager
+def db_connection():
+    """Yield a Firebird connection and always close it.
+
+    Prefer this over hand-rolled ``try/finally`` + ``con.close()``.
+    """
+    con = get_db_connection()
+    try:
+        yield con
+    finally:
+        try:
+            con.close()
+        except Exception:
+            pass
+
+
 def user_owns_chat(chatid, user_email):
     """Check whether a chat belongs to the logged-in user."""
-    con = None
-    cur = None
     try:
-        con = get_db_connection()
-        cur = con.cursor()
-        cur.execute('SELECT CHATID FROM CHAT_TPL WHERE CHATID = ? AND OWNEREMAIL = ?', (chatid, user_email))
-        return cur.fetchone() is not None
+        with db_connection() as con:
+            cur = con.cursor()
+            cur.execute('SELECT CHATID FROM CHAT_TPL WHERE CHATID = ? AND OWNEREMAIL = ?', (chatid, user_email))
+            return cur.fetchone() is not None
     except Exception as e:
         print(f"Failed to verify chat ownership: {e}")
         return False
-    finally:
-        if cur:
-            cur.close()
-        if con:
-            con.close()
 
 
 def get_chat_history(chatid, user_email=None):
     """Get chat history for a given chat ID."""
-    con = None
-    cur = None
     try:
-        con = get_db_connection()
-        cur = con.cursor()
-        if user_email:
-            cur.execute(
-                'SELECT d.MESSAGEID, d.CHATID, d.SENDER, d.MESSAGETEXT, d.SENTAT '
-                'FROM CHAT_TPLDTL d '
-                'JOIN CHAT_TPL c ON c.CHATID = d.CHATID '
-                'WHERE d.CHATID = ? AND c.OWNEREMAIL = ? '
-                'ORDER BY d.SENTAT ASC',
-                (chatid, user_email)
-            )
-        else:
-            cur.execute(
-                'SELECT MESSAGEID, CHATID, SENDER, MESSAGETEXT, SENTAT '
-                'FROM CHAT_TPLDTL WHERE CHATID = ? ORDER BY SENTAT ASC',
-                (chatid,)
-            )
+        with db_connection() as con:
+            cur = con.cursor()
+            if user_email:
+                cur.execute(
+                    'SELECT d.MESSAGEID, d.CHATID, d.SENDER, d.MESSAGETEXT, d.SENTAT '
+                    'FROM CHAT_TPLDTL d '
+                    'JOIN CHAT_TPL c ON c.CHATID = d.CHATID '
+                    'WHERE d.CHATID = ? AND c.OWNEREMAIL = ? '
+                    'ORDER BY d.SENTAT ASC',
+                    (chatid, user_email)
+                )
+            else:
+                cur.execute(
+                    'SELECT MESSAGEID, CHATID, SENDER, MESSAGETEXT, SENTAT '
+                    'FROM CHAT_TPLDTL WHERE CHATID = ? ORDER BY SENTAT ASC',
+                    (chatid,)
+                )
 
-        return [
-            {
-                'MESSAGEID': row[0],
-                'CHATID': row[1],
-                'SENDER': row[2],
-                'MESSAGETEXT': row[3],
-                'SENTAT': row[4].strftime('%Y-%m-%d %H:%M:%S') if row[4] else None
-            }
-            for row in cur.fetchall()
-        ]
+            return [
+                {
+                    'MESSAGEID': row[0],
+                    'CHATID': row[1],
+                    'SENDER': row[2],
+                    'MESSAGETEXT': row[3],
+                    'SENTAT': row[4].strftime('%Y-%m-%d %H:%M:%S') if row[4] else None
+                }
+                for row in cur.fetchall()
+            ]
     except Exception as e:
         print(f"Failed to fetch chat history: {e}")
-    finally:
-        if cur:
-            cur.close()
-        if con:
-            con.close()
     return []
 
 
@@ -133,9 +136,8 @@ def chat_last_message_preview(text, max_len: int = CHAT_LAST_MESSAGE_PREVIEW_MAX
 def update_chat_last_message(chatid, messagetext, user_email=None):
     """Update the last message in a chat."""
     preview = chat_last_message_preview(messagetext)
-    con = get_db_connection()
-    cur = con.cursor()
-    try:
+    with db_connection() as con:
+        cur = con.cursor()
         if user_email:
             cur.execute(
                 'UPDATE CHAT_TPL SET LASTMESSAGE = ? WHERE CHATID = ? AND OWNEREMAIL = ?',
@@ -144,9 +146,6 @@ def update_chat_last_message(chatid, messagetext, user_email=None):
         else:
             cur.execute('UPDATE CHAT_TPL SET LASTMESSAGE = ? WHERE CHATID = ?', (preview, chatid))
         con.commit()
-    finally:
-        cur.close()
-        con.close()
 
 
 def insert_chat_message_local(chatid, sender, messagetext):
@@ -155,9 +154,8 @@ def insert_chat_message_local(chatid, sender, messagetext):
     Same database as get_chat_history — required for catalog pagination when PHP is unavailable.
     """
     cid = int(chatid)
-    con = get_db_connection()
-    cur = con.cursor()
-    try:
+    with db_connection() as con:
+        cur = con.cursor()
         cur.execute('SELECT COUNT(*) FROM CHAT_TPL WHERE CHATID = ?', (cid,))
         row = cur.fetchone()
         if not row or int(row[0] or 0) < 1:
@@ -174,24 +172,17 @@ def insert_chat_message_local(chatid, sender, messagetext):
         )
         cur.execute('UPDATE CHAT_TPL SET LASTMESSAGE = ? WHERE CHATID = ?', (preview, cid))
         con.commit()
-    finally:
-        cur.close()
-        con.close()
 
 
 def get_active_order(chatid):
     """Get active DRAFT order for chat (only check, don't create)."""
     try:
-        con = get_db_connection()
-        cur = con.cursor()
-        cur.execute('SELECT ORDERID FROM ORDER_TPL WHERE CHATID = ? AND STATUS = ?', (chatid, 'DRAFT'))
-        result = cur.fetchone()
-        cur.close()
-        con.close()
-        
-        if result:
-            return result[0]
-        else:
+        with db_connection() as con:
+            cur = con.cursor()
+            cur.execute('SELECT ORDERID FROM ORDER_TPL WHERE CHATID = ? AND STATUS = ?', (chatid, 'DRAFT'))
+            result = cur.fetchone()
+            if result:
+                return result[0]
             return None
     except Exception as e:
         print(f"Error getting active order: {e}")
@@ -201,8 +192,8 @@ def get_active_order(chatid):
 def test_firebird_connection():
     """Test Firebird database connection."""
     try:
-        con = get_db_connection()
-        con.close()
+        with db_connection() as con:
+            pass
         print("Firebird database connection successful.")
     except Exception as e:
         print("Firebird database connection failed:", e)

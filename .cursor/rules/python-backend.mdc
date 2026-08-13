@@ -1,0 +1,15 @@
+---
+description: Python/Flask/FastAPI backend conventions for eQuotation
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# Python Backend
+
+- Route handlers stay thin: validate input, call `utils/`, return response.
+- No `def` nested inside a route handler. Promote helpers to module or `utils/` level.
+- Use `utils.db_utils.db_connection()` context manager; do not hand-roll `try/finally` + `con.close()`.
+- Shared Firebird helpers live in `utils/firebird_helpers.py` (`clean_text`, `get_table_columns`, `pick_existing`, `table_exists`, `as_decimal`, `money`, `to_float`). Never redefine them locally.
+- SQL Accounting API calls go through `SqlAccountingApiClient`. Reserve `http_request_json` for local FastAPI/proxy only.
+- Use `build_firebird_dsn()` — never `f"{DB_HOST}:{DB_PATH}"`.
+- New Flask routes belong in a blueprint under `routes/`, not in `main.py`.

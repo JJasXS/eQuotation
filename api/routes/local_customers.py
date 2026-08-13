@@ -5,6 +5,8 @@ import fdb
 import os
 from dotenv import load_dotenv
 
+from utils.db_utils import build_firebird_dsn
+
 # Load .env for DB credentials
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '../../.env'))
 
@@ -56,7 +58,7 @@ def insert_local_customer(customer: LocalCustomerRequest) -> dict:
     con = None
     cur = None
     try:
-        con = fdb.connect(dsn=f"{DB_HOST}:{DB_PATH}", user=DB_USER, password=DB_PASSWORD, charset='UTF8')
+        con = fdb.connect(dsn=build_firebird_dsn(DB_PATH, DB_HOST), user=DB_USER, password=DB_PASSWORD, charset='UTF8')
         cur = con.cursor()
 
         # Use minimal insert columns that are stable across SQL Account schemas.
@@ -100,7 +102,7 @@ def sync_local_customer_fields(customer: LocalCustomerSyncRequest) -> dict:
     con = None
     cur = None
     try:
-        con = fdb.connect(dsn=f"{DB_HOST}:{DB_PATH}", user=DB_USER, password=DB_PASSWORD, charset='UTF8')
+        con = fdb.connect(dsn=build_firebird_dsn(DB_PATH, DB_HOST), user=DB_USER, password=DB_PASSWORD, charset='UTF8')
         cur = con.cursor()
 
         customer_updates = []
@@ -176,7 +178,7 @@ def read_local_customer_fields(code: str) -> dict:
     con = None
     cur = None
     try:
-        con = fdb.connect(dsn=f"{DB_HOST}:{DB_PATH}", user=DB_USER, password=DB_PASSWORD, charset='UTF8')
+        con = fdb.connect(dsn=build_firebird_dsn(DB_PATH, DB_HOST), user=DB_USER, password=DB_PASSWORD, charset='UTF8')
         cur = con.cursor()
         cur.execute(
             """
@@ -261,7 +263,7 @@ def get_all_customers():
     con = None
     cur = None
     try:
-        con = fdb.connect(dsn=f"{DB_HOST}:{DB_PATH}", user=DB_USER, password=DB_PASSWORD, charset='UTF8')
+        con = fdb.connect(dsn=build_firebird_dsn(DB_PATH, DB_HOST), user=DB_USER, password=DB_PASSWORD, charset='UTF8')
         cur = con.cursor()
         cur.execute('SELECT CODE, COMPANYNAME, STATUS FROM AR_CUSTOMER ORDER BY CODE ASC')
         

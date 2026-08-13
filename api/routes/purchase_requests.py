@@ -11,6 +11,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from api.routes.customers import verify_api_keys
 from utils.db_utils import build_firebird_dsn
+from utils.firebird_helpers import _get_table_columns, _pick_existing, _to_number
 
 # PH_PQ column metadata is stable per process; avoid RDB$RELATION_FIELDS on every list call.
 _PH_PQ_COLS_FROZEN: frozenset[str] | None = None
@@ -64,39 +65,11 @@ def _cached_ph_pq_columns(cur: Any) -> set[str]:
     return cols or set()
 
 
-def _get_table_columns(cur: Any, table_name: str) -> set[str]:
-    cur.execute(
-        """
-        SELECT TRIM(RF.RDB$FIELD_NAME)
-        FROM RDB$RELATION_FIELDS RF
-        WHERE RF.RDB$RELATION_NAME = ?
-        """,
-        (table_name.upper(),),
-    )
-    return {str(row[0]).strip().upper() for row in (cur.fetchall() or []) if row and row[0]}
-
-
-def _pick_existing(columns: set[str], *candidates: str) -> str:
-    for name in candidates:
-        if name.upper() in columns:
-            return name.upper()
-    return ""
-
-
 def _to_text(value: Any) -> str | None:
     if value is None:
         return None
     text = str(value).strip()
     return text if text else None
-
-
-def _to_number(value: Any) -> float:
-    if value is None:
-        return 0.0
-    try:
-        return float(str(value).replace(',', '').strip() or 0)
-    except Exception:
-        return 0.0
 
 
 def _status_value(value: Any) -> Any:

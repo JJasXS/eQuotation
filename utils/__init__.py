@@ -1,7 +1,7 @@
 """Utility modules for Chatbot application."""
 
 from utils.db_utils import (
-    get_db_connection, user_owns_chat, get_chat_history,
+    get_db_connection, db_connection, user_owns_chat, get_chat_history,
     update_chat_last_message, insert_chat_message_local, get_active_order, test_firebird_connection,
     set_db_config, build_firebird_dsn
 )

@@ -1,17 +1,11 @@
 """SQTY / SUOMQTY resolution for sales quotation lines (create + SQL API submit)."""
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
+from utils.firebird_helpers import _as_decimal
 from utils.stock_items_catalog import merge_item_and_stock_udf_fields_for_api, stock_item_udf_fields_from_row
-
-
-def _as_decimal(value: Any, default: str = "0") -> Decimal:
-    try:
-        return Decimal(str(value if value is not None else default).replace(",", "").strip())
-    except (InvalidOperation, TypeError, ValueError):
-        return Decimal(default)
 
 
 def _positive_decimal(value: Any) -> Decimal | None:

@@ -4,6 +4,9 @@
     let quotationChatId = null;
 
     function escapeHtml(value) {
+        if (window.EQCore && typeof window.EQCore.escapeHtml === 'function') {
+            return window.EQCore.escapeHtml(value);
+        }
         return String(value ?? '')
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')

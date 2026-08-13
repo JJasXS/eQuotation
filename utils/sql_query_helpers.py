@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from utils.firebird_helpers import _clean_str
+
 
 ST_ITEM_WANTED_COLUMNS = [
     "CODE",
@@ -19,12 +21,6 @@ ST_ITEM_WANTED_COLUMNS = [
     "UDF_WIDTH",
     "UDF_LENGTH",
 ]
-
-
-def _clean_str(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
 
 
 def find_customer_code_by_email(cur: Any, user_email: str) -> str | None:

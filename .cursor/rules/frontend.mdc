@@ -1,0 +1,14 @@
+---
+description: Frontend JS/HTML conventions for eQuotation
+globs: "static/**/*.js,templates/**/*.html"
+alwaysApply: false
+---
+
+# Frontend
+
+- Do not add new inline `<script>` blocks in templates. Put JS in `static/js/` (or `static/js/procurement/`).
+- Use shared helpers from `static/js/eq_core.js` (`escapeHtml`, `formatMoney`, `formatDate`, `fetchJson`). Do not redefine them.
+- HTML-building functions stay under ~80 lines; split large template literals into smaller helpers.
+- No nested ternaries inside template literals — use a named helper or early `if`.
+- Prefer `async/await` over deep `.then()` chains.
+- Keep CSS in `static/css/`; do not nest large `<style>` blocks inside DOM markup.
