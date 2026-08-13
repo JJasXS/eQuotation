@@ -270,7 +270,7 @@ def build_sdsdocdetail_line(
         "seq": seq,
         "itemcode": item_code,
         "location": location,
-        "batch": None,
+        "batch": _clean_text(item.get("batch")) or None,
         "project": line_project,
         "description": description,
         "description2": _clean_text(_detail_scalar(stock, item, "description2", "DESCRIPTION2")) or None,
@@ -293,6 +293,12 @@ def build_sdsdocdetail_line(
 
 def build_purchaserequest_upstream_payload(validated: dict[str, Any], *, request_number: str) -> dict[str, Any]:
     """Full SQL Accounting purchase request body for upstream POST."""
+    from utils.sql_api_batch import attach_batch_codes_to_lines
+
+    line_items = validated.get("lineItems")
+    if isinstance(line_items, list):
+        attach_batch_codes_to_lines(line_items)
+
     supplier_code = _clean_text(validated.get("supplierId"))
     supplier_name = _clean_text(validated.get("supplierName"))
     header_project = _clean_text(validated.get("project")) or "----"

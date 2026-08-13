@@ -10067,13 +10067,51 @@ function onBulkTransferToolbarClick() {
             return v;
         }
 
+        const PR_LINE_DIM_UDF_KEYS = ['udf_thickness', 'udf_width', 'udf_length'];
+
+        /** Prefer user-edited line dimension; else catalog product value. */
+        function prLineDimValue(item, product, key) {
+            if (item && item.dimsEdited && item.dimsEdited[key]) {
+                const edited = item[key];
+                if (edited != null && String(edited).trim() !== '') return String(edited).trim();
+                return '';
+            }
+            if (item && item[key] != null && String(item[key]).trim() !== '' && String(item[key]).trim() !== '0') {
+                return String(item[key]).trim();
+            }
+            return (typeof prCatalogUdfValue === 'function' ? prCatalogUdfValue(product, key) : '') || '';
+        }
+
+        function updatePurchaseRequestDimension(index, key, value) {
+            if (!window.purchaseRequestItems || !window.purchaseRequestItems[index]) return;
+            if (!PR_LINE_DIM_UDF_KEYS.includes(key)) return;
+            const item = window.purchaseRequestItems[index];
+            const raw = value == null ? '' : String(value).trim();
+            item[key] = raw;
+            item.dimsEdited = { ...(item.dimsEdited || {}), [key]: true };
+            const detail = { ...(item.stockDetail || {}) };
+            if (raw === '') {
+                delete detail[key];
+                delete detail[key.toUpperCase()];
+            } else {
+                detail[key] = raw;
+                detail[key.toUpperCase()] = raw;
+            }
+            item.stockDetail = detail;
+            if (typeof savePurchaseRequestDraftItems === 'function') {
+                savePurchaseRequestDraftItems();
+            }
+        }
+
         /** Copy ST_ITEM / catalog UDFs onto a PR line for display + SQL API submit. */
         function mergePrLineCatalogUdfs(item, product) {
             if (!item) return item;
             const src = product || (typeof findPrProductByCode === 'function' ? findPrProductByCode(item.itemCode) : null);
             if (!src || typeof src !== 'object') return item;
+            const dimsEdited = (item.dimsEdited && typeof item.dimsEdited === 'object') ? item.dimsEdited : {};
             const detail = { ...(item.stockDetail || {}) };
             PR_LINE_STOCK_UDF_KEYS.forEach((key) => {
+                if (dimsEdited[key]) return;
                 const v = prCatalogUdfScalar(src, key);
                 if (v == null) return;
                 item[key] = v;
@@ -10083,6 +10121,7 @@ function onBulkTransferToolbarClick() {
             Object.keys(src).forEach((k) => {
                 const kl = String(k).toLowerCase();
                 if (!kl.startsWith('udf_')) return;
+                if (dimsEdited[kl]) return;
                 const v = src[k];
                 if (v == null || String(v).trim() === '') return;
                 item[kl] = v;
@@ -50320,9 +50359,15 @@ function buildViewPurchaseRequestDetailHtml(header) {
                                 : `<input type="text" class="pr-catalog-product-input" data-pr-index="${idx}" value="${escapeHtml(prCatalogProductDesc(product || { CODE: item.itemCode || '', DESCRIPTION: item.itemCode || '' }))}" placeholder="Search or pick product…" autocomplete="off" spellcheck="false" />`}
                         </td>
 
-                        <td class="pr-udf-readonly">${escapeHtml(prCatalogUdfValue(product, 'udf_thickness') || '-')}</td>
-                        <td class="pr-udf-readonly">${escapeHtml(prCatalogUdfValue(product, 'udf_width') || '-')}</td>
-                        <td class="pr-udf-readonly">${escapeHtml(prCatalogUdfValue(product, 'udf_length') || '-')}</td>
+                        <td class="pr-udf-cell">${isEditMode
+                            ? `<span class="pr-udf-readonly">${escapeHtml(prLineDimValue(item, product, 'udf_thickness') || '-')}</span>`
+                            : `<input type="number" class="pr-udf-input" min="0" step="0.01" data-pr-field="udf_thickness" value="${escapeHtml(prLineDimValue(item, product, 'udf_thickness'))}" oninput="updatePurchaseRequestDimension(${idx}, 'udf_thickness', this.value)" title="Thickness (mm)" />`}</td>
+                        <td class="pr-udf-cell">${isEditMode
+                            ? `<span class="pr-udf-readonly">${escapeHtml(prLineDimValue(item, product, 'udf_width') || '-')}</span>`
+                            : `<input type="number" class="pr-udf-input" min="0" step="0.01" data-pr-field="udf_width" value="${escapeHtml(prLineDimValue(item, product, 'udf_width'))}" oninput="updatePurchaseRequestDimension(${idx}, 'udf_width', this.value)" title="Width (mm)" />`}</td>
+                        <td class="pr-udf-cell">${isEditMode
+                            ? `<span class="pr-udf-readonly">${escapeHtml(prLineDimValue(item, product, 'udf_length') || '-')}</span>`
+                            : `<input type="number" class="pr-udf-input" min="0" step="0.01" data-pr-field="udf_length" value="${escapeHtml(prLineDimValue(item, product, 'udf_length'))}" oninput="updatePurchaseRequestDimension(${idx}, 'udf_length', this.value)" title="Length (mm)" />`}</td>
                         <td class="pr-udf-readonly">${escapeHtml(prCatalogUdfValue(product, 'udf_dp') || '-')}</td>
                         <td class="pr-udf-readonly">${escapeHtml(prCatalogUdfValue(product, 'udf_dfp') || '-')}</td>
                         <td class="pr-udf-readonly">${escapeHtml(prCatalogUdfValue(product, 'udf_costkg') || '-')}</td>
