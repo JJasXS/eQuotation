@@ -111,6 +111,8 @@ from utils.role_permissions import (
     can_update_pr_approvals_and_header_status,
     infer_access_tier_from_session,
     is_full_management_admin,
+    location_in_scope,
+    session_location_scope,
     template_permission_context,
 )
 from utils.sql_query_helpers import (
@@ -2864,6 +2866,15 @@ def api_verify_otp():
 
         access_tier = str(identity.get('access_tier') or '').strip()
         staff_udf = identity.get('staff_udf') if isinstance(identity.get('staff_udf'), dict) else {}
+        raw_locations = identity.get('staff_locations')
+        if isinstance(raw_locations, list):
+            staff_locations = [
+                str(x).strip().upper()
+                for x in raw_locations
+                if str(x or '').strip() and str(x).strip().upper() != '----'
+            ]
+        else:
+            staff_locations = []
         user_type_hint = str(identity.get('user_type_hint') or 'user').strip()
 
         if identity.get('is_supplier'):
@@ -2920,6 +2931,7 @@ def api_verify_otp():
         session['user_email'] = email
         session['access_tier'] = access_tier or ('supplier' if user_type == 'supplier' else 'customer')
         session['staff_udf'] = staff_udf
+        session['staff_locations'] = staff_locations
         session['user_type'] = user_type
         session.pop('customer_company_name', None)
         session['customer_code'] = customer_code  # Store customer/supplier code in session
@@ -2990,6 +3002,7 @@ def api_guide_capture_login():
     session.clear()
     session['user_email'] = email
     session['staff_udf'] = {}
+    session['staff_locations'] = []
     session.pop('customer_company_name', None)
     session.pop('login_customer_department', None)
     session.pop('login_matched_udf_email_column', None)
@@ -4195,11 +4208,12 @@ def api_admin_procurement_locations():
         cur = con.cursor()
         cur.execute("SELECT TRIM(CODE) FROM ST_LOCATION ORDER BY CODE")
         locations = []
+        scope = session_location_scope(session)
         for row in cur.fetchall() or []:
             if not row or row[0] is None:
                 continue
             code = str(row[0]).strip()
-            if code:
+            if code and location_in_scope(scope, code):
                 locations.append(code)
         return jsonify({'success': True, 'locations': locations})
     except Exception as e:
@@ -5161,8 +5175,12 @@ def _resolve_ph_pqdtl_line_count_columns(cur):
     return _PH_PQDTL_LINE_COUNT_COLS_CACHE
 
 
-def _map_line_selection_counts_by_request_ids(request_dockeys):
-    """Return {dockey: {'selected': n, 'total': n}} from PH_PQDTL via aggregate COUNT/SUM."""
+def _map_line_selection_counts_by_request_ids(request_dockeys, location_scope=None):
+    """Return {dockey: {'selected': n, 'total': n}} from PH_PQDTL via aggregate COUNT/SUM.
+
+    When ``location_scope`` is a non-empty list, only lines whose LOCATION is in that
+    scope are counted (matches View e-PR location filtering; blank/---- excluded).
+    """
     ids = []
     for raw in request_dockeys or []:
         try:
@@ -5173,6 +5191,13 @@ def _map_line_selection_counts_by_request_ids(request_dockeys):
             ids.append(rid)
     if not ids:
         return {}
+
+    scope_codes = []
+    if isinstance(location_scope, (list, tuple)):
+        for item in location_scope:
+            code = str(item or '').strip().upper()
+            if code and code != '----' and code not in scope_codes:
+                scope_codes.append(code)
 
     con = None
     cur = None
@@ -5185,11 +5210,33 @@ def _map_line_selection_counts_by_request_ids(request_dockeys):
         if not key_col:
             return {}
 
+        cur.execute(
+            """
+            SELECT TRIM(RF.RDB$FIELD_NAME)
+            FROM RDB$RELATION_FIELDS RF
+            WHERE RF.RDB$RELATION_NAME = 'PH_PQDTL'
+            """
+        )
+        all_cols = {str(r[0]).strip().upper() for r in (cur.fetchall() or []) if r and r[0]}
+        location_col = ''
+        for candidate in ('LOCATION', 'LOC', 'STOCKLOCATION', 'STORELOCATION'):
+            if candidate in all_cols:
+                location_col = candidate
+                break
+
         out = {rid: {'selected': 0, 'total': 0} for rid in ids}
         chunk_size = 80
         for i in range(0, len(ids), chunk_size):
             chunk = ids[i:i + chunk_size]
             placeholders = ', '.join(['?'] * len(chunk))
+            params = list(chunk)
+            location_sql = ''
+            if scope_codes and location_col:
+                loc_ph = ', '.join(['?'] * len(scope_codes))
+                location_sql = (
+                    f" AND TRIM(UPPER(COALESCE({location_col}, ''))) IN ({loc_ph})"
+                )
+                params.extend(scope_codes)
             if transferable_col:
                 # Firebird TRANSFERABLE may be SMALLINT/CHAR — avoid type-specific IS TRUE.
                 cur.execute(
@@ -5203,20 +5250,20 @@ def _map_line_selection_counts_by_request_ids(request_dockeys):
                              END
                            )
                     FROM PH_PQDTL
-                    WHERE {key_col} IN ({placeholders})
+                    WHERE {key_col} IN ({placeholders}){location_sql}
                     GROUP BY {key_col}
                     """,
-                    tuple(chunk),
+                    tuple(params),
                 )
             else:
                 cur.execute(
                     f"""
                     SELECT {key_col}, COUNT(*), 0
                     FROM PH_PQDTL
-                    WHERE {key_col} IN ({placeholders})
+                    WHERE {key_col} IN ({placeholders}){location_sql}
                     GROUP BY {key_col}
                     """,
-                    tuple(chunk),
+                    tuple(params),
                 )
             for row in cur.fetchall() or []:
                 if not row:
@@ -5239,6 +5286,117 @@ def _map_line_selection_counts_by_request_ids(request_dockeys):
     except Exception as exc:
         print(f"[PROCUREMENT LINE SELECTION] map warning: {exc}", flush=True)
         return {}
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
+
+
+def _filter_pr_details_by_location_scope(details, scope=None):
+    """Keep only detail lines whose location is in scope (blank/---- excluded when scoped)."""
+    if not isinstance(details, list):
+        return []
+    if scope is None:
+        try:
+            scope = session_location_scope(session)
+        except Exception:
+            scope = None
+    if scope is None:
+        return details
+    out = []
+    for detail in details:
+        if not isinstance(detail, dict):
+            continue
+        loc = detail.get('locationCode')
+        if loc is None or str(loc).strip() == '':
+            loc = detail.get('location')
+        if location_in_scope(scope, loc):
+            out.append(detail)
+    return out
+
+
+def _assert_payload_line_locations_in_scope(payload: dict) -> None:
+    """Raise PurchaseRequestValidationError when a line location is outside session scope."""
+    scope = session_location_scope(session)
+    if scope is None:
+        return
+    lines = []
+    if isinstance(payload.get('lineItems'), list):
+        lines = payload.get('lineItems') or []
+    elif isinstance(payload.get('sdsdocdetail'), list):
+        lines = payload.get('sdsdocdetail') or []
+    for idx, item in enumerate(lines, start=1):
+        if not isinstance(item, dict):
+            continue
+        loc = (
+            item.get('locationCode')
+            or item.get('location')
+            or item.get('loc')
+            or ''
+        )
+        if not location_in_scope(scope, loc):
+            raise PurchaseRequestValidationError(
+                f"lineItems[{idx}].locationCode {str(loc).strip()!r} is outside your allowed location(s): "
+                f"{', '.join(scope)}"
+            )
+
+
+def _assert_detail_ids_in_location_scope(detail_ids) -> tuple[bool, str]:
+    """Return (ok, error_message) after checking PH_PQDTL locations for the given dtlkeys."""
+    scope = session_location_scope(session)
+    if scope is None:
+        return True, ''
+    ids = []
+    for raw in detail_ids or []:
+        try:
+            did = int(raw)
+        except Exception:
+            continue
+        if did > 0 and did not in ids:
+            ids.append(did)
+    if not ids:
+        return True, ''
+
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        cur.execute(
+            """
+            SELECT TRIM(RF.RDB$FIELD_NAME)
+            FROM RDB$RELATION_FIELDS RF
+            WHERE RF.RDB$RELATION_NAME = 'PH_PQDTL'
+            """
+        )
+        cols = {str(r[0]).strip().upper() for r in (cur.fetchall() or []) if r and r[0]}
+        key_col = 'DTLKEY' if 'DTLKEY' in cols else ('PQDTLKEY' if 'PQDTLKEY' in cols else ('ID' if 'ID' in cols else ''))
+        location_col = ''
+        for candidate in ('LOCATION', 'LOC', 'STOCKLOCATION', 'STORELOCATION'):
+            if candidate in cols:
+                location_col = candidate
+                break
+        if not key_col or not location_col:
+            return True, ''
+        placeholders = ', '.join(['?'] * len(ids))
+        cur.execute(
+            f"SELECT {key_col}, {location_col} FROM PH_PQDTL WHERE {key_col} IN ({placeholders})",
+            tuple(ids),
+        )
+        for row in cur.fetchall() or []:
+            if not row:
+                continue
+            loc = row[1] if len(row) > 1 else ''
+            if not location_in_scope(scope, loc):
+                return (
+                    False,
+                    f"Detail {row[0]} location {str(loc or '').strip()!r} is outside your allowed location(s)",
+                )
+        return True, ''
+    except Exception as exc:
+        print(f"[PROCUREMENT LOCATION SCOPE] detail check warning: {exc}", flush=True)
+        return True, ''
     finally:
         if cur:
             cur.close()
@@ -5283,6 +5441,7 @@ def api_admin_create_purchase_request():
     auth_header = (request.headers.get('Authorization') or '').strip() or None
 
     try:
+        _assert_payload_line_locations_in_scope(payload)
         result = create_purchase_request(payload, created_by=actor, auth_header=auth_header)
 
         suppliers = payload.get('suppliers') or []
@@ -6126,7 +6285,10 @@ def api_admin_purchase_request_line_selection_counts():
     if not ids:
         return jsonify({'success': False, 'error': 'ids is required'}), 400
     try:
-        counts = _map_line_selection_counts_by_request_ids(ids)
+        counts = _map_line_selection_counts_by_request_ids(
+            ids,
+            location_scope=session_location_scope(session),
+        )
         data = {
             str(rid): {
                 'selected': int((counts.get(rid) or {}).get('selected') or 0),
@@ -6257,7 +6419,15 @@ def api_admin_list_purchase_requests():
             except Exception:
                 pass
 
-    cache_key = (offset, limit, int(fast_mode), int(include_qty), int(include_total_upstream), int(debug_suppliers))
+    cache_key = (
+        offset,
+        limit,
+        int(fast_mode),
+        int(include_qty),
+        int(include_total_upstream),
+        int(debug_suppliers),
+        tuple(session_location_scope(session) or ()),
+    )
     if not no_cache:
         with PURCHASE_REQUEST_LIST_CACHE_LOCK:
             cached = PURCHASE_REQUEST_LIST_CACHE.get(cache_key)
@@ -6305,6 +6475,9 @@ def api_admin_list_purchase_requests():
             'include_total': '1' if include_total_upstream else '0',
             'fields': 'minimal',
         }
+        location_scope = session_location_scope(session)
+        if location_scope:
+            list_params['location'] = ','.join(location_scope)
         upstream_started = time.perf_counter()
         for url in candidates:
             try:
@@ -6722,10 +6895,14 @@ def api_admin_purchase_request_details(request_id):
                 'stockQtyUom': basis,
             })
 
+        details = _filter_pr_details_by_location_scope(details)
+        total_amount = sum(_num(d.get('amount')) for d in details if isinstance(d, dict))
+
         return jsonify({
             'success': True,
             'id': int(request_id),
             'details': details,
+            'totalAmount': total_amount,
             'suppliers': _list_detail_suppliers_for_request(request_id),
             'count': len(details),
         })
@@ -6908,6 +7085,7 @@ def api_admin_purchase_request_details_fallback():
                 'sqty': sqty_v,
                 'suomqty': suom_v,
             })
+        details = _filter_pr_details_by_location_scope(details)
         try:
             resolved_request_id = int(request_id)
         except Exception:
@@ -7285,6 +7463,8 @@ def _resolve_local_purchase_request_header(raw_request_id, request_no):
                 'remark1': str(detail.get('remark1') or '').strip(),
                 'remark2': str(detail.get('remark2') or '').strip(),
             })
+
+        mapped_details = _filter_pr_details_by_location_scope(mapped_details)
 
         doc_date_raw = header.get('docdate') or header.get('requestdate')
         doc_date_str = '-'
@@ -9044,6 +9224,7 @@ def api_admin_edit_purchase_request(request_id):
     actor = (session.get('user_email') or session.get('user_name') or 'admin').strip()
 
     try:
+        _assert_payload_line_locations_in_scope(payload)
         result = update_purchase_request(request_id, payload, actor)
         if isinstance(payload.get('suppliers'), list):
             _save_selected_suppliers(request_id, result.get('requestNumber'), payload.get('suppliers') or [], actor)
@@ -9062,6 +9243,19 @@ def api_admin_purchase_request_detail_approval_update():
     if not can_update_pr_approvals_and_header_status(session):
         return jsonify({'success': False, 'error': 'Insufficient permissions to update PR line approvals'}), 403
     payload = request.get_json(silent=True) or {}
+    changes = payload.get('changes') if isinstance(payload, dict) else None
+    detail_ids = []
+    if isinstance(changes, list):
+        for raw in changes:
+            if not isinstance(raw, dict):
+                continue
+            try:
+                detail_ids.append(int(raw.get('detailId')))
+            except Exception:
+                continue
+    ok_scope, scope_err = _assert_detail_ids_in_location_scope(detail_ids)
+    if not ok_scope:
+        return jsonify({'success': False, 'error': scope_err or 'Line location outside your scope'}), 403
 
     def _apply_detail_approval_local_fallback(update_payload: dict) -> dict:
         changes = update_payload.get('changes') if isinstance(update_payload, dict) else None

@@ -334,6 +334,10 @@ def list_purchase_requests(
     id: int | None = Query(None),
     docno: str | None = Query(None),
     requestno: str | None = Query(None),
+    location: str | None = Query(
+        None,
+        description="Comma-separated location codes; header kept when any PH_PQDTL line matches.",
+    ),
     include_total: bool = Query(
         False,
         description="If true, run COUNT(*) for pagination.total. Default false skips full-table count (fast).",
@@ -447,6 +451,26 @@ def list_purchase_requests(
         if doc_filter and docno_col:
             filters.append(f"H.{docno_col} = ?")
             params.append(doc_filter)
+
+        location_codes = []
+        for part in str(location or "").replace(";", ",").replace("|", ",").split(","):
+            code = part.strip().upper()
+            if code and code != "----" and code not in location_codes:
+                location_codes.append(code)
+        if location_codes:
+            detail_cols = _get_table_columns(cur, "PH_PQDTL")
+            detail_fk_col = _pick_existing(detail_cols, "DOCKEY", "PQKEY", "REQUEST_ID", "HEADER_ID")
+            location_col = _pick_existing(detail_cols, "LOCATION", "LOC", "STOCKLOCATION", "STORELOCATION")
+            if detail_fk_col and location_col:
+                placeholders = ", ".join(["?"] * len(location_codes))
+                filters.append(
+                    f"EXISTS ("
+                    f"SELECT 1 FROM PH_PQDTL D2 "
+                    f"WHERE D2.{detail_fk_col} = H.{key_col} "
+                    f"AND TRIM(UPPER(COALESCE(D2.{location_col}, ''))) IN ({placeholders})"
+                    f")"
+                )
+                params.extend(location_codes)
 
         where_sql = f" WHERE {' AND '.join(filters)}" if filters else ""
         order_col = docdate_col or key_col

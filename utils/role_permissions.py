@@ -27,6 +27,9 @@ SY_USER_UDF_COLUMN_TO_FLAG = {
     'UDF_PUSER': 'puser',
 }
 
+# Non-boolean location scope column (ST_LOCATION codes; comma / semicolon / pipe separated).
+SY_USER_LOCATION_UDF_COLUMN = 'UDF_LOCATION'
+
 ACCESS_TIER_FULL_ADMIN = 'full_admin'
 ACCESS_TIER_SALES_MGMT = 'sales_management'
 ACCESS_TIER_PURCH_MGMT = 'purchasing_management'
@@ -62,6 +65,80 @@ def staff_udf_from_sy_user_row(row: dict | None) -> dict:
     for col, flag in SY_USER_UDF_COLUMN_TO_FLAG.items():
         out[flag] = _truthy(norm.get(col))
     return out
+
+
+def staff_locations_from_sy_user_row(row: dict | None) -> list[str]:
+    """
+    Parse SY_USER.UDF_LOCATION into uppercased ST_LOCATION codes.
+
+    Accepts comma / semicolon / pipe separators. Drops blanks and ``----``.
+    """
+    if not isinstance(row, dict):
+        return []
+    raw = None
+    for k, v in row.items():
+        if k is None:
+            continue
+        if str(k).strip().upper() == SY_USER_LOCATION_UDF_COLUMN:
+            raw = v
+            break
+    if raw is None:
+        return []
+    text = str(raw).strip()
+    if not text:
+        return []
+    for sep in (',', ';', '|'):
+        text = text.replace(sep, ',')
+    out: list[str] = []
+    seen: set[str] = set()
+    for part in text.split(','):
+        code = part.strip().upper()
+        if not code or code == '----':
+            continue
+        if code in seen:
+            continue
+        seen.add(code)
+        out.append(code)
+    return out
+
+
+def session_location_scope(session) -> list[str] | None:
+    """
+    Location codes the current user may see, or ``None`` for unrestricted.
+
+    Full admin and purchasing management always bypass. An empty / missing
+    ``session['staff_locations']`` also means unrestricted (blank UDF_LOCATION).
+    """
+    tier = infer_access_tier_from_session(session)
+    if tier in (ACCESS_TIER_FULL_ADMIN, ACCESS_TIER_PURCH_MGMT):
+        return None
+    raw = session.get('staff_locations') if session is not None else None
+    if not isinstance(raw, (list, tuple)):
+        return None
+    codes: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        code = str(item or '').strip().upper()
+        if not code or code == '----' or code in seen:
+            continue
+        seen.add(code)
+        codes.append(code)
+    return codes or None
+
+
+def location_in_scope(scope: list[str] | None, code) -> bool:
+    """
+    True when ``scope`` is unrestricted (None), or the line location matches a
+    scoped code (case-insensitive). Blank / ``----`` are out of scope for
+    restricted users so they only see their assigned location(s).
+    """
+    if scope is None:
+        return True
+    loc = str(code or '').strip().upper()
+    if not loc or loc == '----':
+        return False
+    allowed = {str(c).strip().upper() for c in scope if str(c or '').strip()}
+    return loc in allowed
 
 
 def compute_access_tier(

@@ -19,6 +19,7 @@ from utils.role_permissions import (  # noqa: E402
     ACCESS_TIER_SUPPLIER,
     compute_access_tier,
     staff_has_any_mapped_role_udf,
+    staff_locations_from_sy_user_row,
     staff_udf_from_sy_user_row,
     user_type_for_session,
 )
@@ -402,6 +403,7 @@ def lookup_email_identity(
         customer_code = None
         supplier_code = None
         staff_udf: dict = {}
+        staff_locations: list = []
         sy_user_profile = None
 
         if mode == "admin":
@@ -411,12 +413,14 @@ def lookup_email_identity(
                 print(f"[AUTH] SY_USER profile read failed: {exc}", flush=True)
                 sy_user_profile, staff_udf = None, {}
             if sy_user_profile:
+                staff_locations = staff_locations_from_sy_user_row(sy_user_profile)
                 admin = {
                     "code": sy_user_profile.get("CODE"),
                     "name": sy_user_profile.get("NAME"),
                     "email": sy_user_profile.get("EMAIL"),
                     "isactive": sy_user_profile.get("ISACTIVE"),
                     "staff_udf": staff_udf,
+                    "staff_locations": staff_locations,
                 }
         elif mode == "supplier":
             supplier, supplier_code = _lookup_supplier_by_email(cur, normalized_email)
@@ -465,6 +469,7 @@ def lookup_email_identity(
             "user": user,
             "supplier": supplier,
             "staff_udf": staff_udf,
+            "staff_locations": staff_locations,
             "access_tier": access_tier,
             "user_type_hint": user_type_hint,
             "is_full_management_admin": bool(staff_udf.get("management")),
