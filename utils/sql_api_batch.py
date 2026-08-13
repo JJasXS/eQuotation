@@ -85,9 +85,61 @@ def _invalidate_batch_cache() -> None:
     _batch_cache_at = 0.0
 
 
+def _paged_batch_rows(
+    client: SqlAccountingApiClient,
+    settings: Any,
+    list_path: str,
+    *,
+    timeout_seconds: float,
+) -> list[dict[str, Any]]:
+    """Collect all ``data`` rows from paginated GET ``/batch`` responses."""
+    limit = max(1, min(500, int(os.getenv("SQL_API_REFERENCE_PAGE_LIMIT") or "200")))
+    all_rows: list[dict[str, Any]] = []
+    offset = 0
+    total_expected: int | None = None
+
+    while True:
+        url = settings.resolved_list_get_url(list_path, {"offset": offset, "limit": limit})
+        status, parsed, raw = client.get_json(url, timeout_seconds=timeout_seconds)
+        if status != 200:
+            snippet = (raw or "")[:300].replace("\n", " ")
+            raise SqlAccountingApiError(
+                f"SQL API batch list HTTP {status}: {snippet}",
+                status_code=status,
+                response_body=raw,
+            )
+        if not isinstance(parsed, dict):
+            break
+        chunk = parsed.get("data")
+        if not isinstance(chunk, list):
+            break
+        for row in chunk:
+            if isinstance(row, dict):
+                all_rows.append(row)
+        pag = parsed.get("pagination")
+        if isinstance(pag, dict) and pag.get("count") is not None:
+            try:
+                total_expected = int(pag.get("count") or 0)
+            except (TypeError, ValueError):
+                total_expected = None
+        if not chunk:
+            break
+        if total_expected is not None and len(all_rows) >= total_expected:
+            break
+        if len(chunk) < limit:
+            break
+        offset += limit
+        if offset > 200_000:
+            break
+    return all_rows
+
+
 def fetch_batches(*, force_refresh: bool = False) -> list[dict[str, Any]]:
     """
-    Load batches from SQL Accounting SigV4 GET ``/batch/*`` (fallback ``/batch``).
+    Load batches from SQL Accounting SigV4 GET ``/batch`` (paginated).
+
+    Note: ``GET /batch/*`` often returns a truncated single-row sample and must not be
+    preferred over the paginated ``/batch`` list.
 
     Raises ``SqlApiBatchError`` when keys are missing or the API does not return HTTP 200.
     """
@@ -112,48 +164,51 @@ def fetch_batches(*, force_refresh: bool = False) -> list[dict[str, Any]]:
 
     client = SqlAccountingApiClient(settings)
     configured = path if path.startswith("/") else f"/{path}"
-    path_candidates: list[str] = []
     if configured.endswith("/*"):
-        path_candidates.append(configured)
-        base = configured[:-2] or "/batch"
-        if base not in path_candidates:
-            path_candidates.append(base)
-    else:
-        path_candidates.append(configured)
-        wildcard = configured.rstrip("/") + "/*"
-        if wildcard not in path_candidates:
-            path_candidates.insert(0, wildcard)
-    for alt in ("/batch/*", "/batch"):
+        configured = configured[:-2] or "/batch"
+    configured = configured.rstrip("/") or "/batch"
+
+    # Prefer plain /batch (paginated). Keep /batch/* only as a last-resort fallback.
+    path_candidates: list[str] = [configured]
+    for alt in ("/batch", "/batch/*"):
         if alt not in path_candidates:
             path_candidates.append(alt)
 
     last_status: int | None = None
     last_snippet = ""
-    seen_urls: set[str] = set()
+    timeout = min(30.0, settings.timeout_seconds + 10.0)
 
     for list_path in path_candidates:
-        url = settings.resolved_list_get_url(list_path)
-        if url in seen_urls:
-            continue
-        seen_urls.add(url)
         try:
-            status, parsed, raw = client.get_json(
-                url,
-                timeout_seconds=min(15.0, settings.timeout_seconds + 5.0),
-            )
+            if list_path.endswith("/*"):
+                url = settings.resolved_list_get_url(list_path)
+                status, parsed, raw = client.get_json(url, timeout_seconds=timeout)
+                last_status = status
+                if status != 200:
+                    last_snippet = (raw or "")[:300].replace("\n", " ")
+                    continue
+                rows = _parse_batch_list_json(parsed)
+            else:
+                rows = _paged_batch_rows(client, settings, list_path, timeout_seconds=timeout)
         except SqlAccountingApiError as exc:
             last_snippet = str(exc)
             continue
 
-        last_status = status
-        if status != 200:
-            last_snippet = (raw or "")[:300].replace("\n", " ")
+        # Ignore truncated /* sample responses when a fuller list is expected.
+        if list_path.endswith("/*") and len(rows) <= 1:
+            last_snippet = f"{list_path} returned {len(rows)} row(s); preferring paginated /batch"
             continue
 
-        rows = _parse_batch_list_json(parsed)
-        _batch_cache = rows
-        _batch_cache_at = time.monotonic()
-        return list(rows)
+        if rows:
+            _batch_cache = rows
+            _batch_cache_at = time.monotonic()
+            return list(rows)
+
+        # Empty but successful paginated list is valid.
+        if not list_path.endswith("/*"):
+            _batch_cache = []
+            _batch_cache_at = time.monotonic()
+            return []
 
     hint = f" (last HTTP {last_status})" if last_status is not None else ""
     raise SqlApiBatchError(
