@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from typing import Any
 
@@ -51,6 +52,28 @@ def build_batch_code(thickness: Any, width: Any, length: Any) -> str:
     if not t or not w or not length_s:
         return ""
     return f"{t}mm*{w}mm*{length_s}mm"
+
+
+_BATCH_DIM_RE = re.compile(
+    r"^\s*(?P<t>\d+(?:\.\d+)?)\s*mm\s*\*\s*(?P<w>\d+(?:\.\d+)?)\s*mm\s*\*\s*(?P<l>\d+(?:\.\d+)?)\s*mm\s*$",
+    re.IGNORECASE,
+)
+
+
+def parse_batch_code_dimensions(batch: Any) -> tuple[str, str, str]:
+    """
+    Inverse of :func:`build_batch_code`.
+
+    Returns ``(thickness, width, length)`` strings, or empty strings when the
+    batch code does not match ``{T}mm*{W}mm*{L}mm``.
+    """
+    text = _clean_text(batch)
+    if not text:
+        return "", "", ""
+    match = _BATCH_DIM_RE.match(text)
+    if not match:
+        return "", "", ""
+    return match.group("t"), match.group("w"), match.group("l")
 
 
 def _batch_path() -> str:

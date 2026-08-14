@@ -16,6 +16,15 @@ def test_build_batch_code_format():
     assert build_batch_code("12.5", "100", "500") == "12.5mm*100mm*500mm"
 
 
+def test_parse_batch_code_dimensions():
+    from utils.sql_api_batch import parse_batch_code_dimensions
+
+    assert parse_batch_code_dimensions("12mm*100mm*500mm") == ("12", "100", "500")
+    assert parse_batch_code_dimensions("12.5mm*100mm*500mm") == ("12.5", "100", "500")
+    assert parse_batch_code_dimensions("") == ("", "", "")
+    assert parse_batch_code_dimensions("junk") == ("", "", "")
+
+
 def test_build_batch_code_missing_dimension():
     assert build_batch_code("", "100", "500") == ""
     assert build_batch_code("12", None, "500") == ""

@@ -287,6 +287,104 @@ def _normalize_transfer_line_rows(
     return normalized
 
 
+def _udf_value_missing(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str) and not _clean_text(value):
+        return True
+    return False
+
+
+def _apply_podtl_source_udfs(
+    detail_values: dict[str, Any],
+    detail_cols: set[str],
+    source: dict[str, Any],
+) -> None:
+    """Copy PQ line ``udf_*`` onto PH_PODTL; fill missing T/W/L from BATCH when possible."""
+    from utils.sql_api_batch import parse_batch_code_dimensions
+    from utils.stock_items_catalog import stock_item_udf_fields_from_row
+
+    for udf_key, val in stock_item_udf_fields_from_row(source).items():
+        col = str(udf_key).upper()
+        if col not in detail_cols:
+            continue
+        if col in detail_values and not _udf_value_missing(detail_values.get(col)):
+            continue
+        detail_values[col] = val
+
+    thickness_col = _pick_existing(detail_cols, "UDF_THICKNESS")
+    width_col = _pick_existing(detail_cols, "UDF_WIDTH")
+    length_col = _pick_existing(detail_cols, "UDF_LENGTH")
+    need_dims = any(
+        col and _udf_value_missing(detail_values.get(col))
+        for col in (thickness_col, width_col, length_col)
+    )
+    if not need_dims:
+        return
+
+    batch = source.get("batch") if source.get("batch") is not None else source.get("BATCH")
+    if batch is None:
+        batch = detail_values.get("BATCH")
+    t, w, length_s = parse_batch_code_dimensions(batch)
+    if not t or not w or not length_s:
+        return
+    if thickness_col and _udf_value_missing(detail_values.get(thickness_col)):
+        detail_values[thickness_col] = t
+    if width_col and _udf_value_missing(detail_values.get(width_col)):
+        detail_values[width_col] = w
+    if length_col and _udf_value_missing(detail_values.get(length_col)):
+        detail_values[length_col] = length_s
+
+
+def _enrich_detail_map_udfs_from_db(
+    cur: Any,
+    request_dockey: int,
+    detail_map: dict[int, dict[str, Any]],
+) -> None:
+    """Overlay Firebird PH_PQDTL UDF_* onto transfer source rows when missing."""
+    if not detail_map:
+        return
+    detail_cols = _get_table_columns(cur, "PH_PQDTL")
+    fk_col = _pick_existing(detail_cols, "DOCKEY", "PQKEY", "REQUEST_ID", "HEADER_ID")
+    dtl_col = _pick_existing(detail_cols, "DTLKEY", "PQDTLKEY", "ID")
+    udf_cols = sorted(c for c in detail_cols if str(c).upper().startswith("UDF_"))
+    if not fk_col or not dtl_col or not udf_cols:
+        return
+
+    keys = sorted(detail_map.keys())
+    placeholders = ", ".join(["?"] * len(keys))
+    select_cols = ", ".join([dtl_col, *udf_cols])
+    cur.execute(
+        f"""
+        SELECT {select_cols}
+        FROM PH_PQDTL
+        WHERE {fk_col} = ? AND {dtl_col} IN ({placeholders})
+        """,
+        tuple([int(request_dockey), *keys]),
+    )
+    for row in cur.fetchall() or []:
+        if not row:
+            continue
+        try:
+            dtlkey = int(row[0])
+        except Exception:
+            continue
+        target = detail_map.get(dtlkey)
+        if not isinstance(target, dict):
+            continue
+        for idx, col in enumerate(udf_cols, start=1):
+            val = row[idx]
+            if _udf_value_missing(val):
+                continue
+            key_l = str(col).lower()
+            existing = target.get(key_l)
+            if existing is None:
+                existing = target.get(str(col).upper())
+            if not _udf_value_missing(existing):
+                continue
+            target[key_l] = val
+
+
 def _build_po_detail_and_xtrans(
     *,
     source: dict[str, Any],
@@ -307,6 +405,7 @@ def _build_po_detail_and_xtrans(
     xtrans_cols: set[str],
     supplier_code: str,
     po_status_value: Any,
+    po_detail_cols: set[str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], Decimal]:
     """Validate one PR line and build PH_PODTL + ST_XTRANS rows. Returns (detail, xtrans, amount)."""
     if not _detail_is_transferable(
@@ -381,6 +480,10 @@ def _build_po_detail_and_xtrans(
         "REMARK1": _clean_text(source.get("remark1")),
         "REMARK2": _clean_text(source.get("remark2")),
     }
+
+    cols = po_detail_cols if isinstance(po_detail_cols, set) else set()
+    if cols:
+        _apply_podtl_source_udfs(detail_values, cols, source)
 
     x_row: dict[str, Any] = {
         xtrans_key_col: xtrans_key,
@@ -580,6 +683,13 @@ def transfer_purchase_requests_to_single_po(
             detail_map = group["detail_map"]
             transferable_overrides = group["transferable_overrides"]
             existing_qty_map = existing_qty_by_request.get(request_dockey) or {}
+            try:
+                _enrich_detail_map_udfs_from_db(cur, request_dockey, detail_map)
+            except Exception as enrich_exc:
+                print(
+                    f"[PROCUREMENT PO TRANSFER] UDF enrich skipped for PQ {request_dockey}: {enrich_exc}",
+                    flush=True,
+                )
 
             for line in group["normalized_transfers"]:
                 line_index += 1
@@ -610,6 +720,7 @@ def transfer_purchase_requests_to_single_po(
                     xtrans_cols=xtrans_cols,
                     supplier_code=supplier_code,
                     po_status_value=po_status_value,
+                    po_detail_cols=po_detail_cols,
                 )
                 total_doc_amount += amount
                 detail_inserts.append(detail_values)

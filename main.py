@@ -7356,6 +7356,17 @@ def _resolve_local_purchase_request_header(raw_request_id, request_no):
                 'remark1': str(detail.get('remark1') or '').strip(),
                 'remark2': str(detail.get('remark2') or '').strip(),
             })
+            mapped_row = mapped_details[-1]
+            for key, val in detail.items():
+                key_l = str(key or '').strip().lower()
+                if not key_l.startswith('udf_'):
+                    continue
+                if val is None:
+                    continue
+                if isinstance(val, str) and not val.strip():
+                    continue
+                if key_l not in mapped_row or mapped_row.get(key_l) in (None, ''):
+                    mapped_row[key_l] = val
 
         mapped_details = _filter_pr_details_by_location_scope(mapped_details)
 
@@ -8338,8 +8349,44 @@ def api_admin_bulk_transfer_purchase_requests_to_po():
                     if local_header.get(key) is not None:
                         merged[key] = local_header.get(key)
                 request_header = merged
-            elif local_header:
-                # Always prefer local UDF/transferable when available.
+            elif local_header and isinstance(local_header.get('sdsdocdetail'), list):
+                # Prefer local line UDFs / batch even when SQL API already has dtlkeys.
+                local_by_dtl = {}
+                for ln in local_header.get('sdsdocdetail') or []:
+                    if not isinstance(ln, dict):
+                        continue
+                    try:
+                        dtl = int(ln.get('dtlkey') or ln.get('id') or 0)
+                    except Exception:
+                        continue
+                    if dtl:
+                        local_by_dtl[dtl] = ln
+                if local_by_dtl and isinstance(request_header.get('sdsdocdetail'), list):
+                    merged_details = []
+                    for ln in request_header.get('sdsdocdetail') or []:
+                        if not isinstance(ln, dict):
+                            continue
+                        patched = dict(ln)
+                        try:
+                            dtl = int(ln.get('dtlkey') or ln.get('DTLKEY') or 0)
+                        except Exception:
+                            dtl = 0
+                        src = local_by_dtl.get(dtl) or {}
+                        if src.get('batch') and not patched.get('batch'):
+                            patched['batch'] = src.get('batch')
+                        for key, val in src.items():
+                            if not str(key).lower().startswith('udf_'):
+                                continue
+                            if val is None:
+                                continue
+                            if isinstance(val, str) and not val.strip():
+                                continue
+                            existing = patched.get(key)
+                            if existing is None or (isinstance(existing, str) and not existing.strip()):
+                                patched[key] = val
+                        merged_details.append(patched)
+                    request_header = dict(request_header)
+                    request_header['sdsdocdetail'] = merged_details
                 for key in ('udf_status', 'udfStatus', 'transferable'):
                     if local_header.get(key) is not None:
                         request_header[key] = local_header.get(key)
@@ -8558,6 +8605,22 @@ def api_admin_transfer_purchase_request_to_po():
             return jsonify({'success': False, 'error': f'SQL API returned {last_status} while loading purchase request'}), 502
 
         request_dockey = int(request_header.get('dockey'))
+
+        local_pr = _resolve_local_purchase_request_header(
+            str(request_dockey or raw_request_id or ''),
+            str(request_header.get('docno') or request_no or '').strip(),
+        )
+        if local_pr and local_pr.get('sdsdocdetail'):
+            request_header = dict(request_header)
+            request_header['dockey'] = local_pr.get('dockey') or request_header.get('dockey')
+            request_header['sdsdocdetail'] = local_pr.get('sdsdocdetail')
+            for key in ('udf_status', 'udfStatus', 'transferable', 'code', 'companyname'):
+                if local_pr.get(key) is not None:
+                    request_header[key] = local_pr.get(key)
+            try:
+                request_dockey = int(request_header.get('dockey') or request_dockey)
+            except Exception:
+                pass
 
         udf_status_text = str(
             request_header.get('udf_status')
