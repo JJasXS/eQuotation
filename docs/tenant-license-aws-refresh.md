@@ -11,7 +11,7 @@ tenant-config HTTP API (same pattern as eQuotation / ProAccScanner).
 3. **UI banner** when license expiry is within **10 days**:
    - `10 days left` … `2 days left`
    - `1 day left`
-   - `License expires today` / `License expired`
+   - `License expires today` / `Subscription expired`
 
 ## DynamoDB shape (TENANT_CONFIG)
 

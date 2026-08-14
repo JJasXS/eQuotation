@@ -45,7 +45,7 @@ def test_license_banner_expired():
     ctx = license_banner_context(today=today)
     assert ctx["license_banner_show"] is True
     assert ctx["license_expired"] is True
-    assert ctx["license_banner_text"] == "License expired"
+    assert ctx["license_banner_text"] == "Subscription expired"
 
 
 def test_license_banner_expires_today():
@@ -53,4 +53,4 @@ def test_license_banner_expires_today():
     today = date(2026, 8, 14)
     ctx = license_banner_context(today=today)
     assert ctx["license_expired"] is True
-    assert ctx["license_banner_text"] == "License expired"
+    assert ctx["license_banner_text"] == "Subscription expired"

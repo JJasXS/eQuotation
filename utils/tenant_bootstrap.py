@@ -823,7 +823,7 @@ def license_banner_context(today: date | None = None) -> dict[str, Any]:
     if days <= 0:
         out["license_banner_show"] = True
         out["license_expired"] = True
-        out["license_banner_text"] = "License expired"
+        out["license_banner_text"] = "Subscription expired"
         return out
     if 1 <= days <= _LICENSE_BANNER_MAX_DAYS:
         out["license_banner_show"] = True
