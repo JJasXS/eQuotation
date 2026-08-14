@@ -1104,6 +1104,15 @@ body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-amount-pill {
     box-shadow: 0 1px 5px var(--ice-shadow) !important;
 }
 
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-total-row {
+    border-top-color: var(--ice-border-soft) !important;
+    background: var(--ice-surface) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-total-row .view-pr-detail-amount-label {
+    color: var(--ice-text-muted) !important;
+}
+
 body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-meta-strip {
     background: var(--ice-surface) !important;
 }

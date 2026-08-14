@@ -2674,6 +2674,11 @@
 
             }
 
+            const actions = bar.querySelector('.view-pr-bulk-pending-bar__actions');
+            if (actions && approveBtn) {
+                actions.hidden = !!approveBtn.hidden;
+            }
+
                     syncViewListBulkMasterCheckbox();
         }
 
@@ -3904,23 +3909,6 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                             <h3 class="view-pr-detail-panel-title">${escapeHtml(header.requestNumber || '-')}</h3>
 
-                            <div class="view-pr-detail-head-badges">
-
-                                <span class="view-pr-detail-doc-pill">${escapeHtml(String(header.status || '').toUpperCase())}</span>
-
-                                <span class="view-pr-detail-udf-chip view-pr-detail-udf-chip--${String(savedUdfDisplay || 'PENDING').toLowerCase()}">${escapeHtml(formatUdfStatusLabel(savedUdfDisplay))}</span>
-                                ${selectableDetailCount ? `<span class="view-pr-detail-selected-chip${allDetailsSelected ? ' is-all' : ''}" title="Selected line items">SELECTED ${selectedDetailCount}/${selectableDetailCount}</span>` : ''}
-
-                            </div>
-
-                        </div>
-
-                        <div class="view-pr-detail-head-amount-wrap">
-
-                            <span class="view-pr-detail-amount-label">Total</span>
-
-                            <span class="view-pr-detail-amount-pill">RM ${formatMoney(header.totalAmount || 0)}</span>
-
                         </div>
 
                     </div>
@@ -4077,6 +4065,11 @@ function buildViewPurchaseRequestDetailHtml(header) {
                         </tbody>
 
                     </table>
+
+                    <div class="view-pr-detail-total-row">
+                        <span class="view-pr-detail-amount-label">Total</span>
+                        <span class="view-pr-detail-amount-pill">RM ${formatMoney(header.totalAmount || 0)}</span>
+                    </div>
 
                     ${hideApprovalEdits || savedUdfDisplay === 'CANCELLED' ? '' : `
                     <div class="view-pr-detail-lines-footer">

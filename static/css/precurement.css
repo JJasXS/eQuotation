@@ -5570,6 +5570,66 @@ body.procurement-warm-ui .pr-view-page-header--compact .view-pr-refresh-btn--gho
     border-color: #9ecae8;
 }
 
+body.procurement-warm-ui .view-pr-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    min-height: 34px;
+    padding: 0;
+    border: 1px solid #c5dce9;
+    border-radius: 8px;
+    background: #fff;
+    color: #2f5f7a;
+    cursor: pointer;
+    box-sizing: border-box;
+    flex: 0 0 auto;
+}
+
+body.procurement-warm-ui .view-pr-icon-btn:hover {
+    background: #e8f4fc;
+    border-color: #9ecae8;
+    color: #1a4d6e;
+}
+
+body.procurement-warm-ui .view-pr-icon-btn__svg {
+    width: 18px;
+    height: 18px;
+    display: block;
+}
+
+body.procurement-warm-ui .view-pr-icon-btn--clear {
+    width: 28px;
+    height: 28px;
+    min-height: 28px;
+    border-radius: 6px;
+    color: #5a7a94;
+}
+
+body.procurement-warm-ui .view-pr-icon-btn--clear .view-pr-icon-btn__svg {
+    width: 14px;
+    height: 14px;
+}
+
+body.procurement-warm-ui .view-pr-detail-total-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 10px 14px 12px;
+    border-top: 1px solid #dbe4ee;
+    background: #f8fafc;
+}
+
+body.procurement-warm-ui .view-pr-detail-total-row .view-pr-detail-amount-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #5a7a94;
+}
+
 body.procurement-warm-ui .pr-view-page-header--compact .view-pr-bulk-transfer-toggle {
     font-weight: 600;
 }
@@ -5786,6 +5846,16 @@ body.procurement-warm-ui .pr-view-left-bulk-select {
     font-weight: 700;
     color: var(--ice-heading, #1a4d6e);
     white-space: nowrap;
+}
+
+body.procurement-warm-ui .pr-view-left-bulk-tools {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+body.procurement-warm-ui .pr-view-left-bulk-tools[hidden] {
+    display: none !important;
 }
 
 body.procurement-warm-ui .pr-view-left-bulk-select[hidden] {
@@ -6080,7 +6150,7 @@ body.procurement-warm-ui .view-pr-detail-head-titles {
 }
 
 body.procurement-warm-ui .view-pr-detail-panel-head--rich .view-pr-detail-panel-title {
-    margin: 0 0 6px 0;
+    margin: 0;
     font-size: 1.28rem;
     font-weight: 800;
     letter-spacing: -0.02em;
