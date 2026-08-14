@@ -812,6 +812,7 @@ def license_banner_context(today: date | None = None) -> dict[str, Any]:
     snap = get_tenant_runtime_snapshot()
     out: dict[str, Any] = {
         "license_banner_show": False,
+        "license_expired": False,
         "license_banner_days": days,
         "license_banner_text": "",
         "license_expiry_date": snap.get("license_expiry") or "",
@@ -819,13 +820,10 @@ def license_banner_context(today: date | None = None) -> dict[str, Any]:
     }
     if days is None:
         return out
-    if days < 0:
+    if days <= 0:
         out["license_banner_show"] = True
+        out["license_expired"] = True
         out["license_banner_text"] = "License expired"
-        return out
-    if days == 0:
-        out["license_banner_show"] = True
-        out["license_banner_text"] = "License expires today"
         return out
     if 1 <= days <= _LICENSE_BANNER_MAX_DAYS:
         out["license_banner_show"] = True

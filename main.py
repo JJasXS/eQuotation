@@ -1336,6 +1336,7 @@ def inject_tenant_code_for_ui():
         ctx.update(
             {
                 "license_banner_show": False,
+                "license_expired": False,
                 "license_banner_days": None,
                 "license_banner_text": "",
                 "license_expiry_date": "",

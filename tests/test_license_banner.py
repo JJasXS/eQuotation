@@ -39,7 +39,18 @@ def test_license_banner_hidden_when_far():
 
 
 def test_license_banner_expired():
-    _set_expiry("2026-08-01")
+    _set_expiry("2026-08-04")
+    today = date(2026, 8, 14)
+    assert license_days_remaining(today=today) == -10
+    ctx = license_banner_context(today=today)
+    assert ctx["license_banner_show"] is True
+    assert ctx["license_expired"] is True
+    assert ctx["license_banner_text"] == "License expired"
+
+
+def test_license_banner_expires_today():
+    _set_expiry("2026-08-14")
     today = date(2026, 8, 14)
     ctx = license_banner_context(today=today)
+    assert ctx["license_expired"] is True
     assert ctx["license_banner_text"] == "License expired"
