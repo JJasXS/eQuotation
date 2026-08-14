@@ -1339,8 +1339,12 @@ def inject_tenant_code_for_ui():
                 "license_expired": False,
                 "license_banner_days": None,
                 "license_banner_text": "",
+                "license_banner_title": "",
+                "license_banner_body": "",
+                "license_banner_detail": "",
                 "license_expiry_date": "",
                 "license_status": "",
+                "support_whatsapp_url": "",
             }
         )
     return ctx

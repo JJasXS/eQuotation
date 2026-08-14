@@ -24,7 +24,7 @@ Dynamo / JSON sections (case-insensitive names, Dynamo ``M`` / ``S`` / ``N`` unw
     ``SMTP_PORT``, ``SMTP_EMAIL``; ``smtpCredentialsSecretRef`` → full JSON bundle in Secrets Manager (host/port/user/password,
     same aliases as ProAccScanner); else ``smtpAppPasswordSecretRef`` → ``SMTP_PASSWORD`` (plaintext or JSON with
     ``password`` / ``smtpPassword`` / …).
-  ``license``: ``expiryDate`` (YYYY-MM-DD), ``licenseStatus`` — stored for the in-app countdown banner.
+    ``license``: ``expiryDate`` (YYYY-MM-DD), ``licenseStatus`` — stored for the in-app subscription countdown.
 
 Optional refresh: ``TENANT_BOOTSTRAP_REFRESH_SECONDS`` / ``TenantBootstrap__ConfigRefreshSeconds``
   (default ``86400`` = 24h). Set ``0`` to disable the background re-fetch worker.
@@ -50,7 +50,7 @@ import threading
 import time
 from datetime import date, datetime
 from typing import Any, Mapping
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import requests
 from botocore.exceptions import NoCredentialsError
@@ -806,29 +806,103 @@ def license_days_remaining(today: date | None = None) -> int | None:
     return (expiry - base).days
 
 
+_DEFAULT_WA_TEXT = (
+    "Hi ProAcc System, I would like to renew my eQuoteHub subscription."
+)
+
+
+def _whatsapp_digits(raw: str) -> str:
+    digits = re.sub(r"\D", "", raw or "")
+    if not digits:
+        return ""
+    if digits.startswith("0"):
+        digits = "6" + digits
+    return digits
+
+
+def build_support_whatsapp_url(raw: str | None = None, text: str | None = None) -> str:
+    """Build a wa.me link. Accepts +60 / 01x / 60x formats. Empty if no number."""
+    source = raw
+    if source is None:
+        source = (
+            os.getenv("SUPPORT_WHATSAPP_NUMBER")
+            or os.getenv("Support__WhatsAppNumber")
+            or ""
+        )
+    digits = _whatsapp_digits(str(source))
+    if not digits:
+        return ""
+    msg = _DEFAULT_WA_TEXT if text is None else text
+    return f"https://wa.me/{digits}?text={quote(msg)}"
+
+
+def _subscription_copy(days: int) -> dict[str, str]:
+    if days <= 0:
+        return {
+            "title": "Subscription Expired",
+            "body": "Your subscription has expired.",
+            "detail": "Please contact ProAcc System to renew and restore access.",
+        }
+    if days == 1:
+        return {
+            "title": "Your subscription expires tomorrow.",
+            "body": "Please renew to maintain uninterrupted access.",
+            "detail": "",
+        }
+    if days == 3:
+        return {
+            "title": "Your subscription expires in 3 days.",
+            "body": "Please renew soon to avoid service interruption.",
+            "detail": "",
+        }
+    if days == 7:
+        return {
+            "title": "Your subscription expires in 7 days.",
+            "body": "",
+            "detail": "",
+        }
+    return {
+        "title": f"Subscription expires in {days} days",
+        "body": "Please renew your subscription to avoid service interruption.",
+        "detail": "",
+    }
+
+
 def license_banner_context(today: date | None = None) -> dict[str, Any]:
-    """Jinja context for the license countdown banner (visible when 1..10 days left)."""
+    """Jinja context for the login subscription countdown / lock overlay."""
     days = license_days_remaining(today=today)
     snap = get_tenant_runtime_snapshot()
+    wa_url = build_support_whatsapp_url()
     out: dict[str, Any] = {
         "license_banner_show": False,
         "license_expired": False,
         "license_banner_days": days,
         "license_banner_text": "",
+        "license_banner_title": "",
+        "license_banner_body": "",
+        "license_banner_detail": "",
         "license_expiry_date": snap.get("license_expiry") or "",
         "license_status": snap.get("license_status") or "",
+        "support_whatsapp_url": wa_url,
     }
     if days is None:
         return out
     if days <= 0:
+        copy = _subscription_copy(days)
         out["license_banner_show"] = True
         out["license_expired"] = True
-        out["license_banner_text"] = "Subscription expired"
+        out["license_banner_text"] = copy["title"]
+        out["license_banner_title"] = copy["title"]
+        out["license_banner_body"] = copy["body"]
+        out["license_banner_detail"] = copy["detail"]
         return out
     if 1 <= days <= _LICENSE_BANNER_MAX_DAYS:
+        copy = _subscription_copy(days)
         out["license_banner_show"] = True
-        unit = "day" if days == 1 else "days"
-        out["license_banner_text"] = f"{days} {unit} left"
+        out["license_banner_text"] = copy["title"]
+        out["license_banner_title"] = copy["title"]
+        out["license_banner_body"] = copy["body"]
+        out["license_banner_detail"] = copy["detail"]
     return out
 
 
