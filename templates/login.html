@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sign In</title>
     <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515">
-    <link rel="stylesheet" href="/static/css/login.css?v=20260810_mobile1">
-    <link rel="stylesheet" href="/static/css/tenant_env_chip.css">
+    <link rel="stylesheet" href="/static/css/login.css?v=20260814_license10">
+    <link rel="stylesheet" href="/static/css/tenant_env_chip.css?v=20260814_license_login">
 </head>
 <body class="equotation-icy-theme login-page-body">
     <div class="login-page">
@@ -102,6 +102,9 @@
                     </div>
 
                     <div class="login-meta">
+                        {% if license_banner_show and license_banner_text %}
+                        <div class="login-license-left" role="status">{{ license_banner_text }}</div>
+                        {% endif %}
                         <div>Managed by ProAcc System.</div>
                         <div class="login-version">V1.0</div>
                     </div>
