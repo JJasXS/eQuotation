@@ -5614,20 +5614,28 @@ body.procurement-warm-ui .view-pr-icon-btn--clear .view-pr-icon-btn__svg {
 
 body.procurement-warm-ui .view-pr-detail-total-row {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     justify-content: flex-end;
-    gap: 10px;
-    padding: 10px 14px 12px;
-    border-top: 1px solid #dbe4ee;
-    background: #f8fafc;
+    gap: 12px;
+    padding: 10px 14px;
+    border-top: 1px solid #c5dce9;
+    background: transparent;
 }
 
-body.procurement-warm-ui .view-pr-detail-total-row .view-pr-detail-amount-label {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
+body.procurement-warm-ui .view-pr-detail-total-row__label {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: #5a7a94;
+    color: #1a4d6e;
+}
+
+body.procurement-warm-ui .view-pr-detail-total-row__value {
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    color: #0f3a55;
+    font-variant-numeric: tabular-nums;
 }
 
 body.procurement-warm-ui .pr-view-page-header--compact .view-pr-bulk-transfer-toggle {
@@ -5846,16 +5854,6 @@ body.procurement-warm-ui .pr-view-left-bulk-select {
     font-weight: 700;
     color: var(--ice-heading, #1a4d6e);
     white-space: nowrap;
-}
-
-body.procurement-warm-ui .pr-view-left-bulk-tools {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-}
-
-body.procurement-warm-ui .pr-view-left-bulk-tools[hidden] {
-    display: none !important;
 }
 
 body.procurement-warm-ui .pr-view-left-bulk-select[hidden] {

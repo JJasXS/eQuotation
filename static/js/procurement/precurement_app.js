@@ -4066,9 +4066,9 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     </table>
 
-                    <div class="view-pr-detail-total-row">
-                        <span class="view-pr-detail-amount-label">Total</span>
-                        <span class="view-pr-detail-amount-pill">RM ${formatMoney(header.totalAmount || 0)}</span>
+                    <div class="view-pr-detail-total-row" aria-label="Purchase request total">
+                        <span class="view-pr-detail-total-row__label">Total</span>
+                        <span class="view-pr-detail-total-row__value">RM ${formatMoney(header.totalAmount || 0)}</span>
                     </div>
 
                     ${hideApprovalEdits || savedUdfDisplay === 'CANCELLED' ? '' : `

@@ -23,7 +23,7 @@
     <link rel="stylesheet" href="/static/css/adminViewQuotations.css?v=20260430">
 
     <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260810_tabs_phone_v3">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=20260814_view_pr_declutter">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=20260814_view_pr_declutter2">
     <style id="pr-report-phone-layout">
     /* Report settings: phone drawer (slides in from right) */
     .stock-report-settings-bar,
@@ -234,7 +234,7 @@
     }
     </style>
 
-    <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260814_view_pr_declutter">
+    <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260814_view_pr_declutter2">
 
     <script src="/static/js/eq_core.js?v=20260813_core"></script>
 </head>
@@ -563,20 +563,15 @@
 
                                                 <div class="pr-view-left-search-top">
                                                     <label class="pr-view-left-search-label" for="view-pr-search-input">Search PR</label>
-                                                    <div class="pr-view-left-bulk-tools" id="view-pr-list-bulk-select-wrap" hidden>
-                                                        <label class="pr-view-left-bulk-select" title="Select all visible purchase requests">
-                                                            <input
-                                                                type="checkbox"
-                                                                id="view-pr-list-bulk-select-all"
-                                                                aria-label="Select all purchase requests for bulk update"
-                                                                onchange="onViewPrListBulkSelectAllChange(this)"
-                                                            />
-                                                            <span>Select all</span>
-                                                        </label>
-                                                        <button type="button" class="view-pr-icon-btn view-pr-icon-btn--clear" onclick="viewPrBulkClearSelection()" title="Clear selection" aria-label="Clear selection">
-                                                            <svg class="view-pr-icon-btn__svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-                                                        </button>
-                                                    </div>
+                                                    <label class="pr-view-left-bulk-select" id="view-pr-list-bulk-select-wrap" hidden title="Select all visible purchase requests">
+                                                        <input
+                                                            type="checkbox"
+                                                            id="view-pr-list-bulk-select-all"
+                                                            aria-label="Select all purchase requests for bulk update"
+                                                            onchange="onViewPrListBulkSelectAllChange(this)"
+                                                        />
+                                                        <span>Select all</span>
+                                                    </label>
                                                 </div>
 
                                                 <input
@@ -1253,7 +1248,7 @@
     <script src="/static/js/procurement/procurement_stock_card.js?v=20260813_extract"></script>
     <script src="/static/js/procurement/procurement_view_pr.js?v=20260813_extract"></script>
     <script src="/static/js/procurement/procurement_create_pr.js?v=20260813_extract"></script>
-    <script src="/static/js/procurement/precurement_app.js?v=20260814_view_pr_declutter"></script>
+    <script src="/static/js/procurement/precurement_app.js?v=20260814_view_pr_declutter2"></script>
 
     <script src="/static/js/hamburger_menu.js"></script>
 

@@ -1106,11 +1106,15 @@ body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-amount-pill {
 
 body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-total-row {
     border-top-color: var(--ice-border-soft) !important;
-    background: var(--ice-surface) !important;
+    background: transparent !important;
 }
 
-body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-total-row .view-pr-detail-amount-label {
-    color: var(--ice-text-muted) !important;
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-total-row__label {
+    color: var(--ice-heading, #1a4d6e) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-total-row__value {
+    color: var(--ice-heading, #0f3a55) !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-meta-strip {
