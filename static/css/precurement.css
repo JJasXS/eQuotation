@@ -5574,6 +5574,11 @@ body.procurement-warm-ui .pr-view-page-header--compact .view-pr-bulk-transfer-to
     font-weight: 600;
 }
 
+body.procurement-warm-ui .pr-view-page-header--compact .view-pr-bulk-transfer-toggle[hidden],
+body.procurement-warm-ui .pr-view-page-header--compact #view-bulk-consolidate-btn[hidden] {
+    display: none !important;
+}
+
 body.procurement-warm-ui .pr-view-page-header--compact .view-pr-list-perf--inline {
     margin: 0;
     padding: 2px 14px 4px;

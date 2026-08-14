@@ -369,9 +369,39 @@
             if (body) body.hidden = !willOpen;
         }
 
-function onBulkTransferToolbarClick() {
+        function isViewApprovedTabActive() {
+            return (
+                viewStatusFilters instanceof Set
+                && viewStatusFilters.size === 1
+                && viewStatusFilters.has('APPROVED')
+            );
+        }
+
+        /** Bulk Transfer / Consolidate only belong on the Approved tab. */
+        function syncViewPrApprovedOnlyToolbarActions() {
+            const approved = isViewApprovedTabActive();
+            const transferToggle = document.getElementById('view-bulk-transfer-toggle');
+            const consolidateBtn = document.getElementById('view-bulk-consolidate-btn');
+            if (transferToggle) {
+                transferToggle.hidden = !approved;
+                transferToggle.setAttribute('aria-hidden', approved ? 'false' : 'true');
+            }
+            if (consolidateBtn) {
+                consolidateBtn.hidden = !approved;
+                consolidateBtn.setAttribute('aria-hidden', approved ? 'false' : 'true');
+            }
+            if (!approved && viewBulkTransferOpen) {
+                try { toggleViewBulkTransferPanel(false); } catch (e) { /* ignore */ }
+            }
+        }
+
+        function onBulkTransferToolbarClick() {
             if (document.body.classList.contains('procurement-hide-transfer')) {
                 alert('Transfer is disabled for this account.');
+                return;
+            }
+            if (!isViewApprovedTabActive() && !viewBulkTransferOpen) {
+                alert('Bulk Transfer is only available on the Approved tab.');
                 return;
             }
             // If the advanced consolidate panel is open, Exit closes it.
@@ -538,6 +568,11 @@ function onBulkTransferToolbarClick() {
             }
             const wasOpen = !!viewBulkTransferOpen;
             const open = typeof forceOpen === 'boolean' ? forceOpen : !wasOpen;
+            if (open && !isViewApprovedTabActive()) {
+                setBulkTransferMessage('Consolidate / Bulk Transfer is only available on the Approved tab.', true);
+                alert('Consolidate / Bulk Transfer is only available on the Approved tab.');
+                return;
+            }
             viewBulkTransferOpen = open;
             const split = document.getElementById('view-pr-split-workspace');
             const panel = document.getElementById('view-bulk-transfer-panel');
@@ -2487,6 +2522,8 @@ function onBulkTransferToolbarClick() {
 
             });
 
+            try { syncViewPrApprovedOnlyToolbarActions(); } catch (e) { /* ignore */ }
+
         }
 
         function goToViewPrStatus(status, options) {
@@ -2526,6 +2563,8 @@ function onBulkTransferToolbarClick() {
             viewStatusFilters = new Set([s]);
 
             syncViewStatusFilterTabClasses();
+
+            syncViewPrApprovedOnlyToolbarActions();
 
             renderFilteredViewPurchaseRequests();
 
