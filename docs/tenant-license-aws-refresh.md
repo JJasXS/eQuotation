@@ -4,4 +4,4 @@
 
 [DeployCommands/tenant-subscription-expiry.md](../../DeployCommands/tenant-subscription-expiry.md)
 
-That file covers DynamoDB `license.expiryDate`, 24h AWS refresh, login-only UI (subscription countdown / lock screen **Subscription Expired** + WhatsApp Contact Support), test dates, and restore to `2027-08-14`.
+That file is the full guide: DynamoDB `license.expiryDate`, 24h AWS refresh, login-only **Subscription** copy, WhatsApp buttons, test dates, restore to `2027-08-14`, and live service notes.

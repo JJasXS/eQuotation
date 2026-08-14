@@ -74,7 +74,7 @@ def test_license_banner_expired():
     assert ctx["license_banner_title"] == "Subscription Expired"
     assert ctx["license_banner_body"] == "Your subscription has expired."
     assert ctx["license_banner_detail"] == (
-        "Please contact ProAcc System to renew and restore access."
+        "Please contact ProAcc System to renew your subscription and restore access."
     )
 
 

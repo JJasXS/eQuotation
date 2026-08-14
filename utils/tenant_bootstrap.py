@@ -841,7 +841,7 @@ def _subscription_copy(days: int) -> dict[str, str]:
         return {
             "title": "Subscription Expired",
             "body": "Your subscription has expired.",
-            "detail": "Please contact ProAcc System to renew and restore access.",
+            "detail": "Please contact ProAcc System to renew your subscription and restore access.",
         }
     if days == 1:
         return {
