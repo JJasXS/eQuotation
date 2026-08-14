@@ -27,3 +27,37 @@
   font-weight: 600;
   letter-spacing: 0.02em;
 }
+
+.license-expiry-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 14px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 16px;
+  background: #fff7ed;
+  border-bottom: 1px solid #fdba74;
+  color: #9a3412;
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.license-expiry-banner__label {
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.license-expiry-banner__meta {
+  font-weight: 500;
+  opacity: 0.9;
+}
+
+.license-expiry-banner--urgent {
+  background: #fef2f2;
+  border-bottom-color: #fca5a5;
+  color: #991b1b;
+}

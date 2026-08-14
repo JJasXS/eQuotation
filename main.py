@@ -146,9 +146,10 @@ apply_appsettings_to_environ()
 # Load environment variables from .env file (does not override keys already set from appsettings.json).
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'), override=False)
 
-from utils.tenant_bootstrap import apply_tenant_env_overrides
+from utils.tenant_bootstrap import apply_tenant_env_overrides, start_tenant_config_refresh_worker
 
 apply_tenant_env_overrides()
+start_tenant_config_refresh_worker()
 
 # Import validation functions
 from validationSignIn import validate_registration_fields
@@ -1324,9 +1325,24 @@ if _flask_port_cfg == '8881' or _flask_debug_cfg:
 
 @app.context_processor
 def inject_tenant_code_for_ui():
-    """Expose current tenant code to all Jinja templates (ApprovalPO-style env chip)."""
+    """Expose current tenant code + license banner to all Jinja templates."""
+    from utils.tenant_bootstrap import license_banner_context
+
     code = (os.getenv("TENANT_CODE") or os.getenv("TenantBootstrap__TenantCode") or "").strip()
-    return {"tenant_code": code}
+    ctx = {"tenant_code": code}
+    try:
+        ctx.update(license_banner_context())
+    except Exception:
+        ctx.update(
+            {
+                "license_banner_show": False,
+                "license_banner_days": None,
+                "license_banner_text": "",
+                "license_expiry_date": "",
+                "license_status": "",
+            }
+        )
+    return ctx
 
 
 # Configure Flask session

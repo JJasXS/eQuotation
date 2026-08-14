@@ -24,6 +24,10 @@ Dynamo / JSON sections (case-insensitive names, Dynamo ``M`` / ``S`` / ``N`` unw
     ``SMTP_PORT``, ``SMTP_EMAIL``; ``smtpCredentialsSecretRef`` → full JSON bundle in Secrets Manager (host/port/user/password,
     same aliases as ProAccScanner); else ``smtpAppPasswordSecretRef`` → ``SMTP_PASSWORD`` (plaintext or JSON with
     ``password`` / ``smtpPassword`` / …).
+  ``license``: ``expiryDate`` (YYYY-MM-DD), ``licenseStatus`` — stored for the in-app countdown banner.
+
+Optional refresh: ``TENANT_BOOTSTRAP_REFRESH_SECONDS`` / ``TenantBootstrap__ConfigRefreshSeconds``
+  (default ``86400`` = 24h). Set ``0`` to disable the background re-fetch worker.
 
 Secrets Manager region: ``AWS_REGION``, ``TENANT_BOOTSTRAP_SECRETS_REGION``, or tenant ``sqlApiRegion`` /
 ``openaiRegion``. Skip all SM calls: ``TENANT_BOOTSTRAP_SKIP_SECRETS=1`` (then supply keys via
@@ -42,6 +46,9 @@ import base64
 import json
 import os
 import re
+import threading
+import time
+from datetime import date, datetime
 from typing import Any, Mapping
 from urllib.parse import urlencode
 
@@ -55,6 +62,17 @@ from utils.sql_api_sigv4 import resolve_sql_api_sigv4_service
 DEFAULT_TENANT_API_BASE_URL = (
     "https://v2wwsho311.execute-api.ap-southeast-1.amazonaws.com/default/proacc-tenant-config-api"
 )
+
+# In-memory snapshot of last successful AWS tenant payload (license + meta).
+_RUNTIME_LOCK = threading.RLock()
+_RUNTIME: dict[str, Any] = {
+    "tenant_code": "",
+    "license_expiry": "",
+    "license_status": "",
+    "fetched_at": None,
+}
+_REFRESH_THREAD: threading.Thread | None = None
+_LICENSE_BANNER_MAX_DAYS = 10
 
 
 def _truthy_env(name: str) -> bool:
@@ -707,13 +725,169 @@ def apply_tenant_env_overrides() -> bool:
                 os.environ["OPENAI_MODEL"] = model_inline.strip()
 
     _apply_merged_tenant_smtp_to_environ(root, tenant_code=code, sql_region=sql_region, oi_region=oi_region)
+    _apply_license_snapshot(root, tenant_code=code)
 
     has_openai = bool((os.getenv("OPENAI_API_KEY") or "").strip())
     print(
         f"[tenant_bootstrap] Applied tenant {code!r}: DB_HOST={os.environ['DB_HOST']!r} "
         f"DB_PATH={os.environ['DB_PATH']!r} has_sql_keys="
         f"{bool((os.getenv('SQL_API_ACCESS_KEY') or '').strip() and (os.getenv('SQL_API_SECRET_KEY') or '').strip())} "
-        f"has_openai_key={has_openai}",
+        f"has_openai_key={has_openai} "
+        f"license_expiry={os.environ.get('TENANT_LICENSE_EXPIRY')!r}",
         flush=True,
     )
     return True
+
+
+def _parse_iso_date(raw: str | None) -> date | None:
+    text = (raw or "").strip()
+    if not text:
+        return None
+    head = text[:10]
+    try:
+        return date.fromisoformat(head)
+    except ValueError:
+        pass
+    for fmt in ("%Y/%m/%d", "%d-%m-%Y", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(head if fmt.startswith("%Y") else text[:10], fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _apply_license_snapshot(root: Mapping[str, Any], *, tenant_code: str) -> None:
+    """Read ``license.expiryDate`` / ``licenseStatus`` into env + in-memory snapshot."""
+    lic = _find_section_recursive(root, "license") or {}
+    expiry = ""
+    status = ""
+    if isinstance(lic, dict):
+        expiry = (_get_scalar_map(lic, "expiryDate") or _get_scalar_map(lic, "expirationDate") or "").strip()
+        status = (_get_scalar_map(lic, "licenseStatus") or _get_scalar_map(lic, "status") or "").strip()
+    if expiry:
+        os.environ["TENANT_LICENSE_EXPIRY"] = expiry
+    if status:
+        os.environ["TENANT_LICENSE_STATUS"] = status
+    with _RUNTIME_LOCK:
+        _RUNTIME["tenant_code"] = tenant_code
+        _RUNTIME["license_expiry"] = expiry or (os.getenv("TENANT_LICENSE_EXPIRY") or "").strip()
+        _RUNTIME["license_status"] = status or (os.getenv("TENANT_LICENSE_STATUS") or "").strip()
+        _RUNTIME["fetched_at"] = time.time()
+
+
+def get_tenant_runtime_snapshot() -> dict[str, Any]:
+    """Return a copy of the last applied tenant license snapshot."""
+    with _RUNTIME_LOCK:
+        return dict(_RUNTIME)
+
+
+def license_days_remaining(today: date | None = None) -> int | None:
+    """Whole days until ``license.expiryDate`` (negative if already past). None if unknown."""
+    expiry_raw = (get_tenant_runtime_snapshot().get("license_expiry") or os.getenv("TENANT_LICENSE_EXPIRY") or "").strip()
+    expiry = _parse_iso_date(expiry_raw)
+    if not expiry:
+        return None
+    base = today if isinstance(today, date) else date.today()
+    return (expiry - base).days
+
+
+def license_banner_context(today: date | None = None) -> dict[str, Any]:
+    """Jinja context for the license countdown banner (visible when 1..10 days left)."""
+    days = license_days_remaining(today=today)
+    snap = get_tenant_runtime_snapshot()
+    out: dict[str, Any] = {
+        "license_banner_show": False,
+        "license_banner_days": days,
+        "license_banner_text": "",
+        "license_expiry_date": snap.get("license_expiry") or "",
+        "license_status": snap.get("license_status") or "",
+    }
+    if days is None:
+        return out
+    if days < 0:
+        out["license_banner_show"] = True
+        out["license_banner_text"] = "License expired"
+        return out
+    if days == 0:
+        out["license_banner_show"] = True
+        out["license_banner_text"] = "License expires today"
+        return out
+    if 1 <= days <= _LICENSE_BANNER_MAX_DAYS:
+        out["license_banner_show"] = True
+        unit = "day" if days == 1 else "days"
+        out["license_banner_text"] = f"{days} {unit} left"
+    return out
+
+
+def _refresh_interval_seconds() -> int:
+    raw = (
+        os.getenv("TENANT_BOOTSTRAP_REFRESH_SECONDS")
+        or os.getenv("TenantBootstrap__ConfigRefreshSeconds")
+        or "86400"
+    ).strip()
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 86400
+
+
+def _resync_db_config_from_environ() -> None:
+    """Keep Firebird utils in sync when AWS changes dbHost/dbPath on refresh."""
+    try:
+        from utils.db_utils import set_db_config
+
+        set_db_config(
+            os.getenv("DB_PATH"),
+            os.getenv("DB_USER"),
+            os.getenv("DB_PASSWORD"),
+            os.getenv("DB_HOST"),
+        )
+    except Exception as exc:
+        print(f"[tenant_bootstrap] DB config resync skipped: {exc}", flush=True)
+
+
+def refresh_tenant_config_once() -> bool:
+    """Re-fetch AWS tenant JSON and re-apply env overrides. Returns True on success."""
+    try:
+        ok = apply_tenant_env_overrides()
+        if ok:
+            _resync_db_config_from_environ()
+        return bool(ok)
+    except Exception as exc:
+        print(f"[tenant_bootstrap] Refresh failed; keeping previous config: {exc}", flush=True)
+        return False
+
+
+def start_tenant_config_refresh_worker() -> None:
+    """Daemon thread: every N seconds re-fetch tenant config from AWS (default 24h)."""
+    global _REFRESH_THREAD
+    seconds = _refresh_interval_seconds()
+    if seconds <= 0:
+        print("[tenant_bootstrap] Config refresh worker skipped (interval is 0).", flush=True)
+        return
+    if _REFRESH_THREAD is not None and _REFRESH_THREAD.is_alive():
+        return
+
+    def _loop() -> None:
+        print(f"[tenant_bootstrap] Config refresh worker started; every {seconds}s.", flush=True)
+        while True:
+            time.sleep(seconds)
+            interval = _refresh_interval_seconds()
+            if interval <= 0:
+                print("[tenant_bootstrap] Config refresh disabled at runtime; worker stopping.", flush=True)
+                return
+            refresh_tenant_config_once()
+            if interval != seconds:
+                print(
+                    f"[tenant_bootstrap] Refresh interval changed ({seconds} -> {interval}); "
+                    "restart process to apply new cadence.",
+                    flush=True,
+                )
+                return
+
+    _REFRESH_THREAD = threading.Thread(
+        target=_loop,
+        name="tenant-config-refresh",
+        daemon=True,
+    )
+    _REFRESH_THREAD.start()

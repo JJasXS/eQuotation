@@ -19,9 +19,10 @@ apply_appsettings_to_environ(project_root=_env_path.parent)
 
 load_dotenv(dotenv_path=_env_path, override=False)
 
-from utils.tenant_bootstrap import apply_tenant_env_overrides
+from utils.tenant_bootstrap import apply_tenant_env_overrides, start_tenant_config_refresh_worker
 
 apply_tenant_env_overrides()
+start_tenant_config_refresh_worker()
 
 _api_timing_logger = logging.getLogger("eq.api.timing")
 _slow_route_ms = float((os.getenv("EQ_API_SLOW_MS") or "1000").strip() or "1000")

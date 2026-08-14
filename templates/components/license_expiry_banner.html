@@ -1,0 +1,9 @@
+{# License countdown from AWS tenant config (license.expiryDate). Visible when <= 10 days left. #}
+{% if license_banner_show and license_banner_text %}
+<div class="license-expiry-banner{% if license_banner_days is not none and license_banner_days <= 3 %} license-expiry-banner--urgent{% endif %}" role="status" aria-live="polite">
+  <strong class="license-expiry-banner__label">{{ license_banner_text }}</strong>
+  {% if license_expiry_date %}
+  <span class="license-expiry-banner__meta">License ends {{ license_expiry_date }}</span>
+  {% endif %}
+</div>
+{% endif %}
