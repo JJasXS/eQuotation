@@ -71,7 +71,8 @@ def staff_locations_from_sy_user_row(row: dict | None) -> list[str]:
     """
     Parse SY_USER.UDF_LOCATION into uppercased ST_LOCATION codes.
 
-    Accepts comma / semicolon / pipe separators. Drops blanks and ``----``.
+    Accepts comma / semicolon / pipe separators. Drops blanks only.
+    ``----`` is a real location code (not null) and is kept.
     """
     if not isinstance(row, dict):
         return []
@@ -93,7 +94,7 @@ def staff_locations_from_sy_user_row(row: dict | None) -> list[str]:
     seen: set[str] = set()
     for part in text.split(','):
         code = part.strip().upper()
-        if not code or code == '----':
+        if not code:
             continue
         if code in seen:
             continue
@@ -108,6 +109,7 @@ def session_location_scope(session) -> list[str] | None:
 
     Full admin and purchasing management always bypass. An empty / missing
     ``session['staff_locations']`` also means unrestricted (blank UDF_LOCATION).
+    ``----`` is a valid location code and restricts the user to that location.
     """
     tier = infer_access_tier_from_session(session)
     if tier in (ACCESS_TIER_FULL_ADMIN, ACCESS_TIER_PURCH_MGMT):
@@ -119,7 +121,7 @@ def session_location_scope(session) -> list[str] | None:
     seen: set[str] = set()
     for item in raw:
         code = str(item or '').strip().upper()
-        if not code or code == '----' or code in seen:
+        if not code or code in seen:
             continue
         seen.add(code)
         codes.append(code)
@@ -129,13 +131,13 @@ def session_location_scope(session) -> list[str] | None:
 def location_in_scope(scope: list[str] | None, code) -> bool:
     """
     True when ``scope`` is unrestricted (None), or the line location matches a
-    scoped code (case-insensitive). Blank / ``----`` are out of scope for
-    restricted users so they only see their assigned location(s).
+    scoped code (case-insensitive). Blank location is out of scope for
+    restricted users. ``----`` is a real location code and matches normally.
     """
     if scope is None:
         return True
     loc = str(code or '').strip().upper()
-    if not loc or loc == '----':
+    if not loc:
         return False
     allowed = {str(c).strip().upper() for c in scope if str(c or '').strip()}
     return loc in allowed

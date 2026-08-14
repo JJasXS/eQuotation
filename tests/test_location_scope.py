@@ -24,8 +24,13 @@ def test_staff_locations_from_sy_user_row_empty_cases():
     assert staff_locations_from_sy_user_row(None) == []
     assert staff_locations_from_sy_user_row({}) == []
     assert staff_locations_from_sy_user_row({"UDF_LOCATION": ""}) == []
-    assert staff_locations_from_sy_user_row({"UDF_LOCATION": "----"}) == []
     assert staff_locations_from_sy_user_row({"UDF_LOCATION": " , ; "}) == []
+
+
+def test_staff_locations_keeps_dash_placeholder_as_real_location():
+    """``----`` is a real ST_LOCATION code, not null."""
+    assert staff_locations_from_sy_user_row({"UDF_LOCATION": "----"}) == ["----"]
+    assert staff_locations_from_sy_user_row({"UDF_LOCATION": "KL,----"}) == ["KL", "----"]
 
 
 def test_session_location_scope_admin_bypass():
@@ -45,7 +50,13 @@ def test_session_location_scope_purchase_staff_restricted():
     ) == ["KL"]
     assert session_location_scope(
         {"access_tier": ACCESS_TIER_PURCH_STAFF, "staff_locations": ["kl", "JB", "----", ""]}
-    ) == ["KL", "JB"]
+    ) == ["KL", "JB", "----"]
+
+
+def test_session_location_scope_dash_location_restricts():
+    assert session_location_scope(
+        {"access_tier": ACCESS_TIER_PURCH_STAFF, "staff_locations": ["----"]}
+    ) == ["----"]
 
 
 def test_location_in_scope_rules():
@@ -53,6 +64,8 @@ def test_location_in_scope_rules():
     assert location_in_scope(None, "----") is True
     assert location_in_scope(["KL"], "") is False
     assert location_in_scope(["KL"], "----") is False
+    assert location_in_scope(["----"], "----") is True
+    assert location_in_scope(["----"], "JB") is False
     assert location_in_scope(["KL"], "kl") is True
     assert location_in_scope(["KL"], "JB") is False
     assert location_in_scope(["KL", "JB"], "jb") is True

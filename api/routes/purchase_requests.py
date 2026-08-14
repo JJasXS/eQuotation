@@ -428,7 +428,7 @@ def list_purchase_requests(
         location_codes = []
         for part in str(location or "").replace(";", ",").replace("|", ",").split(","):
             code = part.strip().upper()
-            if code and code != "----" and code not in location_codes:
+            if code and code not in location_codes:
                 location_codes.append(code)
         if location_codes:
             detail_cols = _get_table_columns(cur, "PH_PQDTL")

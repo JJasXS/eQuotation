@@ -2843,7 +2843,7 @@ def api_verify_otp():
             staff_locations = [
                 str(x).strip().upper()
                 for x in raw_locations
-                if str(x or '').strip() and str(x).strip().upper() != '----'
+                if str(x or '').strip()
             ]
         else:
             staff_locations = []
@@ -4988,7 +4988,7 @@ def _map_line_selection_counts_by_request_ids(request_dockeys, location_scope=No
     if isinstance(location_scope, (list, tuple)):
         for item in location_scope:
             code = str(item or '').strip().upper()
-            if code and code != '----' and code not in scope_codes:
+            if code and code not in scope_codes:
                 scope_codes.append(code)
 
     con = None
@@ -5086,7 +5086,7 @@ def _map_line_selection_counts_by_request_ids(request_dockeys, location_scope=No
 
 
 def _filter_pr_details_by_location_scope(details, scope=None):
-    """Keep only detail lines whose location is in scope (blank/---- excluded when scoped)."""
+    """Keep only detail lines whose location is in scope (blank excluded when scoped)."""
     if not isinstance(details, list):
         return []
     if scope is None:
@@ -5107,6 +5107,120 @@ def _filter_pr_details_by_location_scope(details, scope=None):
             out.append(detail)
     return out
 
+
+def _request_ids_visible_for_location_scope(request_ids, scope=None) -> set[int]:
+    """
+    Return DOCKEY set that have at least one PH_PQDTL line in ``scope``.
+
+    When ``scope`` is None (unrestricted), returns all valid ids.
+    """
+    ids: list[int] = []
+    for raw in request_ids or []:
+        try:
+            rid = int(raw)
+        except Exception:
+            continue
+        if rid > 0 and rid not in ids:
+            ids.append(rid)
+    if not ids:
+        return set()
+    if scope is None:
+        try:
+            scope = session_location_scope(session)
+        except Exception:
+            scope = None
+    if scope is None:
+        return set(ids)
+
+    scope_codes = []
+    for item in scope:
+        code = str(item or "").strip().upper()
+        if code and code not in scope_codes:
+            scope_codes.append(code)
+    if not scope_codes:
+        return set(ids)
+
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        cur.execute(
+            """
+            SELECT TRIM(RF.RDB$FIELD_NAME)
+            FROM RDB$RELATION_FIELDS RF
+            WHERE RF.RDB$RELATION_NAME = 'PH_PQDTL'
+            """
+        )
+        all_cols = {str(r[0]).strip().upper() for r in (cur.fetchall() or []) if r and r[0]}
+        key_col = ""
+        for candidate in ("DOCKEY", "PQKEY", "REQUEST_ID", "HEADER_ID"):
+            if candidate in all_cols:
+                key_col = candidate
+                break
+        location_col = ""
+        for candidate in ("LOCATION", "LOC", "STOCKLOCATION", "STORELOCATION"):
+            if candidate in all_cols:
+                location_col = candidate
+                break
+        if not key_col or not location_col:
+            return set(ids)
+
+        visible: set[int] = set()
+        chunk_size = 80
+        loc_ph = ", ".join(["?"] * len(scope_codes))
+        for i in range(0, len(ids), chunk_size):
+            chunk = ids[i : i + chunk_size]
+            id_ph = ", ".join(["?"] * len(chunk))
+            cur.execute(
+                f"""
+                SELECT DISTINCT {key_col}
+                FROM PH_PQDTL
+                WHERE {key_col} IN ({id_ph})
+                  AND TRIM(UPPER(COALESCE({location_col}, ''))) IN ({loc_ph})
+                """,
+                tuple([*chunk, *scope_codes]),
+            )
+            for row in cur.fetchall() or []:
+                try:
+                    visible.add(int(row[0]))
+                except Exception:
+                    continue
+        return visible
+    except Exception as exc:
+        print(f"[PROCUREMENT] location-scope id filter error: {exc}", flush=True)
+        return set(ids)
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if con:
+                con.close()
+        except Exception:
+            pass
+
+
+def _filter_pr_list_records_by_location_scope(records, scope=None):
+    """Drop list headers that have no detail lines in the user's location scope."""
+    if not isinstance(records, list) or not records:
+        return records if isinstance(records, list) else []
+    if scope is None:
+        try:
+            scope = session_location_scope(session)
+        except Exception:
+            scope = None
+    if scope is None:
+        return records
+    ids = [r.get("id") for r in records if isinstance(r, dict)]
+    visible = _request_ids_visible_for_location_scope(ids, scope=scope)
+    return [
+        r
+        for r in records
+        if isinstance(r, dict) and int(r.get("id") or 0) in visible
+    ]
 
 def _assert_payload_line_locations_in_scope(payload: dict) -> None:
     """Raise PurchaseRequestValidationError when a line location is outside session scope."""
@@ -6518,6 +6632,19 @@ def api_admin_list_purchase_requests():
             enrich_ms = round((time.perf_counter() - enrich_started) * 1000, 1)
         except Exception as em_exc:
             print(f"[PROCUREMENT LIST PR] supplier master/display enrichment warning: {em_exc}", flush=True)
+
+        # Enforce location scope on headers (SQL API may ignore location=----).
+        try:
+            before_n = len(records)
+            records = _filter_pr_list_records_by_location_scope(records, scope=location_scope)
+            if len(records) != before_n:
+                print(
+                    f"[PROCUREMENT LIST PR] location scope filtered headers {before_n} -> {len(records)} "
+                    f"scope={location_scope}",
+                    flush=True,
+                )
+        except Exception as loc_exc:
+            print(f"[PROCUREMENT LIST PR] location scope header filter warning: {loc_exc}", flush=True)
 
         if debug_suppliers:
             try:
