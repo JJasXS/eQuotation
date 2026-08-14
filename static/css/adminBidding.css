@@ -193,6 +193,9 @@ body.admin-bidding-page .container.bidding-page {
 .pr-list {
     display: grid;
     gap: 6px;
+    /* Keep rows content-sized; one PR must not stretch into a tall "tab" */
+    align-content: start;
+    grid-auto-rows: max-content;
 }
 
 .pr-item {
@@ -202,6 +205,8 @@ body.admin-bidding-page .container.bidding-page {
     background: var(--ice-surface, #f7fbff);
     cursor: pointer;
     transition: border-color 0.15s, box-shadow 0.15s;
+    height: auto;
+    align-self: start;
 }
 
 .pr-item:hover {
@@ -639,12 +644,19 @@ body.admin-bidding-page .container.bidding-page {
         max-height: none !important;
     }
 
-    /* Cap tall lists so Comparison stays reachable */
+    /* Cap tall lists so Comparison stays reachable; rows stay compact */
     body.admin-bidding-page .bidding-col-body.pr-list,
     body.admin-bidding-page #bids-cards-wrap.bidding-col-body {
         max-height: min(38vh, 280px) !important;
         overflow-y: auto !important;
         -webkit-overflow-scrolling: touch;
+        align-content: start !important;
+        grid-auto-rows: max-content !important;
+    }
+
+    body.admin-bidding-page .pr-item {
+        height: auto !important;
+        align-self: start !important;
     }
 
     body.admin-bidding-page .bidding-col[aria-label="Supplier cost comparison"] {
