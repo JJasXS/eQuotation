@@ -680,7 +680,22 @@ def apply_tenant_env_overrides() -> bool:
                 else:
                     raise RuntimeError(_sm_error_message(secret_ref=oa_ref, tenant_code=code, exc=exc)) from exc
             except Exception as exc:
-                raise RuntimeError(_sm_error_message(secret_ref=oa_ref, tenant_code=code, exc=exc)) from exc
+                # Do not take down the whole site if OpenAI secret is missing/scheduled-delete.
+                # Chat features may be unavailable until the secret is fixed.
+                msg = str(exc)
+                if (os.getenv("OPENAI_API_KEY") or "").strip():
+                    print(
+                        f"[tenant_bootstrap] OpenAI secret {oa_ref!r} failed ({msg}); "
+                        "keeping existing OPENAI_API_KEY.",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"[tenant_bootstrap] OpenAI secret {oa_ref!r} failed ({msg}); "
+                        "continuing without OPENAI_API_KEY.",
+                        flush=True,
+                    )
+                raw_oai = None
 
             if raw_oai is not None and (raw_oai or "").strip():
                 raw_stripped = (raw_oai or "").strip()
