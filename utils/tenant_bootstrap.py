@@ -58,10 +58,8 @@ from botocore.session import Session as BotocoreSession
 
 from utils.sql_api_sigv4 import resolve_sql_api_sigv4_service
 
-# Same default invoke URL as ProAccScanner ``TenantBootstrap:AwsApiBaseUrl``.
-DEFAULT_TENANT_API_BASE_URL = (
-    "https://v2wwsho311.execute-api.ap-southeast-1.amazonaws.com/default/proacc-tenant-config-api"
-)
+# Same default as ProAccScanner ``TenantBootstrap:AwsApiBaseUrl`` — set via env, not hardcoded.
+DEFAULT_TENANT_API_BASE_URL = ""
 
 # In-memory snapshot of last successful AWS tenant payload (license + meta).
 _RUNTIME_LOCK = threading.RLock()

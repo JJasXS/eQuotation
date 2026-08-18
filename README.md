@@ -1,101 +1,86 @@
-# Chatbot Application
+# eQuotation
 
-WhatsApp-style chatbot with order management system built with Flask and Firebird database.
+Quotation, RFQ, and supplier-portal application for SQL Accounting, with a Flask UI and a FastAPI SQL Accounting API layer.
 
-## Setup Instructions
+## Overview
 
-### 1. Install Dependencies
-```bash
+eQuotation lets customers create and submit quotations, staff review them, and suppliers bid on RFQs. Data is stored in a SQL Accounting Firebird company file. Optional OpenAI integration supports conversational order/quotation assistance. Tenant Firebird and SQL Accounting HTTP API credentials are loaded from a tenant-config API and AWS Secrets Manager.
+
+It is intended for companies that already use SQL Accounting and need a browser portal for customers, staff, and suppliers rather than desktop-only quotation entry.
+
+## Key Features
+
+- Role-based sign-in: Customer, Admin/staff, Supplier, plus guest sign-in
+- Email OTP for registered roles
+- Create, draft, submit, review, and cancel quotations
+- Procurement / RFQ flow for suppliers (`routes/procurement_routes.py`)
+- FastAPI SQL Accounting HTTP API (SigV4) mounted under `/eq-sql-api`
+- Firebird company-file integration (`fdb`)
+- OpenAI chat / product-intent helpers
+- Tenant bootstrap (Dynamo-backed HTTP API) and Secrets Manager credential refs
+- PHP compatibility endpoints under `php/` for older clients
+- User guide screenshots in `docs/`
+
+## Architecture
+
+```mermaid
+flowchart TD
+    Browser[Browser Flask templates] --> Flask[Flask main.py]
+    Flask --> FastAPI[FastAPI /eq-sql-api]
+    Flask --> Fb[(SQL Accounting Firebird)]
+    FastAPI --> SqlApi[SQL Accounting HTTP API SigV4]
+    Flask --> TenantApi[Tenant Config API]
+    TenantApi --> Sm[AWS Secrets Manager]
+    Flask --> OpenAi[OpenAI]
+    Flask --> Smtp[SMTP OTP mail]
+```
+
+Flask serves pages and session auth. FastAPI handles SQL Accounting REST operations. Firebird remains the company book; the official SQL Accounting HTTP API is used for quotation posting when configured.
+
+## Tech Stack
+
+- Python 3 / Flask 3
+- FastAPI + Uvicorn + Pydantic
+- Firebird via `fdb`
+- OpenAI Python SDK
+- botocore (Secrets Manager)
+- Optional PHP scripts under `php/`
+
+## Setup
+
+1. Create a virtual environment and install dependencies:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 2. Configure Environment Variables
-Copy `.env.example` to `.env` and update with your values:
-```
-DB_HOST=192.168.100.200
-DB_PATH=C:\eStream\SQLAccounting\DB\ACC-EQUOTE.FDB
-DB_USER=sysdba
-DB_PASSWORD=masterkey
-BASE_API_URL=http://localhost
-OPENAI_API_KEY=your_openai_api_key_here
-OPENAI_MODEL=gpt-3.5-turbo
-```
+2. Copy [`.env.example`](.env.example) to `.env` and fill `TENANT_CODE`, `TENANT_BOOTSTRAP_API_URL`, `DB_PASSWORD`, and `FLASK_SECRET_KEY`. See also [`.env.example.api`](.env.example.api) for API keys.
+3. For local work without AWS, set `TENANT_BOOTSTRAP_SKIP_SECRETS=1` and supply `DB_*` / `SQL_API_*` in `.env`.
+4. Run:
 
-### 3. Initialize Database (First Time Only)
-Run the database initializer to expand message field sizes:
-```bash
-python db_initializer.py
-```
-
-This will:
-- Expand `CHAT_TPLDTL.MESSAGETEXT` from 255 to 4000 characters
-- Expand `CHAT_TPL.LASTMESSAGE` from 255 to 4000 characters
-
-### 4. Start the Application
-```bash
+```powershell
 python main.py
 ```
 
-The application will be available at: **http://localhost:5000**
+Default UI port is `FLASK_PORT` (8880). FastAPI is mounted at `EQ_SQL_API_MOUNT_PATH` (`/eq-sql-api`).
 
-## Order Management Keywords
+More detail: [`docs/setup.md`](docs/setup.md), [`docs/FIREBIRD_SETUP.md`](docs/FIREBIRD_SETUP.md), [`docs/FASTAPI_SETUP.md`](docs/FASTAPI_SETUP.md), [`docs/AUTH_SETUP.md`](docs/AUTH_SETUP.md).
 
-The chatbot recognizes these exact keywords (customizable in [config/order_config.py](config/order_config.py)):
+## Testing
 
-- **Create Order**: `create order`, `new order`, `start order`, `begin order`
-- **Add Items**: `i want`, `add`, `give me` (e.g., "I want 5 apples")
-- **Complete Order**: `complete order`, `finish order`, `done`, `complete`
-- **Remove Items**: `remove`, `delete`, `clear`, `cancel item`
-
-**To customize keywords:** Edit [config/order_config.py](config/order_config.py) and add your own phrases.
-
-## Project Structure
-
-```
-Chatbot/
-├── main.py                     # Flask application
-├── db_initializer.py           # Database schema initialization
-├── .env                        # Environment variables (not in git)
-├── requirements.txt            # Python dependencies
-├── docs/                       # Project documentation and guides
-├── config/                     # Configuration files
-│   ├── order_config.py         # Order keywords & filters (customizable)
-│   ├── chatbot_instructions.txt # GPT system prompt
-│   └── endpoints_config.py     # API endpoint paths
-├── php/                        # PHP API endpoints
-│   ├── db_helper.php
-│   ├── insertOrder.php
-│   ├── insertOrderDetail.php
-│   ├── completeOrder.php
-│   └── ...
-├── templates/                  # HTML templates
-│   └── pages/
-│       └── userApproval.html
-└── static/                     # CSS/JS assets
-    ├── css/
-    │   ├── chat.css            # Shared layout styles (quotation popup, etc.)
-    │   └── hamburger_menu.css
-    └── js/
-        ├── quotationChatPopup.js
-        └── hamburger_menu.js
+```powershell
+pip install -r requirements-dev.txt
+pytest
 ```
 
-## Features
+## Security
 
-- WhatsApp-style dark theme UI
-- OpenAI GPT-3.5 integration
-- Order management system (ORDER_TPL, ORDER_TPLDTL)
-- Product catalog with pricing
-- Conversational order creation
-- Multi-chat support
-- Hamburger menu navigation
-- Approvals page (Pending/Completed/Cancelled tabs)
+- Never commit `.env` or `appsettings.Local.json`.
+- `FLASK_SECRET_KEY` in `appsettings.json` is a development placeholder only.
+- Rotate any tenant API URL or Firebird password that previously lived in public git history.
 
-## Database Tables
+## License
 
-- **CHAT_TPL**: Chat sessions
-- **CHAT_TPLDTL**: Chat messages
-- **ORDER_TPL**: Order headers (DRAFT/PENDING/COMPLETED/CANCELLED status)
-- **ORDER_TPLDTL**: Order line items
-- **STOCKITEM**: Product catalog
-- **STOCKVALUE**: Product pricing
+[ADD INFORMATION]
