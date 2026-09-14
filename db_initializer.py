@@ -1896,6 +1896,54 @@ def _ensure_ph_po_udf_postatus_column(conn):
         cur.close()
 
 
+def _ensure_ph_po_approval_slot_columns(conn):
+    """Ensure PH_PO multi-level approval slot UDFs for ApprovalPO sequential sign-off."""
+    if not _relation_exists(conn, "PH_PO"):
+        print("[DB INIT] PH_PO not found; approval slot columns ensure skipped")
+        return False
+
+    columns = [
+        ("UDF_POAPPL1", "VARCHAR(80)"),
+        ("UDF_POAPPL1DT", "TIMESTAMP"),
+        ("UDF_POAPPL2", "VARCHAR(80)"),
+        ("UDF_POAPPL2DT", "TIMESTAMP"),
+        ("UDF_POAPPL3", "VARCHAR(80)"),
+        ("UDF_POAPPL3DT", "TIMESTAMP"),
+    ]
+
+    cur = conn.cursor()
+    try:
+        added = False
+        for name, sql_type in columns:
+            cur.execute(
+                """
+                SELECT f.RDB$FIELD_NAME
+                FROM RDB$RELATION_FIELDS f
+                WHERE f.RDB$RELATION_NAME = 'PH_PO' AND f.RDB$FIELD_NAME = ?
+                """,
+                (name,),
+            )
+            if cur.fetchone():
+                continue
+
+            conn.commit()
+            cur.execute(f"ALTER TABLE PH_PO ADD {name} {sql_type}")
+            conn.commit()
+            print(f"[DB INIT] {name} column added to PH_PO")
+            added = True
+
+        return True
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "already exists" in error_msg or "duplicate" in error_msg:
+            print("[DB INIT] PH_PO approval slot columns already exist")
+            return True
+        print(f"[DB INIT WARNING] Could not add PH_PO approval slot columns: {e}")
+        return False
+    finally:
+        cur.close()
+
+
 def _ensure_ph_pq_status_trigger(conn):
     """Trigger on PH_PQ that enforces UDF_PQAPPROVED based on UDF_STATUS.
 
@@ -2424,6 +2472,7 @@ def initialize_database(db_path, db_user, db_password):
 
         # ApprovalPO: PO header approval status (PENDING / APPROVED / CANCELLED / REJECTED)
         _ensure_ph_po_udf_postatus_column(conn)
+        _ensure_ph_po_approval_slot_columns(conn)
 
         # Ensure PH_PQ status/approval triggers exist
         _ensure_ph_pq_status_trigger(conn)
