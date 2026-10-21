@@ -1392,6 +1392,21 @@ def add_no_cache_headers(response):
     return response
 
 
+@app.after_request
+def rewrite_api_non_json_responses(response):
+    """API and PHP proxy routes stay JSON if a handler redirects to login or renders HTML."""
+    from utils.api_json_errors import rewrite_api_html_response
+
+    path = request.path or ""
+    rewritten = rewrite_api_html_response(path, response)
+    if rewritten is not response:
+        print(
+            f"[API JSON] replaced non-JSON API response path={path} status={response.status_code}",
+            flush=True,
+        )
+    return rewritten
+
+
 def _build_sql_api_auth_headers():
     """Build optional SQL API auth headers when keys are configured."""
     access_key = (os.getenv('SQL_API_ACCESS_KEY') or os.getenv('API_ACCESS_KEY') or '').strip()
