@@ -10026,14 +10026,20 @@ function buildViewPurchaseRequestDetailHtml(header) {
                         supplierList = payload.data;
 
                         console.log('[Suppliers] Loaded', supplierList.length, 'suppliers');
+                        const errEl = document.getElementById('pr-supplier-load-error');
+                        if (errEl) {
+                            errEl.textContent = '';
+                            errEl.style.display = 'none';
+                        }
 
                     } else {
 
                         supplierList = [];
                         console.warn('[Suppliers] Failed to load:', payload.error || payload);
-                        const hint = document.querySelector('.pr-supplier-invite-hint');
-                        if (hint) {
-                            hint.textContent = 'Supplier list could not be loaded. Check SQL API /supplier and refresh.';
+                        const errEl = document.getElementById('pr-supplier-load-error');
+                        if (errEl) {
+                            errEl.textContent = 'Supplier list could not be loaded. Check SQL API /supplier and refresh.';
+                            errEl.style.display = 'block';
                         }
 
                     }
@@ -10168,17 +10174,27 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
         }
 
+        function _updateSupplierSelectedCounts() {
+            const n = selectedSuppliers.length;
+            const badge = document.getElementById('pr-supplier-selected-badge');
+            const countEl = document.getElementById('pr-supplier-selected-count');
+            const selectedBlock = document.querySelector('.pr-supplier-block--selected');
+            if (badge) badge.textContent = n === 1 ? '1 selected' : `${n} selected`;
+            if (countEl) countEl.textContent = String(n);
+            if (selectedBlock) selectedBlock.dataset.count = String(n);
+        }
+
         function _renderSupplierTable() {
 
             const tbody = document.getElementById('pr-supplier-tbody');
 
             if (!tbody) return;
 
-            const emptyRow = document.getElementById('pr-supplier-empty-row');
+            _updateSupplierSelectedCounts();
 
             if (!selectedSuppliers.length) {
 
-                tbody.innerHTML = '<tr id="pr-supplier-empty-row"><td colspan="5" class="pr-supplier-empty">No suppliers added. Search and select above.</td></tr>';
+                tbody.innerHTML = '<tr id="pr-supplier-empty-row"><td colspan="5" class="pr-supplier-empty">No suppliers selected</td></tr>';
 
                 return;
 
