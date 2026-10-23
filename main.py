@@ -1508,6 +1508,32 @@ def api_admin_http_cache_diagnostics():
     })
 
 
+def _sl_iv_codes_with_invoice():
+    """Return customer CODEs that have at least one dated SL_IV row (local Firebird)."""
+    from utils.db_utils import db_connection
+
+    with db_connection() as con:
+        cur = con.cursor()
+        cur.execute(
+            """
+            SELECT DISTINCT TRIM(CODE)
+            FROM SL_IV
+            WHERE DOCDATE IS NOT NULL
+              AND CODE IS NOT NULL
+              AND TRIM(CODE) <> ''
+            """
+        )
+        return {str(row[0]).strip() for row in (cur.fetchall() or []) if row and row[0]}
+
+
+def _active_customer_has_invoice(code, invoice_map, codes_with_invoice):
+    """True when an Active (A) customer should count toward pie slice Active (not AWO)."""
+    if invoice_map:
+        inv = invoice_map.get(code)
+        return bool(inv and inv.get('days_ago_label') != 'No invoice')
+    return code in codes_with_invoice
+
+
 @app.route('/api/admin/customer_status_summary', methods=['GET'])
 @api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
 def customer_status_summary():
@@ -1528,8 +1554,8 @@ def customer_status_summary():
 
     try:
         customers = _fetch_all_customers_from_sql_api()
-        # Do not trigger nested invoice-aging API on dashboard load.
-        # If invoice aging data already exists in cache, reuse it to split A/AWO.
+        # Prefer cached invoice-aging map when present; otherwise query SL_IV locally.
+        # Do not call nested /api/admin/invoice_aging_summary from dashboard load.
         invoice_map: dict[str, Any] = {}
         cached_invoice = _dashboard_cache_get('invoice_aging_summary_full')
         if isinstance(cached_invoice, dict):
@@ -1539,15 +1565,26 @@ def customer_status_summary():
                 else []
             )
             if isinstance(cached_items, list):
-                invoice_map = {str(item.get('code') or ''): item for item in cached_items if isinstance(item, dict)}
+                invoice_map = {
+                    str(item.get('code') or ''): item
+                    for item in cached_items
+                    if isinstance(item, dict)
+                }
+
+        codes_with_invoice: set[str] = set()
+        if not invoice_map:
+            try:
+                codes_with_invoice = _sl_iv_codes_with_invoice()
+            except Exception as inv_exc:
+                print(f'[CUSTOMER STATUS] SL_IV invoice lookup failed: {inv_exc}', flush=True)
+                codes_with_invoice = set()
 
         for customer in customers:
             status = customer.get('status', '')
             code = customer.get('code', '')
-            # Only split 'Active' into two groups
+            # Only split 'Active' into two groups (Active vs Active w/o invoice).
             if status == 'A':
-                inv = invoice_map.get(code)
-                if inv and inv.get('days_ago_label') != 'No invoice':
+                if _active_customer_has_invoice(code, invoice_map, codes_with_invoice):
                     counts['A'] += 1
                 else:
                     counts['AWO'] += 1
@@ -1677,9 +1714,19 @@ def invoice_aging_summary():
                 'today': today.isoformat(),
             }
         }
-        # Keep a cached full map for other dashboard summaries (without causing nested API calls).
-        if offset == 0 and limit >= total_codes:
-            _dashboard_cache_set('invoice_aging_summary_full', payload_out)
+        # Always cache the full customer/invoice map for dashboard A/AWO split
+        # (paged responses use limit=10 by default and must not drop the full list).
+        _dashboard_cache_set(
+            'invoice_aging_summary_full',
+            {
+                'success': True,
+                'data': {
+                    'items': latest_by_code,
+                    'total_codes': total_codes,
+                    'today': today.isoformat(),
+                },
+            },
+        )
         return jsonify(payload_out), 200
     except requests.exceptions.RequestException as exc:
         return jsonify({'success': False, 'error': f'Failed to reach SQL API /customer: {exc}'}), 502
