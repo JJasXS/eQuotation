@@ -38,7 +38,8 @@ from utils import (
     set_ai_config,
     extract_product_and_quantity, get_product_price, set_order_config,
     resolve_numbered_reference, get_selling_price,
-    create_or_update_quotation, save_draft_quotation, fetch_quotation_details_for_email,
+    create_or_update_quotation, save_draft_quotation, list_draft_quotations,
+    fetch_quotation_details_for_email,
     peek_next_qt_docno,
 )
 from utils.procurement_stock_card_queries import (
@@ -582,13 +583,18 @@ def render_protected_template(
     return render_template(template_name, **template_context)
 
 
+def _strip_customer_code(value):
+    text = str(value or '').strip()
+    return text or None
+
+
 def get_current_customer_code(*, resolve_missing=False):
-    """Return current session customer code, optionally resolving it from AR_CUSTOMERBRANCH by user email."""
-    customer_code = session.get('customer_code')
+    """Return current session customer code, optionally resolving it from the customer email."""
+    customer_code = _strip_customer_code(session.get('customer_code'))
     if customer_code or not resolve_missing:
         return customer_code
 
-    user_email = session.get('user_email')
+    user_email = str(session.get('user_email') or '').strip()
     if not user_email:
         return None
 
@@ -597,13 +603,17 @@ def get_current_customer_code(*, resolve_missing=False):
     try:
         con = get_db_connection()
         cur = con.cursor()
-        cur.execute('SELECT CODE FROM AR_CUSTOMERBRANCH WHERE EMAIL = ?', (user_email,))
-        row = cur.fetchone()
-        if row and row[0]:
-            customer_code = row[0]
-            session.pop('customer_company_name', None)
-            session['customer_code'] = customer_code
-            return customer_code
+        for sql in (
+            'SELECT CODE FROM AR_CUSTOMERBRANCH WHERE UPPER(TRIM(EMAIL)) = UPPER(TRIM(?))',
+            'SELECT CODE FROM AR_CUSTOMER WHERE UPPER(TRIM(EMAIL)) = UPPER(TRIM(?))',
+        ):
+            cur.execute(sql, (user_email,))
+            row = cur.fetchone()
+            customer_code = _strip_customer_code(row[0] if row else None)
+            if customer_code:
+                session.pop('customer_company_name', None)
+                session['customer_code'] = customer_code
+                return customer_code
         return None
     finally:
         if cur:
@@ -631,7 +641,7 @@ def _resolve_session_customer_company_name():
         con = get_db_connection()
         cur = con.cursor()
         cur.execute(
-            'SELECT FIRST 1 COMPANYNAME FROM AR_CUSTOMER WHERE CODE = ?',
+            'SELECT FIRST 1 COMPANYNAME FROM AR_CUSTOMER WHERE UPPER(TRIM(CODE)) = UPPER(TRIM(?))',
             (cc,),
         )
         row = cur.fetchone()
@@ -9623,32 +9633,19 @@ def api_get_my_draft_quotations():
         return jsonify({'success': False, 'error': 'Customer code not found'}), 400
 
     try:
-        con = get_db_connection()
-        cur = con.cursor()
-        cur.execute(
-            '''
-            SELECT DOCKEY, DOCNO, DOCDATE, DESCRIPTION, DOCAMT, VALIDITY, TERMS
-            FROM SL_QTDRAFT
-            WHERE CODE = ?
-            ORDER BY DOCDATE DESC, DOCKEY DESC
-            ''',
-            (customer_code,)
-        )
-        rows = cur.fetchall()
-        cur.close()
-        con.close()
-        drafts = []
-        for row in rows:
-            drafts.append({
-                'DOCKEY': int(row[0]) if row[0] is not None else None,
-                'DOCNO': row[1],
-                'DOCDATE': str(row[2]) if row[2] is not None else None,
-                'DESCRIPTION': row[3],
-                'DOCAMT': float(row[4]) if row[4] is not None else 0,
-                'VALIDITY': str(row[5]) if row[5] is not None else None,
-                'CREDITTERM': str(row[6]) if row[6] is not None else '',
-            })
+        drafts = list_draft_quotations(customer_code=customer_code)
         return jsonify({'success': True, 'data': drafts})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/get_all_draft_quotations')
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_get_all_draft_quotations():
+    """Get all saved drafts from SL_QTDRAFT for admin View Quotation Drafts."""
+    try:
+        drafts = list_draft_quotations(customer_code=None)
+        return jsonify({'success': True, 'count': len(drafts), 'data': drafts})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -9768,6 +9765,8 @@ def api_get_my_quotations():
     if not customer_code:
         return jsonify({'success': False, 'error': 'Customer code not found. Please logout and login again.'}), 400
 
+    con = None
+    cur = None
     try:
         con = get_db_connection()
         cur = con.cursor()
@@ -9793,19 +9792,19 @@ def api_get_my_quotations():
             if opt_col in sl_qt_cols and opt_col not in fields:
                 fields.append(opt_col)
 
+        customer_code = _strip_customer_code(customer_code)
         company_name = _resolve_session_customer_company_name() if 'COMPANYNAME' in sl_qt_cols else ''
+        where_clause = 'UPPER(TRIM(q.CODE)) = UPPER(TRIM(?))'
+        where_params = (customer_code,)
         if company_name:
             where_clause = '''(
-                q.CODE = ?
+                UPPER(TRIM(q.CODE)) = UPPER(TRIM(?))
                 OR (
                     TRIM(COALESCE(q.COMPANYNAME, '')) <> ''
                     AND UPPER(TRIM(q.COMPANYNAME)) = UPPER(TRIM(?))
                 )
             )'''
             where_params = (customer_code, company_name)
-        else:
-            where_clause = 'q.CODE = ?'
-            where_params = (customer_code,)
 
         select_sql = f'''
             SELECT {', '.join('q.' + f for f in fields)}
@@ -9815,8 +9814,6 @@ def api_get_my_quotations():
         '''
         cur.execute(select_sql, where_params)
         rows = cur.fetchall()
-        cur.close()
-        con.close()
 
         quotations = []
         for row in rows:
@@ -9874,7 +9871,19 @@ def api_get_my_quotations():
         _attach_creator_names_to_quotations(cur, quotations)
         return jsonify({'success': True, 'data': quotations})
     except Exception as e:
+        print(f"[GET MY QUOTATIONS] {e}", flush=True)
         return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if con:
+                con.close()
+        except Exception:
+            pass
 
 @app.route('/api/get_quotation_details')
 @api_login_required(unauth_message='Unauthorized')
@@ -10064,8 +10073,6 @@ def api_get_quotation_details():
             'success': False,
             'error': str(e),
             'dockey': dockey,
-            'customer_code': customer_code,
-            'session': dict(session)
         }), 500
 
 @app.route('/api/admin/get_all_quotations')
@@ -10957,8 +10964,6 @@ def _merge_session_login_customer_udf_meta(payload):
     return payload
 
 
-@app.route('/api/get_user_info')
-@api_login_required(unauth_message='Unauthorized')
 def _normalize_customer_info(payload, customer_code=''):
     if isinstance(payload, list) and payload:
         first = payload[0]
@@ -11124,6 +11129,8 @@ def _debug_log_user_info_payload(source, payload):
     print(f"[DEBUG] get_user_info: Final payload source={source} summary={summary}", flush=True)
 
 
+@app.route('/api/get_user_info')
+@api_login_required(unauth_message='Unauthorized')
 def api_get_user_info():
     """Return customer info for create-quotation: SQL API when configured, else local Firebird AR_* tables."""
     customer_code = get_current_customer_code(resolve_missing=True)

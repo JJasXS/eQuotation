@@ -652,6 +652,13 @@ async function setupCompanyFilter() {
     dropdown.innerHTML = '<option value="">All Companies</option>' +
         companies.map(name => `<option value="${name}">${name}</option>`).join('');
 
+    // Keep dropdown in sync after shell rebuild; drop stale filters that are no longer listed.
+    dropdown.value = companyFilter || '';
+    if (companyFilter && dropdown.value !== companyFilter) {
+        companyFilter = '';
+        dropdown.value = '';
+    }
+
     dropdown.onchange = function() {
         companyFilter = dropdown.value;
         listVisibleLimit = { drafts: 5, pending: 5, reviewed: 5, cancelled: 5 };
@@ -666,6 +673,26 @@ async function setupCompanyFilter() {
         refreshQuotationListView();
         setAvqFiltersDrawerOpen(false);
     };
+}
+
+/** Merge SL_QTDRAFT rows into the Drafts tab cache (customer + admin). */
+function appendSlQtDraftRows(draftRes) {
+    if (!draftRes) {
+        return;
+    }
+    if (draftRes.success === false) {
+        console.error('Draft quotations failed to load:', draftRes.error || draftRes);
+        return;
+    }
+    const rows = Array.isArray(draftRes.data) ? draftRes.data : [];
+    rows.forEach((d) => {
+        draftsQuotationsCache.push({
+            ...d,
+            _sourceSlQtDraft: true,
+            COMPANYNAME: d.COMPANYNAME || '',
+            CODE: d.CODE || '',
+        });
+    });
 }
 
 function setupDateFilter() {
@@ -834,12 +861,18 @@ async function loadQuotations() {
     try {
         quotationDetailCache.clear();
         const mine = isCustomerMyQuotationsPage();
+        const readJson = (response) => (
+            window.EQCore && typeof window.EQCore.readJsonResponse === 'function'
+                ? window.EQCore.readJsonResponse(response)
+                : response.json()
+        );
         let allQuotations = [];
+        let draftRes = null;
 
         if (mine) {
-            const [mainRes, draftRes] = await Promise.all([
-                fetch('/api/get_my_quotations').then((r) => r.json()),
-                fetch('/api/get_my_draft_quotations').then((r) => r.json()),
+            const [mainRes, myDraftRes] = await Promise.all([
+                fetch('/api/get_my_quotations').then(readJson),
+                fetch('/api/get_my_draft_quotations').then(readJson),
             ]);
             if (!mainRes.success) {
                 const message = mainRes.error ? String(mainRes.error) : 'Failed to load quotations';
@@ -847,59 +880,38 @@ async function loadQuotations() {
                 return;
             }
             allQuotations = mainRes.data || [];
-            draftsQuotationsCache = [];
-            pendingQuotationsCache = [];
-            reviewedQuotationsCache = [];
-            cancelledQuotationsCache = [];
-            allQuotations.forEach((qt) => {
-                const b = quotationWorkflowBucket(qt);
-                if (b === 'drafts') {
-                    draftsQuotationsCache.push(qt);
-                } else if (b === 'pending') {
-                    pendingQuotationsCache.push(qt);
-                } else if (b === 'cancelled') {
-                    cancelledQuotationsCache.push(qt);
-                } else {
-                    reviewedQuotationsCache.push(qt);
-                }
-            });
-            const slDrafts = draftRes && draftRes.success ? draftRes.data || [] : [];
-            slDrafts.forEach((d) => {
-                draftsQuotationsCache.push({
-                    ...d,
-                    _sourceSlQtDraft: true,
-                    COMPANYNAME: d.COMPANYNAME || '',
-                });
-            });
+            draftRes = myDraftRes;
         } else {
-            const response = await fetch('/api/admin/get_all_quotations');
-            const data = await response.json();
-
-            if (!data.success) {
-                const message = data.error ? String(data.error) : 'Failed to load quotations';
+            const [mainRes, adminDraftRes] = await Promise.all([
+                fetch('/api/admin/get_all_quotations').then(readJson),
+                fetch('/api/admin/get_all_draft_quotations').then(readJson),
+            ]);
+            if (!mainRes.success) {
+                const message = mainRes.error ? String(mainRes.error) : 'Failed to load quotations';
                 content.innerHTML = `<div style="padding: 20px; text-align: center; color: #ff6b6b;">${message}</div>`;
                 return;
             }
-
-            allQuotations = data.data || [];
-
-            draftsQuotationsCache = [];
-            pendingQuotationsCache = [];
-            reviewedQuotationsCache = [];
-            cancelledQuotationsCache = [];
-            allQuotations.forEach((qt) => {
-                const b = quotationWorkflowBucket(qt);
-                if (b === 'drafts') {
-                    draftsQuotationsCache.push(qt);
-                } else if (b === 'pending') {
-                    pendingQuotationsCache.push(qt);
-                } else if (b === 'cancelled') {
-                    cancelledQuotationsCache.push(qt);
-                } else {
-                    reviewedQuotationsCache.push(qt);
-                }
-            });
+            allQuotations = mainRes.data || [];
+            draftRes = adminDraftRes;
         }
+
+        draftsQuotationsCache = [];
+        pendingQuotationsCache = [];
+        reviewedQuotationsCache = [];
+        cancelledQuotationsCache = [];
+        allQuotations.forEach((qt) => {
+            const b = quotationWorkflowBucket(qt);
+            if (b === 'drafts') {
+                draftsQuotationsCache.push(qt);
+            } else if (b === 'pending') {
+                pendingQuotationsCache.push(qt);
+            } else if (b === 'cancelled') {
+                cancelledQuotationsCache.push(qt);
+            } else {
+                reviewedQuotationsCache.push(qt);
+            }
+        });
+        appendSlQtDraftRows(draftRes);
 
         listVisibleLimit = { drafts: 5, pending: 5, reviewed: 5, cancelled: 5 };
 
@@ -908,10 +920,12 @@ async function loadQuotations() {
         content.innerHTML = html;
         if (!mine) {
             setupDateFilter();
+            await setupCompanyFilter();
             setupAvqFiltersDrawerDrag();
         } else {
             adminDateFrom = '';
             adminDateTo = '';
+            companyFilter = '';
         }
         const urlTab = readTabFromUrl();
         if (urlTab) {
@@ -920,7 +934,12 @@ async function loadQuotations() {
         syncTabToUrl(getActiveQuotationTab());
         refreshQuotationListView();
     } catch (error) {
-        content.innerHTML = '<div style="padding: 20px; text-align: center; color: #ff6b6b;">Failed to load quotations.</div>';
+        if (error && error.authExpired) {
+            window.location.assign('/login');
+            return;
+        }
+        const message = (error && error.message) ? String(error.message) : 'Failed to load quotations.';
+        content.innerHTML = `<div style="padding: 20px; text-align: center; color: #ff6b6b;">${escapeHtml(message)}</div>`;
         console.error('Error loading quotations:', error);
     }
 }
@@ -1227,13 +1246,16 @@ function editQuotation(dockey, options = {}) {
         return;
     }
     const id = encodeURIComponent(dockey);
+    const source = (options.source || '').toLowerCase();
+    const row = findQuotationRowInCaches(dockey, filterTab);
+    const isSlQtDraft = source === 'slqtdraft' || (row && row._sourceSlQtDraft);
+    if (isSlQtDraft) {
+        // SL_QTDRAFT edits use the create-quotation draft loader (same as customer Drafts).
+        window.location.href = `/create-quotation?draftDockey=${id}`;
+        return;
+    }
     if (isCustomerMyQuotationsPage()) {
-        const source = (options.source || '').toLowerCase();
-        const row = findQuotationRowInCaches(dockey, filterTab);
-        const isSlQtDraft = source === 'slqtdraft' || (row && row._sourceSlQtDraft);
-        window.location.href = isSlQtDraft
-            ? `/create-quotation?draftDockey=${id}`
-            : `/create-quotation?dockey=${id}`;
+        window.location.href = `/create-quotation?dockey=${id}`;
         return;
     }
     window.location.href = `/admin/update-quotation?dockey=${id}`;
@@ -1461,7 +1483,4 @@ function showErrorActive(message) {
 
 document.addEventListener('DOMContentLoaded', async () => {
     await loadQuotations();
-    if (!isCustomerMyQuotationsPage()) {
-        await setupCompanyFilter();
-    }
 });
