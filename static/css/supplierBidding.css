@@ -819,10 +819,13 @@ body.supplier-bidding-page .sb-invite-tabs--top .eq-line-tab.is-active {
 }
 
 .sb-invites-cards {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+    display: block;
     flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    border: 1px solid var(--ice-border-soft, #c5dce9);
+    border-radius: 10px;
+    background: var(--ice-surface, #f7fbff);
 }
 
 .sb-invite-card {
@@ -970,6 +973,31 @@ body.supplier-bidding-page .sb-invite-tabs--top .eq-line-tab.is-active {
     position: sticky;
     top: 0;
     z-index: 2;
+}
+
+.sb-invites-table .sb-col-pr { width: 24%; }
+.sb-invites-table .sb-col-desc { width: 36%; }
+.sb-invites-table .sb-col-date { width: 18%; }
+.sb-invites-table .sb-col-lines { width: 10%; text-align: right; }
+
+.sb-invite-row__desc,
+.sb-invite-row__lines {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sb-invite-row__lines {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.sb-invite-row__ref {
+    display: block;
+    margin-top: 2px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ice-text-muted, #5a7a94);
 }
 
 .sb-invites-col--pr {
@@ -1777,6 +1805,26 @@ body.supplier-bidding-page .action-btn {
     display: inline-block;
     box-sizing: border-box;
     line-height: 1.25;
+}
+
+body.supplier-bidding-page .sb-signed-in {
+    font-weight: 600;
+    color: var(--ice-heading, #1a4d6e);
+    white-space: nowrap;
+}
+
+body.supplier-bidding-page .action-btn--icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    line-height: 0;
+}
+
+body.supplier-bidding-page .action-btn--icon svg {
+    display: block;
 }
 
 body.supplier-bidding-page .action-btn--signout {

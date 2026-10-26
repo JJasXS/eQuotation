@@ -8,19 +8,23 @@
     <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
     <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515_icy">
     <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260604_tabs_size">
-    <link rel="stylesheet" href="/static/css/supplierBidding.css?v=20261026_headtabs">
+    <link rel="stylesheet" href="/static/css/supplierBidding.css?v=20261026_header">
     <script src="/static/js/eq_core.js?v=20260813_core"></script>
 </head>
 <body class="equotation-icy-theme supplier-bidding-page">
     <div class="container">
         <div class="main-content">
             {% set page_header_title = "Supplier > Bidding" %}
+            {% set signed_in = user_name or "" %}
+            {% set short_name = signed_in.split("@")[0] if "@" in signed_in else (signed_in or "—") %}
             {% set page_header_subtitle_is_html = true %}
             {%- set page_header_subtitle -%}
-            Logged in as {{ user_name or "—" }} | Supplier Code: <strong id="supplier-code-text">{{ supplier_code or "—" }}</strong>
+            <span class="sb-signed-in" title="{{ signed_in }}">{{ short_name }} · {{ supplier_code or "—" }}</span>
             {%- endset -%}
             {% set page_header_right %}
-            <button class="action-btn" type="button" onclick="loadInvitations()">Refresh</button>
+            <button class="action-btn action-btn--icon" type="button" onclick="loadInvitations()" aria-label="Reload invitations" title="Reload">
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.1A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+            </button>
             <a href="/logout" class="action-btn action-btn--signout">Sign out</a>
             {% endset %}
             {% include 'components/app_page_header.html' %}
@@ -193,7 +197,7 @@
             const list = invitesListEl();
             if (!list) return;
             const rid = requestId == null ? null : Number(requestId);
-            list.querySelectorAll('.sb-invite-card').forEach((row) => {
+            list.querySelectorAll('.sb-invite-row').forEach((row) => {
                 const id = Number(row.getAttribute('data-request-id') || 0);
                 row.classList.toggle('is-selected', rid != null && !Number.isNaN(rid) && id === rid);
             });
@@ -215,7 +219,7 @@
             window._sbInviteClicksBound = true;
             document.addEventListener('keydown', (e) => {
                 if (e.key !== 'Enter' && e.key !== ' ') return;
-                const row = e.target.closest('#invites-list .sb-invite-card');
+                const row = e.target.closest('#invites-list .sb-invite-row');
                 if (!row) return;
                 e.preventDefault();
                 openInviteFromRow(row);
@@ -581,71 +585,48 @@
                 '</span>' +
                 totalHint +
                 '</div>' +
-                '<div class="sb-invites-cards" role="list">' +
+                '<div class="sb-invites-cards">' +
+                '<table class="sb-invites-table">' +
+                '<thead><tr>' +
+                '<th class="sb-invites-th sb-col-pr">PR</th>' +
+                '<th class="sb-invites-th sb-col-desc">Description</th>' +
+                '<th class="sb-invites-th sb-col-date">Invited</th>' +
+                '<th class="sb-invites-th sb-col-date">Need by</th>' +
+                '<th class="sb-invites-th sb-col-lines">Lines</th>' +
+                '</tr></thead><tbody>' +
                 cardsHtml +
-                '</div></div>'
+                '</tbody></table></div></div>'
             );
         }
 
-        function inviteFact(label, value) {
+        function inviteCell(value) {
             const text = String(value == null ? '' : value).trim();
-            if (!text || text === '-') return '';
-            return '<span class="sb-invite-card__fact"><em>' + escapeHtml(label) + '</em>' + escapeHtml(text) + '</span>';
-        }
-
-        function inviteMoney(value) {
-            const n = Number(value);
-            if (!Number.isFinite(n)) return '';
-            return n.toFixed(2);
+            if (!text || text === '-' || text === '---') return '—';
+            return escapeHtml(text);
         }
 
         function renderInviteCard(row, activeRid) {
-            const bidStatus = row.bidStatus || row.inviteStatus || 'OPEN';
-            const bidStatusLabel = displayBidStatus(bidStatus);
-            const stClass = chipClass(bidStatusLabel);
             const inviteClosed = String(row.inviteStatus || '').toUpperCase() === 'CLOSED';
             const rdoc = Number(row.requestDockey);
             const sel = activeRid != null && rdoc === activeRid;
             const prLabel = escapeHtml(row.requestNumber || 'PR-' + row.requestDockey);
-            const hasBid = row.bidId != null && Number(row.bidId) > 0;
-            const blurb = String(row.requestDescription || row.firstItem || '').trim();
             const lineCount = Number(row.lineCount || row.bidLineCount || 0);
-            const lineLabel = lineCount > 0 ? (lineCount === 1 ? '1 line' : lineCount + ' lines') : '';
-            const facts = [
-                inviteFact('Invited', row.inviteAt),
-                inviteFact('Need by', row.requestDeliveryDate),
-                inviteFact('Project', row.project),
-                inviteFact('Lines', lineLabel),
-                hasBid ? inviteFact('Bid', '#' + row.bidId) : '',
-                inviteFact('Bid total', inviteMoney(row.bidTotalAmount)),
-            ].filter(Boolean).join('');
-            const blurbHtml = blurb
-                ? '<p class="sb-invite-card__blurb">' + escapeHtml(blurb) + '</p>'
-                : '';
+            const lineLabel = lineCount > 0 ? String(lineCount) : '—';
+            const desc = String(row.requestDescription || row.firstItem || '').trim();
             return (
-                '<article class="sb-invite-card' +
+                '<tr class="sb-invite-row' +
                 (sel ? ' is-selected' : '') +
                 '" data-request-id="' +
                 rdoc +
                 '" data-invite-closed="' +
                 (inviteClosed ? '1' : '0') +
-                '" role="listitem button" tabindex="0" onclick="sbOpenInviteRow(this)" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();sbOpenInviteRow(this);}">' +
-                '<div class="sb-invite-card__head">' +
-                '<div class="sb-invite-card__title-block">' +
-                '<span class="sb-invite-card__pr">' +
-                prLabel +
-                '</span>' +
-                '<span class="sb-invite-card__ref">Request #' +
-                escapeHtml(String(rdoc)) +
-                '</span></div>' +
-                '<span class="status-chip ' +
-                stClass +
-                '">' +
-                escapeHtml(bidStatusLabel) +
-                '</span></div>' +
-                blurbHtml +
-                (facts ? '<div class="sb-invite-card__meta">' + facts + '</div>' : '') +
-                '</article>'
+                '" tabindex="0" onclick="sbOpenInviteRow(this)">' +
+                '<td class="sb-invite-row__pr" title="' + prLabel + '">' + prLabel +
+                '<span class="sb-invite-row__ref">#' + escapeHtml(String(rdoc)) + '</span></td>' +
+                '<td class="sb-invite-row__desc" title="' + escapeHtml(desc) + '">' + inviteCell(desc) + '</td>' +
+                '<td class="sb-invite-row__date">' + inviteCell(row.inviteAt) + '</td>' +
+                '<td class="sb-invite-row__date">' + inviteCell(row.requestDeliveryDate) + '</td>' +
+                '<td class="sb-invite-row__lines">' + lineLabel + '</td></tr>'
             );
         }
 
