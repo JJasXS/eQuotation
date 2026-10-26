@@ -4040,6 +4040,30 @@ def _fetch_stock_items_cached():
     )
 
 
+@app.route('/api/search_stock_items')
+@api_login_required(unauth_message='Unauthorized')
+def api_search_stock_items():
+    """Short ST_ITEM search for product pickers. Never returns the full catalog."""
+    query = (request.args.get('q') or '').strip()
+    if len(query) < 1:
+        return jsonify({'success': True, 'items': []})
+    con = None
+    cur = None
+    try:
+        from utils.sql_query_helpers import search_stock_items
+
+        con = get_db_connection()
+        cur = con.cursor()
+        return jsonify({'success': True, 'items': search_stock_items(cur, query, limit=40)})
+    except Exception as exc:
+        return jsonify({'success': False, 'error': str(exc), 'items': []}), 500
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
+
+
 @app.route('/api/get_stock_items')
 @api_login_required(unauth_message='Unauthorized')
 def api_get_stock_items():
@@ -8961,7 +8985,6 @@ def api_get_product_price():
                 catalog_row = find_catalog_stock_item_prefer_sql_api(
                     code=item_code,
                     description=description,
-                    cached_items=_fetch_stock_items_cached(),
                 )
                 code_for_detail = item_code or str(
                     (catalog_row or {}).get("CODE") or (catalog_row or {}).get("code") or ""
@@ -9547,17 +9570,6 @@ def api_create_quotation():
         print(f"DEBUG [Flask api_create_quotation]: No items provided", flush=True)
         return jsonify({'success': False, 'error': 'At least one item is required'}), 400
 
-    try:
-        from utils.sql_api_customer import sql_api_currency_and_code
-        _cc_preview = sql_api_currency_and_code(str(customer_code or "").strip())
-        print(
-            f"DEBUG [Flask api_create_quotation]: SQL API GET /customer currencycode="
-            f"{_cc_preview.get('currencycode')!r} httpStatus={_cc_preview.get('httpStatus')!r}",
-            flush=True,
-        )
-    except Exception as _cc_exc:
-        print(f"DEBUG [Flask api_create_quotation]: SQL API currency preview failed: {_cc_exc}", flush=True)
-    
     try:
         if dockey:
             print(f"DEBUG [Flask]: UPDATING quotation - dockey={dockey}", flush=True)

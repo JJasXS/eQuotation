@@ -1118,17 +1118,6 @@ def _build_salesquotation_payload(customer_code, data, *, doc_no: str):
             blob = item.get(blob_key)
             if isinstance(blob, dict):
                 stock_master.update(blob)
-        if not stock_master and (item_code or product_desc):
-            try:
-                from utils.stock_items_catalog import find_catalog_stock_item_prefer_sql_api
-
-                hit = find_catalog_stock_item_prefer_sql_api(
-                    code=item_code, description=product_desc
-                )
-                if isinstance(hit, dict):
-                    stock_master = hit
-            except Exception:
-                pass
 
         qty = _as_decimal(item.get("qty") or 0)
         unit_price = _as_decimal(item.get("price") or 0)

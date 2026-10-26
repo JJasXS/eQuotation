@@ -91,10 +91,9 @@ def fetch_stock_item_prices_for_chat(cur: Any) -> list[dict[str, Any]]:
     return out
 
 
-def fetch_stock_items(cur: Any, wanted_columns: list[str] | None = None) -> list[dict[str, Any]]:
-    """Fetch stock items with only columns existing in ST_ITEM."""
+def _st_item_selected_columns(cur: Any, wanted_columns: list[str] | None = None) -> list[str]:
+    """ST_ITEM columns that exist, including every UDF_* field."""
     selected_wanted_columns = wanted_columns or ST_ITEM_WANTED_COLUMNS
-
     cur.execute(
         """
         SELECT TRIM(RF.RDB$FIELD_NAME)
@@ -107,23 +106,61 @@ def fetch_stock_items(cur: Any, wanted_columns: list[str] | None = None) -> list
     for col in sorted(existing_columns):
         if col.upper().startswith("UDF_") and col not in selected_columns:
             selected_columns.append(col)
-
     if not selected_columns:
         raise ValueError("No expected columns found in ST_ITEM")
+    return selected_columns
 
-    sql = f"SELECT {', '.join(selected_columns)} FROM ST_ITEM"
-    cur.execute(sql)
+
+def _st_item_row_dict(selected_columns: list[str], row: Any) -> dict[str, Any]:
+    item: dict[str, Any] = {}
+    for idx, col in enumerate(selected_columns):
+        val = row[idx]
+        item[col] = _clean_str(val) if isinstance(val, str) else val
+    return item
+
+
+def fetch_stock_items(cur: Any, wanted_columns: list[str] | None = None) -> list[dict[str, Any]]:
+    """Fetch stock items with only columns existing in ST_ITEM."""
+    selected_columns = _st_item_selected_columns(cur, wanted_columns)
+    cur.execute(f"SELECT {', '.join(selected_columns)} FROM ST_ITEM")
     rows = cur.fetchall() or []
+    return [_st_item_row_dict(selected_columns, row) for row in rows]
 
-    items = []
-    for row in rows:
-        item = {}
-        for idx, col in enumerate(selected_columns):
-            val = row[idx]
-            item[col] = _clean_str(val) if isinstance(val, str) else val
-        items.append(item)
 
-    return items
+def fetch_stock_item_by_code(cur: Any, item_code: str) -> dict[str, Any]:
+    """One ST_ITEM row by code. Does not scan the stock catalog."""
+    code = _clean_str(item_code)
+    if not code:
+        return {}
+    selected_columns = _st_item_selected_columns(cur)
+    cur.execute(
+        f"SELECT {', '.join(selected_columns)} FROM ST_ITEM WHERE TRIM(UPPER(CODE)) = TRIM(UPPER(?))",
+        (code,),
+    )
+    row = cur.fetchone()
+    if not row:
+        return {}
+    return _st_item_row_dict(selected_columns, row)
+
+
+def search_stock_items(cur: Any, query: str, limit: int = 40) -> list[dict[str, Any]]:
+    """Return a short ST_ITEM match list. Does not read the whole catalog."""
+    needle = _clean_str(query)
+    if not needle:
+        return []
+    row_limit = max(1, min(int(limit or 40), 50))
+    selected_columns = _st_item_selected_columns(cur)
+    cur.execute(
+        f"""
+        SELECT FIRST {row_limit} {', '.join(selected_columns)}
+        FROM ST_ITEM
+        WHERE TRIM(CODE) CONTAINING ?
+           OR TRIM(DESCRIPTION) CONTAINING ?
+        ORDER BY CODE
+        """,
+        (needle, needle),
+    )
+    return [_st_item_row_dict(selected_columns, row) for row in (cur.fetchall() or [])]
 
 
 def get_st_item_udf_stdprice(cur: Any, item_code: str) -> float | None:
