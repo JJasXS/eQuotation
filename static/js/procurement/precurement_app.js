@@ -1,3 +1,18 @@
+        function readProcurementJson(response) {
+            const reader = window.EQCore && window.EQCore.readJsonResponse;
+            const pending = typeof reader === 'function' ? reader(response) : response.json();
+            return Promise.resolve(pending).catch((error) => {
+                if (error && error.authExpired) {
+                    window.location.assign('/login');
+                }
+                throw error;
+            });
+        }
+
+        function isProcurementAuthExpired(error) {
+            return !!(error && error.authExpired);
+        }
+
         const STOCK_CARD_VISIBLE_BODY_ROWS = 16;
 
         function afterStockCardTableRender() {
@@ -523,7 +538,7 @@
                                 transferLines: job.selectedDetails,
                             }),
                         });
-                        const data = await res.json().catch(() => ({}));
+                        const data = await readProcurementJson(res);
                         if (!res.ok || !data.success) {
                             throw new Error(data.error || `Transfer failed (HTTP ${res.status})`);
                         }
@@ -773,7 +788,7 @@
                 const res = await fetch(`/api/admin/procurement/purchase-requests/transfer-candidates?${params.toString()}`, {
                     headers: { 'Accept': 'application/json' },
                 });
-                const body = await res.json().catch(() => ({}));
+                const body = await readProcurementJson(res);
                 if (!res.ok || !body.success) {
                     throw new Error(body.error || `Failed to load candidates (${res.status})`);
                 }
@@ -1224,7 +1239,7 @@
                         })),
                     }),
                 });
-                const body = await res.json().catch(() => ({}));
+                const body = await readProcurementJson(res);
                 if (!res.ok || !body.success) {
                     throw new Error(body.error || `Bulk transfer failed (${res.status})`);
                 }
@@ -1240,7 +1255,7 @@
                 setBulkTransferMessage(`Transfer complete — created ${poCount} purchase order(s). See summary below.`);
             } catch (err) {
                 setBulkTransferMessage(err.message || 'Bulk transfer failed', true);
-                alert(err.message || 'Bulk transfer failed');
+                if (!isProcurementAuthExpired(err)) alert(err.message || 'Bulk transfer failed');
             } finally {
                 bulkTransferSubmitting = false;
                 updateBulkTransferSummary();
@@ -3107,7 +3122,7 @@
 
                 });
 
-                const data = await res.json();
+                const data = await readProcurementJson(res);
 
                 if (!res.ok || !data.success) {
 
@@ -3127,7 +3142,7 @@
 
             } catch (error) {
 
-                alert(error.message || 'Transfer to Purchase Order failed.');
+                if (!isProcurementAuthExpired(error)) alert(error.message || 'Transfer to Purchase Order failed.');
 
             } finally {
 
@@ -3346,7 +3361,7 @@
                         }],
                     }),
                 });
-                const data = await res.json();
+                const data = await readProcurementJson(res);
                 if (!res.ok || !data.success) {
                     throw new Error(data.error || `Failed to save line approval (HTTP ${res.status})`);
                 }
@@ -3443,7 +3458,7 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(detailPayloadEarly),
                     });
-                    const detailDataEarly = await detailResEarly.json();
+                    const detailDataEarly = await readProcurementJson(detailResEarly);
                     if (!detailResEarly.ok || !detailDataEarly.success) {
                         throw new Error(detailDataEarly.error || `Failed to update approval details (HTTP ${detailResEarly.status})`);
                     }
@@ -3481,7 +3496,7 @@ if (viewHeaderStatusPendingChanges.size > 0) {
 
                     });
 
-                    const statusData = await statusRes.json();
+                    const statusData = await readProcurementJson(statusRes);
 
                     try {
                         const payloadData = statusData && statusData.data;
@@ -3525,7 +3540,7 @@ if (viewHeaderStatusPendingChanges.size > 0) {
 
                     });
 
-                    const data = await res.json();
+                    const data = await readProcurementJson(res);
 
                     if (!res.ok || !data.success) {
 
@@ -3664,7 +3679,7 @@ if (viewHeaderStatusPendingChanges.size > 0) {
 
             } catch (error) {
 
-                alert(error.message || 'Failed to update approval details.');
+                if (!isProcurementAuthExpired(error)) alert(error.message || 'Failed to update approval details.');
 
             } finally {
 
@@ -4550,6 +4565,9 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 .catch((error) => {
 
+                    if (isProcurementAuthExpired(error)) {
+                        return;
+                    }
                     console.error('Failed to load request detail:', error);
                     record._detailError = error && error.message ? String(error.message) : 'Failed to load detail rows';
 
@@ -4678,7 +4696,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
         }
 
         function fetchWithFallback(primaryUrl, fallbackUrl, signal, requestId) {
-            const fetchJson = (url) => fetch(url, { signal }).then((res) => res.json());
+            const fetchJson = (url) => fetch(url, { signal }).then((res) => readProcurementJson(res));
 
             return fetchJson(primaryUrl).then((payload) => {
                 if (payload && payload.success) return payload;
@@ -4704,6 +4722,9 @@ function buildViewPurchaseRequestDetailHtml(header) {
             renderFilteredViewPurchaseRequests();
             fetchViewPurchaseRequestDetail(record, true)
                 .catch((error) => {
+                    if (isProcurementAuthExpired(error)) {
+                        return;
+                    }
                     console.error('Retry failed to load request detail:', error);
                     record._detailError = error && error.message ? String(error.message) : 'Failed to load detail rows';
                     if (!Array.isArray(record.details)) {
@@ -4785,6 +4806,9 @@ function buildViewPurchaseRequestDetailHtml(header) {
             renderFilteredViewPurchaseRequests();
             return fetchViewPurchaseRequestDetail(record, Boolean(forceRefresh))
                 .catch((error) => {
+                    if (isProcurementAuthExpired(error)) {
+                        return;
+                    }
                     console.warn('[View PR] Failed to refresh selected detail:', error);
                     record._detailError = error && error.message ? String(error.message) : 'Failed to load detail rows';
                 })
@@ -5240,7 +5264,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
                 if (!missing.length) return Promise.resolve();
                 const url = `/api/admin/procurement/purchase-requests/line-selection-counts?ids=${missing.join(',')}`;
                 return fetch(url)
-                    .then((res) => res.json())
+                    .then((res) => readProcurementJson(res))
                     .then((payload) => {
                         if (!payload || !payload.success || !payload.data) return;
                         const data = payload.data || {};
@@ -5352,7 +5376,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             return fetch(url)
 
-                .then((res) => res.json())
+                .then((res) => readProcurementJson(res))
 
                 .then((payload) => {
 
@@ -5428,7 +5452,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     console.error(error);
 
-                    alert(error.message || 'Failed to load more');
+                    if (!isProcurementAuthExpired(error)) alert(error.message || 'Failed to load more');
 
                 })
 
@@ -5487,7 +5511,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             return fetch(url)
 
-                .then((res) => res.json())
+                .then((res) => readProcurementJson(res))
 
                 .then((payload) => {
 
@@ -5508,6 +5532,10 @@ function buildViewPurchaseRequestDetailHtml(header) {
                 })
 
                 .catch((error) => {
+
+                    if (isProcurementAuthExpired(error)) {
+                        return;
+                    }
 
                     if (paintedFromCache) {
 
@@ -5727,7 +5755,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             } catch (error) {
 
-                alert(error.message || 'Failed to load PR details for edit');
+                if (!isProcurementAuthExpired(error)) alert(error.message || 'Failed to load PR details for edit');
 
                 return;
 
@@ -5985,7 +6013,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 });
 
-                const data = await res.json();
+                const data = await readProcurementJson(res);
 
                 if (!res.ok || !data.success) {
 
@@ -6001,7 +6029,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             } catch (error) {
 
-                _showPrEditMessage(error.message || 'Failed to update purchase request.', 'error');
+                if (!isProcurementAuthExpired(error)) _showPrEditMessage(error.message || 'Failed to update purchase request.', 'error');
 
             } finally {
 
@@ -7202,7 +7230,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             fetch(`/api/admin/procurement/stock-card-breakdown?${params.toString()}`, { cache: 'no-store' })
 
-                .then((res) => res.json())
+                .then((res) => readProcurementJson(res))
 
                 .then((payload) => {
 
@@ -7247,6 +7275,10 @@ function buildViewPurchaseRequestDetailHtml(header) {
                 })
 
                 .catch((error) => {
+
+                    if (isProcurementAuthExpired(error)) {
+                        return;
+                    }
 
                     if (requestId !== stockCardBreakdownRequestId) {
 
@@ -7890,7 +7922,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             fetch(requestUrl, { cache: 'no-store' })
 
-                .then((res) => res.json())
+                .then((res) => readProcurementJson(res))
 
                 .then((payload) => {
 
@@ -7975,6 +8007,9 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 .catch((error) => {
 
+                    if (isProcurementAuthExpired(error)) {
+                        return;
+                    }
                     console.error('Failed to load stock card rows:', error);
 
                     stockCardStTrUdfSummary = null;
@@ -8260,7 +8295,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 const res = await fetch('/api/admin/procurement/locations');
 
-                const data = await res.json();
+                const data = await readProcurementJson(res);
 
                 if (data.success && Array.isArray(data.locations)) {
 
@@ -8528,7 +8563,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 const res = await fetch(`/api/admin/procurement/stock-item-uoms?code=${encodeURIComponent(code)}`);
 
-                const data = await res.json();
+                const data = await readProcurementJson(res);
 
                 if (res.ok && data && data.success && Array.isArray(data.uoms) && data.uoms.length) {
 
@@ -8938,7 +8973,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 const response = await fetch('/api/get_stock_items');
 
-                const data = await response.json();
+                const data = await readProcurementJson(response);
 
                 if (data.success && Array.isArray(data.items)) {
 
@@ -9620,7 +9655,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     });
 
-                    const data = await response.json();
+                    const data = await readProcurementJson(response);
 
                     if (!response.ok || !data.success) {
 
@@ -9652,7 +9687,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                         });
 
-                        const statusData = await statusResponse.json();
+                        const statusData = await readProcurementJson(statusResponse);
 
                         if (!statusResponse.ok || !statusData.success) {
 
@@ -9704,7 +9739,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 } catch (error) {
 
-                    showPurchaseRequestMessage(error.message || 'Failed to update purchase request.', 'error');
+                    if (!isProcurementAuthExpired(error)) showPurchaseRequestMessage(error.message || 'Failed to update purchase request.', 'error');
 
                 } finally {
 
@@ -9768,7 +9803,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 });
 
-                const data = await response.json();
+                const data = await readProcurementJson(response);
 
                 if (!response.ok || !data.success) {
 
@@ -9834,7 +9869,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             } catch (error) {
 
-                showPurchaseRequestMessage(error.message || 'Failed to submit purchase request.', 'error');
+                if (!isProcurementAuthExpired(error)) showPurchaseRequestMessage(error.message || 'Failed to submit purchase request.', 'error');
 
             } finally {
 
@@ -9870,17 +9905,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             fetch('/api/admin/procurement/projects')
 
-                .then((res) => {
-
-                    if (!res.ok) {
-
-                        throw new Error(`Projects request failed (HTTP ${res.status})`);
-
-                    }
-
-                    return res.json();
-
-                })
+                .then((res) => readProcurementJson(res))
 
                 .then((payload) => {
 
@@ -9992,7 +10017,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             fetch('/api/admin/procurement/suppliers')
 
-                .then((res) => res.json())
+                .then((res) => readProcurementJson(res))
 
                 .then((payload) => {
 
@@ -10001,14 +10026,20 @@ function buildViewPurchaseRequestDetailHtml(header) {
                         supplierList = payload.data;
 
                         console.log('[Suppliers] Loaded', supplierList.length, 'suppliers');
+                        const errEl = document.getElementById('pr-supplier-load-error');
+                        if (errEl) {
+                            errEl.textContent = '';
+                            errEl.style.display = 'none';
+                        }
 
                     } else {
 
                         supplierList = [];
                         console.warn('[Suppliers] Failed to load:', payload.error || payload);
-                        const hint = document.querySelector('.pr-supplier-invite-hint');
-                        if (hint) {
-                            hint.textContent = 'Supplier list could not be loaded. Check SQL API /supplier and refresh.';
+                        const errEl = document.getElementById('pr-supplier-load-error');
+                        if (errEl) {
+                            errEl.textContent = 'Supplier list could not be loaded. Check SQL API /supplier and refresh.';
+                            errEl.style.display = 'block';
                         }
 
                     }
@@ -10143,17 +10174,27 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
         }
 
+        function _updateSupplierSelectedCounts() {
+            const n = selectedSuppliers.length;
+            const badge = document.getElementById('pr-supplier-selected-badge');
+            const countEl = document.getElementById('pr-supplier-selected-count');
+            const selectedBlock = document.querySelector('.pr-supplier-block--selected');
+            if (badge) badge.textContent = n === 1 ? '1 selected' : `${n} selected`;
+            if (countEl) countEl.textContent = String(n);
+            if (selectedBlock) selectedBlock.dataset.count = String(n);
+        }
+
         function _renderSupplierTable() {
 
             const tbody = document.getElementById('pr-supplier-tbody');
 
             if (!tbody) return;
 
-            const emptyRow = document.getElementById('pr-supplier-empty-row');
+            _updateSupplierSelectedCounts();
 
             if (!selectedSuppliers.length) {
 
-                tbody.innerHTML = '<tr id="pr-supplier-empty-row"><td colspan="5" class="pr-supplier-empty">No suppliers added. Search and select above.</td></tr>';
+                tbody.innerHTML = '<tr id="pr-supplier-empty-row"><td colspan="5" class="pr-supplier-empty">No suppliers selected</td></tr>';
 
                 return;
 
@@ -10197,7 +10238,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 const response = await fetch('/api/admin/procurement/purchase-requests/next-number');
 
-                const data = await response.json();
+                const data = await readProcurementJson(response);
 
                 if (!response.ok || !data.success) {
 

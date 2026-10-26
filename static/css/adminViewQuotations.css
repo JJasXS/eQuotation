@@ -155,7 +155,8 @@
 }
 
 .quotation-list-col--doc {
-    width: 88px;
+    /* Wide enough for DRAFT-00005 / typical QT codes without ellipsis */
+    width: 120px;
 }
 
 .quotation-list-col--date {

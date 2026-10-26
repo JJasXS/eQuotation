@@ -4257,8 +4257,164 @@ body.procurement-warm-ui .pr-form {
 #panel-create .pr-form--create-bidding > section.pr-create-panel[aria-label="Invite suppliers"] {
     width: 100%;
     flex: 0 0 auto;
-    min-height: 220px;
-    max-height: min(42vh, 420px);
+    /* Tall enough for Add + scrollable picker inside the panel hit-box; avoid large empty selected area. */
+    min-height: 0;
+    max-height: min(48vh, 460px);
+}
+
+#panel-create .pr-create-panel[aria-label="Invite suppliers"] .pr-supplier-add-row {
+    position: relative;
+    z-index: 90;
+}
+
+/*
+ * Invite picker: keep the menu inside the panel (panel uses overflow:hidden) and
+ * scroll remaining rows. Painting past the panel looks visible but is not clickable.
+ */
+#panel-create #pr-supplier-dropdown.supplier-dropdown {
+    z-index: 120;
+    max-height: min(130px, 28vh);
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Keep picker clicks on the menu while it overlays the selected table. */
+#panel-create .pr-create-panel[aria-label="Invite suppliers"]:has(.pr-supplier-add-row:focus-within) .pr-supplier-table-wrap {
+    pointer-events: none;
+}
+
+/* Invite card — spacing & alignment refinements (scoped) */
+#panel-create .pr-create-panel[aria-label="Invite suppliers"] .pr-create-panel-head--invite {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    box-sizing: border-box;
+    min-height: 42px;
+    height: 42px;
+    padding: 0 10px;
+}
+
+#panel-create .pr-create-panel[aria-label="Invite suppliers"] .pr-create-panel-title {
+    margin: 0;
+    line-height: 1.2;
+}
+
+#panel-create .pr-create-panel[aria-label="Invite suppliers"] .pr-create-panel-body--suppliers {
+    padding: 10px 10px 12px;
+}
+
+body.procurement-warm-ui #panel-create .pr-create-panel[aria-label="Invite suppliers"] .pr-create-panel-body--suppliers {
+    background: var(--ice-surface-alt, #eef6fc) !important;
+    border-color: var(--ice-border, #b8d4e8) !important;
+}
+
+/* Keep the nested invite card clear so the body surface/border show through. */
+body.procurement-warm-ui #panel-create .pr-supplier-invite-card--in-panel {
+    background: transparent !important;
+    border-color: transparent !important;
+}
+
+#panel-create .pr-supplier-selected-badge {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    line-height: 1.2;
+    color: #d6e8f7;
+    background: #2a4058;
+    border: 1px solid #3d5f7a;
+}
+
+#panel-create .pr-supplier-block {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+#panel-create .pr-supplier-block--add {
+    flex: 0 0 auto;
+    gap: 8px;
+    padding-bottom: 12px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid #3a4250;
+}
+
+#panel-create .pr-supplier-block--selected {
+    flex: 1 1 auto;
+    gap: 10px;
+    min-height: 0;
+}
+
+#panel-create .pr-supplier-block-title {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: none;
+    color: #c8d4e6;
+    line-height: 1.35;
+}
+
+#panel-create .pr-supplier-load-error {
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.4;
+    color: #f0a8a8;
+}
+
+#panel-create .pr-supplier-block--selected .pr-supplier-table-wrap {
+    flex: 0 1 auto;
+    min-height: 0;
+    max-height: min(11rem, 28vh);
+    overflow-x: auto;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+#panel-create .pr-supplier-block--selected[data-count="0"] .pr-supplier-table-wrap {
+    max-height: none;
+}
+
+#panel-create .pr-create-panel[aria-label="Invite suppliers"] .pr-supplier-table--invite th,
+#panel-create .pr-create-panel[aria-label="Invite suppliers"] .pr-supplier-table--invite td {
+    box-sizing: border-box;
+    height: 42px;
+    max-height: 44px;
+    padding: 6px 10px;
+    vertical-align: middle;
+    line-height: 1.25;
+}
+
+#panel-create .pr-create-panel[aria-label="Invite suppliers"] .pr-supplier-table--invite thead th {
+    height: 40px;
+    max-height: 42px;
+    padding: 6px 10px;
+}
+
+#panel-create .pr-create-panel[aria-label="Invite suppliers"] .pr-supplier-table--invite tbody td strong {
+    font-weight: 700;
+    line-height: 1.25;
+}
+
+#panel-create .pr-create-panel[aria-label="Invite suppliers"] .pr-supplier-table--invite td.pr-supplier-empty {
+    height: auto;
+    min-height: 42px;
+    padding: 12px 10px;
+}
+
+#panel-create .pr-create-panel[aria-label="Invite suppliers"] .pr-supplier-table--invite .pr-supplier-remove-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto;
+    vertical-align: middle;
 }
 
 .pr-create-panel {
@@ -4359,8 +4515,8 @@ body.procurement-warm-ui .pr-create-panel-title {
 
 @media (min-width: 901px) {
     .pr-create-panel-body--suppliers .pr-supplier-table-wrap {
-        flex: 1 1 auto;
-        min-height: 8rem;
+        flex: 0 1 auto;
+        min-height: 0;
     }
 }
 
@@ -4580,9 +4736,9 @@ body.procurement-warm-ui .procurement-panel > .panel-content {
     width: 0;
     min-width: 0;
     box-sizing: border-box;
-    padding: 9px 10px 9px 0;
+    padding: 9px 12px;
     border: none;
-    border-radius: 0 10px 10px 0;
+    border-radius: 10px;
     background: transparent;
     color: #e4e9f1;
     font-size: 12px;
@@ -4630,7 +4786,27 @@ body.procurement-warm-ui .procurement-panel > .panel-content {
 }
 
 .pr-supplier-table--invite col.pr-sup-col-action {
-    width: 2.75rem;
+    width: 3.75rem;
+}
+
+/* Pull Email / Action in from the right edge (~15px). */
+#panel-create .pr-create-panel[aria-label="Invite suppliers"] .pr-supplier-table--invite th:nth-child(4),
+#panel-create .pr-create-panel[aria-label="Invite suppliers"] .pr-supplier-table--invite td:nth-child(4),
+#panel-create .pr-create-panel[aria-label="Invite suppliers"] .pr-supplier-table--invite th:nth-child(5),
+#panel-create .pr-create-panel[aria-label="Invite suppliers"] .pr-supplier-table--invite td:nth-child(5) {
+    padding-right: 18px;
+}
+
+#panel-create .pr-create-panel[aria-label="Invite suppliers"] .pr-supplier-table--invite th:nth-child(4),
+#panel-create .pr-create-panel[aria-label="Invite suppliers"] .pr-supplier-table--invite td:nth-child(4) {
+    text-align: left;
+    padding-left: 10px;
+}
+
+#panel-create .pr-create-panel[aria-label="Invite suppliers"] .pr-supplier-table--invite th:nth-child(5),
+#panel-create .pr-create-panel[aria-label="Invite suppliers"] .pr-supplier-table--invite td:nth-child(5) {
+    text-align: center;
+    padding-left: 6px;
 }
 
 .pr-create-panel--suppliers .pr-create-panel-title {
@@ -4672,9 +4848,13 @@ body.procurement-warm-ui .procurement-panel > .panel-content {
 
 .pr-supplier-table--invite td.pr-supplier-empty {
     text-align: center;
-    padding: 14px 10px 18px;
+    padding: 10px 10px 12px;
     font-size: 11px;
     line-height: 1.5;
+}
+
+.pr-supplier-table--invite th.pr-sup-th-action {
+    font-size: 10px;
 }
 
 @media (max-width: 520px) {
@@ -4788,7 +4968,7 @@ body.procurement-warm-ui .pr-supplier-invite-card {
 }
 
 body.procurement-warm-ui .pr-supplier-invite-title {
-    color: #5c4a32;
+    color: var(--ice-heading, #1a4d6e);
     background: transparent;
 }
 
@@ -4796,8 +4976,23 @@ body.procurement-warm-ui .pr-supplier-invite-hint {
     color: var(--ice-text-muted, #5a7a94);
 }
 
-body.procurement-warm-ui .pr-supplier-picker-label {
-    color: var(--ice-text-muted, #5a7a94);
+body.procurement-warm-ui .pr-supplier-picker-label,
+body.procurement-warm-ui #panel-create .pr-supplier-block-title {
+    color: var(--ice-heading, #1a4d6e);
+}
+
+body.procurement-warm-ui #panel-create .pr-supplier-selected-badge {
+    color: #1a4d6e;
+    background: #e8f3fb;
+    border-color: var(--ice-border, #b8d4e8);
+}
+
+body.procurement-warm-ui #panel-create .pr-supplier-block--add {
+    border-bottom-color: var(--ice-border, #b8d4e8);
+}
+
+body.procurement-warm-ui #panel-create .pr-supplier-load-error {
+    color: #b42318;
 }
 
 body.procurement-warm-ui .pr-supplier-invite-card .pr-supplier-add-row {
@@ -4838,12 +5033,12 @@ body.procurement-warm-ui .pr-supplier-invite-card .pr-supplier-add-row input:-we
 }
 
 body.procurement-warm-ui .supplier-dropdown-item .pr-supplier-pick-code {
-    background: #f0e8d8;
-    color: #5c4a32;
+    background: #e8f3fb;
+    color: var(--ice-heading, #1a4d6e);
 }
 
 body.procurement-warm-ui .supplier-dropdown-item .pr-supplier-pick-name {
-    color: #3d3428;
+    color: var(--ice-text, #1e3a52);
 }
 
 body.procurement-warm-ui .pr-stock-uom-badge {
@@ -4869,23 +5064,23 @@ body.procurement-warm-ui .pr-stock-uom-select--su {
 }
 
 body.procurement-warm-ui .pr-supplier-table-wrap {
-    background: #fffef9;
+    background: #ffffff;
 }
 
 body.procurement-warm-ui .pr-supplier-table--invite {
-    border-color: #e8dcc8;
+    border-color: var(--ice-border, #b8d4e8);
 }
 
 body.procurement-warm-ui .pr-supplier-table--invite th {
-    background: #f3ece0;
-    color: #5c4a32;
-    border-bottom-color: #e0d4c4;
+    background: var(--ice-surface-alt, #eef6fc);
+    color: var(--ice-heading, #1a4d6e);
+    border-bottom-color: var(--ice-border, #b8d4e8);
 }
 
 body.procurement-warm-ui .pr-supplier-table--invite td {
-    background: #fffef9;
-    color: #2a241b;
-    border-bottom-color: #efe6d8;
+    background: #ffffff;
+    color: var(--ice-text, #1e3a52);
+    border-bottom-color: var(--ice-border-soft, #c5dce9);
 }
 
 body.procurement-warm-ui .pr-supplier-table--invite tr:last-child td {

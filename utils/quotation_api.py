@@ -1665,6 +1665,46 @@ def create_or_update_quotation(base_api_url, customer_code, data):
     return {"success": False, "error": last_error or "Failed to create quotation"}
 
 
+def list_draft_quotations(customer_code=None):
+    """Return saved draft headers from SL_QTDRAFT.
+
+    When ``customer_code`` is set, results are limited to that customer (customer
+    Drafts). When omitted, returns all drafts (admin Drafts).
+    """
+    from utils.db_utils import db_connection
+
+    sql = '''
+        SELECT DOCKEY, DOCNO, DOCDATE, DESCRIPTION, DOCAMT, VALIDITY, TERMS,
+               COMPANYNAME, CODE
+        FROM SL_QTDRAFT
+    '''
+    params = ()
+    if customer_code:
+        sql += ' WHERE UPPER(TRIM(CODE)) = UPPER(TRIM(?))'
+        params = (customer_code,)
+    sql += ' ORDER BY DOCDATE DESC, DOCKEY DESC'
+
+    with db_connection() as con:
+        cur = con.cursor()
+        cur.execute(sql, params)
+        rows = cur.fetchall() or []
+
+    drafts = []
+    for row in rows:
+        drafts.append({
+            'DOCKEY': int(row[0]) if row[0] is not None else None,
+            'DOCNO': row[1],
+            'DOCDATE': str(row[2]) if row[2] is not None else None,
+            'DESCRIPTION': row[3],
+            'DOCAMT': float(row[4]) if row[4] is not None else 0,
+            'VALIDITY': str(row[5]) if row[5] is not None else None,
+            'CREDITTERM': str(row[6]) if row[6] is not None else '',
+            'COMPANYNAME': (str(row[7]).strip() if row[7] is not None else '') or '',
+            'CODE': (str(row[8]).strip() if row[8] is not None else '') or '',
+        })
+    return drafts
+
+
 def save_draft_quotation(base_api_url, customer_code, data):
     """Save a quotation draft directly to Firebird DB (no PHP)."""
     from utils import get_db_connection
