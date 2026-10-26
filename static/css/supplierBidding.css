@@ -102,7 +102,7 @@ body.supplier-bidding-page .main-content {
 
 .supplier-bidding-list-head {
     flex-shrink: 0;
-    padding: 10px 12px;
+    padding: 10px 12px 12px;
     border-bottom: 1px solid var(--ice-border, #b8d4e8);
     background: linear-gradient(180deg, var(--ice-surface, #f7fbff) 0%, var(--ice-surface-alt, #eef6fc) 100%);
 }
@@ -123,7 +123,7 @@ body.supplier-bidding-page .sb-invite-tabs--top.eq-line-tabs {
     flex: 0 0 auto;
     width: 100%;
     max-width: none;
-    margin: 0 0 8px !important;
+    margin: 10px 0 0 !important;
     padding: 0 !important;
     gap: 0;
     border: 1px solid var(--ice-border, #b8d4e8);

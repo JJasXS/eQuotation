@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
     <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515_icy">
     <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260604_tabs_size">
-    <link rel="stylesheet" href="/static/css/supplierBidding.css?v=20261026_topbar2">
+    <link rel="stylesheet" href="/static/css/supplierBidding.css?v=20261026_headtabs">
     <script src="/static/js/eq_core.js?v=20260813_core"></script>
 </head>
 <body class="equotation-icy-theme supplier-bidding-page">
@@ -26,17 +26,17 @@
             {% include 'components/app_page_header.html' %}
 
             <div class="tab-content active supplier-bidding-layout">
-                <nav class="eq-line-tabs sb-invite-tabs sb-invite-tabs--top" id="sb-invite-filters" role="tablist" aria-label="Filter by invitation status">
-                    <button type="button" role="tab" class="eq-line-tab is-active" data-sb-filter="OPEN" aria-selected="true" title="Open rounds / in progress">Open</button>
-                    <button type="button" role="tab" class="eq-line-tab" data-sb-filter="SUBMITTED" aria-selected="false" title="Bid submitted, awaiting admin decision">Submitted</button>
-                    <button type="button" role="tab" class="eq-line-tab" data-sb-filter="ACCEPTED" aria-selected="false" title="Admin decision: bid accepted or not selected">Accepted</button>
-                    <button type="button" role="tab" class="eq-line-tab" data-sb-filter="CLOSED" aria-selected="false" title="Past invitations with no bid outcome">History</button>
-                </nav>
                 <div class="supplier-bidding-split">
                     <aside class="supplier-bidding-list-pane" aria-label="Invitations list">
                         <div class="supplier-bidding-list-head">
                             <h2>My invitations</h2>
                             <p class="sb-muted">Select a request to view line items and enter your bid on the right.</p>
+                            <nav class="eq-line-tabs sb-invite-tabs sb-invite-tabs--top" id="sb-invite-filters" role="tablist" aria-label="Filter by invitation status">
+                                <button type="button" role="tab" class="eq-line-tab is-active" data-sb-filter="OPEN" aria-selected="true" title="Open rounds / in progress">Open</button>
+                                <button type="button" role="tab" class="eq-line-tab" data-sb-filter="SUBMITTED" aria-selected="false" title="Bid submitted, awaiting admin decision">Submitted</button>
+                                <button type="button" role="tab" class="eq-line-tab" data-sb-filter="ACCEPTED" aria-selected="false" title="Admin decision: bid accepted or not selected">Accepted</button>
+                                <button type="button" role="tab" class="eq-line-tab" data-sb-filter="CLOSED" aria-selected="false" title="Past invitations with no bid outcome">History</button>
+                            </nav>
                         </div>
                         <div class="sb-invite-pane-body">
                             <div id="invites-list" class="sb-invites-list-scroll">
