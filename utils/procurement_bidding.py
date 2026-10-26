@@ -353,6 +353,99 @@ def create_bid_invitations(  # noqa: too-many-locals
         con.close()
 
 
+def _blank_pr_card() -> dict[str, Any]:
+    return {
+        "requestDescription": "",
+        "project": "",
+        "docDate": None,
+        "requestDeliveryDate": None,
+        "lineCount": 0,
+        "firstItem": "",
+    }
+
+
+def _fill_pr_header_facts(cur: Any, uniq: list[int], facts: dict[int, dict[str, Any]]) -> None:
+    if not _table_exists(cur, "PH_PQ"):
+        return
+    cols = _get_table_columns(cur, "PH_PQ")
+    key_col = _pick_existing(cols, "DOCKEY", "PQKEY", "ID")
+    if not key_col:
+        return
+    desc_col = _pick_existing(cols, "DESCRIPTION", "JUSTIFICATION")
+    project_col = _pick_existing(cols, "PROJECT")
+    doc_col = _pick_existing(cols, "DOCDATE", "POSTDATE")
+    need_col = _pick_existing(cols, "REQUIREDDATE", "DELIVERYDATE", "DOCDATE")
+    parts = [
+        key_col,
+        f"{desc_col} AS DESCR" if desc_col else "CAST(NULL AS VARCHAR(255)) AS DESCR",
+        f"{project_col} AS PROJECT" if project_col else "CAST(NULL AS VARCHAR(60)) AS PROJECT",
+        f"{doc_col} AS DOCDATE" if doc_col else "CAST(NULL AS TIMESTAMP) AS DOCDATE",
+        f"{need_col} AS NEEDDATE" if need_col else "CAST(NULL AS TIMESTAMP) AS NEEDDATE",
+    ]
+    placeholders = ", ".join(["?"] * len(uniq))
+    cur.execute(
+        f"SELECT {', '.join(parts)} FROM PH_PQ WHERE {key_col} IN ({placeholders})",
+        tuple(uniq),
+    )
+    for row in cur.fetchall() or []:
+        if not row:
+            continue
+        try:
+            key = int(row[0])
+        except (TypeError, ValueError):
+            continue
+        fact = facts.get(key)
+        if not fact:
+            continue
+        fact["requestDescription"] = _clean_text(row[1])[:180]
+        fact["project"] = _clean_text(row[2])
+        fact["docDate"] = format_display_date(row[3]) if row[3] else None
+        fact["requestDeliveryDate"] = format_display_date(row[4]) if row[4] else None
+
+
+def _fill_pr_line_facts(cur: Any, uniq: list[int], facts: dict[int, dict[str, Any]]) -> None:
+    if not _table_exists(cur, "PH_PQDTL"):
+        return
+    cols = _get_table_columns(cur, "PH_PQDTL")
+    fk_col = _pick_existing(cols, "DOCKEY", "PQKEY", "REQUEST_ID", "HEADER_ID")
+    desc_col = _pick_existing(cols, "DESCRIPTION", "DESCRIPTION2", "ITEMCODE")
+    if not fk_col:
+        return
+    desc_sql = f"MIN({desc_col})" if desc_col else "CAST(NULL AS VARCHAR(255))"
+    placeholders = ", ".join(["?"] * len(uniq))
+    cur.execute(
+        f"SELECT {fk_col}, COUNT(*), {desc_sql} FROM PH_PQDTL WHERE {fk_col} IN ({placeholders}) GROUP BY {fk_col}",
+        tuple(uniq),
+    )
+    for row in cur.fetchall() or []:
+        if not row:
+            continue
+        try:
+            key = int(row[0])
+        except (TypeError, ValueError):
+            continue
+        fact = facts.get(key)
+        if not fact:
+            continue
+        fact["lineCount"] = int(row[1] or 0)
+        fact["firstItem"] = _clean_text(row[2])
+
+
+def _fetch_pr_card_facts(dockeys: list[int]) -> dict[int, dict[str, Any]]:
+    uniq = sorted({int(d) for d in dockeys if d})
+    if not uniq:
+        return {}
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        facts = {key: _blank_pr_card() for key in uniq}
+        _fill_pr_header_facts(cur, uniq, facts)
+        _fill_pr_line_facts(cur, uniq, facts)
+        return facts
+    finally:
+        con.close()
+
+
 def _fetch_pr_delivery_dates_by_dockey(dockeys: list[int]) -> dict[int, str | None]:
     uniq = sorted({int(d) for d in dockeys if d})
     if not uniq:
@@ -513,17 +606,21 @@ def list_supplier_invitations(supplier_code: str) -> list[dict[str, Any]]:
                     "bidLineCount": bid_line_count,
                 }
             )
-        delivery_map: dict[int, str | None] = {}
+        facts: dict[int, dict[str, Any]] = {}
         if result:
             try:
-                delivery_map = _fetch_pr_delivery_dates_by_dockey(
-                    [int(r["requestDockey"]) for r in result]
-                )
+                facts = _fetch_pr_card_facts([int(r["requestDockey"]) for r in result])
             except Exception as exc:
-                print(f"[SUPPLIER BIDDING INVITES] delivery date fetch error: {exc}", flush=True)
+                print(f"[SUPPLIER BIDDING INVITES] card facts fetch error: {exc}", flush=True)
         for r in result:
             dk = int(r.get("requestDockey") or 0)
-            r["requestDeliveryDate"] = delivery_map.get(dk)
+            extra = facts.get(dk) or {}
+            r["requestDeliveryDate"] = extra.get("requestDeliveryDate")
+            r["requestDescription"] = extra.get("requestDescription") or ""
+            r["project"] = extra.get("project") or ""
+            r["docDate"] = extra.get("docDate")
+            r["lineCount"] = int(extra.get("lineCount") or 0)
+            r["firstItem"] = extra.get("firstItem") or ""
         return result
     finally:
         con.close()

@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
     <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515_icy">
     <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260604_tabs_size">
-    <link rel="stylesheet" href="/static/css/supplierBidding.css?v=20260810_mobile8">
+    <link rel="stylesheet" href="/static/css/supplierBidding.css?v=20261026_topbar2">
     <script src="/static/js/eq_core.js?v=20260813_core"></script>
 </head>
 <body class="equotation-icy-theme supplier-bidding-page">
@@ -26,6 +26,12 @@
             {% include 'components/app_page_header.html' %}
 
             <div class="tab-content active supplier-bidding-layout">
+                <nav class="eq-line-tabs sb-invite-tabs sb-invite-tabs--top" id="sb-invite-filters" role="tablist" aria-label="Filter by invitation status">
+                    <button type="button" role="tab" class="eq-line-tab is-active" data-sb-filter="OPEN" aria-selected="true" title="Open rounds / in progress">Open</button>
+                    <button type="button" role="tab" class="eq-line-tab" data-sb-filter="SUBMITTED" aria-selected="false" title="Bid submitted, awaiting admin decision">Submitted</button>
+                    <button type="button" role="tab" class="eq-line-tab" data-sb-filter="ACCEPTED" aria-selected="false" title="Admin decision: bid accepted or not selected">Accepted</button>
+                    <button type="button" role="tab" class="eq-line-tab" data-sb-filter="CLOSED" aria-selected="false" title="Past invitations with no bid outcome">History</button>
+                </nav>
                 <div class="supplier-bidding-split">
                     <aside class="supplier-bidding-list-pane" aria-label="Invitations list">
                         <div class="supplier-bidding-list-head">
@@ -33,13 +39,6 @@
                             <p class="sb-muted">Select a request to view line items and enter your bid on the right.</p>
                         </div>
                         <div class="sb-invite-pane-body">
-                            <nav class="eq-line-tabs sb-invite-tabs sb-invite-tabs--side" id="sb-invite-filters" role="tablist" aria-label="Filter by invitation status">
-                                <div class="sb-invite-tabs__heading">Status</div>
-                                <button type="button" role="tab" class="eq-line-tab is-active" data-sb-filter="OPEN" aria-selected="true" title="Open rounds / in progress">Open</button>
-                                <button type="button" role="tab" class="eq-line-tab" data-sb-filter="SUBMITTED" aria-selected="false" title="Bid submitted, awaiting admin decision">Submitted</button>
-                                <button type="button" role="tab" class="eq-line-tab" data-sb-filter="ACCEPTED" aria-selected="false" title="Admin decision: bid accepted or not selected">Accepted</button>
-                                <button type="button" role="tab" class="eq-line-tab" data-sb-filter="CLOSED" aria-selected="false" title="Invitation closed (no final bid outcome)">Closed</button>
-                            </nav>
                             <div id="invites-list" class="sb-invites-list-scroll">
                                 <div class="sb-invites-list-inner sb-invites-list-inner--loading">
                                     <div class="sb-invites-empty">Loading invitations…</div>
@@ -473,7 +472,7 @@
                 return 'ACCEPTED';
             }
             if (normalized === 'CLOSED') {
-                return 'CLOSED';
+                return 'HISTORY';
             }
             if (normalized === 'SUBMITTED' || normalized === 'RESPONDED') {
                 return 'SUBMITTED';
@@ -548,7 +547,7 @@
                 OPEN: 'Open',
                 SUBMITTED: 'Submitted',
                 ACCEPTED: 'Accepted / not selected',
-                CLOSED: 'Closed',
+                CLOSED: 'History',
             };
             return map[String(key || '').toUpperCase()] || String(key || '');
         }
@@ -568,28 +567,36 @@
             const tabTotal = sumInviteTotals(rows);
             const totalHint =
                 tabTotal != null
-                    ? '<span class="sb-invites-list-bar__total">Tab total: <strong>' +
+                    ? '<span class="sb-invites-list-bar__total">Total <strong>' +
                       escapeHtml(tabTotal.toFixed(2)) +
                       '</strong></span>'
                     : '';
             return (
                 '<div class="sb-invites-list-inner">' +
                 '<div class="sb-invites-list-bar">' +
-                '<div class="sb-invites-list-bar__left">' +
-                '<span class="sb-invites-list-bar__title">' +
-                escapeHtml(label) +
-                '</span>' +
                 '<span class="sb-invites-list-bar__count">' +
+                escapeHtml(label) +
+                ' · ' +
                 escapeHtml(countLabel) +
                 '</span>' +
                 totalHint +
-                '</div>' +
-                '<span class="sb-invites-list-bar__hint">Click a card to open details</span>' +
                 '</div>' +
                 '<div class="sb-invites-cards" role="list">' +
                 cardsHtml +
                 '</div></div>'
             );
+        }
+
+        function inviteFact(label, value) {
+            const text = String(value == null ? '' : value).trim();
+            if (!text || text === '-') return '';
+            return '<span class="sb-invite-card__fact"><em>' + escapeHtml(label) + '</em>' + escapeHtml(text) + '</span>';
+        }
+
+        function inviteMoney(value) {
+            const n = Number(value);
+            if (!Number.isFinite(n)) return '';
+            return n.toFixed(2);
         }
 
         function renderInviteCard(row, activeRid) {
@@ -601,6 +608,20 @@
             const sel = activeRid != null && rdoc === activeRid;
             const prLabel = escapeHtml(row.requestNumber || 'PR-' + row.requestDockey);
             const hasBid = row.bidId != null && Number(row.bidId) > 0;
+            const blurb = String(row.requestDescription || row.firstItem || '').trim();
+            const lineCount = Number(row.lineCount || row.bidLineCount || 0);
+            const lineLabel = lineCount > 0 ? (lineCount === 1 ? '1 line' : lineCount + ' lines') : '';
+            const facts = [
+                inviteFact('Invited', row.inviteAt),
+                inviteFact('Need by', row.requestDeliveryDate),
+                inviteFact('Project', row.project),
+                inviteFact('Lines', lineLabel),
+                hasBid ? inviteFact('Bid', '#' + row.bidId) : '',
+                inviteFact('Bid total', inviteMoney(row.bidTotalAmount)),
+            ].filter(Boolean).join('');
+            const blurbHtml = blurb
+                ? '<p class="sb-invite-card__blurb">' + escapeHtml(blurb) + '</p>'
+                : '';
             return (
                 '<article class="sb-invite-card' +
                 (sel ? ' is-selected' : '') +
@@ -616,13 +637,15 @@
                 '</span>' +
                 '<span class="sb-invite-card__ref">Request #' +
                 escapeHtml(String(rdoc)) +
-                (hasBid ? ' · Bid #' + escapeHtml(String(row.bidId)) : '') +
                 '</span></div>' +
                 '<span class="status-chip ' +
                 stClass +
                 '">' +
                 escapeHtml(bidStatusLabel) +
-                '</span></div></article>'
+                '</span></div>' +
+                blurbHtml +
+                (facts ? '<div class="sb-invite-card__meta">' + facts + '</div>' : '') +
+                '</article>'
             );
         }
 
@@ -858,7 +881,7 @@
                 if (inviteClosed) {
                     panel.hidden = false;
                     panel.innerHTML =
-                        '<p class="bid-summary-empty">This invitation is <strong>closed</strong>. No bid was submitted for this purchase request.</p>';
+                        '<p class="bid-summary-empty">This invitation is in <strong>history</strong> (bidding ended). No bid was submitted for this purchase request.</p>';
                     return;
                 }
                 panel.hidden = true;
@@ -993,7 +1016,7 @@
             } else if (readOnly && stUpper === 'APPROVED') {
                 readHint = 'Your accepted bid is below (read-only).';
             } else if (readOnly && inviteClosed && !mb) {
-                readHint = 'This invitation is closed with no submitted bid.';
+                readHint = 'This invitation is in history (bidding ended) with no submitted bid.';
             } else if (readOnly) {
                 readHint = 'Your submitted pricing is below (read-only).';
             }

@@ -1325,12 +1325,9 @@ def format_chatbot_response(text):
 
 app = Flask(__name__, template_folder="templates", static_folder="static", static_url_path="/static")
 
-# Dev server (8881) and FLASK_DEBUG: reload templates from disk so UI changes show without a full restart.
-_flask_port_cfg = str(os.getenv('FLASK_PORT', '8880')).strip()
-_flask_debug_cfg = str(os.getenv('FLASK_DEBUG', 'False')).strip().lower() in ('1', 'true', 'yes')
-if _flask_port_cfg == '8881' or _flask_debug_cfg:
-    app.config['TEMPLATES_AUTO_RELOAD'] = True
-    app.jinja_env.auto_reload = True
+# Always reload templates from disk so UI edits show without a full restart.
+app.config['TEMPLATES_AUTO_RELOAD'] = True
+app.jinja_env.auto_reload = True
 
 
 @app.context_processor
