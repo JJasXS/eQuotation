@@ -2211,7 +2211,9 @@ if (updateQuotationForm) {
     updateQuotationForm.addEventListener('submit', async function(e) {
         e.preventDefault();
         const dockey = updateQuotationForm.dataset.dockey;
-        await refreshSqlApiCustomerCurrencyFromGetUserInfo();
+        if (!currencyCodeForQuotationSave()) {
+            await refreshSqlApiCustomerCurrencyFromGetUserInfo();
+        }
         const quotationData = buildQuotationPayload();
         if (!applySqlApiCurrencyForSubmit(quotationData)) {
             alert(
@@ -2315,7 +2317,9 @@ if (quotationForm) {
     quotationForm.addEventListener('submit', async function(e) {
         e.preventDefault();
 
-        await refreshSqlApiCustomerCurrencyFromGetUserInfo();
+        if (!currencyCodeForQuotationSave()) {
+            await refreshSqlApiCustomerCurrencyFromGetUserInfo();
+        }
         const quotationData = buildQuotationPayload();
         if (!applySqlApiCurrencyForSubmit(quotationData)) {
             alert(

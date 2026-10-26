@@ -491,8 +491,18 @@ def enrich_quotation_submit_line_item(item: dict[str, Any]) -> dict[str, Any]:
     """
     if not isinstance(item, dict):
         return item
-    stock = _resolve_catalog_stock_for_line(item)
+    stock = _resolve_catalog_stock_for_line(
+        item,
+        needs_sql_api_detail=_quotation_stock_needs_remote_detail,
+    )
     return _attach_catalog_stock_to_line_item(item, stock)
+
+
+def _quotation_stock_needs_remote_detail(row: dict[str, Any] | None) -> bool:
+    """Remote stock GET only when the company file has no row for this code."""
+    if not isinstance(row, dict):
+        return True
+    return not str(row.get("CODE") or row.get("code") or "").strip()
 
 
 def enrich_pr_submit_line_item(item: dict[str, Any]) -> dict[str, Any]:
