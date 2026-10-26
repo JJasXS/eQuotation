@@ -3833,28 +3833,6 @@ def list_php_endpoints():
             endpoints.append(f'/php/{fname}')
     return jsonify({'endpoints': endpoints})
 
-@app.route('/get_chats')
-@api_login_required(unauth_message='Unauthorized')
-def get_chats():
-    customer_code = session.get('customer_code')
-    if not customer_code:
-        return jsonify({'success': False, 'error': 'Customer code not found'}), 400
-    
-    try:
-        # Call PHP endpoint to get chats (degrade gracefully if upstream is slow/down).
-        data, _status = proxy_json_request(
-            'GET',
-            '/php/getChats.php',
-            params={'customerCode': customer_code},
-        )
-        if isinstance(data, dict) and data.get('success'):
-            return jsonify({'success': True, 'chats': data.get('chats', [])})
-        print(f"[WARN] get_chats: upstream success=false for customerCode={customer_code!r}")
-        return jsonify({'success': True, 'chats': [], 'degraded': True}), 200
-    except Exception as e:
-        print(f"[WARN] get_chats: upstream failed for customerCode={customer_code!r}: {e}")
-        return jsonify({'success': True, 'chats': [], 'degraded': True}), 200
-
 @app.route('/api/get_active_order')
 @api_login_required(unauth_message='Unauthorized')
 def api_get_active_order():
@@ -11275,7 +11253,7 @@ def api_get_user_info():
 
 def _fetch_company_names_from_local_firebird():
     """
-    Same data as legacy php/getCompanyNames.php: distinct AR_CUSTOMER.COMPANYNAME (non-empty).
+    Distinct AR_CUSTOMER.COMPANYNAME (non-empty).
     Returns (list[str], None) on success, or (None, error_string) on failure.
     """
     con = None
