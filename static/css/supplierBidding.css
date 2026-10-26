@@ -977,8 +977,12 @@ body.supplier-bidding-page .sb-invite-tabs--top .eq-line-tab.is-active {
 
 .sb-invites-table .sb-col-pr { width: 24%; }
 .sb-invites-table .sb-col-desc { width: 36%; }
+.sb-invites-table .sb-col-date,
+.sb-invites-table .sb-col-lines {
+    text-align: center;
+}
 .sb-invites-table .sb-col-date { width: 18%; }
-.sb-invites-table .sb-col-lines { width: 10%; text-align: right; }
+.sb-invites-table .sb-col-lines { width: 10%; }
 
 .sb-invite-row__desc,
 .sb-invite-row__lines {
@@ -988,7 +992,7 @@ body.supplier-bidding-page .sb-invite-tabs--top .eq-line-tab.is-active {
 }
 
 .sb-invite-row__lines {
-    text-align: right;
+    text-align: center;
     font-variant-numeric: tabular-nums;
 }
 
@@ -1087,7 +1091,7 @@ tr.sb-invite-row td {
     color: var(--ice-text-muted, #5a7a94);
     font-size: 12px;
     white-space: nowrap;
-    text-align: right;
+    text-align: center;
 }
 
 .sb-invite-row__status {
@@ -1813,17 +1817,28 @@ body.supplier-bidding-page .sb-signed-in {
     white-space: nowrap;
 }
 
-body.supplier-bidding-page .action-btn--icon {
+body.supplier-bidding-page .sb-reload {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
+    margin: 0;
     padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--ice-accent, #3b8fc4);
     line-height: 0;
+    cursor: pointer;
 }
 
-body.supplier-bidding-page .action-btn--icon svg {
+body.supplier-bidding-page .sb-reload:hover {
+    color: var(--ice-accent-hover, #2d74a3);
+    background: transparent;
+}
+
+body.supplier-bidding-page .sb-reload svg {
     display: block;
 }
 
