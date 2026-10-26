@@ -58,51 +58,123 @@ def fetch_sql_api_customer_row(customer_code: str) -> tuple[dict[str, Any] | Non
     if not settings.access_key or not settings.secret_key:
         return None, None
 
+    from api.clients import SqlAccountingApiError
+
     client = SqlAccountingApiClient(settings)
     seen: set[str] = set()
     last_status: int | None = None
+    best: dict[str, Any] | None = None
+    best_status: int | None = None
 
     for url in _customer_detail_urls(code):
         if url in seen:
             continue
         seen.add(url)
-        status, parsed, _raw = client.get_json(url, timeout_seconds=min(15.0, settings.timeout_seconds + 5.0))
+        try:
+            # One signed attempt. Customer display must not stack transport retries.
+            status, parsed, _raw = client.get_json(
+                url,
+                timeout_seconds=5,
+                max_attempts=1,
+                retry_transport=False,
+            )
+        except SqlAccountingApiError:
+            # The host is unreachable. Other path shapes on the same host will fail too.
+            return best, best_status if best is not None else None
         last_status = status
         if status != 200:
             continue
         rows = _customer_rows_from_sql_json(parsed)
-        if rows:
-            return rows[0], status
+        if not rows:
+            continue
+        row = rows[0]
+        if _sql_customer_row_has_address(row):
+            return row, status
+        if best is None:
+            best = row
+            best_status = status
 
-    return None, last_status
+    return best, best_status if best is not None else last_status
+
+
+def _sql_customer_row_has_address(row: dict[str, Any]) -> bool:
+    for key in ("address1", "ADDRESS1"):
+        if str(row.get(key) or "").strip():
+            return True
+    branches = row.get("sdsbranch")
+    if not isinstance(branches, list):
+        return False
+    for branch in branches:
+        if isinstance(branch, dict) and str(branch.get("address1") or branch.get("ADDRESS1") or "").strip():
+            return True
+    return False
+
+
+def currency_fields_from_sql_row(
+    row: dict[str, Any] | None,
+    customer_code: str,
+    status: int | None,
+) -> dict[str, str]:
+    """Currency fields from one SQL customer row. Does not call the network."""
+    cc = ""
+    if isinstance(row, dict):
+        cc = _format_currency_display_value(row.get("currencycode") or row.get("currencyCode"))
+    return {
+        "code": str(customer_code or "").strip(),
+        "currencycode": cc,
+        "httpStatus": str(status) if status is not None else "",
+    }
 
 
 def sql_api_currency_and_code(customer_code: str) -> dict[str, str]:
     """Currency + code from SQL API GET /customer only (e.g. ``----``; never Firebird/MYR fallback)."""
     row, status = fetch_sql_api_customer_row(customer_code)
-    base = {
-        "code": str(customer_code or "").strip(),
-        "currencycode": "",
-        "httpStatus": str(status) if status is not None else "",
-    }
-    if not row:
-        return base
-
-    code = str(row.get("code") or customer_code or "").strip()
-    cc = _format_currency_display_value(row.get("currencycode") or row.get("currencyCode"))
-    return {"code": code, "currencycode": cc, "httpStatus": str(status) if status is not None else "200"}
+    return currency_fields_from_sql_row(row, customer_code, status)
 
 
-def apply_sql_api_currency_to_customer_payload(payload: dict[str, Any], customer_code: str) -> dict[str, Any]:
+def _firebird_customer_currency(customer_code: str) -> str:
+    """Local AR_CUSTOMER.CURRENCYCODE when SQL API keys are not configured."""
+    code = str(customer_code or "").strip()
+    if not code:
+        return ""
+    try:
+        from utils.db_utils import get_db_connection
+
+        con = get_db_connection()
+        try:
+            cur = con.cursor()
+            cur.execute(
+                "SELECT TRIM(CURRENCYCODE) FROM AR_CUSTOMER WHERE UPPER(TRIM(CODE)) = UPPER(TRIM(?))",
+                (code,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return ""
+            return _format_currency_display_value(row[0])
+        finally:
+            con.close()
+    except Exception:
+        return ""
+
+
+def apply_sql_api_currency_to_customer_payload(
+    payload: dict[str, Any],
+    customer_code: str,
+    sql_fields: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """Overwrite CODE/CURRENCYCODE on get_user_info payload from SQL API GET /customer."""
     if not isinstance(payload, dict):
         return payload
 
-    fields = sql_api_currency_and_code(customer_code)
+    fields = sql_fields if sql_fields is not None else sql_api_currency_and_code(customer_code)
     out = dict(payload)
-    code = fields.get("code") or str(customer_code or "").strip()
+    # The signed-in AR_CUSTOMER.CODE is the quotation customer. A SQL API row must not replace it.
+    code = str(customer_code or "").strip() or str(fields.get("code") or "").strip()
     cc = str(fields.get("currencycode") or "").strip()
-    # Do not fall back to Firebird AR_CUSTOMER or legacy CURRENCYCODE (may differ from SQL API cloud).
+    # SQL Accounting currency wins when the GET returns one. Otherwise use this customer's
+    # AR_CUSTOMER.CURRENCYCODE (keys missing, HTTP error, or an empty currency field).
+    if not cc or cc in ("-", "—"):
+        cc = _firebird_customer_currency(code or customer_code)
 
     if code:
         out["CODE"] = code

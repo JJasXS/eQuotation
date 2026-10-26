@@ -2189,8 +2189,8 @@ if (updateQuotationForm) {
         const quotationData = buildQuotationPayload();
         if (!applySqlApiCurrencyForSubmit(quotationData)) {
             alert(
-                'Customer currency was not loaded from SQL API. Wait for Customer details to finish loading, ' +
-                    'or fix SQL API keys and restart the server.'
+                'Customer currency was not loaded. Wait for Customer details to finish loading, ' +
+                    'or confirm this customer has a currency in SQL Accounting.'
             );
             return;
         }
@@ -2242,8 +2242,8 @@ if (quotationForm) {
             const quotationData = buildQuotationPayload();
             if (!applySqlApiCurrencyForSubmit(quotationData)) {
                 alert(
-                    'Customer currency was not loaded from SQL API. Wait for Customer details to finish loading, ' +
-                        'or fix SQL API keys and restart the server.'
+                    'Customer currency was not loaded. Wait for Customer details to finish loading, ' +
+                    'or confirm this customer has a currency in SQL Accounting.'
                 );
                 return;
             }
@@ -2293,8 +2293,8 @@ if (quotationForm) {
         const quotationData = buildQuotationPayload();
         if (!applySqlApiCurrencyForSubmit(quotationData)) {
             alert(
-                'Customer currency was not loaded from SQL API. Wait for Customer details to finish loading, ' +
-                    'or fix SQL API keys and restart the server.'
+                'Customer currency was not loaded. Wait for Customer details to finish loading, ' +
+                    'or confirm this customer has a currency in SQL Accounting.'
             );
             return;
         }
