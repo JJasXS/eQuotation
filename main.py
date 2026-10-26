@@ -16,7 +16,6 @@ import string
 from difflib import SequenceMatcher
 import traceback
 from typing import Any
-from urllib.parse import quote
 from flask import Flask, render_template, request, jsonify, session, redirect, make_response
 import fdb
 import openai
@@ -11202,156 +11201,39 @@ def api_get_user_info():
         sql_access_key = (os.getenv('SQL_API_ACCESS_KEY') or '').strip()
         sql_secret_key = (os.getenv('SQL_API_SECRET_KEY') or '').strip()
         sql_host = (os.getenv('SQL_API_HOST') or '').strip()
-        sql_region = (os.getenv('SQL_API_REGION') or 'ap-southeast-5').strip()
-        from utils.sql_api_sigv4 import resolve_sql_api_sigv4_service
-
-        sql_service = resolve_sql_api_sigv4_service(sql_host, os.getenv('SQL_API_SERVICE'))
-        sql_detail_path = (os.getenv('SQL_API_CUSTOMER_DETAIL_PATH') or '/customer/*').strip()
-        sql_use_tls = (os.getenv('SQL_API_USE_TLS', 'true').strip().lower() in ('1', 'true', 'yes', 'on'))
 
         if sql_access_key and sql_secret_key and sql_host:
-            raw_path = (sql_detail_path or '/customer/*').strip()
-            if not raw_path.startswith('/'):
-                raw_path = '/' + raw_path
-            trimmed_path = raw_path.replace('*', '').rstrip('/') or '/customer'
-            code_str = quote(str(customer_code), safe='')
-            scheme = 'https' if sql_use_tls else 'http'
+            from utils.sql_api_customer import (
+                apply_sql_api_currency_to_customer_payload,
+                currency_fields_from_sql_row,
+                fetch_sql_api_customer_row,
+            )
 
-            # Try multiple path shapes because some SQL API deployments only return branch
-            # fields for wildcard/path-parameter variants.
-            candidate_urls = [
-                f"{scheme}://{sql_host.rstrip('/')}{quote(trimmed_path, safe='/:?&=%')}?code={code_str}",
-                f"{scheme}://{sql_host.rstrip('/')}{quote(raw_path, safe='/:?&=%')}?code={code_str}",
-                f"{scheme}://{sql_host.rstrip('/')}{quote(trimmed_path.rstrip('/') + '/' + str(customer_code), safe='/:?&=%')}",
-            ]
-
-            # Preserve order but deduplicate identical URLs.
-            unique_urls = []
-            for url in candidate_urls:
-                if url not in unique_urls:
-                    unique_urls.append(url)
-
-            sql_headers = {'Accept': 'application/json'}
-            best_normalized = None
-            best_source = None
-            last_sql_status = None
-            last_upstream_error_message = None
-
-            for idx, sql_url in enumerate(unique_urls, start=1):
-                print(f"[DEBUG] get_user_info: Calling SQL API variant {idx}/{len(unique_urls)} at {sql_url}", flush=True)
-
-                try:
-                    # Prefer SigV4 signing if botocore is available in this Flask runtime.
-                    from botocore.auth import SigV4Auth
-                    from botocore.awsrequest import AWSRequest
-                    from botocore.credentials import Credentials
-
-                    creds = Credentials(sql_access_key, sql_secret_key)
-                    aws_request = AWSRequest(method='GET', url=sql_url, headers=sql_headers)
-                    SigV4Auth(creds, sql_service, sql_region).add_auth(aws_request)
-                    prepared = aws_request.prepare()
-
-                    sql_response = requests.get(
-                        prepared.url,
-                        headers=dict(prepared.headers),
-                        timeout=(3.0, 10.0),
-                    )
-                except Exception as sigv4_error:
-                    # Fallback for environments where upstream accepts key headers.
-                    print(f"[DEBUG] get_user_info: SigV4 unavailable/failed ({sigv4_error}); trying header auth", flush=True)
-                    sql_response = requests.get(
-                        sql_url,
-                        headers={
-                            **sql_headers,
-                            'X-Access-Key': sql_access_key,
-                            'X-Secret-Key': sql_secret_key,
-                            'X-Region': sql_region,
-                            'X-Service': sql_service,
-                        },
-                        timeout=(3.0, 10.0),
-                    )
-
-                print(f"[DEBUG] get_user_info: SQL API response status {sql_response.status_code}", flush=True)
-                if not sql_response.ok:
-                    last_sql_status = sql_response.status_code
-                    try:
-                        err_json = sql_response.json()
-                        if isinstance(err_json, dict):
-                            err_obj = err_json.get('error')
-                            if isinstance(err_obj, dict) and err_obj.get('message'):
-                                last_upstream_error_message = str(err_obj.get('message')).strip()
-                            elif err_json.get('message'):
-                                last_upstream_error_message = str(err_json.get('message')).strip()
-                    except Exception:
-                        pass
-                    print(f"[DEBUG] get_user_info: SQL API response preview: {(sql_response.text or '')[:260]}", flush=True)
-                    continue
-
-                try:
-                    sql_json = sql_response.json()
-                except Exception as parse_err:
-                    print(f"[DEBUG] get_user_info: SQL API JSON parse failed: {parse_err}", flush=True)
-                    continue
-
-                if isinstance(sql_json, dict):
-                    print(f"[DEBUG] get_user_info: SQL JSON top-level keys: {list(sql_json.keys())}", flush=True)
-                    sql_data = sql_json.get('data')
-                    if isinstance(sql_data, list):
-                        print(f"[DEBUG] get_user_info: SQL JSON data list length: {len(sql_data)}", flush=True)
-                        if sql_data and isinstance(sql_data[0], dict):
-                            print(f"[DEBUG] get_user_info: SQL first data keys: {list(sql_data[0].keys())}", flush=True)
-                    elif isinstance(sql_data, dict):
-                        print(f"[DEBUG] get_user_info: SQL data keys: {list(sql_data.keys())}", flush=True)
-                elif isinstance(sql_json, list):
-                    print(f"[DEBUG] get_user_info: SQL JSON list length: {len(sql_json)}", flush=True)
-
-                normalized = _normalize_customer_info(sql_json, customer_code)
-                if not normalized or not _customer_info_has_meaningful_data(normalized):
-                    continue
-
-                # Keep first valid result as baseline, but prefer one that has address/phone.
-                if best_normalized is None:
-                    best_normalized = normalized
-                    best_source = f'sql_api_variant_{idx}'
-
-                addr1 = str(normalized.get('ADDRESS1', '')).strip().upper()
-                phone1 = str(normalized.get('PHONE1', '')).strip().upper()
-                if addr1 not in ('', 'N/A') or phone1 not in ('', 'N/A'):
-                    _debug_log_user_info_payload(f'sql_api_variant_{idx}', normalized)
-                    from utils.sql_api_customer import apply_sql_api_currency_to_customer_payload
-
-                    payload_out = apply_sql_api_currency_to_customer_payload(
-                        _merge_session_login_customer_udf_meta(normalized),
-                        customer_code,
-                    )
-                    return jsonify({
-                        'success': True,
-                        'data': payload_out,
-                        'source': f'sql_api_variant_{idx}',
-                    })
-
-            if best_normalized is not None:
-                _debug_log_user_info_payload(best_source or 'sql_api', best_normalized)
-                from utils.sql_api_customer import apply_sql_api_currency_to_customer_payload
-
+            # One SigV4 customer read. Do not repeat it for currency, and do not fall back to
+            # raw key headers. Those extra calls were the Create Quotation delay.
+            sql_row, last_sql_status = fetch_sql_api_customer_row(customer_code)
+            sql_fields = currency_fields_from_sql_row(sql_row, customer_code, last_sql_status)
+            normalized = _normalize_customer_info(sql_row, customer_code) if sql_row else None
+            if normalized and _customer_info_has_meaningful_data(normalized):
+                _debug_log_user_info_payload('sql_api', normalized)
                 payload_out = apply_sql_api_currency_to_customer_payload(
-                    _merge_session_login_customer_udf_meta(best_normalized),
+                    _merge_session_login_customer_udf_meta(normalized),
                     customer_code,
+                    sql_fields=sql_fields,
                 )
                 return jsonify({
                     'success': True,
                     'data': payload_out,
-                    'source': best_source or 'sql_api',
+                    'source': 'sql_api',
                 })
 
             local_payload = _fetch_customer_info_from_local_ar(customer_code)
             if local_payload:
                 _debug_log_user_info_payload('local_firebird_ar', local_payload)
-                from utils.sql_api_customer import apply_sql_api_currency_to_customer_payload
-
                 payload_out = apply_sql_api_currency_to_customer_payload(
                     _merge_session_login_customer_udf_meta(local_payload),
                     customer_code,
+                    sql_fields=sql_fields,
                 )
                 return jsonify({
                     'success': True,
@@ -11362,9 +11244,7 @@ def api_get_user_info():
             # Upstream errors (e.g. 500 "Regenerate views are required") are not "not found"; use 502 for 5xx.
             fail_status = 502 if (last_sql_status and last_sql_status >= 500) else 404
             err_msg = 'No SQL API customer data returned'
-            if last_upstream_error_message:
-                err_msg = f'SQL API: {last_upstream_error_message}'
-            elif last_sql_status:
+            if last_sql_status:
                 err_msg = f'No SQL API customer data returned (upstream HTTP {last_sql_status})'
             fail_body = {'success': False, 'error': err_msg}
             if last_sql_status is not None:
