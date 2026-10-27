@@ -6,6 +6,7 @@ import re
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import random
+import time
 
 import requests
 
@@ -926,6 +927,141 @@ def _next_qt_docno_candidate(max_seq: int, existing: set[int], attempt: int) -> 
     return ""
 
 
+def _is_gateway_timeout(status: int, raw: str) -> bool:
+    """True when the SQL Accounting gateway returned its HTML Request Timed Out page."""
+    if status == 504:
+        return True
+    text = (raw or "").lower()
+    return "request timed out" in text and ("<html" in text or "<!doctype" in text)
+
+
+def _find_sl_qt_by_docno(docno: str) -> dict | None:
+    """Return the saved SL_QT row when this document number already exists."""
+    number = (docno or "").strip()
+    if not number:
+        return None
+    try:
+        from utils import get_db_connection
+    except ImportError:
+        return None
+    con = cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        cur.execute(
+            "SELECT DOCKEY, TRIM(DOCNO) FROM SL_QT WHERE TRIM(DOCNO) = ?",
+            (number,),
+        )
+        row = cur.fetchone()
+        if not row or row[0] is None:
+            return None
+        return {"dockey": int(row[0]), "docno": str(row[1] or number).strip()}
+    except Exception:
+        return None
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
+
+
+def _wait_for_sl_qt_docno(docno: str) -> dict | None:
+    """The gateway can time out after SQL Accounting has started the save."""
+    for attempt in range(6):
+        found = _find_sl_qt_by_docno(docno)
+        if found:
+            return found
+        if attempt < 5:
+            time.sleep(2)
+    return None
+
+
+def _saved_quotation_result(found: dict, doc_no: str) -> dict:
+    return {
+        "success": True,
+        "dockey": found.get("dockey") or 0,
+        "docno": found.get("docno") or doc_no,
+        "message": "Quotation created successfully",
+    }
+
+
+def _is_client_timeout(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return "timed out" in text or "timeout" in text or "read time" in text
+
+
+def _timeout_failure(doc_no: str, *, updating: bool) -> dict:
+    if updating:
+        error = (
+            f"SQL Accounting timed out while saving {doc_no}. "
+            "Reopen that quotation and confirm the changes before submitting again."
+        )
+    else:
+        error = (
+            f"SQL Accounting timed out while saving {doc_no}. "
+            "Wait a minute, then check Sales Quotation for that number before submitting again."
+        )
+    return {"success": False, "errorCode": "SQL_API_TIMEOUT", "error": error}
+
+
+def _draft_after_unconfirmed_save(base_api_url, customer_code, data, doc_no: str) -> dict:
+    """Keep the form when a new quotation never shows up in SL_QT."""
+    draft_data = dict(data or {})
+    for key in ("dockey", "docKey", "docno", "docNo"):
+        draft_data.pop(key, None)
+    draft_key = draft_data.get("draftDockey") or draft_data.get("draft_dockey")
+    if draft_key:
+        draft_data["dockey"] = draft_key
+    note = f"Not confirmed ({doc_no}). Check Sales Quotation before submitting."
+    description = str(draft_data.get("description") or "").strip()
+    if doc_no and doc_no not in description:
+        combined = f"{description} — {note}".strip(" —") if description else note
+        draft_data["description"] = combined[:1200]
+    saved = {"success": False}
+    try:
+        saved = save_draft_quotation(base_api_url, customer_code, draft_data)
+    except Exception:
+        saved = {"success": False}
+    result = _timeout_failure(doc_no, updating=False)
+    if not saved.get("success"):
+        return result
+    result["draftSaved"] = True
+    result["draftDockey"] = saved.get("dockey")
+    result["error"] += (
+        " Your entries were kept as a draft. "
+        "Open that draft only after this number is not in Sales Quotation."
+    )
+    return result
+
+
+def _after_quotation_timeout(
+    base_api_url,
+    customer_code,
+    data,
+    doc_no: str,
+    *,
+    is_update: bool,
+    gateway_retries: int,
+):
+    """Return (response, retries, retry_same_number).
+
+    An update already has an SL_QT row, so that row is not proof the save finished.
+    A create is recovered only when this document number appears.
+    """
+    if is_update:
+        return _timeout_failure(doc_no, updating=True), gateway_retries, False
+    found = _wait_for_sl_qt_docno(doc_no)
+    if found:
+        return _saved_quotation_result(found, doc_no), gateway_retries, False
+    if gateway_retries < 1:
+        return None, gateway_retries + 1, True
+    return (
+        _draft_after_unconfirmed_save(base_api_url, customer_code, data, doc_no),
+        gateway_retries,
+        False,
+    )
+
+
 def _is_unique_docno_error(status: int, parsed, raw: str) -> bool:
     if status < 400:
         return False
@@ -1504,6 +1640,7 @@ def create_or_update_quotation(base_api_url, customer_code, data):
     )
     last_error = ""
     local_precheck_done = False
+    gateway_retries = 0
     max_attempts = 1 if is_update else 20
     for attempt in range(max_attempts):
         if provided_docno:
@@ -1571,19 +1708,20 @@ def create_or_update_quotation(base_api_url, customer_code, data):
                     timeout_seconds=quote_read_timeout,
                 )
         except SqlAccountingApiError as exc:
-            err_text = str(exc)
-            low = err_text.lower()
-            if "timed out" in low or "timeout" in low or "read time" in low:
-                return {
-                    "success": False,
-                    "errorCode": "SQL_API_TIMEOUT",
-                    "error": (
-                        "SQL Accounting API did not respond in time. Wait a minute, then check "
-                        "whether the quotation already exists in SQL Accounting before submitting again."
-                    ),
-                    "detail": err_text,
-                }
-            return {"success": False, "errorCode": "SQL_API_ERROR", "error": err_text}
+            if not _is_client_timeout(exc):
+                return {"success": False, "errorCode": "SQL_API_ERROR", "error": str(exc)}
+            outcome, gateway_retries, retry_same = _after_quotation_timeout(
+                base_api_url,
+                customer_code,
+                data,
+                doc_no,
+                is_update=is_update,
+                gateway_retries=gateway_retries,
+            )
+            if retry_same:
+                provided_docno = doc_no
+                continue
+            return outcome
 
         if status < 400:
             response_dict = parsed if isinstance(parsed, dict) else {}
@@ -1609,12 +1747,28 @@ def create_or_update_quotation(base_api_url, customer_code, data):
                 flush=True,
             )
 
-        detail = raw
+        if _is_gateway_timeout(status, raw or ""):
+            outcome, gateway_retries, retry_same = _after_quotation_timeout(
+                base_api_url,
+                customer_code,
+                data,
+                doc_no,
+                is_update=is_update,
+                gateway_retries=gateway_retries,
+            )
+            if retry_same:
+                provided_docno = doc_no
+                continue
+            return outcome
+
+        detail = raw or ""
         if isinstance(parsed, dict):
             detail = str(parsed.get("message") or parsed.get("error") or parsed)
             err_obj = parsed.get("error")
             if isinstance(err_obj, dict) and err_obj.get("message"):
                 detail = str(err_obj.get("message"))
+        if detail.lstrip().lower().startswith("<"):
+            detail = "SQL Accounting returned an HTML error page"
         if status == 401:
             return {
                 "success": False,
@@ -1647,6 +1801,11 @@ def create_or_update_quotation(base_api_url, customer_code, data):
                 "if needed; set SQL_API_QUOTATION_FALLBACK_ITEM_CODE for custom lines. "
                 "Check SQL Accounting / Firebird logs for the underlying exception."
             )
+
+        if gateway_retries and _is_unique_docno_error(status, parsed, raw):
+            saved = _find_sl_qt_by_docno(doc_no)
+            if saved:
+                return _saved_quotation_result(saved, doc_no)
 
         if provided_docno or not _is_unique_docno_error(status, parsed, raw):
             return {"success": False, "error": last_error}

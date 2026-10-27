@@ -2424,10 +2424,10 @@ if (quotationForm) {
             } else {
                 const err = result.error || 'Unknown error';
                 if (result.errorCode === 'SQL_API_TIMEOUT') {
-                    alert(
-                        err + '\n\n(HTTP 504: accounting service did not answer in time. ' +
-                        'Check SQL Accounting for a duplicate before trying again.)'
-                    );
+                    if (result.draftDockey) {
+                        quotationForm.dataset.draftDockey = String(result.draftDockey);
+                    }
+                    alert(err);
                 } else if (result.errorCode === 'SQL_API_UNAUTHORIZED') {
                     alert(
                         err + '\n\nThis is not a login/session problem. Ask your admin to verify SQL API keys ' +
