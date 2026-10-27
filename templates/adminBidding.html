@@ -58,11 +58,9 @@
 
                         <nav class="eq-line-tabs pr-status-tabs" id="pr-status-filter" role="tablist" aria-label="Filter by status">
 
-                            <button type="button" role="tab" class="eq-line-tab is-active" data-status="ALL" aria-selected="true" onclick="setPrStatusFilter('ALL')">All</button>
+                            <button type="button" role="tab" class="eq-line-tab is-active" data-status="PENDING" aria-selected="true" onclick="setPrStatusFilter('PENDING')">Pending</button>
 
                             <button type="button" role="tab" class="eq-line-tab" data-status="APPROVED" aria-selected="false" onclick="setPrStatusFilter('APPROVED')">Approved</button>
-
-                            <button type="button" role="tab" class="eq-line-tab" data-status="PENDING" aria-selected="false" onclick="setPrStatusFilter('PENDING')">Pending</button>
 
                             <button type="button" role="tab" class="eq-line-tab" data-status="CANCELLED" aria-selected="false" onclick="setPrStatusFilter('CANCELLED')">Cancelled</button>
 
@@ -86,7 +84,7 @@
 
                         <div class="toolbar">
 
-                            <button class="btn secondary" type="button" id="load-bids-btn" onclick="loadBidsForActivePr()" disabled>Refresh bids</button>
+                            <button class="btn secondary" type="button" id="load-bids-btn" onclick="loadBidsForActivePr({force:true})" disabled>Refresh bids</button>
 
                             <button class="btn" type="button" id="save-line-awards-btn" onclick="saveLineAwards()" disabled>Save Item Awards</button>
 
@@ -211,6 +209,7 @@
             if (headerBtn) headerBtn.setAttribute('aria-expanded', next ? 'true' : 'false');
             if (next) {
                 document.getElementById('invite-drawer-close')?.focus({ preventScroll: true });
+                if (!supplierCache.length) loadSuppliers();
             }
         }
 
@@ -227,7 +226,7 @@
             }
         });
 
-        const BIDDING_STATUS_FILTERS = ['ALL', 'APPROVED', 'PENDING', 'CANCELLED'];
+        const BIDDING_STATUS_FILTERS = ['PENDING', 'APPROVED', 'CANCELLED'];
 
         function readBiddingUrlParams() {
             try {
@@ -252,7 +251,7 @@
             try {
                 const url = new URL(window.location.href);
                 const filter = getPrStatusFilter();
-                if (filter && filter !== 'ALL') {
+                if (filter && filter !== 'PENDING') {
                     url.searchParams.set('status', filter.toLowerCase());
                 } else {
                     url.searchParams.delete('status');
@@ -280,11 +279,11 @@
         function getPrStatusFilter() {
             const active = document.querySelector('#pr-status-filter .eq-line-tab.is-active');
             const status = active && active.dataset ? active.dataset.status : '';
-            return BIDDING_STATUS_FILTERS.includes(status) ? status : 'ALL';
+            return BIDDING_STATUS_FILTERS.includes(status) ? status : 'PENDING';
         }
 
         function applyPrStatusTab(status) {
-            const next = BIDDING_STATUS_FILTERS.includes(status) ? status : 'ALL';
+            const next = BIDDING_STATUS_FILTERS.includes(status) ? status : 'PENDING';
             document.querySelectorAll('#pr-status-filter .eq-line-tab').forEach((btn) => {
                 const on = btn.dataset.status === next;
                 btn.classList.toggle('is-active', on);
@@ -311,12 +310,10 @@
         function biddingPrMatchesFilter(row, filter) {
             const docStatus = String(row.status || '').toUpperCase();
             if (docStatus !== 'SUBMITTED') return false;
-            if (!filter || filter === 'ALL') return true;
             const udf = normalizePrUdfStatus(row.udfStatus);
             if (filter === 'APPROVED') return udf === 'APPROVED';
-            if (filter === 'PENDING') return udf === 'PENDING';
             if (filter === 'CANCELLED') return udf === 'CANCELLED';
-            return docStatus === filter;
+            return udf === 'PENDING';
         }
 
         function visibleBiddingRequests() {
@@ -438,6 +435,12 @@
             const row = findPrRowFromUrlParams();
             if (!row) return false;
             if (activePr && Number(activePr.id) === Number(row.id) && !opts.force) {
+                activePr.requestNumber = String(row.requestNumber || activePr.requestNumber || '');
+                activePr.status = String(row.status || '');
+                activePr.supplierName = String(row.supplierName || '');
+                activePr.udfStatus = row.udfStatus || '';
+                setSelectionUi();
+                renderRequests();
                 syncBiddingPrToUrl();
                 return true;
             }
@@ -575,7 +578,27 @@
 
         }
 
+        let bidsLoadedForId = 0;
+        let invitesLoadedForId = 0;
+
+        function primeBidsFromUrl() {
+            const { id, docno } = readBiddingUrlParams();
+            if (!(id > 0)) return;
+            activePr = {
+                id,
+                requestNumber: docno,
+                status: '',
+                supplierName: '',
+                udfStatus: '',
+            };
+            setSelectionUi();
+            loadBidsForActivePr();
+            loadInvitationsForActivePr();
+        }
+
         async function loadRequests() {
+
+            primeBidsFromUrl();
 
             msg('Loading purchase requests...');
 
@@ -594,18 +617,6 @@
             renderRequests();
 
             if (!loaded && !requestsCache.length) return;
-
-            if (!supplierCache.length) {
-                fetch('/api/admin/procurement/suppliers')
-                    .then((supRes) => supRes.json())
-                    .then((supBody) => {
-                        if (supBody && supBody.success && Array.isArray(supBody.data)) {
-                            supplierCache = supBody.data;
-                            renderRequests();
-                        }
-                    })
-                    .catch(() => { /* API supplierName already applied server-side */ });
-            }
 
             if (!selectPrFromUrlIfPresent()) {
                 syncBiddingPrToUrl();
@@ -827,7 +838,7 @@
 
         }
 
-        async function loadInvitationsForActivePr() {
+        async function loadInvitationsForActivePr(options) {
 
             if (!activePr) {
 
@@ -839,6 +850,11 @@
 
             }
 
+            const requestId = Number(activePr.id);
+            const force = !!(options && options.force);
+            if (!force && invitesLoadedForId === requestId) return;
+            invitesLoadedForId = requestId;
+
             const wrap = document.getElementById('invited-suppliers-table-wrap');
 
             if (wrap) wrap.innerHTML = '<div class="muted" style="padding:8px;">Loading invited suppliers-</div>';
@@ -848,6 +864,8 @@
             const body = await res.json();
 
             if (!res.ok || !body.success) {
+
+                if (invitesLoadedForId === requestId) invitesLoadedForId = 0;
 
                 activeInvitations = [];
 
@@ -1068,13 +1086,13 @@
 
             msg(note);
 
-            await loadInvitationsForActivePr();
+            await loadInvitationsForActivePr({ force: true });
 
-            await loadBidsForActivePr();
+            await loadBidsForActivePr({ force: true });
 
         }
 
-        async function loadBidsForActivePr() {
+        async function loadBidsForActivePr(options) {
 
             const bidsWrap = document.getElementById('bids-cards-wrap');
 
@@ -1088,6 +1106,11 @@
 
             }
 
+            const requestId = Number(activePr.id);
+            const force = !!(options && options.force);
+            if (!force && bidsLoadedForId === requestId) return;
+            bidsLoadedForId = requestId;
+
             const loading = '<div class="muted" style="padding:12px;">Loading-</div>';
 
             if (bidsWrap) bidsWrap.innerHTML = loading;
@@ -1099,6 +1122,8 @@
             const body = await res.json();
 
             if (!res.ok || !body.success) {
+
+                if (bidsLoadedForId === requestId) bidsLoadedForId = 0;
 
                 const err = `<div class="bidding-placeholder" style="color:#8e2b2b;">${esc(body.error || 'Failed to load bids')}</div>`;
 
@@ -1515,7 +1540,7 @@
 
             msg(`Item awards saved (${savedCount} item(s), ${supplierCount || 1} supplier group(s)). You can now transfer PR->PO by selected awarded lines.`);
 
-            await loadBidsForActivePr();
+            await loadBidsForActivePr({ force: true });
 
         }
 
@@ -1539,8 +1564,6 @@
         document.getElementById('pr-list')?.addEventListener('scroll', onPrListScroll);
 
         loadRequests();
-
-        loadSuppliers();
 
     </script>
 
