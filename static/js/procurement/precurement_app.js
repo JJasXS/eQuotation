@@ -78,7 +78,7 @@
 
         }
 
-        /** Two-row thead: set --stock-card-hdr1-h to row1 height so sticky row2 has no visible seam/gap. */
+        /** Multi-row thead: measure row heights so sticky location / UOM rows sit under the group row. */
 
         function syncStockCardHeaderStickyOffset() {
 
@@ -86,23 +86,35 @@
 
             if (!thead) return;
 
-            const row1 = thead.querySelector('tr:first-child');
+            const rows = thead.querySelectorAll('tr');
 
-            if (!row1) return;
-
-            if (thead.querySelectorAll('tr').length < 2) {
+            if (rows.length < 2) {
 
                 thead.style.removeProperty('--stock-card-hdr1-h');
+
+                thead.style.removeProperty('--stock-card-hdr12-h');
 
                 return;
 
             }
 
-            const h = row1.offsetHeight;
+            const h1 = rows[0].offsetHeight || 0;
 
-            if (h > 0) {
+            if (h1 > 0) {
 
-                thead.style.setProperty('--stock-card-hdr1-h', `${h}px`);
+                thead.style.setProperty('--stock-card-hdr1-h', `${h1}px`);
+
+            }
+
+            if (rows.length >= 3) {
+
+                const h2 = rows[1].offsetHeight || 0;
+
+                thead.style.setProperty('--stock-card-hdr12-h', `${h1 + h2}px`);
+
+            } else {
+
+                thead.style.removeProperty('--stock-card-hdr12-h');
 
             }
 
@@ -1543,29 +1555,11 @@
         }
 
         function openStockReportSettingsDrawer() {
-            const panel = document.getElementById('stock-report-settings-panel');
-            const backdrop = document.getElementById('stock-report-settings-backdrop');
-            const openBtn = document.getElementById('stock-report-settings-open');
-            if (!panel) return;
-            panel.classList.add('is-open');
-            if (backdrop) {
-                backdrop.hidden = false;
-                backdrop.classList.add('is-open');
-            }
-            if (openBtn) openBtn.setAttribute('aria-expanded', 'true');
-            document.body.classList.add('stock-report-settings-drawer-open');
+            /* Filters are always visible on desktop; keep as no-op for callers. */
         }
 
         function closeStockReportSettingsDrawer() {
-            const panel = document.getElementById('stock-report-settings-panel');
-            const backdrop = document.getElementById('stock-report-settings-backdrop');
-            const openBtn = document.getElementById('stock-report-settings-open');
-            if (panel) panel.classList.remove('is-open');
-            if (backdrop) {
-                backdrop.classList.remove('is-open');
-                backdrop.hidden = true;
-            }
-            if (openBtn) openBtn.setAttribute('aria-expanded', 'false');
+            closeAllStockMultiSelects();
             document.body.classList.remove('stock-report-settings-drawer-open');
         }
 
@@ -1728,6 +1722,8 @@
             } catch (e) { /* ignore */ }
 
             stockCardBuySelections = {};
+
+            updateStockReportFilterSummary();
 
             if (reportLoaded) {
 
@@ -2121,48 +2117,128 @@
 
         }
 
-        function renderStockColumnFilterPanel() {
+        function stockCardUomModeSummaryLabel() {
+            if (stockCardUomDisplayMode === 'sqty_only') return 'SQTY only';
+            if (stockCardUomDisplayMode === 'both') return 'SQTY + SUOMQTY';
+            return 'SUOMQTY only';
+        }
 
+        function stockCardLocationSummaryLabel() {
+            const all = Array.isArray(stockCardLocations) ? stockCardLocations : [];
+            const selected = Array.isArray(selectedStockCardLocations) ? selectedStockCardLocations : [];
+            const n = selected.length;
+            const total = all.length;
+            if (total > 0 && n === total) return `All locations (${total})`;
+            if (n === 0) return '0 locations selected';
+            if (n === 1) return '1 location selected';
+            return `${n} locations selected`;
+        }
+
+        function stockCardColumnSummaryLabel() {
             ensureStockCardMetricFilterShape();
+            const total = stockCardMetricGroups.length;
+            const n = stockCardMetricGroups.filter((g) => isMetricGroupVisible(g.key)).length;
+            if (n === total) return `All column groups (${total})`;
+            if (n === 0) return '0 groups selected';
+            if (n === 1) return '1 group selected';
+            return `${n} groups selected`;
+        }
 
-            const host = document.getElementById('stock-column-filter-chips');
-
-            if (!host) {
-
-                return;
-
+        function updateStockReportFilterSummary() {
+            const el = document.getElementById('stock-report-filter-summary');
+            const locValue = document.getElementById('stock-location-ms-value');
+            const colValue = document.getElementById('stock-column-ms-value');
+            const locLabel = stockCardLocationSummaryLabel();
+            const colLabel = stockCardColumnSummaryLabel();
+            const uomLabel = stockCardUomModeSummaryLabel();
+            if (locValue) locValue.textContent = locLabel;
+            if (colValue) colValue.textContent = colLabel;
+            if (el) {
+                el.textContent = `${locLabel} · ${colLabel} · ${uomLabel}`;
             }
+        }
 
-            const parts = [];
-
-            stockCardMetricGroups.forEach((g) => {
-
-                const on = isMetricGroupVisible(g.key);
-
-                const safeId = String(g.key || '').replace(/[^a-z0-9_]/gi, '_');
-
-                parts.push(
-
-                    `<label class="stock-column-filter-chip"><input type="checkbox" id="stock-col-filter-${safeId}" ${on ? 'checked' : ''} onchange="onStockColumnMetricFilterChange('${escapeJs(g.key)}', this.checked)" /> ${escapeHtml(g.label)}</label>`,
-
-                );
-
+        function closeAllStockMultiSelects() {
+            ['location', 'column'].forEach((kind) => {
+                const root = document.getElementById(kind === 'location' ? 'stock-location-ms' : 'stock-column-ms');
+                const trigger = document.getElementById(kind === 'location' ? 'stock-location-ms-trigger' : 'stock-column-ms-trigger');
+                const menu = document.getElementById(kind === 'location' ? 'stock-location-ms-menu' : 'stock-column-ms-menu');
+                if (root) root.classList.remove('is-open');
+                if (menu) menu.hidden = true;
+                if (trigger) trigger.setAttribute('aria-expanded', 'false');
             });
+        }
 
+        function toggleStockMultiSelect(kind) {
+            const isLocation = kind === 'location';
+            const root = document.getElementById(isLocation ? 'stock-location-ms' : 'stock-column-ms');
+            const trigger = document.getElementById(isLocation ? 'stock-location-ms-trigger' : 'stock-column-ms-trigger');
+            const menu = document.getElementById(isLocation ? 'stock-location-ms-menu' : 'stock-column-ms-menu');
+            if (!root || !menu || !trigger) return;
+            const willOpen = menu.hidden;
+            closeAllStockMultiSelects();
+            if (!willOpen) return;
+            menu.hidden = false;
+            root.classList.add('is-open');
+            trigger.setAttribute('aria-expanded', 'true');
+        }
+
+        document.addEventListener('mousedown', function (ev) {
+            const t = ev.target;
+            if (!(t instanceof Element)) return;
+            if (t.closest('.stock-ms')) return;
+            closeAllStockMultiSelects();
+        });
+
+        function renderStockColumnFilterPanel() {
+            ensureStockCardMetricFilterShape();
+            const host = document.getElementById('stock-column-filter-chips');
+            if (!host) return;
+            const colMenu = document.getElementById('stock-column-ms-menu');
+            const wasOpen = !!(colMenu && !colMenu.hidden);
+            const parts = [];
+            stockCardMetricGroups.forEach((g) => {
+                const on = isMetricGroupVisible(g.key);
+                const safeId = String(g.key || '').replace(/[^a-z0-9_]/gi, '_');
+                parts.push(
+                    `<label class="stock-ms__option"><input type="checkbox" id="stock-col-filter-${safeId}" ${on ? 'checked' : ''} onchange="onStockColumnMetricFilterChange('${escapeJs(g.key)}', this.checked)" /> <span>${escapeHtml(g.label)}</span></label>`,
+                );
+            });
             host.innerHTML = parts.join('');
-
+            updateStockReportFilterSummary();
+            if (wasOpen) {
+                const root = document.getElementById('stock-column-ms');
+                const trigger = document.getElementById('stock-column-ms-trigger');
+                const menu = document.getElementById('stock-column-ms-menu');
+                if (root) root.classList.add('is-open');
+                if (menu) menu.hidden = false;
+                if (trigger) trigger.setAttribute('aria-expanded', 'true');
+            }
         }
 
         function onStockColumnMetricFilterChange(key, checked) {
-
             ensureStockCardMetricFilterShape();
-
             stockCardMetricFilter[key] = !!checked;
-
             saveStockMetricFilter();
-
             syncStockCardTable();
+        }
 
+        function selectAllStockCardMetricGroups() {
+            ensureStockCardMetricFilterShape();
+            stockCardMetricGroups.forEach((g) => {
+                stockCardMetricFilter[g.key] = true;
+            });
+            saveStockMetricFilter();
+            syncStockCardTable();
+        }
+
+        function clearAllStockCardMetricGroups() {
+            ensureStockCardMetricFilterShape();
+            stockCardMetricGroups.forEach((g) => {
+                stockCardMetricFilter[g.key] = false;
+            });
+            saveStockMetricFilter();
+            syncStockCardTable();
         }
 
         function toggleStockReportAdvancedSettings() {
@@ -6183,7 +6259,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     <tr>
 
-                        <th class="code-col stock-card-code-col--fixed" scope="col">ST_ITEM.CODE</th>
+                        <th class="code-col stock-card-code-col--fixed" scope="col">ITEM CODE</th>
 
                         <th class="stock-card-no-cols-msg stock-card-no-cols-msg--head" scope="col"></th>
 
@@ -6229,7 +6305,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     <tr>
 
-                        <th class="code-col stock-card-expand">ST_ITEM.CODE</th>
+                        <th class="code-col stock-card-expand">ITEM CODE</th>
 
                         ${defaultColumns}
 
@@ -6247,160 +6323,118 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             }
 
+            const L = locationColumns.length;
+            const both = sub === 2;
+            const headerRows = both ? 3 : 2;
+
             if (thead) {
-
-                thead.className = 'stock-card-thead stock-card-thead--one-row';
-
+                thead.className = both
+                    ? 'stock-card-thead stock-card-thead--three-row'
+                    : 'stock-card-thead stock-card-thead--two-row';
             }
 
-            const L = locationColumns.length;
+            const codeTh = `<th class="code-col" rowspan="${headerRows}" scope="col"><div class="stock-card-hdr-code">ITEM CODE</div></th>`;
 
-            /** One <tr>: ST_ITEM.CODE + each th stacks metric, location, and SQ/SU in the same cell. */
-
-            const buildCondensedTh = (group, locationCode, idx, uomKind) => {
-
-                const bg = (idx % 10) + 1;
-
-                const isFirstBandCol = idx === 0 && (sub !== 2 || uomKind === 'SQ');
-
-                const isLastBandCol = idx === L - 1 && (sub !== 2 || uomKind === 'SU');
-
-                const edge = `${isFirstBandCol ? ' location-first' : ''}${isLastBandCol ? ' location-last' : ''}`;
-
-                const uomHtml = uomKind === 'SQ'
-
-                    ? '<span class="stock-card-hdr-uom stock-card-hdr-uom--sq">SQTY</span>'
-
-                    : uomKind === 'SU'
-
-                        ? '<span class="stock-card-hdr-uom stock-card-hdr-uom--su">SUOMQTY</span>'
-
-                        : '';
-
-                return `<th class="qty-col location-bg-${bg}${edge} stock-card-header-cell stock-card-header-condensed" scope="col">
-
-                    <div class="stock-card-hdr-condensed">
-
-                        <span class="stock-card-hdr-condensed-metric">${escapeHtml(stockCardMetricGroupLabel(group))}</span>
-
-                        <span class="stock-card-hdr-loc">${escapeHtml(locationCode)}</span>
-
-                        ${uomHtml}
-
-                    </div>
-
-                </th>`;
-
-            };
-
-            let oneRow = `<th class="code-col" scope="col">
-
-                <div class="stock-card-hdr-code">ST_ITEM.CODE</div>
-
-            </th>`;
-
+            let groupRow = codeTh;
             visibleMetricGroups.forEach((group) => {
-
-                locationColumns.forEach((locationCode, idx) => {
-
-                    if (sub === 2) {
-
-                        oneRow += buildCondensedTh(group, locationCode, idx, 'SQ');
-
-                        oneRow += buildCondensedTh(group, locationCode, idx, 'SU');
-
-                    } else {
-
-                        const uom1 = stockCardUomDisplayMode === 'suom_only' ? 'SU' : 'SQ';
-
-                        oneRow += buildCondensedTh(group, locationCode, idx, uom1);
-
-                    }
-
-                });
-
+                const colspan = L * sub;
+                groupRow += `<th class="qty-group-col stock-card-metric-group-th stock-card-group-sep" colspan="${colspan}" scope="colgroup"><span class="stock-card-metric-group-label">${escapeHtml(stockCardMetricGroupLabel(group))}</span></th>`;
             });
 
-            thead.innerHTML = `<tr>${oneRow}</tr>`;
+            let locationRow = '';
+            visibleMetricGroups.forEach(() => {
+                locationColumns.forEach((locationCode, idx) => {
+                    const bg = (idx % 10) + 1;
+                    const edge = `${idx === 0 ? ' location-first' : ''}${idx === L - 1 ? ' location-last' : ''}`;
+                    const colspanAttr = both ? ' colspan="2"' : '';
+                    locationRow += `<th class="qty-col location-bg-${bg}${edge} stock-card-header-cell" scope="col"${colspanAttr}><span class="stock-card-hdr-loc">${escapeHtml(locationCode)}</span></th>`;
+                });
+            });
+
+            let html = `<tr>${groupRow}</tr><tr>${locationRow}</tr>`;
+
+            if (both) {
+                let uomRow = '';
+                visibleMetricGroups.forEach(() => {
+                    locationColumns.forEach((_, idx) => {
+                        const bg = (idx % 10) + 1;
+                        const first = idx === 0 ? ' location-first' : '';
+                        const last = idx === L - 1 ? ' location-last' : '';
+                        uomRow += `<th class="qty-col location-bg-${bg}${first} stock-card-header-cell stock-card-hdr-uom-cell" scope="col"><span class="stock-card-hdr-uom stock-card-hdr-uom--sq">SQTY</span></th>`;
+                        uomRow += `<th class="qty-col location-bg-${bg}${last} stock-card-header-cell stock-card-hdr-uom-cell" scope="col"><span class="stock-card-hdr-uom stock-card-hdr-uom--su">SUOMQTY</span></th>`;
+                    });
+                });
+                html += `<tr>${uomRow}</tr>`;
+            }
+
+            thead.innerHTML = html;
 
             requestAnimationFrame(() => {
-
                 requestAnimationFrame(() => syncStockCardHeaderStickyOffset());
-
             });
 
         }
 
         function renderLocationFilters() {
-
-            const selectedList = document.getElementById('selected-location-list');
-
-            const availableList = document.getElementById('available-location-list');
-
+            const host = document.getElementById('stock-location-ms-options');
+            const menu = document.getElementById('stock-location-ms-menu');
+            const wasOpen = !!(menu && !menu.hidden);
             const selected = Array.isArray(selectedStockCardLocations) ? selectedStockCardLocations : [];
-
-            const available = stockCardLocations.filter((locationCode) => !selected.includes(locationCode));
-
-            if (!selected.length) {
-
-                selectedList.innerHTML = '<span class="location-empty">No locations selected.</span>';
-
-            } else {
-
-                selectedList.innerHTML = selected.map((locationCode) => `
-
-                    <span class="location-pill">
-
-                        <span>${escapeHtml(locationCode)}</span>
-
-                        <button type="button" onclick="removeLocationFilter('${escapeJs(locationCode)}')">x</button>
-
-                    </span>
-
-                `).join('');
-
+            const all = Array.isArray(stockCardLocations) ? stockCardLocations : [];
+            if (host) {
+                if (!all.length) {
+                    host.innerHTML = '<span class="location-empty">No locations available.</span>';
+                } else {
+                    host.innerHTML = all.map((locationCode, idx) => {
+                        const checked = selected.includes(locationCode) ? 'checked' : '';
+                        const safeId = `stock-loc-filter-${idx}`;
+                        return `<label class="stock-ms__option"><input type="checkbox" id="${safeId}" ${checked} onchange="onStockLocationFilterChange('${escapeJs(locationCode)}', this.checked)" /> <span>${escapeHtml(locationCode)}</span></label>`;
+                    }).join('');
+                }
             }
-
-            if (!available.length) {
-
-                availableList.innerHTML = '<span class="location-empty">All selected</span>';
-
-            } else {
-
-                availableList.innerHTML = available.map((locationCode) => `
-
-                    <button type="button" class="location-add-btn" onclick="addLocationFilter('${escapeJs(locationCode)}')">+ ${escapeHtml(locationCode)}</button>
-
-                `).join('');
-
+            updateStockReportFilterSummary();
+            if (wasOpen) {
+                const root = document.getElementById('stock-location-ms');
+                const trigger = document.getElementById('stock-location-ms-trigger');
+                if (root) root.classList.add('is-open');
+                if (menu) menu.hidden = false;
+                if (trigger) trigger.setAttribute('aria-expanded', 'true');
             }
+        }
 
+        function onStockLocationFilterChange(locationCode, checked) {
+            if (checked) {
+                addLocationFilter(locationCode);
+            } else {
+                removeLocationFilter(locationCode);
+            }
         }
 
         function addLocationFilter(locationCode) {
-
             if (!stockCardLocations.includes(locationCode) || selectedStockCardLocations.includes(locationCode)) {
-
                 return;
-
             }
-
             selectedStockCardLocations.push(locationCode);
-
             persistStockCardSelectedLocations();
-
             syncStockCardTable();
-
         }
 
         function removeLocationFilter(locationCode) {
-
             selectedStockCardLocations = selectedStockCardLocations.filter((code) => code !== locationCode);
-
             persistStockCardSelectedLocations();
-
             syncStockCardTable();
+        }
 
+        function selectAllStockCardLocations() {
+            selectedStockCardLocations = (Array.isArray(stockCardLocations) ? stockCardLocations : []).slice();
+            persistStockCardSelectedLocations();
+            syncStockCardTable();
+        }
+
+        function clearAllStockCardLocations() {
+            selectedStockCardLocations = [];
+            persistStockCardSelectedLocations();
+            syncStockCardTable();
         }
 
         function savePurchaseRequestDraftItems() {
