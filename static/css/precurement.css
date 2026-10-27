@@ -5594,7 +5594,7 @@ body.procurement-warm-ui #panel-view .view-pr-list {
     -webkit-overflow-scrolling: touch;
 }
 
-body.procurement-warm-ui #panel-view .view-pr-list > .pr-view-pr-card,
+body.procurement-warm-ui #panel-view .view-pr-list > .pr-view-pr-row,
 body.procurement-warm-ui #panel-view .view-pr-list > .view-pr-empty {
     flex-shrink: 0;
 }
@@ -6096,9 +6096,15 @@ body.procurement-warm-ui .pr-view-list-scroll {
     -webkit-overflow-scrolling: touch;
 }
 
+body.procurement-warm-ui #panel-view .pr-view-list-scroll.view-pr-list--rows,
 body.procurement-warm-ui #panel-view .pr-view-list-scroll.view-pr-list--cards {
     display: flex;
     flex-direction: column;
+}
+
+body.procurement-warm-ui #panel-view .pr-view-list-scroll.view-pr-list--rows {
+    gap: 0;
+    padding: 0;
 }
 
 body.procurement-warm-ui #panel-view .view-pr-list > .view-pr-empty,
@@ -6110,6 +6116,121 @@ body.procurement-warm-ui #panel-view .view-pr-list > .pr-view-empty--cards {
     justify-content: center;
     text-align: center;
     margin: 0;
+}
+
+body.procurement-warm-ui .pr-view-pr-row {
+    box-sizing: border-box;
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) auto auto auto;
+    align-items: center;
+    column-gap: 10px;
+    width: 100%;
+    margin: 0;
+    padding: 8px 12px;
+    text-align: left;
+    background: #fffef9;
+    border: none;
+    border-bottom: 1px solid #e4d8c4;
+    border-left: 3px solid var(--pr-card-accent, #b0892f);
+    border-radius: 0;
+    box-shadow: none;
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
+}
+
+body.procurement-warm-ui .pr-view-pr-row:has(.pr-view-pr-row__bulk) {
+    grid-template-columns: auto minmax(0, 1.4fr) auto auto auto;
+}
+
+body.procurement-warm-ui .pr-view-pr-row:hover {
+    background: #faf6ee;
+}
+
+body.procurement-warm-ui .pr-view-pr-row.is-selected {
+    background: #e8f1fc;
+    border-left-color: var(--pr-card-accent, #4b6e9e);
+}
+
+body.procurement-warm-ui .pr-view-pr-row:focus-visible {
+    outline: 2px solid #4b6e9e;
+    outline-offset: -2px;
+}
+
+body.procurement-warm-ui .pr-view-pr-row__code {
+    order: 2;
+    grid-column: 1;
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: #1e293b;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body.procurement-warm-ui .pr-view-pr-row__date {
+    order: 3;
+    grid-column: 2;
+    min-width: 0;
+    font-size: 12px;
+    color: #64748b;
+    white-space: nowrap;
+}
+
+body.procurement-warm-ui .pr-view-pr-row__selected,
+body.procurement-warm-ui .pr-view-pr-row__approval {
+    order: 4;
+    grid-column: 3;
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+body.procurement-warm-ui .pr-view-pr-row__amount {
+    order: 5;
+    grid-column: 4;
+    min-width: 0;
+    justify-self: end;
+}
+
+body.procurement-warm-ui .pr-view-pr-row:has(.pr-view-pr-row__bulk) .pr-view-pr-row__bulk {
+    order: 1;
+    grid-column: 1;
+}
+
+body.procurement-warm-ui .pr-view-pr-row:has(.pr-view-pr-row__bulk) .pr-view-pr-row__code { grid-column: 2; }
+body.procurement-warm-ui .pr-view-pr-row:has(.pr-view-pr-row__bulk) .pr-view-pr-row__date { grid-column: 3; }
+body.procurement-warm-ui .pr-view-pr-row:has(.pr-view-pr-row__bulk) .pr-view-pr-row__selected,
+body.procurement-warm-ui .pr-view-pr-row:has(.pr-view-pr-row__bulk) .pr-view-pr-row__approval { grid-column: 4; }
+body.procurement-warm-ui .pr-view-pr-row:has(.pr-view-pr-row__bulk) .pr-view-pr-row__amount { grid-column: 5; }
+
+body.procurement-warm-ui .pr-view-pr-row__bulk {
+    display: flex;
+    align-items: center;
+}
+
+body.procurement-warm-ui .pr-view-pr-row__bulk-label {
+    display: flex;
+    align-items: center;
+    margin: 0;
+    cursor: pointer;
+}
+
+body.procurement-warm-ui .pr-view-pr-row__bulk input[type="checkbox"] {
+    width: 1rem;
+    height: 1rem;
+    margin: 0;
+    cursor: pointer;
+}
+
+body.procurement-warm-ui .pr-view-pr-row .pr-view-amount-pill {
+    padding: 4px 8px;
+    font-size: 11px;
+    border-radius: 6px;
 }
 
 body.procurement-warm-ui .pr-view-pr-card {
@@ -7175,10 +7296,11 @@ body.procurement-warm-ui .view-pr-detail-selected-chip.is-all {
     border-color: #93c5fd;
 }
 
+body.procurement-warm-ui .pr-view-pr-row__selection,
 body.procurement-warm-ui .pr-view-pr-card__selection {
     display: inline-flex;
     align-items: center;
-    margin-top: 7px;
+    margin-top: 0;
     padding: 2px 8px;
     border-radius: 999px;
     font-size: 10px;
@@ -7190,12 +7312,14 @@ body.procurement-warm-ui .pr-view-pr-card__selection {
     border: 1px solid #e0d2b4;
 }
 
+body.procurement-warm-ui .pr-view-pr-row__selection.is-partial,
 body.procurement-warm-ui .pr-view-pr-card__selection.is-partial {
     color: #3d5a80;
     background: #e7eef8;
     border-color: #b7c9e0;
 }
 
+body.procurement-warm-ui .pr-view-pr-row__selection.is-all,
 body.procurement-warm-ui .pr-view-pr-card__selection.is-all {
     color: #1f5c40;
     background: #e5f4ec;
@@ -7670,9 +7794,10 @@ body.procurement-warm-ui .pr-view-pr-card__selection.is-all {
 .view-pr-skeleton {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 0;
     width: 100%;
 }
+.pr-view-pr-row.view-pr-card-skeleton,
 .pr-view-pr-card.view-pr-card-skeleton {
     pointer-events: none;
     opacity: 0.85;
@@ -7687,12 +7812,14 @@ body.procurement-warm-ui .pr-view-pr-card__selection.is-all {
 }
 .view-pr-skel-bar--code { width: 42%; height: 14px; }
 .view-pr-skel-bar--amt { width: 22%; height: 14px; margin-left: auto; }
-.view-pr-skel-bar--date { width: 28%; margin-top: 10px; }
+.view-pr-skel-bar--date { width: 72px; }
+.pr-view-pr-row .view-pr-skel-bar--date { margin-top: 0; }
 .view-pr-skel-bar--pill { width: 64px; height: 22px; border-radius: 999px; }
 @keyframes view-pr-skel-shimmer {
     0% { background-position: 100% 0; }
     100% { background-position: -100% 0; }
 }
+body.procurement-warm-ui .pr-view-pr-row.view-pr-card-skeleton,
 body.procurement-warm-ui .pr-view-pr-card.view-pr-card-skeleton {
     background: #fffaf2 !important;
     border-color: #ead9be !important;

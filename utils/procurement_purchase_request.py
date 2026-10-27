@@ -1154,29 +1154,6 @@ def create_purchase_request(
             )
             upstream_status, upstream_reference = _forward_to_upstream(upstream_payload, auth_header)
 
-            try:
-                from utils.procurement_sql_api_sync import sync_purchase_request_lines_sql_api_on_submit
-
-                sql_line_sync = sync_purchase_request_lines_sql_api_on_submit(
-                    int(header_id),
-                    request_number,
-                    {
-                        **validated,
-                        "requestNumber": request_number,
-                        "status": status,
-                    },
-                )
-                if sql_line_sync.get("synced"):
-                    print(
-                        f"[PROCUREMENT] SQL API PR line UDF sync dockey={header_id} docno={request_number}",
-                        flush=True,
-                    )
-            except Exception as sync_exc:
-                print(
-                    f"[PROCUREMENT] SQL API PR line UDF sync warning dockey={header_id}: {sync_exc}",
-                    flush=True,
-                )
-
             status_col = _pick_existing(header_cols, "STATUS")
             upstream_status_col = _pick_existing(header_cols, "UPSTREAM_STATUS")
             upstream_ref_col = _pick_existing(header_cols, "UPSTREAM_REFERENCE")
@@ -1201,6 +1178,17 @@ def create_purchase_request(
                 )
 
         con.commit()
+
+        if status == "SUBMITTED":
+            _schedule_pr_sql_line_sync(
+                int(header_id),
+                request_number,
+                {
+                    **validated,
+                    "requestNumber": request_number,
+                    "status": status,
+                },
+            )
 
         return {
             "id": header_id,
@@ -1614,6 +1602,50 @@ def transition_purchase_request_status(
         con.close()
 
 
+def _mark_draft_submitted(cur: Any, header_cols: set[str], key_col: str, request_id: int) -> None:
+    """Set PH_PQ status to submitted and approval to Awaiting in the same save."""
+    status_col = _pick_existing(header_cols, "STATUS")
+    udf_col = _pick_existing(header_cols, "UDF_STATUS", "UDFSTATUS")
+    updates: list[str] = []
+    values: list[Any] = []
+    if status_col:
+        numeric = _column_is_numeric(cur, "PH_PQ", status_col)
+        updates.append(f"{status_col} = ?")
+        values.append(_encode_status("SUBMITTED", numeric))
+    if udf_col:
+        updates.append(f"{udf_col} = ?")
+        values.append("AWAITING")
+    if not updates:
+        return
+    values.append(request_id)
+    cur.execute(
+        f"UPDATE PH_PQ SET {', '.join(updates)} WHERE {key_col} = ?",
+        tuple(values),
+    )
+
+
+def _schedule_pr_sql_line_sync(header_id: int, request_number: str, validated: dict[str, Any]) -> None:
+    """Push line UDFs to SQL Accounting after the local save has already returned."""
+    import threading
+
+    snapshot = dict(validated)
+    snapshot["requestNumber"] = request_number
+    snapshot["status"] = "SUBMITTED"
+
+    def _run() -> None:
+        try:
+            from utils.procurement_sql_api_sync import sync_purchase_request_lines_sql_api_on_submit
+
+            sync_purchase_request_lines_sql_api_on_submit(int(header_id), request_number, snapshot)
+        except Exception as exc:
+            print(
+                f"[PROCUREMENT] SQL API PR line UDF sync warning dockey={header_id}: {exc}",
+                flush=True,
+            )
+
+    threading.Thread(target=_run, name="pr-sql-line-sync", daemon=True).start()
+
+
 def update_purchase_request(
     request_id: int,
     payload: dict[str, Any],
@@ -1836,6 +1868,10 @@ def update_purchase_request(
             )
             updated_lines += int(cur.rowcount or 0)
 
+        submit_now = bool(payload.get("submit"))
+        if submit_now:
+            _mark_draft_submitted(cur, header_cols, header_key_col, normalized_request_id)
+
         con.commit()
         return {
             "requestId": normalized_request_id,
@@ -1843,6 +1879,8 @@ def update_purchase_request(
             "updatedLines": updated_lines,
             "totalAmount": total_amount,
             "updatedAt": now_iso,
+            "status": "SUBMITTED" if submit_now else "DRAFT",
+            "udfStatus": "AWAITING" if submit_now else "",
         }
     except Exception:
         con.rollback()

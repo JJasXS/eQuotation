@@ -13,6 +13,13 @@
             return !!(error && error.authExpired);
         }
 
+        function isRequestAbortError(error) {
+            if (!error) return false;
+            const name = String(error.name || '');
+            const message = String(error.message || '').toLowerCase();
+            return name === 'AbortError' || message.includes('aborted');
+        }
+
         const STOCK_CARD_VISIBLE_BODY_ROWS = 16;
 
         function afterStockCardTableRender() {
@@ -2476,28 +2483,11 @@
             const f = String(statusFilter || '').toUpperCase();
 
             if (f === 'DRAFT') {
-
-                return rowPrStatusUpper(row) === 'DRAFT';
-
-            }
-
-            if (f === 'AWAITING') {
-                if (rowSavedUdfStatus(row) !== 'AWAITING') {
+                if (rowPrStatusUpper(row) !== 'DRAFT') {
                     return false;
                 }
-                return rowPrStatusUpper(row) === 'SUBMITTED';
-            }
-
-            if (f === 'PENDING') {
-
-                if (rowSavedUdfStatus(row) !== 'PENDING') {
-
-                    return false;
-
-                }
-
-                return rowPrStatusUpper(row) === 'SUBMITTED';
-
+                const udf = rowSavedUdfStatus(row);
+                return !udf || udf === 'DRAFT';
             }
 
             return rowSavedUdfStatus(row) === f;
@@ -3843,8 +3833,11 @@ if (viewHeaderStatusPendingChanges.size > 0) {
             const picked = normalizeUdfStatus(selectUdf);
             const doc = String(docStatus || '').trim().toUpperCase();
             if (saved === 'AWAITING') {
+                const hidden = picked === 'AWAITING'
+                    ? '<option value="AWAITING" selected hidden></option>'
+                    : '';
                 return [
-                    viewPrUdfOption('AWAITING', 'Awaiting Approval', picked),
+                    hidden,
                     viewPrUdfOption('PENDING', 'Pending (Awaiting RFQ)', picked),
                     viewPrUdfOption('CANCELLED', 'Cancelled', picked),
                 ].join('');
@@ -4387,13 +4380,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
         function onViewPrCardActivate(event, headerId) {
 
-            if (event && event.target && event.target.closest && event.target.closest('.pr-view-pr-card__controls')) {
-
-                return;
-
-            }
-
-            if (event && event.target && event.target.closest && event.target.closest('.pr-view-pr-card__bulk')) {
+            if (event && event.target && event.target.closest && event.target.closest('button, select, input, label, .pr-view-pr-row__bulk')) {
 
                 return;
 
@@ -4493,25 +4480,15 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 const udf = savedUdf;
 
-                const selectUdf = pendingUdf || savedUdf;
-
                 const borderColor = udf === 'CANCELLED' ? '#a65c5c' : (udf === 'APPROVED' ? '#2d6a4f' : '#b0892f');
 
                 const badgeColor = borderColor;
 
-                const pendingStatusHtml = pendingUdf
+                const pendingStatusHtml = pendingUdf && pendingUdf !== 'CANCELLED'
 
-                    ? `<span class="view-pr-pending-status" title="Pending status change. Press Update to save.">→ ${escapeHtml(pendingUdf)}</span>`
+                    ? `<span class="view-pr-pending-status" title="Pending status change. Press Update to save.">→ ${escapeHtml(formatUdfStatusLabel(pendingUdf) || pendingUdf)}</span>`
 
                     : '';
-
-                const showPrStatus = !(prStatus === 'SUBMITTED' && ['APPROVED', 'CANCELLED'].includes(udf));
-
-                const docStatusHtml = showPrStatus
-
-                    ? `<span class="pr-status-pill pr-view-pr-card__doc-pill">${escapeHtml(prStatus)}</span>`
-
-                    : '<span class="pr-view-pr-card__doc-muted">-</span>';
 
                 const editButtonHtml = canEditDraft
 
@@ -4531,19 +4508,13 @@ function buildViewPurchaseRequestDetailHtml(header) {
                 }
                 const selectionCardHtml = buildViewPrSelectionBadgeHtml(cardSelectedCount, cardLineCount);
 
-                const approvalBadgeHtml = udfLocked
-
-                    ? `<span class="pr-view-pr-card__udf-badge pr-view-pr-card__udf-badge--${String(selectUdf || 'PENDING').toLowerCase()}">${escapeHtml(formatUdfStatusLabel(selectUdf))}</span>`
-
-                    : '';
-
                 const bulkMode = isViewPendingBulkSelectMode() && !document.body.classList.contains('procurement-hide-pr-approval-edits');
 
                 const bulkSlot = bulkMode
 
-                    ? `<div class="pr-view-pr-card__bulk" onclick="event.stopPropagation()">
+                    ? `<span class="pr-view-pr-row__bulk" onclick="event.stopPropagation()">
 
-                        <label class="pr-view-pr-card__bulk-label" title="Select for bulk approval">
+                        <label class="pr-view-pr-row__bulk-label" title="Select for bulk approval">
 
                             <input
 
@@ -4561,52 +4532,31 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                         </label>
 
-                    </div>`
+                    </span>`
 
                     : '';
 
                 cardParts.push(`
 
-            <div class="pr-view-pr-card${isSelected ? ' is-selected' : ''}" data-header-id="${headerId}" style="--pr-card-accent: ${borderColor}; --pr-card-badge: ${badgeColor};">
+            <div class="pr-view-pr-row${isSelected ? ' is-selected' : ''}" data-header-id="${headerId}" style="--pr-card-accent: ${borderColor}; --pr-card-badge: ${badgeColor};" role="button" tabindex="0" onclick="onViewPrCardActivate(event, ${headerId})" onkeydown="onViewPrCardKeydown(event, ${headerId})">
 
                 ${bulkSlot}
 
-                <div class="pr-view-pr-card__stack">
+                <span class="pr-view-pr-row__code">${escapeHtml(header.requestNumber || '-')}</span>
 
-                <div class="pr-view-pr-card__main" role="button" tabindex="0" onclick="onViewPrCardActivate(event, ${headerId})" onkeydown="onViewPrCardKeydown(event, ${headerId})">
+                <span class="pr-view-pr-row__date">${formatPrDate(header.requestDate || '-')}</span>
 
-                    <div class="pr-view-pr-card__topline">
+                <span class="pr-view-pr-row__selected">
 
-                        <span class="pr-view-pr-card__code">${escapeHtml(header.requestNumber || '-')}</span>
+                    ${pendingStatusHtml}
 
-                        <span class="pr-view-pr-card__amount"><span class="pr-view-amount-pill" style="background: ${badgeColor};">RM ${formatMoney(header.totalAmount || 0)}</span></span>
-
-                    </div>
-
-                    <div class="pr-view-pr-card__date">${formatPrDate(header.requestDate || '-')}</div>
                     ${selectionCardHtml}
 
-                </div>
+                    ${editButtonHtml}
 
-                <div class="pr-view-pr-card__controls">
+                </span>
 
-                    <div class="pr-view-pr-card__doc">${docStatusHtml}</div>
-
-                    <div class="pr-view-pr-card__approval">
-
-                        <span class="pr-view-pr-card__approval-label">Approval</span>
-
-                        ${udfLocked ? approvalBadgeHtml : `<span class="pr-view-pr-card__udf-badge pr-view-pr-card__udf-badge--${String(selectUdf || 'PENDING').toLowerCase()}">${escapeHtml(formatUdfStatusLabel(selectUdf))}</span>`}
-
-                        ${pendingStatusHtml}
-
-                        ${editButtonHtml}
-
-                    </div>
-
-                </div>
-
-                </div>
+                <span class="pr-view-pr-row__amount"><span class="pr-view-amount-pill" style="background: ${badgeColor};">RM ${formatMoney(header.totalAmount || 0)}</span></span>
 
             </div>
 
@@ -5272,7 +5222,11 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             viewLoadingDetailIds = new Set();
 
-            viewDetailFetchControllers.forEach((controller) => {
+            const keptIds = new Set(viewPurchaseRequests.map((row) => Number(row.id || 0)).filter(Boolean));
+
+            viewDetailFetchControllers.forEach((controller, requestId) => {
+
+                if (keptIds.has(Number(requestId))) return;
 
                 try {
 
@@ -5342,20 +5296,11 @@ function buildViewPurchaseRequestDetailHtml(header) {
             let cards = '';
             for (let i = 0; i < n; i += 1) {
                 cards += `
-            <div class="pr-view-pr-card view-pr-card-skeleton" aria-hidden="true">
-                <div class="pr-view-pr-card__stack">
-                <div class="pr-view-pr-card__main">
-                    <div class="pr-view-pr-card__topline">
-                        <span class="view-pr-skel-bar view-pr-skel-bar--code"></span>
-                        <span class="view-pr-skel-bar view-pr-skel-bar--amt"></span>
-                    </div>
-                    <div class="view-pr-skel-bar view-pr-skel-bar--date"></div>
-                </div>
-                <div class="pr-view-pr-card__controls">
-                    <span class="view-pr-skel-bar view-pr-skel-bar--pill"></span>
-                    <span class="view-pr-skel-bar view-pr-skel-bar--pill"></span>
-                </div>
-                </div>
+            <div class="pr-view-pr-row view-pr-card-skeleton" aria-hidden="true">
+                <span class="view-pr-skel-bar view-pr-skel-bar--code"></span>
+                <span class="view-pr-skel-bar view-pr-skel-bar--date"></span>
+                <span class="view-pr-skel-bar view-pr-skel-bar--pill"></span>
+                <span class="view-pr-skel-bar view-pr-skel-bar--amt"></span>
             </div>`;
             }
             return `<div class="view-pr-skeleton" aria-busy="true" aria-label="Loading purchase requests">${cards}</div>`;
@@ -5371,17 +5316,16 @@ function buildViewPurchaseRequestDetailHtml(header) {
             const cls = selectedSafe > 0
                 ? (selectedSafe >= totalN ? ' is-all' : ' is-partial')
                 : '';
-            return `<div class="pr-view-pr-card__selection${cls}" title="Selected line items">SELECTED ${selectedSafe}/${totalN}</div>`;
+            return `<span class="pr-view-pr-row__selection${cls}" title="Selected line items">SELECTED ${selectedSafe}/${totalN}</span>`;
         }
 
         function patchViewPrCardSelectionBadge(headerId, selected, total) {
             const id = Number(headerId || 0);
             if (!id) return;
-            const card = document.querySelector(`.pr-view-pr-card[data-header-id="${id}"]`);
-            if (!card) return;
-            const main = card.querySelector('.pr-view-pr-card__main');
-            if (!main) return;
-            let badge = main.querySelector('.pr-view-pr-card__selection');
+            const row = document.querySelector(`.pr-view-pr-row[data-header-id="${id}"]`);
+            if (!row) return;
+            const host = row.querySelector('.pr-view-pr-row__selected') || row;
+            let badge = host.querySelector('.pr-view-pr-row__selection');
             const html = buildViewPrSelectionBadgeHtml(selected, total);
             if (!html) {
                 if (badge) badge.remove();
@@ -5390,7 +5334,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
             if (badge) {
                 badge.outerHTML = html;
             } else {
-                main.insertAdjacentHTML('beforeend', html);
+                host.insertAdjacentHTML('beforeend', html);
             }
         }
 
@@ -5596,7 +5540,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     console.error(error);
 
-                    if (!isProcurementAuthExpired(error)) alert(error.message || 'Failed to load more');
+                    if (!isProcurementAuthExpired(error) && !isRequestAbortError(error)) alert(error.message || 'Failed to load more');
 
                 })
 
@@ -5899,7 +5843,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             } catch (error) {
 
-                if (!isProcurementAuthExpired(error)) alert(error.message || 'Failed to load PR details for edit');
+                if (!isProcurementAuthExpired(error) && !isRequestAbortError(error)) alert(error.message || 'Failed to load PR details for edit');
 
                 return;
 
@@ -5912,7 +5856,6 @@ function buildViewPurchaseRequestDetailHtml(header) {
             if (Array.isArray(payload.suppliers)) {
 
                 selectedSuppliers = payload.suppliers
-
                     .map((s) => ({
 
                         code: String(s.code || '').trim(),
@@ -9763,6 +9706,8 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     lineItems: editLineItems,
 
+                    ...(isSubmitFromEdit ? { submit: true } : {}),
+
                 };
 
                 try {
@@ -9807,47 +9752,11 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     }
 
-                    if (isSubmitFromEdit) {
-
-                        const requestNumber = String(prFormEditState.requestNumber || document.getElementById('pr-request-number').value || '').trim();
-
-                        if (!requestNumber) {
-
-                            throw new Error('Missing request number for submit action.');
-
-                        }
-
-                        const statusResponse = await fetch(`/api/admin/procurement/purchase-requests/${encodeURIComponent(requestNumber)}/status`, {
-
-                            method: 'PATCH',
-
-                            headers: {
-
-                                'Content-Type': 'application/json',
-
-                            },
-
-                            body: JSON.stringify({ status: 'SUBMITTED' }),
-
-                        });
-
-                        const statusData = await readProcurementJson(statusResponse);
-
-                        if (!statusResponse.ok || !statusData.success) {
-
-                            throw new Error(statusData.error || `Submit failed with HTTP ${statusResponse.status}`);
-
-                        }
-
-                    }
-
                     const editSuccessRequestNo = isSubmitFromEdit
 
                         ? String((prFormEditState && prFormEditState.requestNumber) || document.getElementById('pr-request-number').value || '').trim()
 
                         : '';
-
-                    await loadViewPurchaseRequests(true);
 
                     prFormEditState = null;
 

@@ -7534,12 +7534,12 @@ def _draft_line_from_local(row: dict, idx: int) -> dict:
 
 
 def _draft_purchase_request_detail_response(raw_request_id, request_no):
-    """Draft lines live on PH_PQDTL. Skip the accounting API and bid gate."""
+    """Read one PR from PH_PQDTL. Approved PRs still use the bid gate."""
     local = _resolve_local_purchase_request_header(raw_request_id, request_no)
     if not isinstance(local, dict):
         return None
-    status = str(local.get('udf_status') or local.get('udfStatus') or '').strip().upper()
-    if status not in ('', 'DRAFT', '0'):
+    status = normalize_pr_udf_status(local.get('udf_status') or local.get('udfStatus'))
+    if status == 'APPROVED':
         return None
     lines = local.get('sdsdocdetail')
     if not isinstance(lines, list):
