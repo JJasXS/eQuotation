@@ -1793,25 +1793,8 @@ let sqlApiCustomerCurrencyCode = null;
 
 // Load Products for Autocomplete
 async function loadProducts() {
-    try {
-        const response = await fetch('/api/get_stock_items');
-        const data = await response.json();
-        
-        if (data.success && data.items) {
-            availableProducts = data.items;
-            syncProductDatalist();
-
-            // Legacy rows may still use <select>; create-quotation uses searchable <input list="product-list">.
-            document.querySelectorAll('.item-product').forEach((el) => {
-                if (el.tagName === 'SELECT') {
-                    populateProductSelect(el);
-                }
-            });
-            refreshQuotationMiniItemCodes();
-        }
-    } catch (error) {
-        console.error('Failed to load products:', error);
-    }
+    availableProducts = [];
+    initQuotationCatalogProductPickers();
 }
 
 function syncProductDatalist() {
@@ -1842,6 +1825,9 @@ function syncProductDatalist() {
 
 let cqProductPickerActiveInput = null;
 let cqProductPickerCloseTimer = null;
+let cqProductSearchTimer = null;
+let cqProductSearchSeq = 0;
+let cqProductSearchState = 'idle';
 
 function normalizeProductSearchText(value) {
     return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -1890,7 +1876,7 @@ function ensureCatalogProductPicker() {
     const search = picker.querySelector('.cq-product-picker-search');
     search.addEventListener('input', () => {
         if (cqProductPickerActiveInput) {
-            renderCatalogProductPickerList(cqProductPickerActiveInput, search.value);
+            scheduleCatalogProductSearch(cqProductPickerActiveInput, search.value);
         }
     });
     search.addEventListener('keydown', (event) => {
@@ -1930,6 +1916,42 @@ function positionCatalogProductPicker(input, picker) {
     picker.style.width = `${width}px`;
 }
 
+function scheduleCatalogProductSearch(input, filterText) {
+    clearTimeout(cqProductSearchTimer);
+    const query = String(filterText || '').trim();
+    availableProducts = [];
+    cqProductSearchState = query ? 'loading' : 'idle';
+    renderCatalogProductPickerList(input, query);
+    if (query.length < 1) {
+        return;
+    }
+    cqProductSearchTimer = setTimeout(() => {
+        searchCatalogProducts(input, query);
+    }, 250);
+}
+
+async function searchCatalogProducts(input, query) {
+    const seq = ++cqProductSearchSeq;
+    try {
+        const response = await fetch(`/api/search_stock_items?q=${encodeURIComponent(query)}`);
+        const data = await response.json();
+        if (seq !== cqProductSearchSeq) {
+            return;
+        }
+        availableProducts = data.success && Array.isArray(data.items) ? data.items : [];
+        cqProductSearchState = 'done';
+        renderCatalogProductPickerList(input, query);
+    } catch (error) {
+        if (seq !== cqProductSearchSeq) {
+            return;
+        }
+        availableProducts = [];
+        cqProductSearchState = 'done';
+        renderCatalogProductPickerList(input, query);
+        console.error('Product search failed:', error);
+    }
+}
+
 function renderCatalogProductPickerList(input, filterText) {
     const picker = ensureCatalogProductPicker();
     const list = picker.querySelector('.cq-product-picker-list');
@@ -1938,19 +1960,22 @@ function renderCatalogProductPickerList(input, filterText) {
     const current = normalizeProductSearchText(
         row ? readQuotationLineField(row, '.item-product') : input.value,
     );
+    list.innerHTML = '';
+    if (!query) {
+        const hint = document.createElement('li');
+        hint.className = 'cq-product-picker-empty';
+        hint.textContent = 'Type a code or description';
+        list.appendChild(hint);
+        return;
+    }
     const matches = getCatalogProductPickerOptions().filter((opt) => {
-        if (!query) {
-            return true;
-        }
         const blob = normalizeProductSearchText(`${opt.label} ${opt.code} ${opt.value}`);
         return blob.includes(query);
     });
-
-    list.innerHTML = '';
     if (!matches.length) {
         const empty = document.createElement('li');
         empty.className = 'cq-product-picker-empty';
-        empty.textContent = 'No products match';
+        empty.textContent = cqProductSearchState === 'loading' ? 'Searching…' : 'No products match';
         list.appendChild(empty);
         return;
     }
@@ -1998,6 +2023,7 @@ function showCatalogProductPicker(input) {
     positionCatalogProductPicker(input, picker);
     const search = picker.querySelector('.cq-product-picker-search');
     search.value = '';
+    availableProducts = [];
     renderCatalogProductPickerList(input, '');
     picker.hidden = false;
     requestAnimationFrame(() => search.focus());
@@ -2185,7 +2211,9 @@ if (updateQuotationForm) {
     updateQuotationForm.addEventListener('submit', async function(e) {
         e.preventDefault();
         const dockey = updateQuotationForm.dataset.dockey;
-        await refreshSqlApiCustomerCurrencyFromGetUserInfo();
+        if (!currencyCodeForQuotationSave()) {
+            await refreshSqlApiCustomerCurrencyFromGetUserInfo();
+        }
         const quotationData = buildQuotationPayload();
         if (!applySqlApiCurrencyForSubmit(quotationData)) {
             alert(
@@ -2289,7 +2317,9 @@ if (quotationForm) {
     quotationForm.addEventListener('submit', async function(e) {
         e.preventDefault();
 
-        await refreshSqlApiCustomerCurrencyFromGetUserInfo();
+        if (!currencyCodeForQuotationSave()) {
+            await refreshSqlApiCustomerCurrencyFromGetUserInfo();
+        }
         const quotationData = buildQuotationPayload();
         if (!applySqlApiCurrencyForSubmit(quotationData)) {
             alert(
@@ -2394,10 +2424,10 @@ if (quotationForm) {
             } else {
                 const err = result.error || 'Unknown error';
                 if (result.errorCode === 'SQL_API_TIMEOUT') {
-                    alert(
-                        err + '\n\n(HTTP 504: accounting service did not answer in time. ' +
-                        'Check SQL Accounting for a duplicate before trying again.)'
-                    );
+                    if (result.draftDockey) {
+                        quotationForm.dataset.draftDockey = String(result.draftDockey);
+                    }
+                    alert(err);
                 } else if (result.errorCode === 'SQL_API_UNAUTHORIZED') {
                     alert(
                         err + '\n\nThis is not a login/session problem. Ask your admin to verify SQL API keys ' +

@@ -5,7 +5,6 @@ function showAdminDashboardTab(tabName) {
     const tabs = document.querySelectorAll('.admin-dashboard-tabs .eq-line-tab');
     const panels = {
         dashboard: document.getElementById('panel-dashboard'),
-        test: document.getElementById('panel-test'),
     };
 
     tabs.forEach((tab) => {

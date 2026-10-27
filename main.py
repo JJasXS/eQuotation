@@ -1325,12 +1325,9 @@ def format_chatbot_response(text):
 
 app = Flask(__name__, template_folder="templates", static_folder="static", static_url_path="/static")
 
-# Dev server (8881) and FLASK_DEBUG: reload templates from disk so UI changes show without a full restart.
-_flask_port_cfg = str(os.getenv('FLASK_PORT', '8880')).strip()
-_flask_debug_cfg = str(os.getenv('FLASK_DEBUG', 'False')).strip().lower() in ('1', 'true', 'yes')
-if _flask_port_cfg == '8881' or _flask_debug_cfg:
-    app.config['TEMPLATES_AUTO_RELOAD'] = True
-    app.jinja_env.auto_reload = True
+# Always reload templates from disk so UI edits show without a full restart.
+app.config['TEMPLATES_AUTO_RELOAD'] = True
+app.jinja_env.auto_reload = True
 
 
 @app.context_processor
@@ -3837,28 +3834,6 @@ def list_php_endpoints():
             endpoints.append(f'/php/{fname}')
     return jsonify({'endpoints': endpoints})
 
-@app.route('/get_chats')
-@api_login_required(unauth_message='Unauthorized')
-def get_chats():
-    customer_code = session.get('customer_code')
-    if not customer_code:
-        return jsonify({'success': False, 'error': 'Customer code not found'}), 400
-    
-    try:
-        # Call PHP endpoint to get chats (degrade gracefully if upstream is slow/down).
-        data, _status = proxy_json_request(
-            'GET',
-            '/php/getChats.php',
-            params={'customerCode': customer_code},
-        )
-        if isinstance(data, dict) and data.get('success'):
-            return jsonify({'success': True, 'chats': data.get('chats', [])})
-        print(f"[WARN] get_chats: upstream success=false for customerCode={customer_code!r}")
-        return jsonify({'success': True, 'chats': [], 'degraded': True}), 200
-    except Exception as e:
-        print(f"[WARN] get_chats: upstream failed for customerCode={customer_code!r}: {e}")
-        return jsonify({'success': True, 'chats': [], 'degraded': True}), 200
-
 @app.route('/api/get_active_order')
 @api_login_required(unauth_message='Unauthorized')
 def api_get_active_order():
@@ -4066,6 +4041,30 @@ def _fetch_stock_items_cached():
     )
 
 
+@app.route('/api/search_stock_items')
+@api_login_required(unauth_message='Unauthorized')
+def api_search_stock_items():
+    """Short ST_ITEM search for product pickers. Never returns the full catalog."""
+    query = (request.args.get('q') or '').strip()
+    if len(query) < 1:
+        return jsonify({'success': True, 'items': []})
+    con = None
+    cur = None
+    try:
+        from utils.sql_query_helpers import search_stock_items
+
+        con = get_db_connection()
+        cur = con.cursor()
+        return jsonify({'success': True, 'items': search_stock_items(cur, query, limit=40)})
+    except Exception as exc:
+        return jsonify({'success': False, 'error': str(exc), 'items': []}), 500
+    finally:
+        if cur:
+            cur.close()
+        if con:
+            con.close()
+
+
 @app.route('/api/get_stock_items')
 @api_login_required(unauth_message='Unauthorized')
 def api_get_stock_items():
@@ -4237,9 +4236,8 @@ def api_admin_procurement_stock_item_uoms():
 def api_admin_procurement_stock_card():
     """Return stock card table rows for procurement overall report.
 
-    Before querying, re-applies ST_TR.UDF_SUOMQTY → ST_XTRANS.SUOMQTY (same as
-    ``/api/admin/procurement/sync-st-xtrans-suomqty``) so the dashboard does not
-    need a manual sync.
+    This is a read. SUOMQTY stays current via the ST_TR trigger. The full
+    ST_XTRANS rewrite stays on POST ``/api/admin/procurement/sync-st-xtrans-suomqty``.
     """
     raw_from_date = (request.args.get('from_date') or '').strip()
     raw_to_date = (request.args.get('to_date') or '').strip()
@@ -4264,14 +4262,6 @@ def api_admin_procurement_stock_card():
     cur = None
     try:
         con = get_db_connection()
-        # Keep ST_XTRANS.SUOMQTY aligned with ST_TR.UDF_SUOMQTY before reading the report (same as POST sync endpoint).
-        ok_sync = sync_st_xtrans_suomqty_from_st_tr_udf(con)
-        if not ok_sync:
-            print(
-                '[PROCUREMENT STOCK CARD] ST_TR→ST_XTRANS SUOMQTY sync skipped or failed '
-                '(dashboard still loads; see DB init warnings).',
-                flush=True,
-            )
         cur = con.cursor()
         locations, data, stock_card_meta = fetch_procurement_stock_card_data(
             cur, from_date=from_date, to_date=to_date, qty_mode=qty_mode
@@ -4296,7 +4286,7 @@ def api_admin_procurement_stock_card():
             'locations': locations,
             'data': data,
             'st_tr_udf_suomqty': st_tr_udf_suomqty,
-            'suomqty_sync_applied': ok_sync,
+            'suomqty_sync_applied': False,
         })
     except Exception as e:
         print(f"[PROCUREMENT STOCK CARD] DB error: {e}", flush=True)
@@ -4903,7 +4893,7 @@ def _enrich_supplier_display_rows(rows: list[dict]) -> list[dict]:
     return rows
 
 
-def _list_selected_suppliers(request_dockey, request_no=None):
+def _list_selected_suppliers(request_dockey, request_no=None, *, enrich=True):
     try:
         request_id = int(request_dockey or 0)
     except Exception:
@@ -4960,6 +4950,8 @@ def _list_selected_suppliers(request_dockey, request_no=None):
                 'name': str((row[1] if len(row) > 1 else '') or '').strip(),
                 'email': str((row[2] if len(row) > 2 else '') or '').strip(),
             })
+        if not enrich:
+            return result
         return _enrich_supplier_display_rows(result)
     except Exception as exc:
         print(f"[PROCUREMENT SELECTED SUPPLIERS] list warning: {exc}", flush=True)
@@ -7172,6 +7164,10 @@ def api_admin_purchase_request_details_fallback():
         }
 
     try:
+        draft_response = _draft_purchase_request_detail_response(raw_request_id, request_no)
+        if draft_response is not None:
+            return draft_response
+
         headers = _build_sql_api_auth_headers()
         global PURCHASE_REQUEST_DETAIL_ENDPOINT_HINT
         candidates = []
@@ -7508,6 +7504,66 @@ def _resolve_local_purchase_request_header(raw_request_id, request_no):
             cur.close()
         if con:
             con.close()
+
+
+def _draft_line_from_local(row: dict, idx: int) -> dict:
+    qty = _num(row.get('quantity') if row.get('quantity') is not None else row.get('qty'))
+    sqty = _num(row.get('sqty')) if row.get('sqty') is not None else qty
+    suom = _num(row.get('suomqty')) if row.get('suomqty') is not None else 0.0
+    basis = 'SQTY' if sqty > 0 and suom <= 0 else 'SUOMQTY'
+    detail_id = row.get('id') or row.get('dtlkey') or idx
+    return {
+        'id': detail_id,
+        'seq': row.get('seq') if row.get('seq') is not None else idx,
+        'itemCode': str(row.get('itemCode') or row.get('itemcode') or '').strip(),
+        'itemName': str(row.get('itemName') or row.get('description') or '').strip(),
+        'description': str(row.get('description') or '').strip(),
+        'locationCode': str(row.get('locationCode') or row.get('location') or '').strip(),
+        'quantity': qty,
+        'unitPrice': _num(row.get('unitPrice') if row.get('unitPrice') is not None else row.get('unitprice')),
+        'tax': _num(row.get('tax') if row.get('tax') is not None else row.get('taxamt')),
+        'amount': _num(row.get('amount')),
+        'deliveryDate': row.get('deliveryDate') or row.get('deliverydate'),
+        'transferable': row.get('transferable'),
+        'udfPqApproved': row.get('udf_pqapproved'),
+        'sqty': sqty,
+        'suomqty': suom,
+        'stockQtyUom': basis,
+        'project': str(row.get('project') or '').strip() or '----',
+    }
+
+
+def _draft_purchase_request_detail_response(raw_request_id, request_no):
+    """Draft lines live on PH_PQDTL. Skip the accounting API and bid gate."""
+    local = _resolve_local_purchase_request_header(raw_request_id, request_no)
+    if not isinstance(local, dict):
+        return None
+    status = str(local.get('udf_status') or local.get('udfStatus') or '').strip().upper()
+    if status not in ('', 'DRAFT', '0'):
+        return None
+    lines = local.get('sdsdocdetail')
+    if not isinstance(lines, list):
+        return None
+    details = [
+        _draft_line_from_local(row, idx)
+        for idx, row in enumerate(lines, start=1)
+        if isinstance(row, dict)
+    ]
+    details = _filter_pr_details_by_location_scope(details)
+    dockey = local.get('dockey')
+    docno = str(local.get('docno') or request_no or '').strip()
+    suppliers = _list_selected_suppliers(dockey, request_no=docno, enrich=False)
+    total_amount = sum(_num(row.get('amount')) for row in details if isinstance(row, dict))
+    return jsonify({
+        'success': True,
+        'id': dockey,
+        'requestNumber': docno or None,
+        'udfReason': str(local.get('udf_reason') or '').strip(),
+        'details': details,
+        'totalAmount': total_amount,
+        'suppliers': suppliers,
+        'count': len(details),
+    })
 
 
 @app.route('/api/admin/procurement/bidding/invitations', methods=['POST'])
@@ -8992,7 +9048,6 @@ def api_get_product_price():
                 catalog_row = find_catalog_stock_item_prefer_sql_api(
                     code=item_code,
                     description=description,
-                    cached_items=_fetch_stock_items_cached(),
                 )
                 code_for_detail = item_code or str(
                     (catalog_row or {}).get("CODE") or (catalog_row or {}).get("code") or ""
@@ -9583,17 +9638,6 @@ def api_create_quotation():
         print(f"DEBUG [Flask api_create_quotation]: No items provided", flush=True)
         return jsonify({'success': False, 'error': 'At least one item is required'}), 400
 
-    try:
-        from utils.sql_api_customer import sql_api_currency_and_code
-        _cc_preview = sql_api_currency_and_code(str(customer_code or "").strip())
-        print(
-            f"DEBUG [Flask api_create_quotation]: SQL API GET /customer currencycode="
-            f"{_cc_preview.get('currencycode')!r} httpStatus={_cc_preview.get('httpStatus')!r}",
-            flush=True,
-        )
-    except Exception as _cc_exc:
-        print(f"DEBUG [Flask api_create_quotation]: SQL API currency preview failed: {_cc_exc}", flush=True)
-    
     try:
         if dockey:
             print(f"DEBUG [Flask]: UPDATING quotation - dockey={dockey}", flush=True)
@@ -11289,7 +11333,7 @@ def api_get_user_info():
 
 def _fetch_company_names_from_local_firebird():
     """
-    Same data as legacy php/getCompanyNames.php: distinct AR_CUSTOMER.COMPANYNAME (non-empty).
+    Distinct AR_CUSTOMER.COMPANYNAME (non-empty).
     Returns (list[str], None) on success, or (None, error_string) on failure.
     """
     con = None

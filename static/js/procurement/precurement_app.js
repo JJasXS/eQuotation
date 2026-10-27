@@ -102,6 +102,16 @@
         }
 
         let reportLoaded = false;
+        let createPrLookupsStarted = false;
+
+        function ensureCreatePrLookups() {
+            if (createPrLookupsStarted) return;
+            createPrLookupsStarted = true;
+            loadPrWarehouseLocations();
+            loadPurchaseRequestProducts();
+            loadSuppliers();
+            loadProjects();
+        }
 
         let stockCardVisibilityRefreshTimer = null;
 
@@ -193,7 +203,7 @@
 
         let viewPurchaseRequests = [];
 
-        const VIEW_PR_LIST_PAGE_SIZE = 15;
+        const VIEW_PR_LIST_PAGE_SIZE = 6;
 
         const VIEW_PR_LIST_CACHE_KEY = 'procurementViewPrFirstPageV3_page15';
 
@@ -1619,6 +1629,7 @@
             }
 
             if (selected === 'create') {
+                ensureCreatePrLookups();
                 if (!Array.isArray(window.purchaseRequestItems) || !window.purchaseRequestItems.length) {
                     initPurchaseRequestForm();
                 }
@@ -5164,15 +5175,16 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             btn.disabled = viewPrListLoadingMore;
 
-            btn.textContent = viewPrListLoadingMore ? 'Loading…' : '… more (+5)';
+            const pageSize = VIEW_PR_LIST_PAGE_SIZE;
+            btn.textContent = viewPrListLoadingMore ? 'Loading…' : `… more (+${pageSize})`;
 
             if (show) {
 
                 btn.title = viewPrListTotal != null
 
-                    ? `Load 5 more (${viewPurchaseRequests.length} of ${viewPrListTotal} shown)`
+                    ? `Load ${pageSize} more (${viewPurchaseRequests.length} of ${viewPrListTotal} shown)`
 
-                    : 'Load 5 more purchase requests';
+                    : `Load ${pageSize} more purchase requests`;
 
             } else {
 
@@ -5180,6 +5192,29 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             }
 
+            bindViewPrListInfiniteScroll();
+            window.requestAnimationFrame(() => maybeLoadMoreViewPrForScreen());
+
+        }
+
+        function bindViewPrListInfiniteScroll() {
+            const list = document.getElementById('view-pr-list');
+            if (!list || list.dataset.infiniteScrollBound === '1') return;
+            list.dataset.infiniteScrollBound = '1';
+            list.addEventListener('scroll', () => {
+                maybeLoadMoreViewPrForScreen();
+            }, { passive: true });
+        }
+
+        function maybeLoadMoreViewPrForScreen() {
+            const list = document.getElementById('view-pr-list');
+            if (!list || !viewPrListHasMore || viewPrListLoadingMore) return;
+            if (list.clientHeight < 80) return;
+            const gap = list.scrollHeight - list.scrollTop - list.clientHeight;
+            const fillsScreen = list.scrollHeight > list.clientHeight + 8;
+            if (!fillsScreen || gap < 140) {
+                loadMoreViewPurchaseRequests();
+            }
         }
 
         function saveViewPrListInstantCache(payload) {
@@ -10444,8 +10479,6 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 bindPurchaseRequestDeliveryLocationSync();
 
-                loadPrWarehouseLocations();
-
                 if (!tryRestorePurchaseRequestDraftItems()) {
                     initPurchaseRequestForm();
                 }
@@ -10453,12 +10486,6 @@ function buildViewPurchaseRequestDetailHtml(header) {
                 if (prNoEl && !String(prNoEl.value || '').trim()) {
                     loadNextPurchaseRequestNumber();
                 }
-
-                loadPurchaseRequestProducts();
-
-                loadSuppliers();
-
-                loadProjects();
 
                 window.addEventListener('resize', afterStockCardTableRender);
 

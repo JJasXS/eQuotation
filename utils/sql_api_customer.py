@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import os
+import time
 from typing import Any
 from urllib.parse import quote
+
+_CURRENCY_CACHE: dict[str, tuple[float, dict[str, str]]] = {}
+_CURRENCY_CACHE_SECONDS = 120.0
 
 from api.clients import SqlAccountingApiClient
 from api.config import load_sql_accounting_api_settings
@@ -128,8 +132,16 @@ def currency_fields_from_sql_row(
 
 def sql_api_currency_and_code(customer_code: str) -> dict[str, str]:
     """Currency + code from SQL API GET /customer only (e.g. ``----``; never Firebird/MYR fallback)."""
+    key = str(customer_code or "").strip().upper()
+    cached = _CURRENCY_CACHE.get(key)
+    if key and cached and (time.monotonic() - cached[0]) < _CURRENCY_CACHE_SECONDS:
+        return cached[1]
     row, status = fetch_sql_api_customer_row(customer_code)
-    return currency_fields_from_sql_row(row, customer_code, status)
+    fields = currency_fields_from_sql_row(row, customer_code, status)
+    currency = str(fields.get("currencycode") or "").strip()
+    if key and currency and currency not in ("-", "—"):
+        _CURRENCY_CACHE[key] = (time.monotonic(), fields)
+    return fields
 
 
 def _firebird_customer_currency(customer_code: str) -> str:
