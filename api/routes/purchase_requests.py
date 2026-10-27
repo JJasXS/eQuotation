@@ -12,6 +12,12 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from api.routes.customers import verify_api_keys
 from utils.db_utils import build_firebird_dsn
 from utils.firebird_helpers import _get_table_columns, _pick_existing, _to_number
+from utils.procurement_purchase_request import (
+    _column_is_numeric,
+    _encode_status,
+    document_status_for_view_pr_udf,
+    hidden_cancelled_draft_list_predicate,
+)
 
 # PH_PQ column metadata is stable per process; avoid RDB$RELATION_FIELDS on every list call.
 _PH_PQ_COLS_FROZEN: frozenset[str] | None = None
@@ -445,7 +451,19 @@ def list_purchase_requests(
                 )
                 params.extend(location_codes)
 
+        hide_sql = ""
+        hide_params: list[Any] = []
+        if status_col and udf_status_col:
+            hide_sql, hide_params = hidden_cancelled_draft_list_predicate(
+                status_col,
+                udf_status_col,
+                status_is_numeric=_column_is_numeric(cur, "PH_PQ", status_col),
+            )
+
         where_sql = f" WHERE {' AND '.join(filters)}" if filters else ""
+        if hide_sql:
+            where_sql = f"{where_sql} AND {hide_sql}" if where_sql else f" WHERE {hide_sql}"
+            params.extend(hide_params)
         order_col = docdate_col or key_col
         # Tie-break same DOCDATE so newest DOCKEY (e.g. PR-26060019) is not buried under older rows.
         order_sql = f"H.{order_col} DESC"
@@ -465,7 +483,7 @@ def list_purchase_requests(
         perf["countQueryMs"] = round(count_ms, 3)
 
         t_data = time.perf_counter()
-        if filters:
+        if where_sql:
             cur.execute(
                 f"SELECT FIRST ? SKIP ? {', '.join(select_cols)} FROM PH_PQ H{where_sql} ORDER BY {order_sql}",
                 (limit, offset, *params),
@@ -741,6 +759,117 @@ _UDF_STATUS_TRANSITIONS: dict[str, set[str]] = {
     "": {"", "DRAFT", "AWAITING", "PENDING", "CANCELLED"},
 }
 
+_HEADER_UDF_STATUS_VALUES = {
+    "APPROVED",
+    "CANCELLED",
+    "PENDING",
+    "AWAITING",
+    "ACTIVE",
+    "INACTIVE",
+    "DRAFT",
+}
+
+
+def _reject_illegal_udf_transition(request_id: int, previous: str, status_value: str) -> None:
+    allowed_targets = _UDF_STATUS_TRANSITIONS.get(previous)
+    if allowed_targets is None:
+        allowed_targets = {previous, "CANCELLED"} if previous else _UDF_STATUS_TRANSITIONS[""]
+    if status_value not in allowed_targets:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Invalid UDF_STATUS transition for request {request_id}: "
+                f"{previous or '(empty)'} → {status_value}"
+            ),
+        )
+
+
+def _write_view_pr_header_status(
+    cur: Any,
+    request_id: int,
+    *,
+    previous: str,
+    status_value: str,
+    previous_doc: Any,
+    udf_status_col: str,
+    status_col: str,
+    status_is_numeric: bool,
+    key_col: str,
+) -> tuple[int, dict[str, Any]]:
+    next_doc = document_status_for_view_pr_udf(previous_doc, status_value) if status_col else None
+    set_parts = [f"{udf_status_col} = ?"]
+    params: list[Any] = [status_value]
+    if next_doc:
+        set_parts.append(f"{status_col} = ?")
+        params.append(_encode_status(next_doc, status_is_numeric))
+    params.append(request_id)
+    cur.execute(
+        f"UPDATE PH_PQ SET {', '.join(set_parts)} WHERE {key_col} = ?",
+        tuple(params),
+    )
+    applied: dict[str, Any] = {
+        "requestId": request_id,
+        "previousUdfStatus": previous,
+        "udfStatus": status_value,
+    }
+    if next_doc:
+        applied["docStatus"] = next_doc
+    return int(cur.rowcount or 0), applied
+
+
+def _apply_purchase_request_header_status(
+    cur: Any,
+    raw: dict[str, Any],
+    *,
+    key_col: str,
+    udf_status_col: str,
+    status_col: str,
+    status_is_numeric: bool,
+) -> tuple[int, dict[str, Any]] | None:
+    """Persist one View e-PR header status change. None when the row is skipped."""
+    if raw.get("requestId") is None:
+        return None
+    try:
+        request_id = int(raw.get("requestId"))
+    except Exception:
+        return None
+
+    status_value = str(raw.get("udfStatus") or "").strip().upper()
+    if status_value not in _HEADER_UDF_STATUS_VALUES:
+        return None
+    status_value = _normalize_header_udf_status(status_value)
+
+    if status_col:
+        cur.execute(
+            f"SELECT FIRST 1 {udf_status_col}, {status_col} FROM PH_PQ WHERE {key_col} = ?",
+            (request_id,),
+        )
+    else:
+        cur.execute(
+            f"SELECT FIRST 1 {udf_status_col} FROM PH_PQ WHERE {key_col} = ?",
+            (request_id,),
+        )
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Purchase request {request_id} not found",
+        )
+    previous = _normalize_header_udf_status(row[0])
+    previous_doc = row[1] if status_col and len(row) > 1 else None
+    _reject_illegal_udf_transition(request_id, previous, status_value)
+    return _write_view_pr_header_status(
+        cur,
+        request_id,
+        previous=previous,
+        status_value=status_value,
+        previous_doc=previous_doc,
+        udf_status_col=udf_status_col,
+        status_col=status_col,
+        status_is_numeric=status_is_numeric,
+        key_col=key_col,
+    )
+
 
 @router.post("/purchaserequest/header-status")
 def update_purchase_request_header_status(
@@ -751,8 +880,6 @@ def update_purchase_request_header_status(
     changes = payload.get("changes", []) if isinstance(payload, dict) else []
     if not isinstance(changes, list) or not changes:
         raise HTTPException(status_code=400, detail="changes[] is required")
-
-    allowed = {"APPROVED", "CANCELLED", "PENDING", "AWAITING", "ACTIVE", "INACTIVE", "DRAFT"}
 
     con = None
     cur = None
@@ -767,60 +894,29 @@ def update_purchase_request_header_status(
             raise HTTPException(status_code=500, detail="PH_PQ key column not found")
         if not udf_status_col:
             raise HTTPException(status_code=500, detail="PH_PQ.UDF_STATUS column not found")
+        status_col = _pick_existing(header_cols, "STATUS")
+        status_is_numeric = bool(
+            status_col and _column_is_numeric(cur, "PH_PQ", status_col)
+        )
 
         updated = 0
         applied: list[dict[str, Any]] = []
         for raw in changes:
             if not isinstance(raw, dict):
                 continue
-            if raw.get("requestId") is None:
-                continue
-
-            try:
-                request_id = int(raw.get("requestId"))
-            except Exception:
-                continue
-
-            status_value = str(raw.get("udfStatus") or "").strip().upper()
-            if status_value not in allowed:
-                continue
-            status_value = _normalize_header_udf_status(status_value)
-
-            cur.execute(
-                f"SELECT FIRST 1 {udf_status_col} FROM PH_PQ WHERE {key_col} = ?",
-                (request_id,),
+            result = _apply_purchase_request_header_status(
+                cur,
+                raw,
+                key_col=key_col,
+                udf_status_col=udf_status_col,
+                status_col=status_col,
+                status_is_numeric=status_is_numeric,
             )
-            row = cur.fetchone()
-            if not row:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Purchase request {request_id} not found",
-                )
-            previous = _normalize_header_udf_status(row[0])
-            allowed_targets = _UDF_STATUS_TRANSITIONS.get(previous)
-            if allowed_targets is None:
-                allowed_targets = {previous, "CANCELLED"} if previous else _UDF_STATUS_TRANSITIONS[""]
-            if status_value not in allowed_targets:
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        f"Invalid UDF_STATUS transition for request {request_id}: "
-                        f"{previous or '(empty)'} → {status_value}"
-                    ),
-                )
-
-            cur.execute(
-                f"UPDATE PH_PQ SET {udf_status_col} = ? WHERE {key_col} = ?",
-                (status_value, request_id),
-            )
-            updated += int(cur.rowcount or 0)
-            applied.append(
-                {
-                    "requestId": request_id,
-                    "previousUdfStatus": previous,
-                    "udfStatus": status_value,
-                }
-            )
+            if result is None:
+                continue
+            rowcount, applied_change = result
+            updated += rowcount
+            applied.append(applied_change)
 
         con.commit()
         return {

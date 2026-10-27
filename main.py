@@ -55,6 +55,7 @@ from utils.procurement_purchase_request import (
     preview_purchase_request_number,
     transition_purchase_request_status,
     update_purchase_request,
+    is_hidden_cancelled_draft,
 )
 from utils.procurement_purchase_order_transfer import (
     PurchaseOrderTransferValidationError,
@@ -6730,6 +6731,11 @@ def api_admin_list_purchase_requests():
         except Exception as loc_exc:
             print(f"[PROCUREMENT LIST PR] location scope header filter warning: {loc_exc}", flush=True)
 
+        records = [
+            rec for rec in records
+            if not is_hidden_cancelled_draft(rec.get("status"), rec.get("udfStatus"))
+        ]
+
         if debug_suppliers:
             try:
                 preview = debug_supplier_rows[:20]
@@ -9563,6 +9569,11 @@ def api_admin_purchase_request_header_status_update():
         if invite_results:
             out = dict(out)
             out['bidInvitationResults'] = invite_results
+        try:
+            with PURCHASE_REQUEST_LIST_CACHE_LOCK:
+                PURCHASE_REQUEST_LIST_CACHE.clear()
+        except Exception:
+            pass
         return jsonify({'success': True, 'data': out})
     except requests.exceptions.Timeout:
         return jsonify({'success': False, 'error': 'Header status update request timed out'}), 504

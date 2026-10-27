@@ -1450,11 +1450,36 @@
                         return;
                     }
                     if (targetUdf === 'CANCELLED') {
+                        const docBefore = viewPrDocStatus(record);
+                        const fromDraftPanel = opts.fromDraftPanel === true
+                            || (viewStatusFilters instanceof Set && viewStatusFilters.has('DRAFT'));
+                        const hideCancelledDraft = fromDraftPanel || docBefore === 'DRAFT' || docBefore === 'CANCELLED';
                         record.udfStatus = 'CANCELLED';
                         record._originalUdfStatus = 'CANCELLED';
                         delete record._pendingUdfStatus;
                         invalidateViewDetailCache(keepId);
-                        goToViewPrStatus('CANCELLED', { reload: true });
+                        if (hideCancelledDraft) {
+                            record.status = 'CANCELLED';
+                            viewPurchaseRequests = (viewPurchaseRequests || []).filter(
+                                (row) => Number(row.id || 0) !== keepId
+                            );
+                            viewSelectedHeaderId = null;
+                            goToViewPrStatus('DRAFT', { reload: true });
+                        } else {
+                            goToViewPrStatus('CANCELLED', { reload: true });
+                        }
+                        syncViewPrToUrl();
+                        return;
+                    }
+                    if (targetUdf === 'AWAITING') {
+                        record.udfStatus = 'AWAITING';
+                        record._originalUdfStatus = 'AWAITING';
+                        if (String(record.status || '').trim().toUpperCase() === 'DRAFT') {
+                            record.status = 'SUBMITTED';
+                        }
+                        delete record._pendingUdfStatus;
+                        invalidateViewDetailCache(keepId);
+                        goToViewPrStatus('AWAITING', { reload: true });
                         syncViewPrToUrl();
                         return;
                     }
@@ -2426,7 +2451,27 @@
 
         }
 
+        function viewPrDocStatus(row) {
+            const raw = String(row?.status ?? '').trim().toUpperCase();
+            if (raw === '0') return 'DRAFT';
+            if (raw === '1') return 'SUBMITTED';
+            if (raw === '2') return 'APPROVED';
+            if (raw === '3') return 'REJECTED';
+            if (raw === '4') return 'CANCELLED';
+            return raw;
+        }
+
+        function isHiddenCancelledDraft(row) {
+            const udf = rowSavedUdfStatus(row);
+            const doc = viewPrDocStatus(row);
+            return udf === 'CANCELLED' && (doc === 'DRAFT' || doc === 'CANCELLED');
+        }
+
         function rowMatchesViewStatusFilter(row, statusFilter) {
+
+            if (isHiddenCancelledDraft(row)) {
+                return false;
+            }
 
             const f = String(statusFilter || '').toUpperCase();
 
@@ -2497,7 +2542,7 @@
 
             });
 
-            let rows = viewPurchaseRequests || [];
+            let rows = (viewPurchaseRequests || []).filter((row) => !isHiddenCancelledDraft(row));
 
             if (filters.size) {
 
@@ -2863,7 +2908,11 @@
 
             const original = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
 
-            if (normalized === original) {
+            const unchanged = normalized === original
+                || (!normalized && (original === '' || original === 'DRAFT'))
+                || (normalized === 'DRAFT' && !original);
+
+            if (unchanged) {
 
                 viewHeaderStatusPendingChanges.delete(String(requestId));
 
@@ -3284,6 +3333,15 @@
 
         }
 
+        function viewPrExplicitUdfIsCancelled(headerId) {
+            const sel = document.getElementById(`view-pr-detail-udf-${Number(headerId)}`);
+            if (sel) {
+                return normalizeUdfStatus(sel.value) === 'CANCELLED';
+            }
+            const pending = viewHeaderStatusPendingChanges.get(String(headerId));
+            return !!(pending && normalizeUdfStatus(pending.udfStatus) === 'CANCELLED');
+        }
+
         function onDetailApprovalToggleAll(headerId, checked) {
             if (document.body.classList.contains('procurement-hide-pr-approval-edits')) {
                 return;
@@ -3319,7 +3377,7 @@
             header.lineCount = selectable.length;
             const savedUdf = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
             // Only Pending auto-stages header → Approved; Awaiting keeps header UDF unchanged.
-            if (savedUdf === 'PENDING') {
+            if (savedUdf === 'PENDING' && !viewPrExplicitUdfIsCancelled(headerId)) {
                 queueHeaderUdfPendingFromSaved(headerId, hasChecked ? 'APPROVED' : 'PENDING');
             }
             updateViewApprovalButtonState();
@@ -3339,7 +3397,7 @@
             header.selectedLineCount = selectable.filter((row) => isDetailChecked(row)).length;
             header.lineCount = selectable.length;
             // Stage only — Update button persists. Do not POST on checkbox click.
-            if (savedUdf === 'PENDING') {
+            if (savedUdf === 'PENDING' && !viewPrExplicitUdfIsCancelled(headerId)) {
                 queueHeaderUdfPendingFromSaved(headerId, hasChecked ? 'APPROVED' : 'PENDING');
             }
             syncAllLineApprovalsBeforeHeaderApprove(headerId);
@@ -3434,7 +3492,7 @@
                     const savedUdf = normalizeUdfStatus(header && (header._originalUdfStatus || header.udfStatus));
                     const hasChecked = !!(header && Array.isArray(header.details)
                         && header.details.some((row) => Number(row && row.id ? row.id : 0) > 0 && isDetailChecked(row)));
-                    if (savedUdf === 'PENDING' && hasChecked) {
+                    if (savedUdf === 'PENDING' && hasChecked && !viewPrExplicitUdfIsCancelled(selectedId)) {
                         queueHeaderUdfPendingFromSaved(selectedId, 'APPROVED');
                     }
                 }
@@ -3514,6 +3572,16 @@ if (viewHeaderStatusPendingChanges.size > 0) {
                         if (payloadData && Array.isArray(payloadData.bidInvitationResults)) {
                             bidInvitationResults = payloadData.bidInvitationResults;
                         }
+                        if (statusRes.ok && statusData.success && payloadData && Array.isArray(payloadData.changes)) {
+                            payloadData.changes.forEach((applied) => {
+                                const id = String(applied && applied.requestId || '');
+                                const pending = id ? viewHeaderStatusPendingChanges.get(id) : null;
+                                const docStatus = String(applied && applied.docStatus || '').trim().toUpperCase();
+                                if (pending && docStatus) {
+                                    pending.docStatus = docStatus;
+                                }
+                            });
+                        }
                     } catch (e) { /* ignore */ }
 
                     if (!statusRes.ok || !statusData.success) {
@@ -3589,6 +3657,10 @@ if (viewHeaderStatusPendingChanges.size > 0) {
 
                     header.udfStatus = normalizeUdfStatus(change.udfStatus);
 
+                    if (change.docStatus) {
+                        header.status = change.docStatus;
+                    }
+
                     delete header._pendingUdfStatus;
 
                     });
@@ -3639,6 +3711,12 @@ if (viewHeaderStatusPendingChanges.size > 0) {
                         .map((c) => Number(c.requestId || 0))
                         .filter((id) => id > 0)
                 );
+                const awaitingHeaderIdsForRefresh = new Set(
+                    Array.from(viewHeaderStatusPendingChanges.values())
+                        .filter((c) => normalizeUdfStatus(c.udfStatus) === 'AWAITING')
+                        .map((c) => Number(c.requestId || 0))
+                        .filter((id) => id > 0)
+                );
                 if (!headerStatusSaveFailed && typeof bidInvitationResults !== 'undefined' && bidInvitationResults.length) {
                     const notes = bidInvitationResults.map((r) => {
                         if (!r) return '';
@@ -3680,7 +3758,12 @@ if (viewHeaderStatusPendingChanges.size > 0) {
                     goToViewPrStatus('APPROVED', { reload: true });
                     await finalizeViewPrAfterApprovalSave(keepSelectedId, { targetUdfStatus: 'APPROVED' });
                 } else if (cancelledHeaderIdsForRefresh && cancelledHeaderIdsForRefresh.size) {
-                    await finalizeViewPrAfterApprovalSave(keepSelectedId, { targetUdfStatus: 'CANCELLED' });
+                    await finalizeViewPrAfterApprovalSave(keepSelectedId, {
+                        targetUdfStatus: 'CANCELLED',
+                        fromDraftPanel: viewStatusFilters instanceof Set && viewStatusFilters.has('DRAFT'),
+                    });
+                } else if (awaitingHeaderIdsForRefresh && awaitingHeaderIdsForRefresh.size) {
+                    await finalizeViewPrAfterApprovalSave(keepSelectedId, { targetUdfStatus: 'AWAITING' });
                 } else {
                     await finalizeViewPrAfterApprovalSave(keepSelectedId, { targetUdfStatus: '' });
                 }
@@ -3749,6 +3832,43 @@ if (viewHeaderStatusPendingChanges.size > 0) {
                 });
                 return uniq.join(', ');
             }
+
+        function viewPrUdfOption(value, label, picked) {
+            const selected = picked === value ? ' selected' : '';
+            return `<option value="${value}"${selected}>${label}</option>`;
+        }
+
+        function viewPrUdfStatusOptionsHtml(savedUdf, selectUdf, docStatus) {
+            const saved = normalizeUdfStatus(savedUdf);
+            const picked = normalizeUdfStatus(selectUdf);
+            const doc = String(docStatus || '').trim().toUpperCase();
+            if (saved === 'AWAITING') {
+                return [
+                    viewPrUdfOption('AWAITING', 'Awaiting Approval', picked),
+                    viewPrUdfOption('PENDING', 'Pending (Awaiting RFQ)', picked),
+                    viewPrUdfOption('CANCELLED', 'Cancelled', picked),
+                ].join('');
+            }
+            if (saved === 'PENDING') {
+                return [
+                    viewPrUdfOption('PENDING', 'Pending', picked),
+                    viewPrUdfOption('APPROVED', 'Approved', picked),
+                    viewPrUdfOption('CANCELLED', 'Cancelled', picked),
+                ].join('');
+            }
+            if (doc === 'DRAFT' || saved === 'DRAFT') {
+                const current = (picked === 'AWAITING' || picked === 'CANCELLED') ? picked : '';
+                return [
+                    viewPrUdfOption('', 'Draft', current),
+                    viewPrUdfOption('AWAITING', 'Awaiting Approval', current),
+                    viewPrUdfOption('CANCELLED', 'Cancelled', current),
+                ].join('');
+            }
+            return [
+                viewPrUdfOption('APPROVED', 'Approved', picked),
+                viewPrUdfOption('CANCELLED', 'Cancelled', picked),
+            ].join('');
+        }
 
 function buildViewPurchaseRequestDetailHtml(header) {
 
@@ -4102,18 +4222,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
                         <div class="view-pr-detail-status-actions">
                             <label class="view-pr-detail-status-label" for="view-pr-detail-udf-${headerId}">Status</label>
                             <select id="view-pr-detail-udf-${headerId}" class="view-pr-udf-status view-pr-detail-udf-status" onchange="onHeaderUdfStatusChange(${headerId}, this.value)" title="Approval status" ${udfLocked && savedUdfDisplay === 'APPROVED' ? 'disabled' : ''}>
-                                ${savedUdfDisplay === 'AWAITING' ? `
-                                <option value="AWAITING" ${selectUdf === 'AWAITING' ? 'selected' : ''}>Awaiting Approval</option>
-                                <option value="PENDING" ${selectUdf === 'PENDING' ? 'selected' : ''}>Pending (Awaiting RFQ)</option>
-                                <option value="CANCELLED" ${selectUdf === 'CANCELLED' ? 'selected' : ''}>Cancelled</option>
-                                ` : savedUdfDisplay === 'PENDING' ? `
-                                <option value="PENDING" ${selectUdf === 'PENDING' ? 'selected' : ''}>Pending</option>
-                                <option value="APPROVED" ${selectUdf === 'APPROVED' ? 'selected' : ''}>Approved</option>
-                                <option value="CANCELLED" ${selectUdf === 'CANCELLED' ? 'selected' : ''}>Cancelled</option>
-                                ` : `
-                                <option value="APPROVED" ${selectUdf === 'APPROVED' ? 'selected' : ''}>Approved</option>
-                                <option value="CANCELLED" ${selectUdf === 'CANCELLED' ? 'selected' : ''}>Cancelled</option>
-                                `}
+                                ${viewPrUdfStatusOptionsHtml(savedUdfDisplay, selectUdf, header.status)}
                             </select>
                             <button type="button" class="view-pr-refresh-btn view-pr-detail-update-btn" onclick="saveViewDetailApprovals()">Update</button>
                         </div>
