@@ -4892,7 +4892,7 @@ def _enrich_supplier_display_rows(rows: list[dict]) -> list[dict]:
     return rows
 
 
-def _list_selected_suppliers(request_dockey, request_no=None):
+def _list_selected_suppliers(request_dockey, request_no=None, *, enrich=True):
     try:
         request_id = int(request_dockey or 0)
     except Exception:
@@ -4949,6 +4949,8 @@ def _list_selected_suppliers(request_dockey, request_no=None):
                 'name': str((row[1] if len(row) > 1 else '') or '').strip(),
                 'email': str((row[2] if len(row) > 2 else '') or '').strip(),
             })
+        if not enrich:
+            return result
         return _enrich_supplier_display_rows(result)
     except Exception as exc:
         print(f"[PROCUREMENT SELECTED SUPPLIERS] list warning: {exc}", flush=True)
@@ -7156,6 +7158,10 @@ def api_admin_purchase_request_details_fallback():
         }
 
     try:
+        draft_response = _draft_purchase_request_detail_response(raw_request_id, request_no)
+        if draft_response is not None:
+            return draft_response
+
         headers = _build_sql_api_auth_headers()
         global PURCHASE_REQUEST_DETAIL_ENDPOINT_HINT
         candidates = []
@@ -7492,6 +7498,66 @@ def _resolve_local_purchase_request_header(raw_request_id, request_no):
             cur.close()
         if con:
             con.close()
+
+
+def _draft_line_from_local(row: dict, idx: int) -> dict:
+    qty = _num(row.get('quantity') if row.get('quantity') is not None else row.get('qty'))
+    sqty = _num(row.get('sqty')) if row.get('sqty') is not None else qty
+    suom = _num(row.get('suomqty')) if row.get('suomqty') is not None else 0.0
+    basis = 'SQTY' if sqty > 0 and suom <= 0 else 'SUOMQTY'
+    detail_id = row.get('id') or row.get('dtlkey') or idx
+    return {
+        'id': detail_id,
+        'seq': row.get('seq') if row.get('seq') is not None else idx,
+        'itemCode': str(row.get('itemCode') or row.get('itemcode') or '').strip(),
+        'itemName': str(row.get('itemName') or row.get('description') or '').strip(),
+        'description': str(row.get('description') or '').strip(),
+        'locationCode': str(row.get('locationCode') or row.get('location') or '').strip(),
+        'quantity': qty,
+        'unitPrice': _num(row.get('unitPrice') if row.get('unitPrice') is not None else row.get('unitprice')),
+        'tax': _num(row.get('tax') if row.get('tax') is not None else row.get('taxamt')),
+        'amount': _num(row.get('amount')),
+        'deliveryDate': row.get('deliveryDate') or row.get('deliverydate'),
+        'transferable': row.get('transferable'),
+        'udfPqApproved': row.get('udf_pqapproved'),
+        'sqty': sqty,
+        'suomqty': suom,
+        'stockQtyUom': basis,
+        'project': str(row.get('project') or '').strip() or '----',
+    }
+
+
+def _draft_purchase_request_detail_response(raw_request_id, request_no):
+    """Draft lines live on PH_PQDTL. Skip the accounting API and bid gate."""
+    local = _resolve_local_purchase_request_header(raw_request_id, request_no)
+    if not isinstance(local, dict):
+        return None
+    status = str(local.get('udf_status') or local.get('udfStatus') or '').strip().upper()
+    if status not in ('', 'DRAFT', '0'):
+        return None
+    lines = local.get('sdsdocdetail')
+    if not isinstance(lines, list):
+        return None
+    details = [
+        _draft_line_from_local(row, idx)
+        for idx, row in enumerate(lines, start=1)
+        if isinstance(row, dict)
+    ]
+    details = _filter_pr_details_by_location_scope(details)
+    dockey = local.get('dockey')
+    docno = str(local.get('docno') or request_no or '').strip()
+    suppliers = _list_selected_suppliers(dockey, request_no=docno, enrich=False)
+    total_amount = sum(_num(row.get('amount')) for row in details if isinstance(row, dict))
+    return jsonify({
+        'success': True,
+        'id': dockey,
+        'requestNumber': docno or None,
+        'udfReason': str(local.get('udf_reason') or '').strip(),
+        'details': details,
+        'totalAmount': total_amount,
+        'suppliers': suppliers,
+        'count': len(details),
+    })
 
 
 @app.route('/api/admin/procurement/bidding/invitations', methods=['POST'])
