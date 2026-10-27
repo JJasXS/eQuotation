@@ -431,28 +431,48 @@ body.equotation-icy-theme.procurement-warm-ui .stock-card-table th {
 }
 
 body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead:not(:has(> tr:nth-child(2))) tr:nth-child(1) th,
-body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead:has(> tr:nth-child(2)) tr:nth-child(2) th {
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead:has(> tr:nth-child(2)):not(:has(> tr:nth-child(3))) tr:nth-child(2) th,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead:has(> tr:nth-child(3)) tr:nth-child(3) th {
     box-shadow: 0 2px 0 var(--ice-accent) !important;
 }
 
-body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead:has(> tr:nth-child(2)) tr:nth-child(1) th {
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead:has(> tr:nth-child(2)) tr:nth-child(1) th,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead:has(> tr:nth-child(3)) tr:nth-child(2) th {
     border-bottom-color: var(--ice-accent) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead:has(> tr:nth-child(3)) tr:nth-child(2) th {
+    box-shadow: none !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui .stock-card-table th.qty-group-col {
     background: linear-gradient(180deg, var(--ice-surface-alt) 0%, var(--ice-bg-deep) 100%) !important;
     border-left-color: var(--ice-accent) !important;
     border-right-color: var(--ice-accent) !important;
-    box-shadow: inset 0 -4px 0 rgba(59, 143, 196, 0.22) !important;
+    border-top: 2px solid var(--ice-accent) !important;
+    box-shadow: inset 0 -2px 0 rgba(59, 143, 196, 0.22) !important;
     color: var(--ice-heading) !important;
 }
 
-body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead tr:first-child th.stock-card-header-cell.location-first {
-    border-left-color: var(--ice-accent) !important;
-    box-shadow: inset 3px 0 0 rgba(59, 143, 196, 0.15), 0 2px 0 var(--ice-accent) !important;
+body.equotation-icy-theme.procurement-warm-ui .stock-card-metric-group-label {
+    color: var(--ice-heading) !important;
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    text-transform: none !important;
+    letter-spacing: 0.02em !important;
 }
 
-body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead tr:first-child th.stock-card-header-cell.location-last {
+body.equotation-icy-theme.procurement-warm-ui .stock-card-hdr-code {
+    font-size: 10px !important;
+    white-space: nowrap !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead th.stock-card-header-cell.location-first {
+    border-left-color: var(--ice-accent) !important;
+    box-shadow: inset 3px 0 0 rgba(59, 143, 196, 0.15) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead th.stock-card-header-cell.location-last {
     border-right-color: var(--ice-accent) !important;
 }
 
@@ -465,6 +485,12 @@ body.equotation-icy-theme.procurement-warm-ui .stock-card-table td.qty-col {
     border-color: var(--ice-border) !important;
 }
 
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead th.qty-col[colspan="2"] {
+    width: 180px !important;
+    min-width: 180px !important;
+    max-width: 180px !important;
+}
+
 body.equotation-icy-theme.procurement-warm-ui .report-summary-card {
     border-color: var(--ice-border) !important;
     box-shadow: 0 1px 4px var(--ice-shadow) !important;
@@ -475,6 +501,20 @@ body.equotation-icy-theme.procurement-warm-ui .stock-card-table td.code-col {
     background: var(--ice-surface-alt) !important;
     border-right-color: var(--ice-border) !important;
     box-shadow: 6px 0 10px -6px var(--ice-shadow) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead th.code-col,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead th.code-col[rowspan] {
+    z-index: 50 !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table td.code-col {
+    z-index: 40 !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead th.qty-group-col,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead th.stock-card-header-cell {
+    z-index: 8;
 }
 
 body.equotation-icy-theme.procurement-warm-ui .stock-card-table tbody tr:hover {
@@ -1527,4 +1567,77 @@ body.equotation-icy-theme.supplier-bidding-page .supplier-bidding-split {
     background: var(--ice-surface) !important;
     border-color: var(--ice-border) !important;
     box-shadow: 0 4px 20px var(--ice-shadow) !important;
+}
+
+/* ---- Purchase dashboard filter bar (icy) ---- */
+body.equotation-icy-theme.procurement-warm-ui .stock-report-filter-bar {
+    background: var(--ice-surface) !important;
+    border-color: var(--ice-border) !important;
+    box-shadow: 0 2px 14px var(--ice-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-report-filter-bar__row--actions {
+    border-top-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-report-filter-bar__row--controls > .stock-ms + .stock-ms,
+body.equotation-icy-theme.procurement-warm-ui .stock-report-filter-bar__row--controls > .stock-ms + .stock-report-filter-field,
+body.equotation-icy-theme.procurement-warm-ui .stock-report-filter-bar__row--controls > .stock-report-filter-field + .stock-report-filter-field,
+body.equotation-icy-theme.procurement-warm-ui .stock-report-filter-bar__row--controls > .stock-report-filter-field + .stock-ms {
+    border-left-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-report-filter-summary,
+body.equotation-icy-theme.procurement-warm-ui .stock-ms__field-label {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-ms__trigger,
+body.equotation-icy-theme.procurement-warm-ui .stock-ms__menu,
+body.equotation-icy-theme.procurement-warm-ui .stock-report-filter-field--cutoff input[type=" date\],
+body.equotation-icy-theme.procurement-warm-ui .stock-card-uom-toggle--segmented {
+ background: #fff !important;
+ border-color: var(--ice-border) !important;
+ color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-ms__trigger:hover,
+body.equotation-icy-theme.procurement-warm-ui .stock-ms.is-open .stock-ms__trigger {
+ border-color: var(--ice-accent) !important;
+ box-shadow: 0 0 0 2px rgba(59, 143, 196, 0.18) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-ms__caret {
+ border-top-color: var(--ice-accent) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-ms__tool-btn {
+ background: var(--ice-accent-soft) !important;
+ border-color: var(--ice-border) !important;
+ color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-ms__option:hover,
+body.equotation-icy-theme.procurement-warm-ui .stock-column-filter-chip:hover {
+ background: var(--ice-accent-soft) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-uom-toggle--segmented .stock-card-uom-option {
+ border-right-color: var(--ice-border) !important;
+ color: var(--ice-text) !important;
+ background: #fff !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-uom-toggle--segmented .stock-card-uom-option:has(input:checked) {
+ background: var(--ice-accent) !important;
+ color: #fff !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-uom-toggle--segmented .stock-card-uom-option:hover:not(:has(input:checked)) {
+ background: var(--ice-accent-soft) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table th.stock-card-group-sep {
+ border-left-color: var(--ice-accent) !important;
+ border-right-color: var(--ice-accent) !important;
 }

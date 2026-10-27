@@ -23,14 +23,8 @@
     <link rel="stylesheet" href="/static/css/adminViewQuotations.css?v=20260430">
 
     <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260810_tabs_phone_v3">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=20261023_invite_body_surface">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=20261027_purchase_dashboard_ui">
     <style id="pr-report-phone-layout">
-    /* Report settings: phone drawer (slides in from right) */
-    .stock-report-settings-bar,
-    .stock-report-settings-drawer-head,
-    .stock-report-settings-backdrop {
-      display: none;
-    }
     @media (max-width: 900px) {
       body.procurement-warm-ui .procurement-module-tabs.eq-line-tabs {
         flex-wrap: nowrap !important;
@@ -44,197 +38,10 @@
         font-size: 12px !important;
         white-space: nowrap !important;
       }
-
-      #panel-report .stock-report-settings-bar {
-        display: block !important;
-        width: 100%;
-        margin: 0 0 8px;
-        box-sizing: border-box;
-      }
-      #panel-report .stock-report-settings-open-btn {
-        display: block;
-        width: 100%;
-        box-sizing: border-box;
-        border: 1px solid #b8d4e8;
-        background: #3b8fc4;
-        color: #fff;
-        border-radius: 10px;
-        padding: 11px 14px;
-        font-size: 14px;
-        font-weight: 600;
-        cursor: pointer;
-        text-align: center;
-      }
-
-      #panel-report .stock-report-settings-backdrop {
-        display: none;
-        position: fixed;
-        inset: 0;
-        z-index: 2400;
-        background: rgba(20, 40, 60, 0.45);
-        border: none;
-        padding: 0;
-        margin: 0;
-      }
-      #panel-report .stock-report-settings-backdrop.is-open {
-        display: block !important;
-      }
-
-      #panel-report .stock-report-settings-drawer-head {
-        display: flex !important;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        margin: 0 0 12px;
-        padding: 0 0 10px;
-        border-bottom: 1px solid #d5e6f2;
-        flex: 0 0 auto !important;
-        width: 100% !important;
-      }
-      #panel-report .stock-report-settings-drawer-head strong {
-        font-size: 15px;
-        color: #1a4d6e;
-      }
-      #panel-report .stock-report-settings-close-btn {
-        border: 1px solid #b8d4e8;
-        background: #eef6fc;
-        color: #1a4d6e;
-        width: 2.25rem;
-        height: 2.25rem;
-        border-radius: 8px;
-        font-size: 1.35rem;
-        line-height: 1;
-        cursor: pointer;
-      }
-
-      #panel-report .location-filter-shell.location-filter-shell--below-cutoff {
-        position: fixed !important;
-        top: 0 !important;
-        right: 0 !important;
-        bottom: 0 !important;
-        left: auto !important;
-        width: min(100vw, 22.5rem) !important;
-        max-width: 100vw !important;
-        height: 100vh !important;
-        height: 100dvh !important;
-        margin: 0 !important;
-        padding: 14px 14px 24px !important;
-        overflow-x: hidden !important;
-        overflow-y: auto !important;
-        z-index: 2401 !important;
-        border-radius: 14px 0 0 14px !important;
-        box-shadow: -8px 0 28px rgba(20, 40, 60, 0.22) !important;
-        background: #f7fbff !important;
-        border: 1px solid #b8d4e8 !important;
-        border-right: none !important;
-        transform: translateX(105%) !important;
-        transition: transform 0.28s ease !important;
-        -webkit-overflow-scrolling: touch;
-        box-sizing: border-box !important;
-        display: flex !important;
-        flex-direction: column !important;
-        gap: 0 !important;
-      }
-      #panel-report .location-filter-shell.location-filter-shell--below-cutoff.is-open {
-        transform: translateX(0) !important;
-      }
-      body.stock-report-settings-drawer-open {
-        overflow: hidden !important;
-      }
-
-      #panel-report .location-filter-shell--below-cutoff .location-filter-locations {
-        display: flex !important;
-        flex-direction: column !important;
-        flex-wrap: nowrap !important;
-        align-items: stretch !important;
-        gap: 12px !important;
-        width: 100% !important;
-      }
-      #panel-report .location-filter-shell--below-cutoff .location-filter-locations__main,
-      #panel-report .location-filter-shell--below-cutoff .location-filter-locations__settings,
-      #panel-report .location-filter-shell--below-cutoff .stock-column-filter-panel,
-      #panel-report .location-filter-shell--below-cutoff .stock-report-advanced-settings,
-      #panel-report .location-filter-shell--below-cutoff .stock-report-settings-group,
-      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip,
-      #panel-report .stock-dashboard-cutoff-strip__left,
-      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip__main {
-        display: flex !important;
-        flex-direction: column !important;
-        flex-wrap: nowrap !important;
-        align-items: stretch !important;
-        width: 100% !important;
-        max-width: 100% !important;
-        min-width: 0 !important;
-        flex: 0 0 auto !important;
-        margin-left: 0 !important;
-        margin-right: 0 !important;
-        padding-left: 0 !important;
-        border-left: none !important;
-        box-sizing: border-box !important;
-      }
-      #panel-report .stock-column-filter-chips {
-        display: grid !important;
-        grid-template-columns: 1fr 1fr !important;
-        gap: 8px 12px !important;
-        width: 100% !important;
-      }
-      #panel-report .stock-card-uom-toggle {
-        display: flex !important;
-        flex-direction: column !important;
-        align-items: stretch !important;
-        width: 100% !important;
-        box-sizing: border-box !important;
-        gap: 8px !important;
-        padding: 8px 10px !important;
-      }
-      #panel-report .stock-card-uom-option {
-        width: 100% !important;
-        justify-content: flex-start !important;
-      }
-      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip {
-        justify-content: stretch !important;
-        background: transparent !important;
-        border: none !important;
-        box-shadow: none !important;
-        padding: 0 !important;
-        margin: 4px 0 0 0 !important;
-      }
-      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip .location-filter-date-field {
-        display: flex !important;
-        flex-direction: column !important;
-        width: 100% !important;
-        max-width: none !important;
-        margin: 0 !important;
-        gap: 4px !important;
-      }
-      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip .location-filter-date-field input,
-      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip .location-filter-date-field input[type="date"] {
-        display: block !important;
-        width: 100% !important;
-        min-width: 0 !important;
-        max-width: none !important;
-        box-sizing: border-box !important;
-      }
-      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip__date-actions {
-        display: flex !important;
-        flex-direction: column !important;
-        align-items: stretch !important;
-        width: 100% !important;
-        gap: 8px !important;
-      }
-      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip__date-actions .view-pr-refresh-btn,
-      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip__date-actions .location-buy-btn {
-        display: block !important;
-        width: 100% !important;
-        box-sizing: border-box !important;
-        text-align: center !important;
-        padding: 10px 12px !important;
-        font-size: 13px !important;
-      }
     }
     </style>
 
-    <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260814_view_pr_declutter2">
+    <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20261027_purchase_dashboard_ui">
 
     <script src="/static/js/eq_core.js?v=20261020_api_json2"></script>
 </head>
@@ -291,100 +98,65 @@
 
                                                                         <div class="stock-dashboard-report-pane">
 
-                                        <div class="stock-report-settings-bar" id="stock-report-settings-bar">
-                                            <button type="button" class="stock-report-settings-open-btn" id="stock-report-settings-open" aria-controls="stock-report-settings-panel" aria-expanded="false" onclick="openStockReportSettingsDrawer()">
-                                                Report settings
-                                            </button>
-                                        </div>
+                                        <div class="stock-report-filter-bar" id="stock-report-settings-panel" aria-label="Report filters">
 
-                                        <div class="stock-report-settings-backdrop" id="stock-report-settings-backdrop" hidden onclick="closeStockReportSettingsDrawer()"></div>
+                                            <div class="stock-report-filter-bar__row stock-report-filter-bar__row--controls">
 
-                                        <div class="location-filter-shell location-filter-shell--below-cutoff" id="stock-report-settings-panel" role="dialog" aria-modal="true" aria-labelledby="stock-report-settings-title">
+                                                <div class="stock-ms" id="stock-location-ms" data-stock-ms="location">
+                                                    <span class="stock-ms__field-label" id="stock-location-ms-label">Selected Locations</span>
+                                                    <button type="button" class="stock-ms__trigger" id="stock-location-ms-trigger" aria-labelledby="stock-location-ms-label" aria-haspopup="listbox" aria-expanded="false" onclick="toggleStockMultiSelect('location')">
+                                                        <span class="stock-ms__value" id="stock-location-ms-value">All locations (0)</span>
+                                                        <span class="stock-ms__caret" aria-hidden="true"></span>
+                                                    </button>
+                                                    <div class="stock-ms__menu" id="stock-location-ms-menu" hidden role="listbox" aria-multiselectable="true">
+                                                        <div class="stock-ms__toolbar">
+                                                            <button type="button" class="stock-ms__tool-btn" onclick="selectAllStockCardLocations()">Select All</button>
+                                                            <button type="button" class="stock-ms__tool-btn" onclick="clearAllStockCardLocations()">Clear</button>
+                                                        </div>
+                                                        <div class="stock-ms__options" id="stock-location-ms-options"></div>
+                                                    </div>
+                                                </div>
 
-                                            <div class="stock-report-settings-drawer-head">
-                                                <strong id="stock-report-settings-title">Report settings</strong>
-                                                <button type="button" class="stock-report-settings-close-btn" id="stock-report-settings-close" aria-label="Close settings" onclick="closeStockReportSettingsDrawer()">×</button>
+                                                <div class="stock-ms" id="stock-column-ms" data-stock-ms="column">
+                                                    <span class="stock-ms__field-label" id="stock-column-ms-label">Table Columns</span>
+                                                    <button type="button" class="stock-ms__trigger" id="stock-column-ms-trigger" aria-labelledby="stock-column-ms-label" aria-haspopup="listbox" aria-expanded="false" onclick="toggleStockMultiSelect('column')">
+                                                        <span class="stock-ms__value" id="stock-column-ms-value">8 groups selected</span>
+                                                        <span class="stock-ms__caret" aria-hidden="true"></span>
+                                                    </button>
+                                                    <div class="stock-ms__menu" id="stock-column-ms-menu" hidden role="listbox" aria-multiselectable="true">
+                                                        <div class="stock-ms__toolbar">
+                                                            <button type="button" class="stock-ms__tool-btn" onclick="selectAllStockCardMetricGroups()">Select All</button>
+                                                            <button type="button" class="stock-ms__tool-btn" onclick="clearAllStockCardMetricGroups()">Clear</button>
+                                                        </div>
+                                                        <div class="stock-ms__options" id="stock-column-filter-chips" aria-label="Show or hide quantity columns in the stock table"></div>
+                                                    </div>
+                                                </div>
+
+                                                <div class="stock-report-filter-field stock-report-filter-field--uom" id="stock-report-qty-group">
+                                                    <span class="stock-ms__field-label">Report Qty</span>
+                                                    <div class="stock-card-uom-toggle stock-card-uom-toggle--segmented" role="group" aria-label="Stock quantity columns">
+                                                        <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="sqty_only" onchange="onStockCardUomDisplayChange(this)" /><span>SQTY only</span></label>
+                                                        <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="suom_only" checked onchange="onStockCardUomDisplayChange(this)" /><span>SUOMQTY only</span></label>
+                                                        <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="both" onchange="onStockCardUomDisplayChange(this)" /><span>SQTY + SUOMQTY</span></label>
+                                                    </div>
+                                                </div>
+
+                                                <div class="stock-report-filter-field stock-report-filter-field--cutoff">
+                                                    <label class="pr-field location-filter-date-field" for="stock-card-from-date">
+                                                        <span class="stock-ms__field-label">Cutoff Date</span>
+                                                        <input type="date" id="stock-card-from-date" aria-label="Cutoff date" title="Cutoff date" />
+                                                    </label>
+                                                </div>
+
                                             </div>
 
-                                            <div class="location-filter-locations">
-
-                                                <div class="location-filter-locations__main">
-
-                                                    <div class="location-filter-row location-filter-row--stack">
-
-                                                        <span class="location-filter-label">Selected</span>
-
-                                                        <div id="selected-location-list" class="location-pill-list"></div>
-
-                                                    </div>
-
-                                                    <div class="location-filter-row location-filter-row--stack">
-
-                                                        <span class="location-filter-label">Add</span>
-
-                                                        <div id="available-location-list" class="location-pill-list"></div>
-
-                                                    </div>
-
+                                            <div class="stock-report-filter-bar__row stock-report-filter-bar__row--actions">
+                                                <p class="stock-report-filter-summary" id="stock-report-filter-summary" aria-live="polite"></p>
+                                                <div class="stock-report-filter-actions">
+                                                    <button type="button" class="view-pr-refresh-btn" onclick="applyStockCardDateFilter()">Apply Cutoff</button>
+                                                    <button type="button" class="view-pr-refresh-btn" onclick="clearStockCardDateFilter()">Clear Cutoff</button>
+                                                    <button type="button" class="location-buy-btn" onclick="goToCreateProcurement()">New e-Purchase Request</button>
                                                 </div>
-
-                                                <div class="location-filter-locations__settings">
-
-                                                    <div id="stock-column-filter-panel" class="stock-column-filter-panel">
-
-                                                        <div class="location-filter-row location-filter-row--stack">
-
-                                                            <span class="location-filter-label">Table columns</span>
-
-                                                            <div id="stock-column-filter-chips" class="stock-column-filter-chips" aria-label="Show or hide quantity columns in the stock table (summary row above is not filtered)"></div>
-
-                                                        </div>
-
-                                                        
-
-                                                    </div>
-
-                                                    <div id="stock-report-advanced-settings" class="stock-report-advanced-settings" aria-hidden="false">
-
-                                                        <div id="stock-report-qty-group" class="stock-report-settings-group">
-
-                                                            <div class="location-filter-row location-filter-row--stack">
-
-                                                                <span class="location-filter-label">Report qty</span>
-
-                                                                <div class="stock-card-uom-toggle" role="group" aria-label="Stock quantity columns">
-
-                                                                    <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="sqty_only" onchange="onStockCardUomDisplayChange(this)" /> SQTY only</label>
-
-                                                                    <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="suom_only" checked onchange="onStockCardUomDisplayChange(this)" /> SUOMQTY only</label>
-
-                                                                    <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="both" onchange="onStockCardUomDisplayChange(this)" /> SQTY + SUOMQTY</label>
-
-                                                                </div>
-
-                                                            </div>
-
-                                                        </div>
-                                                        </div>
-
-                                                </div>
-
-                                                <div class="stock-dashboard-cutoff-strip">
-                                                    <div class="stock-dashboard-cutoff-strip__left">
-                                                        <div class="location-filter-main stock-dashboard-cutoff-strip__main">
-                                                                <label class="pr-field location-filter-date-field">
-                                                                    <span class="location-filter-label">Cutoff date</span>
-                                                                    <input type="date" id="stock-card-from-date" aria-label="Cutoff date" title="Cutoff date" />
-                                                                </label>
-                                                                <div class="stock-dashboard-cutoff-strip__date-actions">
-                                                                    <button type="button" class="view-pr-refresh-btn" onclick="applyStockCardDateFilter()">Apply Cutoff</button>
-                                                                    <button type="button" class="view-pr-refresh-btn" onclick="clearStockCardDateFilter()">Clear Cutoff</button>
-                                                                    <button type="button" class="location-buy-btn" onclick="goToCreateProcurement()">New e-Purchase Request</button>
-                                                                </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-
                                             </div>
 
                                         </div>
@@ -411,7 +183,7 @@
 
                                                     <tr>
 
-                                                        <th class="code-col">ST_ITEM.CODE</th>
+                                                        <th class="code-col">ITEM CODE</th>
 
                                                         <th class="qty-col">Quantity on Hand</th>
 
@@ -1262,7 +1034,7 @@
     <script src="/static/js/procurement/procurement_stock_card.js?v=20260813_extract"></script>
     <script src="/static/js/procurement/procurement_view_pr.js?v=20260813_extract"></script>
     <script src="/static/js/procurement/procurement_create_pr.js?v=20260813_extract"></script>
-<script src="/static/js/procurement/precurement_app.js?v=20261027_status_pr_scroll"></script>
+    <script src="/static/js/procurement/precurement_app.js?v=20261027_purchase_dashboard_ui"></script>
 
     <script src="/static/js/hamburger_menu.js"></script>
 
