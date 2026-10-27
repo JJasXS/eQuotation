@@ -121,6 +121,61 @@ def _decode_status(raw_status: Any) -> str:
     return reverse.get(numeric, str(numeric))
 
 
+def document_status_for_view_pr_udf(current_doc_status: Any, next_udf_status: str) -> str | None:
+    """PH_PQ.STATUS to persist with a View e-PR UDF change, or None to leave it.
+
+    Draft panel membership is STATUS == DRAFT. Awaiting Approval is the existing
+    pair UDF_STATUS AWAITING + STATUS SUBMITTED. Cancelling a draft stores
+    STATUS CANCELLED together with UDF_STATUS CANCELLED. Pending and Approved
+    UDF changes leave document STATUS.
+    """
+    doc = _decode_status(current_doc_status).upper()
+    udf = str(next_udf_status or "").strip().upper()
+    if udf in {"AWAITING_APPROVAL", "AWAITING APPROVAL"}:
+        udf = "AWAITING"
+    if doc != "DRAFT":
+        return None
+    if udf == "AWAITING":
+        return "SUBMITTED"
+    if udf == "CANCELLED":
+        return "CANCELLED"
+    return None
+
+
+def is_hidden_cancelled_draft(doc_status: Any, udf_status: Any) -> bool:
+    """True when a cancelled draft must stay out of every View e-PR panel.
+
+    The row stays in PH_PQ. A draft cancel is UDF_STATUS CANCELLED while
+    document STATUS is DRAFT or CANCELLED. Pending and Approved cancellations
+    keep document STATUS (usually SUBMITTED) and remain on the Cancelled panel.
+    """
+    doc = _decode_status(doc_status).upper()
+    udf = str(udf_status or "").strip().upper()
+    if udf in {"AWAITING_APPROVAL", "AWAITING APPROVAL"}:
+        udf = "AWAITING"
+    return udf == "CANCELLED" and doc in {"DRAFT", "CANCELLED"}
+
+
+def hidden_cancelled_draft_list_predicate(
+    status_col: str,
+    udf_col: str,
+    *,
+    status_is_numeric: bool,
+) -> tuple[str, list[Any]]:
+    """SQL predicate that omits cancelled drafts from a PH_PQ list."""
+    if status_is_numeric:
+        status_expr = f"COALESCE(H.{status_col}, -1) IN (?, ?)"
+        status_params: list[Any] = [
+            _encode_status("DRAFT", True),
+            _encode_status("CANCELLED", True),
+        ]
+    else:
+        status_expr = f"UPPER(TRIM(COALESCE(H.{status_col}, ''))) IN (?, ?)"
+        status_params = ["DRAFT", "CANCELLED"]
+    udf_expr = f"UPPER(TRIM(COALESCE(H.{udf_col}, ''))) = ?"
+    return f"NOT ({status_expr} AND {udf_expr})", [*status_params, "CANCELLED"]
+
+
 def _normalize_stock_qty_uom(value: Any) -> str:
     u = _clean_text(value).upper()
     if u in ("SQTY", "SUOMQTY"):
