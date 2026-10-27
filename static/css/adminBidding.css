@@ -326,6 +326,36 @@ body.admin-bidding-page .pr-status-tabs .eq-line-tab {
     cursor: not-allowed;
 }
 
+.bidding-reload-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--ice-accent-hover, #2d74a3);
+    cursor: pointer;
+    flex: 0 0 auto;
+}
+
+.bidding-reload-btn:hover {
+    background: var(--ice-accent-soft, #dbeafe);
+}
+
+.bidding-reload-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.bidding-reload-btn__svg {
+    width: 18px;
+    height: 18px;
+    display: block;
+}
+
 .invite-help {
     font-size: 10px;
     line-height: 1.35;

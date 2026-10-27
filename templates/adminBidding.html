@@ -18,7 +18,7 @@
 
     <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260604_tabs_size">
 
-    <link rel="stylesheet" href="/static/css/adminBidding.css?v=20261027_pr_list_page">
+    <link rel="stylesheet" href="/static/css/adminBidding.css?v=20261027_reload_icon">
 
     <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515_admin_blue">
 
@@ -38,7 +38,9 @@
             {% set page_header_right %}
 
             <button class="btn secondary" type="button" id="invite-drawer-open-btn" onclick="setInviteDrawerOpen(true)">Invited</button>
-            <button class="btn" type="button" onclick="loadRequests()">Refresh PR</button>
+            <button class="bidding-reload-btn" type="button" onclick="loadRequests()" title="Refresh purchase requests" aria-label="Refresh purchase requests">
+                <svg class="bidding-reload-btn__svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.1A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+            </button>
 
             {% endset %}
 
@@ -84,7 +86,9 @@
 
                         <div class="toolbar">
 
-                            <button class="btn secondary" type="button" id="load-bids-btn" onclick="loadBidsForActivePr({force:true})" disabled>Refresh bids</button>
+                            <button class="bidding-reload-btn" type="button" id="load-bids-btn" onclick="loadBidsForActivePr({force:true})" title="Refresh bids" aria-label="Refresh bids" disabled>
+                                <svg class="bidding-reload-btn__svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.1A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+                            </button>
 
                             <button class="btn" type="button" id="save-line-awards-btn" onclick="saveLineAwards()" disabled>Save Item Awards</button>
 
