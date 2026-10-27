@@ -16,7 +16,9 @@
 
     <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
 
-    <link rel="stylesheet" href="/static/css/adminBidding.css?v=20260814_pr_row_compact">
+    <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260604_tabs_size">
+
+    <link rel="stylesheet" href="/static/css/adminBidding.css?v=20261027_pr_list_page">
 
     <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515_admin_blue">
 
@@ -52,23 +54,21 @@
 
                         <h2>Purchase Requests</h2>
 
+                        <div class="pr-status-row">
+
+                        <nav class="eq-line-tabs pr-status-tabs" id="pr-status-filter" role="tablist" aria-label="Filter by status">
+
+                            <button type="button" role="tab" class="eq-line-tab is-active" data-status="ALL" aria-selected="true" onclick="setPrStatusFilter('ALL')">All</button>
+
+                            <button type="button" role="tab" class="eq-line-tab" data-status="APPROVED" aria-selected="false" onclick="setPrStatusFilter('APPROVED')">Approved</button>
+
+                            <button type="button" role="tab" class="eq-line-tab" data-status="PENDING" aria-selected="false" onclick="setPrStatusFilter('PENDING')">Pending</button>
+
+                            <button type="button" role="tab" class="eq-line-tab" data-status="CANCELLED" aria-selected="false" onclick="setPrStatusFilter('CANCELLED')">Cancelled</button>
+
+                        </nav>
+
                         <span id="pr-count" class="muted"></span>
-
-                        <div class="toolbar" style="margin-top:10px;">
-
-                            <label class="muted">Status</label>
-
-                            <select id="pr-status-filter" onchange="onPrStatusFilterChange()">
-
-                                <option value="ALL">ALL</option>
-
-                                <option value="APPROVED">APPROVED</option>
-
-                                <option value="PENDING">PENDING</option>
-
-                                <option value="CANCELLED">CANCELLED</option>
-
-                            </select>
 
                         </div>
 
@@ -158,6 +158,18 @@
 
         let requestsCache = [];
 
+        const PR_LIST_PAGE_SIZE = 12;
+
+        let prListNextOffset = 0;
+
+        let prListHasMore = true;
+
+        let prListLoading = false;
+
+        let prListResetScroll = false;
+
+        let prListGeneration = 0;
+
         let supplierCache = [];
 
         let activePr = null;
@@ -239,7 +251,7 @@
         function syncBiddingPrToUrl() {
             try {
                 const url = new URL(window.location.href);
-                const filter = document.getElementById('pr-status-filter')?.value || 'ALL';
+                const filter = getPrStatusFilter();
                 if (filter && filter !== 'ALL') {
                     url.searchParams.set('status', filter.toLowerCase());
                 } else {
@@ -265,11 +277,144 @@
             } catch (e) { /* ignore */ }
         }
 
+        function getPrStatusFilter() {
+            const active = document.querySelector('#pr-status-filter .eq-line-tab.is-active');
+            const status = active && active.dataset ? active.dataset.status : '';
+            return BIDDING_STATUS_FILTERS.includes(status) ? status : 'ALL';
+        }
+
+        function applyPrStatusTab(status) {
+            const next = BIDDING_STATUS_FILTERS.includes(status) ? status : 'ALL';
+            document.querySelectorAll('#pr-status-filter .eq-line-tab').forEach((btn) => {
+                const on = btn.dataset.status === next;
+                btn.classList.toggle('is-active', on);
+                btn.setAttribute('aria-selected', on ? 'true' : 'false');
+            });
+        }
+
+        function setPrStatusFilter(status) {
+            applyPrStatusTab(status);
+            prListResetScroll = true;
+            renderRequests();
+            syncBiddingPrToUrl();
+        }
+
+        function biddingPrStatusLabel(row) {
+            const udf = normalizePrUdfStatus(row.udfStatus);
+            if (udf === 'AWAITING') return 'Awaiting';
+            if (udf === 'PENDING') return 'Pending';
+            if (udf === 'APPROVED') return 'Approved';
+            if (udf === 'CANCELLED') return 'Cancelled';
+            return udf || '-';
+        }
+
+        function biddingPrMatchesFilter(row, filter) {
+            const docStatus = String(row.status || '').toUpperCase();
+            if (docStatus !== 'SUBMITTED') return false;
+            if (!filter || filter === 'ALL') return true;
+            const udf = normalizePrUdfStatus(row.udfStatus);
+            if (filter === 'APPROVED') return udf === 'APPROVED';
+            if (filter === 'PENDING') return udf === 'PENDING';
+            if (filter === 'CANCELLED') return udf === 'CANCELLED';
+            return docStatus === filter;
+        }
+
+        function visibleBiddingRequests() {
+            const filter = getPrStatusFilter();
+            return requestsCache.filter((row) => biddingPrMatchesFilter(row, filter)).sort((a, b) => {
+                const da = Date.parse(a?.requestDate || '') || 0;
+                const db = Date.parse(b?.requestDate || '') || 0;
+                if (db !== da) return db - da;
+                return Number(b?.id || 0) - Number(a?.id || 0);
+            });
+        }
+
+        async function fetchBiddingPrPage() {
+            if (prListLoading || !prListHasMore) return false;
+            prListLoading = true;
+            const generation = prListGeneration;
+            const offset = prListNextOffset;
+            try {
+                const res = await fetch(
+                    `/api/admin/procurement/purchase-requests?offset=${offset}&limit=${PR_LIST_PAGE_SIZE}&fast=1&include_qty=0`
+                );
+                const body = await res.json();
+                if (generation !== prListGeneration) return false;
+                if (!res.ok || !body.success) {
+                    msg(body.error || 'Failed to load purchase requests', true);
+                    prListHasMore = false;
+                    return false;
+                }
+                const rows = Array.isArray(body.data) ? body.data : [];
+                const seen = new Set(requestsCache.map((row) => Number(row.id)));
+                let added = 0;
+                rows.forEach((row) => {
+                    const id = Number(row.id);
+                    if (seen.has(id)) return;
+                    seen.add(id);
+                    requestsCache.push(row);
+                    added += 1;
+                });
+                prListNextOffset = offset + rows.length;
+                prListHasMore = rows.length >= PR_LIST_PAGE_SIZE && added > 0;
+                return true;
+            } catch (e) {
+                if (generation === prListGeneration) {
+                    msg('Failed to load purchase requests', true);
+                    prListHasMore = false;
+                }
+                return false;
+            } finally {
+                if (generation === prListGeneration) prListLoading = false;
+            }
+        }
+
+        async function loadMoreBiddingPrs() {
+            const list = document.getElementById('pr-list');
+            const scrollTop = list ? list.scrollTop : 0;
+            const ok = await fetchBiddingPrPage();
+            if (!ok) return;
+            renderRequests();
+            if (list) list.scrollTop = scrollTop;
+        }
+
+        function onPrListScroll() {
+            const list = document.getElementById('pr-list');
+            if (!list || prListLoading || !prListHasMore) return;
+            const nearBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 48;
+            if (nearBottom) loadMoreBiddingPrs();
+        }
+
+        function maybeFillPrListViewport() {
+            const list = document.getElementById('pr-list');
+            if (!list || prListLoading || !prListHasMore) return;
+            requestAnimationFrame(() => {
+                if (prListLoading || !prListHasMore) return;
+                if (list.clientHeight < 40) return;
+                if (list.scrollHeight > list.clientHeight + 8) return;
+                loadMoreBiddingPrs();
+            });
+        }
+
+        function hasBiddingUrlPr() {
+            const params = readBiddingUrlParams();
+            return params.id > 0 || !!params.docno;
+        }
+
+        async function loadBiddingPrsUntilUrlMatch() {
+            let guard = 0;
+            while (!findPrRowFromUrlParams() && prListHasMore && guard < 8) {
+                const ok = await fetchBiddingPrPage();
+                guard += 1;
+                if (!ok) break;
+                renderRequests();
+            }
+        }
+
         function applyBiddingStatusFromUrl() {
             const { status } = readBiddingUrlParams();
-            const sel = document.getElementById('pr-status-filter');
-            if (!sel || !status) return;
-            sel.value = status;
+            if (!status) return;
+            applyPrStatusTab(status);
         }
 
         function findPrRowFromUrlParams() {
@@ -305,11 +450,6 @@
             );
             syncBiddingPrToUrl();
             return true;
-        }
-
-        function onPrStatusFilterChange() {
-            renderRequests();
-            syncBiddingPrToUrl();
         }
 
         function normalizePrUdfStatus(value) {
@@ -439,21 +579,21 @@
 
             msg('Loading purchase requests...');
 
-            const res = await fetch('/api/admin/procurement/purchase-requests?offset=0&limit=100');
+            prListGeneration += 1;
 
-            const body = await res.json();
+            prListLoading = false;
 
-            if (!res.ok || !body.success) {
+            requestsCache = [];
 
-                msg(body.error || 'Failed to load purchase requests', true);
+            prListNextOffset = 0;
 
-                return;
+            prListHasMore = true;
 
-            }
-
-            requestsCache = body.data || [];
+            const loaded = await fetchBiddingPrPage();
 
             renderRequests();
+
+            if (!loaded && !requestsCache.length) return;
 
             if (!supplierCache.length) {
                 fetch('/api/admin/procurement/suppliers')
@@ -473,39 +613,38 @@
 
             msg('Purchase requests loaded.');
 
+            if (hasBiddingUrlPr() && !findPrRowFromUrlParams()) {
+                await loadBiddingPrsUntilUrlMatch();
+                if (!selectPrFromUrlIfPresent({ force: true })) {
+                    syncBiddingPrToUrl();
+                }
+            }
+
         }
 
         function renderRequests() {
 
-            const filter = document.getElementById('pr-status-filter').value;
-
             const list = document.getElementById('pr-list');
 
-            const rows = requestsCache.filter((row) => {
-                if (filter === 'ALL') return true;
-                const docStatus = String(row.status || '').toUpperCase();
-                const udf = normalizePrUdfStatus(row.udfStatus);
-                if (filter === 'APPROVED') return udf === 'APPROVED';
-                if (filter === 'PENDING') return udf === 'PENDING' || docStatus === 'SUBMITTED';
-                if (filter === 'CANCELLED') return udf === 'CANCELLED';
-                return docStatus === filter;
-            }).sort((a, b) => {
+            const keepScroll = prListResetScroll ? 0 : list.scrollTop;
 
-                const da = Date.parse(a?.requestDate || '') || 0;
+            prListResetScroll = false;
 
-                const db = Date.parse(b?.requestDate || '') || 0;
+            const rows = visibleBiddingRequests();
 
-                if (db !== da) return db - da;
+            const countLabel = rows.length + (prListHasMore ? '+' : '') + ' rows';
 
-                return Number(b?.id || 0) - Number(a?.id || 0);
-
-            });
-
-            document.getElementById('pr-count').textContent = rows.length + ' rows';
+            document.getElementById('pr-count').textContent = '(' + countLabel + ')';
 
             if (!rows.length) {
 
-                list.innerHTML = '<div class="muted">No records</div>';
+                list.innerHTML = prListHasMore
+                    ? '<div class="muted">Loading...</div>'
+                    : '<div class="muted">No records</div>';
+
+                list.scrollTop = 0;
+
+                maybeFillPrListViewport();
 
                 return;
 
@@ -521,19 +660,23 @@
 
                 return `
 
-                    <div class="pr-item ${active}" onclick="selectPr(${Number(row.id)}, '${esc(row.requestNumber || '')}', '${esc(row.status || '')}', '${esc(row.supplierName || '')}')">
+                    <button type="button" class="pr-row ${active}" onclick="selectPr(${Number(row.id)}, '${esc(row.requestNumber || '')}', '${esc(row.status || '')}', '${esc(row.supplierName || '')}')">
 
-                        <div class="title">${esc(row.requestNumber || ('PR-' + row.id))}${newBadge}</div>
+                        <span class="pr-row__code">${esc(row.requestNumber || ('PR-' + row.id))}${newBadge}</span>
 
-                        <div class="muted">Status: ${esc(row.status || '-')}</div>
+                        <span class="pr-row__status">${esc(biddingPrStatusLabel(row))}</span>
 
-                        <div class="muted">Supplier: ${esc(prListSupplierLabel(row))}</div>
+                        <span class="pr-row__supplier">${esc(prListSupplierLabel(row))}</span>
 
-                    </div>
+                    </button>
 
                 `;
 
             }).join('');
+
+            list.scrollTop = keepScroll;
+
+            maybeFillPrListViewport();
 
         }
 
@@ -1392,6 +1535,8 @@
                 syncBiddingPrToUrl();
             }
         });
+
+        document.getElementById('pr-list')?.addEventListener('scroll', onPrListScroll);
 
         loadRequests();
 
