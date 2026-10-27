@@ -102,6 +102,16 @@
         }
 
         let reportLoaded = false;
+        let createPrLookupsStarted = false;
+
+        function ensureCreatePrLookups() {
+            if (createPrLookupsStarted) return;
+            createPrLookupsStarted = true;
+            loadPrWarehouseLocations();
+            loadPurchaseRequestProducts();
+            loadSuppliers();
+            loadProjects();
+        }
 
         let stockCardVisibilityRefreshTimer = null;
 
@@ -1594,6 +1604,7 @@
             }
 
             if (selected === 'create') {
+                ensureCreatePrLookups();
                 if (!Array.isArray(window.purchaseRequestItems) || !window.purchaseRequestItems.length) {
                     initPurchaseRequestForm();
                 }
@@ -10335,8 +10346,6 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 bindPurchaseRequestDeliveryLocationSync();
 
-                loadPrWarehouseLocations();
-
                 if (!tryRestorePurchaseRequestDraftItems()) {
                     initPurchaseRequestForm();
                 }
@@ -10344,12 +10353,6 @@ function buildViewPurchaseRequestDetailHtml(header) {
                 if (prNoEl && !String(prNoEl.value || '').trim()) {
                     loadNextPurchaseRequestNumber();
                 }
-
-                loadPurchaseRequestProducts();
-
-                loadSuppliers();
-
-                loadProjects();
 
                 window.addEventListener('resize', afterStockCardTableRender);
 

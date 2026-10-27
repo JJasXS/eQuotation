@@ -4235,9 +4235,8 @@ def api_admin_procurement_stock_item_uoms():
 def api_admin_procurement_stock_card():
     """Return stock card table rows for procurement overall report.
 
-    Before querying, re-applies ST_TR.UDF_SUOMQTY → ST_XTRANS.SUOMQTY (same as
-    ``/api/admin/procurement/sync-st-xtrans-suomqty``) so the dashboard does not
-    need a manual sync.
+    This is a read. SUOMQTY stays current via the ST_TR trigger. The full
+    ST_XTRANS rewrite stays on POST ``/api/admin/procurement/sync-st-xtrans-suomqty``.
     """
     raw_from_date = (request.args.get('from_date') or '').strip()
     raw_to_date = (request.args.get('to_date') or '').strip()
@@ -4262,14 +4261,6 @@ def api_admin_procurement_stock_card():
     cur = None
     try:
         con = get_db_connection()
-        # Keep ST_XTRANS.SUOMQTY aligned with ST_TR.UDF_SUOMQTY before reading the report (same as POST sync endpoint).
-        ok_sync = sync_st_xtrans_suomqty_from_st_tr_udf(con)
-        if not ok_sync:
-            print(
-                '[PROCUREMENT STOCK CARD] ST_TR→ST_XTRANS SUOMQTY sync skipped or failed '
-                '(dashboard still loads; see DB init warnings).',
-                flush=True,
-            )
         cur = con.cursor()
         locations, data, stock_card_meta = fetch_procurement_stock_card_data(
             cur, from_date=from_date, to_date=to_date, qty_mode=qty_mode
@@ -4294,7 +4285,7 @@ def api_admin_procurement_stock_card():
             'locations': locations,
             'data': data,
             'st_tr_udf_suomqty': st_tr_udf_suomqty,
-            'suomqty_sync_applied': ok_sync,
+            'suomqty_sync_applied': False,
         })
     except Exception as e:
         print(f"[PROCUREMENT STOCK CARD] DB error: {e}", flush=True)
