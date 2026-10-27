@@ -1,12 +1,16 @@
-/* Create quotation line items — plain table; load after createQuotationLight.css */
+/* Create quotation line items — soft panel; load after createQuotationLight.css */
 body.create-quotation-page #create-quotation-lines-wrap,
 body.create-quotation-page .create-quotation-lines-wrap {
     display: block !important;
     visibility: visible !important;
     width: 100%;
-    margin: 0 0 12px;
+    margin: 0 0 14px;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+    border: 1px solid #8fa8b8;
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: none;
 }
 
 body.create-quotation-page #quotation-form table.quotation-lines-table {
@@ -14,9 +18,11 @@ body.create-quotation-page #quotation-form table.quotation-lines-table {
     visibility: visible !important;
     width: 100% !important;
     border-collapse: collapse !important;
+    border-spacing: 0 !important;
     margin: 0 !important;
     background: #fff;
     table-layout: auto;
+    border: 1px solid #8fa8b8 !important;
 }
 
 body.create-quotation-page #quotation-form table.quotation-lines-table thead {
@@ -35,28 +41,64 @@ body.create-quotation-page #quotation-form table.quotation-lines-table tr.quotat
 }
 
 body.create-quotation-page #quotation-form table.quotation-lines-table thead th {
-    background: #e8f2f8;
+    background: #e3f0f8;
     color: #1e3a52;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
     text-align: center;
     white-space: nowrap;
+    line-height: 1.2;
 }
 
 body.create-quotation-page #quotation-form table.quotation-lines-table th,
 body.create-quotation-page #quotation-form table.quotation-lines-table td {
     display: table-cell !important;
     border: 1px solid #8fa8b8 !important;
-    padding: 6px 8px !important;
+    padding: 3px 6px !important;
     vertical-align: middle !important;
+    line-height: 1.2;
+    height: 1px;
+}
+
+body.create-quotation-page #quotation-form table.quotation-lines-table tbody tr:hover td {
+    background: #f7fbff;
 }
 
 body.create-quotation-page #quotation-form table.quotation-lines-table td.item-source,
-body.create-quotation-page #quotation-form table.quotation-lines-table td.item-remove {
+body.create-quotation-page #quotation-form table.quotation-lines-table td.cq-remove-cell {
     cursor: pointer;
     user-select: none;
     text-align: center;
     white-space: nowrap;
+}
+
+body.create-quotation-page #quotation-form .item-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    margin: 0;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: #d64545;
+    cursor: pointer;
+    vertical-align: middle;
+    position: relative;
+    z-index: 5;
+    pointer-events: auto;
+}
+
+body.create-quotation-page #quotation-form .item-remove:hover {
+    background: #fde8e8;
+    color: #b42318;
+}
+
+body.create-quotation-page #quotation-form .item-remove svg {
+    display: block;
+    pointer-events: none;
 }
 
 body.create-quotation-page #quotation-form table.quotation-lines-table td.item-suggested-price,
@@ -95,14 +137,18 @@ body.create-quotation-page #quotation-form table.quotation-lines-table input[typ
     display: block;
     width: 100%;
     min-width: 3rem;
+    height: 28px;
     box-sizing: border-box;
     margin: 0;
-    padding: 4px 6px;
-    border: 1px solid #b8cdd9;
+    padding: 2px 6px;
+    border: 1px solid #9ec5dc;
     border-radius: 4px;
     font: inherit;
+    font-size: 12px;
+    line-height: 1.2;
     color: #1e3a52;
     background: #fff;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 body.create-quotation-page #quotation-form table.quotation-lines-table input.item-product {
@@ -124,14 +170,16 @@ body.create-quotation-page table.quotation-lines-table input.item-udf-length {
     max-width: 7rem;
     margin-left: auto;
     margin-right: auto;
-    padding: 4px 6px;
+    padding: 2px 4px;
+    height: 28px;
     text-align: center;
-    font-size: 13px;
+    font-size: 12px;
     box-sizing: border-box;
     pointer-events: auto;
     position: relative;
     z-index: 2;
     background: #fff;
+    border-radius: 4px;
 }
 
 /* Qty, S/U Qty (udf_wts), Discount — narrow columns */
@@ -152,14 +200,15 @@ body.create-quotation-page #quotation-form table.quotation-lines-table input.ite
     max-width: 4.75rem;
     min-width: 2.75rem;
     margin: 0 auto;
-    padding: 4px 4px;
+    padding: 2px 4px;
+    height: 28px;
     text-align: center;
 }
 
 body.create-quotation-page #quotation-form table.quotation-lines-table input:focus {
-    outline: 2px solid #5ba3c9;
-    outline-offset: 0;
-    border-color: #5ba3c9;
+    outline: none;
+    border-color: #3b8fc4;
+    box-shadow: 0 0 0 2px rgba(59, 143, 196, 0.15);
 }
 
 /* Legacy flex list container (cached HTML) — must not occupy the lines area */
@@ -176,9 +225,9 @@ body.create-quotation-page #quotation-form .create-quotation-lines-grid {
     flex-direction: column;
     max-height: 300px;
     background: #fff;
-    border: 1px solid #8fa8b8;
-    border-radius: 8px;
-    box-shadow: 0 12px 32px rgba(30, 80, 120, 0.22);
+    border: 1px solid #c5dce9;
+    border-radius: 12px;
+    box-shadow: 0 12px 32px rgba(30, 80, 120, 0.18);
     overflow: hidden;
 }
 
@@ -187,24 +236,31 @@ body.create-quotation-page #quotation-form .create-quotation-lines-grid {
 }
 
 .cq-product-picker-header {
-    padding: 8px 12px;
+    padding: 10px 14px;
     font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: #5a7a94;
-    background: #e8f2f8;
-    border-bottom: 1px solid #c5dce9;
+    background: #eef6fc;
+    border-bottom: 1px solid #e4eef5;
 }
 
 .cq-product-picker-search {
-    margin: 8px 10px 6px;
-    padding: 6px 10px;
-    border: 1px solid #b8cdd9;
-    border-radius: 6px;
+    margin: 10px 12px 8px;
+    padding: 8px 12px;
+    border: 1px solid #c5dce9;
+    border-radius: 8px;
     font: inherit;
     font-size: 13px;
     color: #1e3a52;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.cq-product-picker-search:focus {
+    outline: none;
+    border-color: #3b8fc4;
+    box-shadow: 0 0 0 3px rgba(59, 143, 196, 0.18);
 }
 
 .cq-product-picker-list {
@@ -217,12 +273,12 @@ body.create-quotation-page #quotation-form .create-quotation-lines-grid {
 }
 
 .cq-product-picker-option {
-    padding: 8px 12px;
+    padding: 9px 14px;
     font-size: 13px;
     line-height: 1.35;
     color: #1e3a52;
     cursor: pointer;
-    border-bottom: 1px solid #eef4f8;
+    border-bottom: 1px solid #f0f6fa;
 }
 
 .cq-product-picker-option:hover,
@@ -236,7 +292,7 @@ body.create-quotation-page #quotation-form .create-quotation-lines-grid {
 
 .cq-product-picker-empty,
 .cq-product-picker-more {
-    padding: 10px 12px;
+    padding: 12px 14px;
     font-size: 12px;
     color: #5a7a94;
     font-style: italic;
@@ -253,5 +309,6 @@ body.create-quotation-page .create-quotation-section--lines .btn-add-item {
     min-width: 10rem;
     max-width: 100%;
     margin-top: 12px;
-    padding: 8px 16px;
+    padding: 9px 18px;
+    border-radius: 8px;
 }

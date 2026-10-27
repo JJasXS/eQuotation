@@ -26,8 +26,9 @@ body.create-quotation-page {
     --ice-accent-soft: #dbeafe;
     --ice-shadow: rgba(30, 80, 120, 0.1);
     margin: 0;
-    background: var(--ice-bg);
+    background: linear-gradient(180deg, #dceef8 0%, #e8f4fb 40%, #eef6fc 100%);
     color: var(--ice-text);
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
 }
 
 body.create-quotation-page .container,
@@ -92,21 +93,26 @@ body.create-quotation-page h2.app-page-header__title {
 }
 
 body.create-quotation-page .form-container {
-    background: var(--ice-surface);
-    border: 1px solid var(--ice-border);
-    box-shadow: 0 4px 16px var(--ice-shadow);
+    background: transparent;
+    border: none;
+    box-shadow: none;
 }
 
 body.create-quotation-page .form-container h3 {
+    margin: 0 0 10px;
+    font-size: 1.65rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
     color: var(--ice-heading);
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
 }
 
 body.create-quotation-page .quotation-next-docno-panel {
-    margin: 0 0 14px;
-    padding: 10px 14px;
-    background: var(--ice-surface-input);
-    border: 1px solid var(--ice-border-soft);
-    border-radius: 8px;
+    margin: 0 0 18px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 0;
 }
 
 body.create-quotation-page .quotation-next-docno-main {
@@ -129,10 +135,10 @@ body.create-quotation-page .quotation-next-docno-value {
 }
 
 body.create-quotation-page .quotation-next-docno-refresh {
-    border: 1px solid var(--ice-border);
-    background: var(--ice-surface);
+    border: none;
+    background: transparent;
     color: var(--ice-accent);
-    border-radius: 6px;
+    border-radius: 8px;
     width: 28px;
     height: 28px;
     cursor: pointer;
@@ -170,24 +176,36 @@ body.create-quotation-page .create-quotation-form-body {
 }
 
 body.create-quotation-page .create-quotation-section {
-    padding: 16px 18px;
-    background: var(--ice-surface-alt);
-    border: 1px solid var(--ice-border);
-    border-radius: 10px;
+    padding: 22px 24px;
+    background: #fff;
+    border: 1.5px solid var(--ice-border, #b8d4e8);
+    border-radius: 16px;
+    box-shadow: 0 8px 28px rgba(30, 80, 120, 0.07);
 }
 
 body.create-quotation-page .create-quotation-section-title {
-    margin: 0 0 14px 0;
-    font-size: 15px;
+    margin: 0 0 16px 0;
+    font-size: 1.05rem;
     font-weight: 700;
-    letter-spacing: 0.02em;
+    letter-spacing: -0.01em;
     color: var(--ice-heading);
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
 }
 
 body.create-quotation-page .create-quotation-section-title-lines {
-    margin: 0;
+    margin: 0 0 12px;
     padding: 0;
     border: none;
+}
+
+body.create-quotation-page .create-quotation-lines-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px 16px 16px;
+    background: var(--ice-surface-input, #f7fbff);
+    border: 1.5px solid var(--ice-border, #b8d4e8);
+    border-radius: 12px;
 }
 
 body.create-quotation-page .create-quotation-lines-header {
@@ -195,8 +213,10 @@ body.create-quotation-page .create-quotation-lines-header {
     flex-wrap: wrap;
     align-items: flex-end;
     justify-content: space-between;
-    gap: 12px 24px;
-    margin-bottom: 12px;
+    gap: 10px 20px;
+    margin: 0;
+    padding: 0 0 10px;
+    border-bottom: 1px solid var(--ice-border-soft, #c5dce9);
 }
 
 body.create-quotation-page .create-quotation-lines-header .customer-validity-field {
@@ -204,14 +224,25 @@ body.create-quotation-page .create-quotation-lines-header .customer-validity-fie
     flex: 0 0 auto;
 }
 
+body.create-quotation-page .create-quotation-lines-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px 16px;
+    margin-top: 4px;
+    padding-top: 12px;
+    border-top: 1px solid var(--ice-border-soft, #c5dce9);
+}
+
 
 body.create-quotation-page .create-quotation-section--customer {
-    padding: 10px 14px 12px;
+    padding: 16px 18px 18px;
 }
 
 body.create-quotation-page .create-quotation-section--customer .create-quotation-section-title {
-    margin-bottom: 8px;
-    font-size: 14px;
+    margin-bottom: 10px;
+    font-size: 1rem;
 }
 
 body.create-quotation-page .customer-details-panel {
@@ -220,44 +251,110 @@ body.create-quotation-page .customer-details-panel {
     gap: 0;
 }
 
-/* Customer details as plain tables */
-body.create-quotation-page .customer-details-table {
+/* 4 columns: field | field | field | address (gutter before address) */
+body.create-quotation-page .customer-details-grid4 {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) 14px minmax(180px, 1fr);
+    gap: 8px 8px;
     width: 100%;
-    border-collapse: collapse;
-    table-layout: fixed;
-    font-size: 13px;
+    align-items: stretch;
 }
 
-body.create-quotation-page .customer-details-table th[scope="row"] {
-    width: 7.5rem;
-    padding: 5px 12px 5px 0;
-    text-align: left;
-    vertical-align: top;
+body.create-quotation-page .customer-detail-tile {
+    display: flex;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+    padding: 6px 10px;
+    background: var(--ice-surface-input, #f0f9ff);
+    border: 1.5px solid var(--ice-border, #b8d4e8);
+    border-radius: 8px;
+    box-sizing: border-box;
+}
+
+/* Place each tile: cols 1–3 fields, col 5 addresses (col 4 = gutter) */
+body.create-quotation-page .customer-details-grid4 > .customer-detail-tile:nth-child(1) { grid-column: 1; grid-row: 1; }
+body.create-quotation-page .customer-details-grid4 > .customer-detail-tile:nth-child(2) { grid-column: 2; grid-row: 1; }
+body.create-quotation-page .customer-details-grid4 > .customer-detail-tile:nth-child(3) { grid-column: 3; grid-row: 1; }
+body.create-quotation-page .customer-details-grid4 > .customer-detail-tile:nth-child(4) { grid-column: 5; grid-row: 1; }
+
+body.create-quotation-page .customer-details-grid4 > .customer-detail-tile:nth-child(5) { grid-column: 1; grid-row: 2; }
+body.create-quotation-page .customer-details-grid4 > .customer-detail-tile:nth-child(6) { grid-column: 2; grid-row: 2; }
+body.create-quotation-page .customer-details-grid4 > .customer-detail-tile:nth-child(7) { grid-column: 3; grid-row: 2; }
+body.create-quotation-page .customer-details-grid4 > .customer-detail-tile:nth-child(8) { grid-column: 5; grid-row: 2; }
+
+body.create-quotation-page .customer-details-grid4 > .customer-detail-tile--span2 {
+    grid-column: 1 / 3;
+    grid-row: 3;
+}
+
+body.create-quotation-page .customer-details-grid4 > .customer-detail-tile:nth-child(10) {
+    grid-column: 3;
+    grid-row: 3;
+}
+
+body.create-quotation-page .customer-details-grid4 > .customer-detail-tile:nth-child(11) {
+    grid-column: 5;
+    grid-row: 3;
+}
+
+body.create-quotation-page .customer-details-grid4 > .customer-detail-tile--span3 {
+    grid-column: 1 / 4;
+    grid-row: 4;
+}
+
+body.create-quotation-page .customer-details-grid4 > .customer-detail-tile--addr-last {
+    grid-column: 5;
+    grid-row: 4;
+}
+
+body.create-quotation-page .customer-detail-tile--addr {
+    width: 100%;
+}
+
+/* Legacy helpers */
+body.create-quotation-page .customer-details-tiles,
+body.create-quotation-page .customer-details-rows,
+body.create-quotation-page .customer-details-split {
+    display: grid;
+    gap: 8px;
+    width: 100%;
+}
+
+body.create-quotation-page .customer-details-tiles {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+
+body.create-quotation-page .customer-detail-tile--sm { grid-column: span 3; }
+body.create-quotation-page .customer-detail-tile--md { grid-column: span 4; }
+body.create-quotation-page .customer-detail-tile--lg { grid-column: span 6; }
+body.create-quotation-page .customer-detail-tile--wide { grid-column: 1 / -1; }
+
+body.create-quotation-page .customer-details-addresses {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+
+body.create-quotation-page .customer-detail-tile__label {
+    flex: 0 0 auto;
+    min-width: 4.75rem;
     font-size: 10px;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
     color: var(--ice-text-muted);
-    white-space: nowrap;
+    letter-spacing: 0.01em;
+    line-height: 1.2;
 }
 
-body.create-quotation-page .customer-details-table td {
-    padding: 5px 20px 5px 0;
-    vertical-align: top;
+body.create-quotation-page .customer-detail-tile .customer-detail-value {
+    flex: 1 1 auto;
+    min-width: 0;
     color: var(--ice-text);
-    line-height: 1.35;
+    line-height: 1.3;
     word-break: break-word;
-}
-
-body.create-quotation-page .customer-details-table tbody tr:nth-child(3) th[scope="row"],
-body.create-quotation-page .customer-details-table tbody tr:nth-child(3) td {
-    padding-top: 8px;
-    border-top: 1px solid var(--ice-border-soft);
-}
-
-body.create-quotation-page .customer-details-table tbody tr:first-child th[scope="row"],
-body.create-quotation-page .customer-details-table tbody tr:first-child td {
-    padding-top: 2px;
+    font-size: 13px;
 }
 
 body.create-quotation-page .customer-detail-value--highlight {
@@ -317,13 +414,7 @@ body.create-quotation-page .customer-details-grid--contact {
     grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-body.create-quotation-page .customer-details-addresses {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px 28px;
-    padding-top: 16px;
-    border-top: 1px solid var(--ice-border-soft);
-}
+/* Legacy address grid (update quotation) — create page uses flex column above */
 
 /* Legacy layout aliases (update quotation page may still use these) */
 body.create-quotation-page .create-quotation-layout {
@@ -388,15 +479,17 @@ body.create-quotation-page .create-quotation-section--lines {
 body.create-quotation-page .create-quotation-section--lines .btn-add-item {
     display: inline-block;
     width: auto;
-    margin-top: 12px;
+    margin-top: 0;
     padding: 8px 16px;
 }
 
 body.create-quotation-page .create-quotation-section--lines .total-section {
-    margin-top: 14px;
+    margin: 0;
     padding: 0;
     background: transparent;
     border: none;
+    border-radius: 0;
+    flex: 1 1 auto;
 }
 
 body.create-quotation-page .quotation-mini-item-codes {
@@ -427,13 +520,15 @@ body.create-quotation-page:not(.update-quotation-page) #quotation-form table.quo
     width: 100%;
     border-collapse: collapse;
     margin-bottom: 10px;
+    border: 1px solid #8fa8b8;
 }
 
 body.create-quotation-page:not(.update-quotation-page) #quotation-form table.quotation-lines-table th,
 body.create-quotation-page:not(.update-quotation-page) #quotation-form table.quotation-lines-table td {
-    border: 1px solid #999;
-    padding: 4px 6px;
+    border: 1px solid #8fa8b8;
+    padding: 3px 6px;
     vertical-align: middle;
+    line-height: 1.2;
 }
 
 body.create-quotation-page:not(.update-quotation-page) #quotation-line-items {
@@ -453,9 +548,37 @@ body.create-quotation-page:not(.update-quotation-page) #quotation-form table.quo
 }
 
 body.create-quotation-page:not(.update-quotation-page) #quotation-form table.quotation-lines-table td.item-source,
-body.create-quotation-page:not(.update-quotation-page) #quotation-form table.quotation-lines-table td.item-remove {
+body.create-quotation-page:not(.update-quotation-page) #quotation-form table.quotation-lines-table td.cq-remove-cell {
     cursor: pointer;
     user-select: none;
+}
+
+body.create-quotation-page #quotation-form .item-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    margin: 0;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: #d64545;
+    cursor: pointer;
+    position: relative;
+    z-index: 5;
+    pointer-events: auto;
+}
+
+body.create-quotation-page #quotation-form .item-remove:hover {
+    background: #fde8e8;
+    color: #b42318;
+}
+
+body.create-quotation-page #quotation-form .item-remove svg {
+    display: block;
+    pointer-events: none;
 }
 
 body.create-quotation-page:not(.update-quotation-page) #quotation-form table.quotation-lines-table td[contenteditable="true"]:focus {
@@ -513,7 +636,7 @@ body.create-quotation-page .create-quotation-section--lines .total-row {
     justify-content: flex-end;
     align-items: baseline;
     gap: 16px;
-    padding: 10px 0 0;
+    padding: 0;
     font-size: 15px;
 }
 
@@ -527,9 +650,59 @@ body.create-quotation-page #quotation-form .form-actions {
     flex-wrap: wrap;
     justify-content: flex-end;
     gap: 10px;
-    margin-top: 16px;
-    padding-top: 16px;
-    border-top: 1px solid var(--ice-border);
+    margin: 0;
+    padding: 0;
+    border-top: none;
+    flex: 0 0 auto;
+}
+
+body.create-quotation-page .create-quotation-lines-panel #create-quotation-lines-wrap {
+    margin: 0 !important;
+    border: 1px solid #8fa8b8 !important;
+    border-radius: 8px !important;
+    background: #fff !important;
+}
+
+body.create-quotation-page .create-quotation-lines-header .quotation-mini-item-codes {
+    margin: 0;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+body.create-quotation-page #quotation-form .form-actions .btn-primary,
+body.create-quotation-page #quotation-form .form-actions .btn-secondary {
+    padding: 10px 18px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+@media (max-width: 1100px) {
+    body.create-quotation-page .customer-details-grid4 {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 8px;
+    }
+
+    body.create-quotation-page .customer-details-grid4 > .customer-detail-tile,
+    body.create-quotation-page .customer-details-grid4 > .customer-detail-tile--span2,
+    body.create-quotation-page .customer-details-grid4 > .customer-detail-tile--span3,
+    body.create-quotation-page .customer-details-grid4 > .customer-detail-tile--addr-last {
+        grid-column: auto;
+        grid-row: auto;
+    }
+
+    body.create-quotation-page .customer-details-grid4 > .customer-detail-tile--span2,
+    body.create-quotation-page .customer-details-grid4 > .customer-detail-tile--span3 {
+        grid-column: 1 / -1;
+    }
+
+    body.create-quotation-page .customer-detail-tile--sm {
+        grid-column: span 6;
+    }
+
+    body.create-quotation-page .customer-detail-tile--md,
+    body.create-quotation-page .customer-detail-tile--lg {
+        grid-column: span 6;
+    }
 }
 
 @media (max-width: 960px) {
@@ -537,28 +710,24 @@ body.create-quotation-page #quotation-form .form-actions {
         padding: 12px 14px 20px !important;
     }
 
-    body.create-quotation-page .customer-details-grid--fields,
-    body.create-quotation-page .customer-details-grid--primary,
-    body.create-quotation-page .customer-details-grid--contact,
-    body.create-quotation-page .customer-details-addresses {
+    body.create-quotation-page .customer-details-grid4 {
         grid-template-columns: 1fr;
     }
 
-    body.create-quotation-page .customer-details-table thead,
-    body.create-quotation-page .customer-details-table tbody,
-    body.create-quotation-page .customer-details-table tr,
-    body.create-quotation-page .customer-details-table th,
-    body.create-quotation-page .customer-details-table td {
-        display: block;
-        width: 100%;
+    body.create-quotation-page .customer-details-grid--fields,
+    body.create-quotation-page .customer-details-grid--primary,
+    body.create-quotation-page .customer-details-grid--contact {
+        grid-template-columns: 1fr;
     }
 
-    body.create-quotation-page .customer-details-table th[scope="row"] {
-        padding-bottom: 2px;
+    body.create-quotation-page .customer-details-tiles {
+        grid-template-columns: 1fr;
     }
 
-    body.create-quotation-page .customer-details-table td {
-        padding-bottom: 8px;
+    body.create-quotation-page .customer-detail-tile--sm,
+    body.create-quotation-page .customer-detail-tile--md,
+    body.create-quotation-page .customer-detail-tile--lg {
+        grid-column: 1 / -1;
     }
 
     body.create-quotation-page .create-quotation-lines-header {
@@ -671,8 +840,16 @@ body.create-quotation-page .total-row span:last-child {
     color: var(--ice-accent-hover);
 }
 
+body.create-quotation-page .btn-primary,
+body.create-quotation-page .btn-secondary,
+body.create-quotation-page .btn-add-item,
+body.create-quotation-page .form-actions button {
+    border-radius: 8px;
+}
+
 body.create-quotation-page .btn-primary {
     background: var(--ice-accent);
+    border: none;
 }
 
 body.create-quotation-page .btn-primary:hover {
@@ -693,7 +870,7 @@ body.create-quotation-page .btn-secondary:hover {
 
 body.create-quotation-page .btn-add-item {
     background: var(--ice-surface-input);
-    border: 2px dashed var(--ice-border);
+    border: 1px dashed var(--ice-border);
     color: var(--ice-accent);
 }
 
@@ -953,10 +1130,12 @@ body.create-quotation-page .form-container {
     width: 100% !important;
     max-width: none !important;
     margin: 0 !important;
-    padding: 16px 20px 24px !important;
+    padding: 20px 24px 32px !important;
     border-radius: 0 !important;
-    border-left: none !important;
-    border-right: none !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    color: var(--ice-text) !important;
     box-sizing: border-box !important;
 }
 
@@ -964,18 +1143,14 @@ body.create-quotation-page .tab-content.active {
     background: transparent !important;
 }
 
-body.create-quotation-page .form-container {
-    background: var(--ice-surface) !important;
-    color: var(--ice-text) !important;
-    border: 1px solid var(--ice-border) !important;
-}
-
 body.create-quotation-page .form-container h3 {
     color: var(--ice-heading) !important;
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif !important;
 }
 
 body.create-quotation-page .form-container h4 {
     color: var(--ice-heading) !important;
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif !important;
 }
 
 body.create-quotation-page .create-quotation-form-body,
@@ -983,7 +1158,7 @@ body.create-quotation-page .create-quotation-layout {
     display: flex !important;
     flex-direction: column !important;
     align-items: stretch !important;
-    gap: 20px !important;
+    gap: 18px !important;
 }
 
 /* Force native table layout (do not load orderQuotation.css on this page) */
@@ -991,6 +1166,7 @@ body.create-quotation-page #quotation-form table.quotation-lines-table {
     display: table !important;
     width: 100% !important;
     border-collapse: collapse !important;
+    border-spacing: 0 !important;
     table-layout: auto !important;
 }
 
