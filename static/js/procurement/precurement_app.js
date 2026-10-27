@@ -2260,6 +2260,10 @@
             return s === 'AWAITING' || s === 'PENDING' || s === 'APPROVED';
         }
 
+        function isCancelledPurchaseRequest(header) {
+            return normalizeUdfStatus((header && (header._originalUdfStatus || header.udfStatus)) || '') === 'CANCELLED';
+        }
+
         function toApprovalBool(value) {
 
             const text = String(value ?? '').trim().toUpperCase();
@@ -3049,6 +3053,8 @@
 
             if (!header) return false;
 
+            if (isCancelledPurchaseRequest(header)) return false;
+
             if (hasPendingHeaderStatusChangesForHeader(header.id)) return false;
 
             const selectedDetails = getSelectedTransferDetails(header);
@@ -3107,7 +3113,7 @@
 
             const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(headerId));
 
-            if (!header) {
+            if (!header || isCancelledPurchaseRequest(header)) {
 
                 return;
 
@@ -3208,7 +3214,7 @@
 
             const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(headerId));
 
-            if (!header || !Array.isArray(header.details)) {
+            if (!header || !Array.isArray(header.details) || isCancelledPurchaseRequest(header)) {
 
                 return;
 
@@ -3280,7 +3286,7 @@
 
             const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(headerId));
 
-            if (!header || !Array.isArray(header.details)) {
+            if (!header || !Array.isArray(header.details) || isCancelledPurchaseRequest(header)) {
 
                 return;
 
@@ -3465,7 +3471,7 @@
             if (document.body.classList.contains('procurement-hide-pr-approval-edits')) {
                 return;
             }
-            if (viewApprovalSaving) {
+            if (viewApprovalSaving || isCancelledPurchaseRequest(viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(viewSelectedHeaderId)))) {
                 return;
             }
 
@@ -3955,6 +3961,9 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 const { sqty: rowSqty, suomqty: rowSuom } = viewPrDetailSqtySuom(detail);
                 const rowSelected = isDetailChecked(detail);
+                const qtyControlHtml = savedUdfDisplay === 'CANCELLED'
+                    ? `<span>${formatStockCardNumber(getDetailTransferQuantity(detail))}</span>`
+                    : `<input type="number" class="view-pr-transfer-qty-input view-pr-transfer-qty-input--inline" min="0" max="${escapeHtml(String(getDetailMaxTransferQuantity(detail)))}" step="0.01" value="${escapeHtml(String(getDetailTransferQuantity(detail)))}" ${isDetailChecked(detail) && detail.id ? '' : 'disabled'} title="${escapeHtml(isDetailChecked(detail) ? `Enter transfer quantity up to ${formatStockCardNumber(getDetailMaxTransferQuantity(detail))}; total quantity is ${formatStockCardNumber(detail.quantity || 0)}.` : 'Tick approval first before setting transfer quantity.')}" onchange="onTransferQuantityChange(${headerId}, ${Number(detail.id || 0)}, this.value)" />`;
 
                 return `
 
@@ -3974,27 +3983,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 <td class="view-pr-num col-qty view-pr-transfer-ratio-cell">
 
-                    <input
-
-                        type="number"
-
-                        class="view-pr-transfer-qty-input view-pr-transfer-qty-input--inline"
-
-                        min="0"
-
-                        max="${escapeHtml(String(getDetailMaxTransferQuantity(detail)))}"
-
-                        step="0.01"
-
-                        value="${escapeHtml(String(getDetailTransferQuantity(detail)))}"
-
-                        ${isDetailChecked(detail) && detail.id ? '' : 'disabled'}
-
-                        title="${escapeHtml(isDetailChecked(detail) ? `Enter transfer quantity up to ${formatStockCardNumber(getDetailMaxTransferQuantity(detail))}; total quantity is ${formatStockCardNumber(detail.quantity || 0)}.` : 'Tick approval first before setting transfer quantity.')}"
-
-                        onchange="onTransferQuantityChange(${headerId}, ${Number(detail.id || 0)}, this.value)"
-
-                    />
+                    ${qtyControlHtml}
 
                     <span class="view-pr-transfer-ratio-sep">/</span>
 
@@ -4098,7 +4087,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     </div>
 
-                    <button
+                    ${savedUdfDisplay === 'CANCELLED' ? '' : `<button
 
                         type="button"
 
@@ -4110,7 +4099,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                         title="${escapeHtml(transferTitle)}"
 
-                    >${isTransferring ? 'Transferring...' : (canTransfer ? 'Transfer to Purchase Order' : 'Awaiting Approval')}</button>
+                    >${isTransferring ? 'Transferring...' : (canTransfer ? 'Transfer to Purchase Order' : 'Awaiting Approval')}</button>`}
 
                 </div>
 
@@ -4468,23 +4457,25 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 const prStatus = String(header.status || 'DRAFT').toUpperCase();
 
-                const canEditDraft = prStatus === 'DRAFT';
-
-                const isSelected = viewSelectedHeaderId != null && Number(viewSelectedHeaderId) === headerId;
-
-                const udfLocked = ['APPROVED', 'CANCELLED'].includes(normalizeUdfStatus(header._originalUdfStatus));
-
                 const savedUdf = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
 
                 const pendingUdf = getHeaderPendingUdfStatus(header);
 
                 const udf = savedUdf;
 
+                const canEditDraft = prStatus === 'DRAFT' && udf !== 'CANCELLED';
+
+                const isSelected = viewSelectedHeaderId != null && Number(viewSelectedHeaderId) === headerId;
+
                 const borderColor = udf === 'CANCELLED' ? '#a65c5c' : (udf === 'APPROVED' ? '#2d6a4f' : '#b0892f');
 
                 const badgeColor = borderColor;
 
-                const pendingStatusHtml = pendingUdf && pendingUdf !== 'CANCELLED'
+                const onAwaitingTab = viewStatusFilters instanceof Set
+                    && viewStatusFilters.size === 1
+                    && viewStatusFilters.has('AWAITING');
+
+                const pendingStatusHtml = !onAwaitingTab && pendingUdf && pendingUdf !== 'CANCELLED'
 
                     ? `<span class="view-pr-pending-status" title="Pending status change. Press Update to save.">→ ${escapeHtml(formatUdfStatusLabel(pendingUdf) || pendingUdf)}</span>`
 
@@ -4540,9 +4531,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             <div class="pr-view-pr-row${isSelected ? ' is-selected' : ''}" data-header-id="${headerId}" style="--pr-card-accent: ${borderColor}; --pr-card-badge: ${badgeColor};" role="button" tabindex="0" onclick="onViewPrCardActivate(event, ${headerId})" onkeydown="onViewPrCardKeydown(event, ${headerId})">
 
-                ${bulkSlot}
-
-                <span class="pr-view-pr-row__code">${escapeHtml(header.requestNumber || '-')}</span>
+                <span class="pr-view-pr-row__code">${bulkSlot}${escapeHtml(header.requestNumber || '-')}</span>
 
                 <span class="pr-view-pr-row__date">${formatPrDate(header.requestDate || '-')}</span>
 
@@ -5816,6 +5805,15 @@ function buildViewPurchaseRequestDetailHtml(header) {
             }
 
             const prStatus = String(header.status || '').trim().toUpperCase();
+            const udf = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
+
+            if (udf === 'CANCELLED') {
+
+                alert('Cancelled purchase requests cannot be edited.');
+
+                return;
+
+            }
 
             if (prStatus !== 'DRAFT') {
 

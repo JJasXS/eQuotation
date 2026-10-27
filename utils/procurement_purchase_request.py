@@ -1742,7 +1742,7 @@ def update_purchase_request(
             raise RuntimeError("PH_PQDTL key columns not found")
 
         cur.execute(
-            f"SELECT FIRST 1 {header_key_col}, {_pick_existing(header_cols, 'STATUS') or 'NULL'} FROM PH_PQ WHERE {header_key_col} = ?",
+            f"SELECT FIRST 1 {header_key_col}, {_pick_existing(header_cols, 'STATUS') or 'NULL'}, {_pick_existing(header_cols, 'UDF_STATUS', 'UDFSTATUS') or 'NULL'} FROM PH_PQ WHERE {header_key_col} = ?",
             (normalized_request_id,),
         )
         row = cur.fetchone()
@@ -1750,6 +1750,9 @@ def update_purchase_request(
             raise PurchaseRequestValidationError("Purchase request not found")
 
         current_status = _decode_status(row[1]).upper() if len(row) > 1 else ""
+        current_udf = str(row[2] or "").strip().upper() if len(row) > 2 else ""
+        if current_udf == "CANCELLED":
+            raise PurchaseRequestValidationError("Cancelled purchase requests cannot be edited")
         if current_status and current_status != "DRAFT":
             raise PurchaseRequestValidationError("Only draft purchase requests can be edited")
 

@@ -1049,6 +1049,55 @@ body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-card__code {
     color: var(--ice-heading) !important;
 }
 
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-row {
+    background: var(--ice-surface) !important;
+    border-bottom-color: var(--ice-border-soft) !important;
+    border-left-color: var(--ice-accent) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-row:hover {
+    background: var(--ice-surface-alt) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-row.is-selected {
+    background: var(--ice-accent-soft) !important;
+    border-left-color: var(--ice-accent-hover) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-row__code {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-row__date {
+    color: var(--ice-text-muted) !important;
+    border-left-color: var(--ice-border-soft) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-row__selected,
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-row__approval,
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-row__amount {
+    border-left-color: var(--ice-border-soft) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-row .pr-view-amount-pill {
+    background: var(--ice-accent) !important;
+    color: #fff !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-row__selection {
+    color: var(--ice-heading) !important;
+    background: var(--ice-surface-muted) !important;
+    border-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-row__selection.is-partial,
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-row__selection.is-all {
+    color: var(--ice-accent-hover) !important;
+    background: var(--ice-accent-soft) !important;
+    border-color: var(--ice-border) !important;
+}
+
 body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-card__approval-label {
     color: var(--ice-text-muted) !important;
 }
