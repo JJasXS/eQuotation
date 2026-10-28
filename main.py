@@ -6069,11 +6069,12 @@ def _send_rfq_invitation_emails_background(
         dockey = int(request_dockey or 0)
     except Exception:
         dockey = 0
-    bidding_url = f"{portal_base}/supplier/bidding"
+    # Land on login with Supplier carousel selected; request_id carried through after OTP.
+    bidding_url = f"{portal_base}/login?mode=supplier"
     if dockey > 0:
-        bidding_url = f"{bidding_url}?request_id={dockey}"
+        bidding_url = f"{bidding_url}&request_id={int(dockey)}"
     portal_cta_html = (
-        "<p style='margin-top:14px;'>Please go to the supplier bidding portal to submit your quotation:</p>"
+        "<p style='margin-top:14px;'>Please sign in on the supplier portal to submit your quotation:</p>"
         f"<p style='margin-top:8px;'><a href='{_rfq_invite_safe_html(bidding_url)}' "
         f"style='color:#1d4ed8;font-weight:600;'>{_rfq_invite_safe_html(bidding_url)}</a></p>"
     )
