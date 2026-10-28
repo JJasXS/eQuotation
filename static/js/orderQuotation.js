@@ -1910,6 +1910,7 @@ let cqProductPickerCloseTimer = null;
 let cqProductSearchTimer = null;
 let cqProductSearchSeq = 0;
 let cqProductSearchState = 'idle';
+let cqProductSearchController = null;
 
 function normalizeProductSearchText(value) {
     return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -2014,8 +2015,19 @@ function scheduleCatalogProductSearch(input, filterText) {
 
 async function searchCatalogProducts(input, query) {
     const seq = ++cqProductSearchSeq;
+    if (cqProductSearchController) {
+        try { cqProductSearchController.abort(); } catch (_e) { /* ignore */ }
+    }
+    const controller = new AbortController();
+    cqProductSearchController = controller;
+    const timeoutId = window.setTimeout(() => {
+        try { controller.abort(); } catch (_e) { /* ignore */ }
+    }, 12000);
     try {
-        const response = await fetch(`/api/search_stock_items?q=${encodeURIComponent(query)}`);
+        const response = await fetch(
+            `/api/search_stock_items?q=${encodeURIComponent(query)}`,
+            { signal: controller.signal },
+        );
         const data = await response.json();
         if (seq !== cqProductSearchSeq) {
             return;
@@ -2024,13 +2036,18 @@ async function searchCatalogProducts(input, query) {
         cqProductSearchState = 'done';
         renderCatalogProductPickerList(input, query);
     } catch (error) {
-        if (seq !== cqProductSearchSeq) {
+        if (seq !== cqProductSearchSeq || (error && error.name === 'AbortError')) {
             return;
         }
         availableProducts = [];
         cqProductSearchState = 'done';
         renderCatalogProductPickerList(input, query);
         console.error('Product search failed:', error);
+    } finally {
+        clearTimeout(timeoutId);
+        if (cqProductSearchController === controller) {
+            cqProductSearchController = null;
+        }
     }
 }
 
@@ -2529,7 +2546,14 @@ if (quotationForm) {
 // Load user info (customer info including company, address, phone, and credit term) for quotation form
 async function loadUserInfo() {
     try {
-        const response = await fetch('/api/get_user_info');
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        let response;
+        try {
+            response = await fetch('/api/get_user_info', { signal: controller.signal });
+        } finally {
+            clearTimeout(timeoutId);
+        }
         if (!response.ok) {
             console.warn('Customer info lookup failed with status:', response.status);
             setDefaultCustomerInfo();

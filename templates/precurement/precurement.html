@@ -142,10 +142,15 @@
                                                 </div>
 
                                                 <div class="stock-report-filter-field stock-report-filter-field--cutoff">
-                                                    <label class="pr-field location-filter-date-field" for="stock-card-from-date">
-                                                        <span class="stock-ms__field-label">Cutoff Date</span>
-                                                        <input type="date" id="stock-card-from-date" aria-label="Cutoff date" title="Cutoff date" />
-                                                    </label>
+                                                    <span class="stock-ms__field-label">Cutoff Date</span>
+                                                    <div class="stock-report-cutoff-inline" role="group" aria-label="Cutoff date filter">
+                                                        <label class="pr-field location-filter-date-field" for="stock-card-from-date">
+                                                            <span class="visually-hidden">Cutoff date</span>
+                                                            <input type="date" id="stock-card-from-date" aria-label="Cutoff date" title="Cutoff date" />
+                                                        </label>
+                                                        <button type="button" class="view-pr-refresh-btn" onclick="applyStockCardDateFilter()">Apply Cutoff</button>
+                                                        <button type="button" class="view-pr-refresh-btn" onclick="clearStockCardDateFilter()">Clear Cutoff</button>
+                                                    </div>
                                                 </div>
 
                                             </div>
@@ -153,8 +158,6 @@
                                             <div class="stock-report-filter-bar__row stock-report-filter-bar__row--actions">
                                                 <p class="stock-report-filter-summary" id="stock-report-filter-summary" aria-live="polite"></p>
                                                 <div class="stock-report-filter-actions">
-                                                    <button type="button" class="view-pr-refresh-btn" onclick="applyStockCardDateFilter()">Apply Cutoff</button>
-                                                    <button type="button" class="view-pr-refresh-btn" onclick="clearStockCardDateFilter()">Clear Cutoff</button>
                                                     <button type="button" class="location-buy-btn" onclick="goToCreateProcurement()">New e-Purchase Request</button>
                                                 </div>
                                             </div>

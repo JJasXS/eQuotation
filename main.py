@@ -3883,14 +3883,14 @@ def api_admin_update_order_status():
     if status not in valid_statuses:
         return jsonify({'success': False, 'error': 'Invalid status'}), 400
 
+    con = None
+    cur = None
     try:
         con = get_db_connection()
         cur = con.cursor()
         cur.execute('UPDATE ORDER_TPL SET STATUS = ? WHERE ORDERID = ?', (status, orderid))
         con.commit()
         updated = cur.rowcount
-        cur.close()
-        con.close()
 
         if not updated:
             return jsonify({'success': False, 'error': 'Order not found'}), 404
@@ -3898,6 +3898,17 @@ def api_admin_update_order_status():
         return jsonify({'success': True, 'orderid': orderid, 'status': status})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if con:
+                con.close()
+        except Exception:
+            pass
 
 @app.route('/api/insert_chat', methods=['POST'])
 @api_login_required(unauth_message='Unauthorized')
@@ -3906,6 +3917,8 @@ def api_insert_chat():
     chat_name = data.get('chatname', '').strip()
     if not chat_name:
         return jsonify({'success': False, 'error': 'Chat name required'}), 400
+    con = None
+    cur = None
     try:
         con = get_db_connection()
         cur = con.cursor()
@@ -3941,8 +3954,6 @@ def api_insert_chat():
         )
         
         con.commit()
-        cur.close()
-        con.close()
         
         print(f"[INFO] Chat {chatid} created successfully with welcome message")
         
@@ -3958,6 +3969,17 @@ def api_insert_chat():
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if con:
+                con.close()
+        except Exception:
+            pass
 
 @app.route('/get_chat_details')
 @api_login_required(unauth_message='Unauthorized')
@@ -3988,12 +4010,12 @@ def check_draft_order():
     if not user_owns_chat(chatid, session.get('user_email')):
         return jsonify({'success': False, 'error': 'Forbidden'}), 403
     
+    con = None
+    cur = None
     try:
         con = get_db_connection()
         cur = con.cursor()
         order_id = find_draft_order_id_by_chatid(cur, chatid)
-        cur.close()
-        con.close()
         
         if order_id is not None:
             return jsonify({'success': True, 'hasDraft': True, 'orderid': order_id})
@@ -4001,6 +4023,17 @@ def check_draft_order():
             return jsonify({'success': True, 'hasDraft': False})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if con:
+                con.close()
+        except Exception:
+            pass
 
 @app.route('/api/check_user_has_draft')
 @api_login_required(unauth_message='Unauthorized')
