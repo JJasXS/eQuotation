@@ -254,6 +254,8 @@
 
         let viewPurchaseRequestsLoaded = false;
 
+        let viewPrListLoadSeq = 0;
+
         let viewPurchaseRequests = [];
 
         const VIEW_PR_LIST_PAGE_SIZE = 6;
@@ -5212,7 +5214,19 @@
 
                     if (sel && typeof onHeaderUdfStatusChange === 'function') {
 
-                        onHeaderUdfStatusChange(selectedId, sel.value);
+                        const pending = viewHeaderStatusPendingChanges.get(String(selectedId));
+
+                        const pendingUdf = pending ? normalizeUdfStatus(pending.udfStatus) : '';
+
+                        const selUdf = normalizeUdfStatus(sel.value);
+
+                        // Bulk "Mark selected Pending" already queued a target. The detail
+                        // dropdown still shows the saved status and would wipe that queue.
+                        if (!(pendingUdf && pendingUdf !== selUdf)) {
+
+                            onHeaderUdfStatusChange(selectedId, sel.value);
+
+                        }
 
                     }
 
@@ -7938,6 +7952,8 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             const startedAt = performance.now();
 
+            const loadSeq = ++viewPrListLoadSeq;
+
             const cacheBust = loadOpts.bustCache ? '&no_cache=1' : '';
 
             const url = `/api/admin/procurement/purchase-requests?offset=0&limit=${VIEW_PR_LIST_PAGE_SIZE}&fast=1&include_qty=0${cacheBust}`;
@@ -7947,6 +7963,12 @@ function buildViewPurchaseRequestDetailHtml(header) {
                 .then((res) => readProcurementJson(res))
 
                 .then((payload) => {
+
+                    if (loadSeq !== viewPrListLoadSeq) {
+
+                        return;
+
+                    }
 
                     if (!payload.success) {
 
@@ -7965,6 +7987,12 @@ function buildViewPurchaseRequestDetailHtml(header) {
                 })
 
                 .catch((error) => {
+
+                    if (loadSeq !== viewPrListLoadSeq) {
+
+                        return;
+
+                    }
 
                     if (isProcurementAuthExpired(error)) {
 

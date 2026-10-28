@@ -5928,6 +5928,57 @@ def _queue_rfq_invitation_emails_for_suppliers(
     return _rfq_recipient_count(targets)
 
 
+def _request_no_from_header_changes(changes, request_id: int) -> str:
+    for raw in changes or []:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            rid = int(raw.get('requestId') or 0)
+        except Exception:
+            rid = 0
+        if rid != request_id:
+            continue
+        return str(
+            raw.get('requestNumber')
+            or raw.get('requestNo')
+            or raw.get('docNo')
+            or ''
+        ).strip()
+    return ''
+
+
+def _send_pending_bid_invites_worker(changes, applied, previous_by_id, actor) -> None:
+    """Create RFQ invites after Awaiting -> Pending without blocking the status response."""
+    if not isinstance(applied, list):
+        return
+    for applied_change in applied:
+        if not isinstance(applied_change, dict):
+            continue
+        try:
+            request_id = int(applied_change.get('requestId') or 0)
+        except Exception:
+            request_id = 0
+        if not request_id:
+            continue
+        status_value = normalize_pr_udf_status(applied_change.get('udfStatus'))
+        previous = normalize_pr_udf_status(
+            applied_change.get('previousUdfStatus')
+            if applied_change.get('previousUdfStatus') is not None
+            else previous_by_id.get(request_id, '')
+        )
+        if status_value != 'PENDING' or previous != 'AWAITING':
+            continue
+        request_no = _request_no_from_header_changes(changes, request_id)
+        try:
+            _send_bidding_invitations_for_pr(request_id, request_no, actor)
+        except Exception as invite_exc:
+            print(
+                f"[PROCUREMENT PR HEADER STATUS] bid invite on PENDING failed "
+                f"for {request_id}: {invite_exc}",
+                flush=True,
+            )
+
+
 def _send_bidding_invitations_for_pr(request_dockey, request_no, actor):
     """Create PR_BID_INVITE rows and queue RFQ emails once, on Awaiting -> Pending.
 
@@ -9519,7 +9570,7 @@ def api_admin_purchase_request_header_status_update():
             previous_by_id[request_id] = previous
             status_value = str(raw.get('udfStatus') or '').strip().upper()
             if status_value == 'PENDING' and previous == 'AWAITING':
-                suppliers = _list_selected_suppliers(request_id)
+                suppliers = _list_selected_suppliers(request_id, enrich=False)
                 if not suppliers:
                     return jsonify({
                         'success': False,
@@ -9548,8 +9599,8 @@ def api_admin_purchase_request_header_status_update():
             err = f"SQL API returned {st}" + (f": {message}" if message else '')
             return jsonify({'success': False, 'error': err}), st if st in (400, 404) else 502
 
-        # Awaiting Approval -> Pending only: create invitations and queue RFQ emails.
-        invite_results = []
+        # Status is already stored. Refresh the list immediately, then send RFQ
+        # invites in the background so the Pending tab does not wait on supplier lookup.
         applied = body.get('changes') if isinstance(body, dict) else None
         if not isinstance(applied, list) or not applied:
             applied = []
@@ -9568,66 +9619,17 @@ def api_admin_purchase_request_header_status_update():
                     'previousUdfStatus': previous_by_id.get(request_id, ''),
                 })
 
-        for applied_change in applied:
-            if not isinstance(applied_change, dict):
-                continue
-            try:
-                request_id = int(applied_change.get('requestId') or 0)
-            except Exception:
-                request_id = 0
-            if not request_id:
-                continue
-            status_value = normalize_pr_udf_status(applied_change.get('udfStatus'))
-            previous = normalize_pr_udf_status(
-                applied_change.get('previousUdfStatus')
-                if applied_change.get('previousUdfStatus') is not None
-                else previous_by_id.get(request_id, '')
-            )
-            if status_value != 'PENDING' or previous != 'AWAITING':
-                continue
-            request_no = ''
-            for raw in changes:
-                if not isinstance(raw, dict):
-                    continue
-                try:
-                    rid = int(raw.get('requestId') or 0)
-                except Exception:
-                    rid = 0
-                if rid == request_id:
-                    request_no = str(
-                        raw.get('requestNumber')
-                        or raw.get('requestNo')
-                        or raw.get('docNo')
-                        or ''
-                    ).strip()
-                    break
-            try:
-                invite_results.append(
-                    _send_bidding_invitations_for_pr(request_id, request_no, actor)
-                )
-            except Exception as invite_exc:
-                print(
-                    f"[PROCUREMENT PR HEADER STATUS] bid invite on PENDING failed "
-                    f"for {request_id}: {invite_exc}",
-                    flush=True,
-                )
-                invite_results.append({
-                    'inviteCount': 0,
-                    'emailsQueued': 0,
-                    'skipped': True,
-                    'reason': str(invite_exc),
-                    'requestId': request_id,
-                })
-
-        out = body if isinstance(body, dict) else {'upstream': body}
-        if invite_results:
-            out = dict(out)
-            out['bidInvitationResults'] = invite_results
         try:
             with PURCHASE_REQUEST_LIST_CACHE_LOCK:
                 PURCHASE_REQUEST_LIST_CACHE.clear()
         except Exception:
             pass
+        threading.Thread(
+            target=_send_pending_bid_invites_worker,
+            args=(changes, applied, previous_by_id, actor),
+            daemon=True,
+        ).start()
+        out = body if isinstance(body, dict) else {'upstream': body}
         return jsonify({'success': True, 'data': out})
     except requests.exceptions.Timeout:
         return jsonify({'success': False, 'error': 'Header status update request timed out'}), 504
