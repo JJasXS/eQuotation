@@ -4102,21 +4102,24 @@ def api_search_stock_items():
     query = (request.args.get('q') or '').strip()
     if len(query) < 1:
         return jsonify({'success': True, 'items': []})
-    con = None
-    cur = None
+    cache_key = query.casefold()
     try:
         from utils.sql_query_helpers import search_stock_items
+        from utils.ttl_cache import stock_search_cache
 
-        con = get_db_connection()
-        cur = con.cursor()
-        return jsonify({'success': True, 'items': search_stock_items(cur, query, limit=40)})
+        def _load():
+            con = get_db_connection()
+            cur = con.cursor()
+            try:
+                return search_stock_items(cur, query, limit=40)
+            finally:
+                cur.close()
+                con.close()
+
+        items = stock_search_cache.get_or_load(cache_key, _load, ttl_seconds=90.0)
+        return jsonify({'success': True, 'items': items})
     except Exception as exc:
         return jsonify({'success': False, 'error': str(exc), 'items': []}), 500
-    finally:
-        if cur:
-            cur.close()
-        if con:
-            con.close()
 
 
 @app.route('/api/get_stock_items')
@@ -11249,10 +11252,82 @@ def _debug_log_user_info_payload(source, payload):
     print(f"[DEBUG] get_user_info: Final payload source={source} summary={summary}", flush=True)
 
 
+def _build_get_user_info_body(customer_code: str, *, prefer_sql: bool = False) -> tuple[dict, int]:
+    """Build get_user_info JSON body and HTTP status (no Flask response)."""
+    from utils.sql_api_customer import (
+        apply_sql_api_currency_to_customer_payload,
+        currency_fields_from_sql_row,
+        fetch_sql_api_customer_row,
+    )
+
+    local_payload = _fetch_customer_info_from_local_ar(customer_code)
+    prefer_local = str(os.getenv('EQ_USER_INFO_LOCAL_FIRST', '1')).strip().lower() in (
+        '1', 'true', 'yes', 'on',
+    )
+    if local_payload and prefer_local and not prefer_sql:
+        _debug_log_user_info_payload('local_firebird_ar', local_payload)
+        payload_out = apply_sql_api_currency_to_customer_payload(
+            _merge_session_login_customer_udf_meta(local_payload),
+            customer_code,
+            sql_fields={'code': str(customer_code).strip(), 'currencycode': ''},
+        )
+        return {'success': True, 'data': payload_out, 'source': 'local_firebird_ar'}, 200
+
+    sql_access_key = (os.getenv('SQL_API_ACCESS_KEY') or '').strip()
+    sql_secret_key = (os.getenv('SQL_API_SECRET_KEY') or '').strip()
+    sql_host = (os.getenv('SQL_API_HOST') or '').strip()
+
+    if sql_access_key and sql_secret_key and sql_host:
+        sql_row, last_sql_status = fetch_sql_api_customer_row(customer_code)
+        sql_fields = currency_fields_from_sql_row(sql_row, customer_code, last_sql_status)
+        normalized = _normalize_customer_info(sql_row, customer_code) if sql_row else None
+        if normalized and _customer_info_has_meaningful_data(normalized):
+            _debug_log_user_info_payload('sql_api', normalized)
+            payload_out = apply_sql_api_currency_to_customer_payload(
+                _merge_session_login_customer_udf_meta(normalized),
+                customer_code,
+                sql_fields=sql_fields,
+            )
+            return {'success': True, 'data': payload_out, 'source': 'sql_api'}, 200
+
+        if local_payload:
+            _debug_log_user_info_payload('local_firebird_ar', local_payload)
+            payload_out = apply_sql_api_currency_to_customer_payload(
+                _merge_session_login_customer_udf_meta(local_payload),
+                customer_code,
+                sql_fields=sql_fields,
+            )
+            return {'success': True, 'data': payload_out, 'source': 'local_firebird_ar'}, 200
+
+        fail_status = 502 if (last_sql_status and last_sql_status >= 500) else 404
+        err_msg = 'No SQL API customer data returned'
+        if last_sql_status:
+            err_msg = f'No SQL API customer data returned (upstream HTTP {last_sql_status})'
+        fail_body = {'success': False, 'error': err_msg}
+        if last_sql_status is not None:
+            fail_body['upstream_http_status'] = last_sql_status
+        return fail_body, fail_status
+
+    if local_payload:
+        _debug_log_user_info_payload('local_firebird_ar', local_payload)
+        payload_out = apply_sql_api_currency_to_customer_payload(
+            _merge_session_login_customer_udf_meta(local_payload),
+            customer_code,
+            sql_fields={'code': str(customer_code).strip(), 'currencycode': ''},
+        )
+        return {'success': True, 'data': payload_out, 'source': 'local_firebird_ar'}, 200
+    return {'success': False, 'error': 'No customer data from SQL API or local database'}, 404
+
+
 @app.route('/api/get_user_info')
 @api_login_required(unauth_message='Unauthorized')
 def api_get_user_info():
-    """Return customer info for create-quotation: SQL API when configured, else local Firebird AR_* tables."""
+    """Return customer info for create-quotation: SQL API when configured, else local Firebird AR_* tables.
+
+    Query flags:
+    - ``prefer_sql=1`` — try SQL Accounting first (background overlay).
+    - ``nocache=1`` — bypass the 90s process cache.
+    """
     customer_code = get_current_customer_code(resolve_missing=True)
     if not customer_code:
         if can_access_create_quotation(session) and session.get('user_type') == 'admin':
@@ -11273,76 +11348,37 @@ def api_get_user_info():
         print("[DEBUG] get_user_info: customer_code not in session", flush=True)
         return jsonify({'success': False, 'error': 'Customer code not found'}), 400
 
+    prefer_sql = str(request.args.get('prefer_sql') or '').strip().lower() in ('1', 'true', 'yes')
+    no_cache = str(request.args.get('nocache') or '').strip().lower() in ('1', 'true', 'yes')
+    cache_key = f"{customer_code}|{'sql' if prefer_sql else 'local'}"
+
     try:
-        # 1) Preferred path: SQL API customer details endpoint (example: /customer/*?code=...)
-        sql_access_key = (os.getenv('SQL_API_ACCESS_KEY') or '').strip()
-        sql_secret_key = (os.getenv('SQL_API_SECRET_KEY') or '').strip()
-        sql_host = (os.getenv('SQL_API_HOST') or '').strip()
+        from utils.ttl_cache import user_info_cache
 
-        if sql_access_key and sql_secret_key and sql_host:
-            from utils.sql_api_customer import (
-                apply_sql_api_currency_to_customer_payload,
-                currency_fields_from_sql_row,
-                fetch_sql_api_customer_row,
+        if no_cache:
+            user_info_cache.invalidate(cache_key)
+            user_info_cache.invalidate(f"{customer_code}|local")
+            user_info_cache.invalidate(f"{customer_code}|sql")
+
+        def _load():
+            body, status = _build_get_user_info_body(customer_code, prefer_sql=prefer_sql)
+            return {'body': body, 'status': int(status)}
+
+        packed = user_info_cache.get_or_load(cache_key, _load, ttl_seconds=90.0)
+        body = packed.get('body') if isinstance(packed, dict) else None
+        status = int((packed or {}).get('status') or 500)
+        if not isinstance(body, dict):
+            body, status = _build_get_user_info_body(customer_code, prefer_sql=prefer_sql)
+        if status >= 400:
+            user_info_cache.invalidate(cache_key)
+        elif prefer_sql and body.get('success'):
+            # Overlay upgrades the fast local cache too.
+            user_info_cache.put(
+                f"{customer_code}|local",
+                {'body': body, 'status': status},
+                ttl_seconds=90.0,
             )
-
-            # One SigV4 customer read. Do not repeat it for currency, and do not fall back to
-            # raw key headers. Those extra calls were the Create Quotation delay.
-            sql_row, last_sql_status = fetch_sql_api_customer_row(customer_code)
-            sql_fields = currency_fields_from_sql_row(sql_row, customer_code, last_sql_status)
-            normalized = _normalize_customer_info(sql_row, customer_code) if sql_row else None
-            if normalized and _customer_info_has_meaningful_data(normalized):
-                _debug_log_user_info_payload('sql_api', normalized)
-                payload_out = apply_sql_api_currency_to_customer_payload(
-                    _merge_session_login_customer_udf_meta(normalized),
-                    customer_code,
-                    sql_fields=sql_fields,
-                )
-                return jsonify({
-                    'success': True,
-                    'data': payload_out,
-                    'source': 'sql_api',
-                })
-
-            local_payload = _fetch_customer_info_from_local_ar(customer_code)
-            if local_payload:
-                _debug_log_user_info_payload('local_firebird_ar', local_payload)
-                payload_out = apply_sql_api_currency_to_customer_payload(
-                    _merge_session_login_customer_udf_meta(local_payload),
-                    customer_code,
-                    sql_fields=sql_fields,
-                )
-                return jsonify({
-                    'success': True,
-                    'data': payload_out,
-                    'source': 'local_firebird_ar',
-                })
-
-            # Upstream errors (e.g. 500 "Regenerate views are required") are not "not found"; use 502 for 5xx.
-            fail_status = 502 if (last_sql_status and last_sql_status >= 500) else 404
-            err_msg = 'No SQL API customer data returned'
-            if last_sql_status:
-                err_msg = f'No SQL API customer data returned (upstream HTTP {last_sql_status})'
-            fail_body = {'success': False, 'error': err_msg}
-            if last_sql_status is not None:
-                fail_body['upstream_http_status'] = last_sql_status
-            return jsonify(fail_body), fail_status
-
-        local_only = _fetch_customer_info_from_local_ar(customer_code)
-        if local_only:
-            _debug_log_user_info_payload('local_firebird_ar', local_only)
-            from utils.sql_api_customer import apply_sql_api_currency_to_customer_payload
-
-            payload_out = apply_sql_api_currency_to_customer_payload(
-                _merge_session_login_customer_udf_meta(local_only),
-                customer_code,
-            )
-            return jsonify({
-                'success': True,
-                'data': payload_out,
-                'source': 'local_firebird_ar',
-            })
-        return jsonify({'success': False, 'error': 'No customer data from SQL API or local database'}), 404
+        return jsonify(body), status
     except Exception as e:
         print(f"[DEBUG] get_user_info: Exception occurred: {str(e)}", flush=True)
         import traceback

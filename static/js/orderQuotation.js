@@ -601,7 +601,7 @@ function formatCurrencyDisplayValue() {
 }
 
 /** Re-read currency/code from GET /api/get_user_info (same SQL API merge as initial load). */
-async function refreshSqlApiCustomerCurrencyFromGetUserInfo() {
+async function refreshSqlApiCustomerCurrencyFromGetUserInfo(options = {}) {
     const onQuotationForm =
         document.body.classList.contains('create-quotation-page')
         || document.getElementById('quotation-form')
@@ -609,19 +609,39 @@ async function refreshSqlApiCustomerCurrencyFromGetUserInfo() {
     if (!onQuotationForm) {
         return;
     }
+    const timeoutMs = Number(options.timeoutMs);
+    const preferSql = Boolean(options.preferSql);
+    const noCache = Boolean(options.noCache);
+    const qs = new URLSearchParams();
+    if (preferSql) qs.set('prefer_sql', '1');
+    if (noCache) qs.set('nocache', '1');
+    const url = qs.toString() ? `/api/get_user_info?${qs}` : '/api/get_user_info';
+    const controller = new AbortController();
+    const timer = window.setTimeout(
+        () => {
+            try { controller.abort(); } catch (_e) { /* ignore */ }
+        },
+        Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 3000,
+    );
     try {
-        const response = await fetch('/api/get_user_info');
+        const response = await fetch(url, { signal: controller.signal });
         if (!response.ok) {
-            return;
+            return null;
         }
         const envelope = await response.json();
         const source = envelope && envelope.data ? envelope.data : null;
         if (!envelope.success || !source) {
-            return;
+            return null;
         }
-        const picked = pickSqlApiCurrencyFromSource(source);
-        if (picked !== null) {
-            setSqlApiCustomerCurrencyDisplay(picked);
+        if (options.applyFullPayload) {
+            ingestCustomerApiPayload(source);
+            renderCustomerAllFields(source.displayFields);
+            syncProminentCustomerFields();
+        } else {
+            const picked = pickSqlApiCurrencyFromSource(source);
+            if (picked !== null) {
+                setSqlApiCustomerCurrencyDisplay(picked);
+            }
         }
         const apiCode = String(
             source.sqlApiCustomerCode || source.CODE || source.code || ''
@@ -634,9 +654,37 @@ async function refreshSqlApiCustomerCurrencyFromGetUserInfo() {
                 quotationForm.dataset.customerCode = apiCode;
             }
         }
+        return envelope;
     } catch (err) {
         console.warn('refreshSqlApiCustomerCurrencyFromGetUserInfo:', err);
+        return null;
+    } finally {
+        clearTimeout(timer);
     }
+}
+
+/** After local paint, upgrade customer fields from SQL Accounting without blocking UI. */
+function scheduleSqlCustomerOverlay() {
+    if (!document.body.classList.contains('create-quotation-page')) {
+        return;
+    }
+    window.setTimeout(() => {
+        refreshSqlApiCustomerCurrencyFromGetUserInfo({
+            preferSql: true,
+            noCache: true,
+            applyFullPayload: true,
+            timeoutMs: 4000,
+        }).catch(() => {});
+    }, 0);
+}
+
+/** Best-effort currency for UX; server still resolves from customer master on save. */
+async function ensureCurrencyReadyForSave() {
+    if (currencyCodeForQuotationSave()) {
+        return true;
+    }
+    await refreshSqlApiCustomerCurrencyFromGetUserInfo({ timeoutMs: 2500 });
+    return Boolean(currencyCodeForQuotationSave());
 }
 
 function syncProminentCustomerFields() {
@@ -2310,17 +2358,9 @@ if (updateQuotationForm) {
     updateQuotationForm.addEventListener('submit', async function(e) {
         e.preventDefault();
         const dockey = updateQuotationForm.dataset.dockey;
-        if (!currencyCodeForQuotationSave()) {
-            await refreshSqlApiCustomerCurrencyFromGetUserInfo();
-        }
+        await ensureCurrencyReadyForSave();
         const quotationData = buildQuotationPayload();
-        if (!applySqlApiCurrencyForSubmit(quotationData)) {
-            alert(
-                'Customer currency was not loaded. Wait for Customer details to finish loading, ' +
-                    'or confirm this customer has a currency in SQL Accounting.'
-            );
-            return;
-        }
+        applySqlApiCurrencyForSubmit(quotationData);
         if (!quotationData.items || quotationData.items.length === 0) {
             alert('Please add at least one valid item');
             return;
@@ -2365,23 +2405,20 @@ if (quotationForm) {
 
     if (saveDraftButton) {
         saveDraftButton.addEventListener('click', async function() {
-            await refreshSqlApiCustomerCurrencyFromGetUserInfo();
-            const quotationData = buildQuotationPayload();
-            if (!applySqlApiCurrencyForSubmit(quotationData)) {
-                alert(
-                    'Customer currency was not loaded. Wait for Customer details to finish loading, ' +
-                    'or confirm this customer has a currency in SQL Accounting.'
-                );
-                return;
-            }
-            const draftDockey = quotationForm.dataset.draftDockey;
-
-            if (draftDockey) {
-                quotationData.dockey = draftDockey;
-            }
-
+            const originalLabel = saveDraftButton.textContent;
+            saveDraftButton.disabled = true;
+            saveDraftButton.textContent = 'Saving…';
             try {
-                saveDraftButton.disabled = true;
+                await ensureCurrencyReadyForSave();
+                const quotationData = buildQuotationPayload();
+                // Server resolves currency from customer master; do not soft-block draft on display miss.
+                applySqlApiCurrencyForSubmit(quotationData);
+                const draftDockey = quotationForm.dataset.draftDockey;
+
+                if (draftDockey) {
+                    quotationData.dockey = draftDockey;
+                }
+
                 const response = await fetch('/api/save_draft_quotation', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -2401,14 +2438,14 @@ if (quotationForm) {
                     }
                     window.location.href = '/view-quotation?tab=drafts';
                     return;
-                } else {
-                    alert('Failed to save draft: ' + (result.error || 'Unknown error'));
                 }
+                alert('Failed to save draft: ' + (result.error || 'Unknown error'));
             } catch (error) {
                 console.error('Error saving draft quotation:', error);
                 alert('Failed to save draft. Please try again.');
             } finally {
                 saveDraftButton.disabled = false;
+                saveDraftButton.textContent = originalLabel;
             }
         });
     }
@@ -2416,52 +2453,55 @@ if (quotationForm) {
     quotationForm.addEventListener('submit', async function(e) {
         e.preventDefault();
 
-        if (!currencyCodeForQuotationSave()) {
-            await refreshSqlApiCustomerCurrencyFromGetUserInfo();
+        const submitBtn = quotationForm.querySelector('button[type="submit"]');
+        const originalSubmitLabel = submitBtn ? submitBtn.textContent : '';
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Submitting…';
         }
-        const quotationData = buildQuotationPayload();
-        if (!applySqlApiCurrencyForSubmit(quotationData)) {
-            alert(
-                'Customer currency was not loaded. Wait for Customer details to finish loading, ' +
-                    'or confirm this customer has a currency in SQL Accounting.'
-            );
-            return;
-        }
-        if (quotationData.items.length === 0) {
-            alert('Please add at least one valid item');
-            return;
+        if (saveDraftButton) {
+            saveDraftButton.disabled = true;
         }
 
-        const missingStockCodes = quotationData.items.filter(
-            (it) => it.source === 'catalog' && !it.itemCode
-        );
-        if (missingStockCodes.length) {
-            const ok = window.confirm(
-                'Some catalog lines have no stock item code (try reloading the page so products load, then pick again from the dropdown). ' +
-                    'Submitting without codes may be very slow or fail. Continue anyway?'
-            );
-            if (!ok) {
+        try {
+            await ensureCurrencyReadyForSave();
+            const quotationData = buildQuotationPayload();
+            // Server resolves currency from customer master on submit.
+            applySqlApiCurrencyForSubmit(quotationData);
+            if (quotationData.items.length === 0) {
+                alert('Please add at least one valid item');
                 return;
             }
-        }
 
-        const items = quotationData.items;
-        const dockey = quotationForm.dataset.dockey;
-        const draftDockey = quotationForm.dataset.draftDockey;
-        
-        // DEBUG: Log the data being sent
-        console.log('Quotation Data being sent:', quotationData);
-        
-        // Include dockey if editing existing SL_QT quotation
-        if (dockey) {
-            quotationData.dockey = dockey;
-        }
-        // Pass draftDockey so server can delete the draft after successful submission
-        if (draftDockey) {
-            quotationData.draftDockey = draftDockey;
-        }
-        
-        try {
+            const missingStockCodes = quotationData.items.filter(
+                (it) => it.source === 'catalog' && !it.itemCode
+            );
+            if (missingStockCodes.length) {
+                const ok = window.confirm(
+                    'Some catalog lines have no stock item code (try reloading the page so products load, then pick again from the dropdown). ' +
+                        'Submitting without codes may be very slow or fail. Continue anyway?'
+                );
+                if (!ok) {
+                    return;
+                }
+            }
+
+            const items = quotationData.items;
+            const dockey = quotationForm.dataset.dockey;
+            const draftDockey = quotationForm.dataset.draftDockey;
+            const previewDocno = String(quotationForm.dataset.previewDocno || '').trim();
+
+            if (dockey) {
+                quotationData.dockey = dockey;
+            }
+            if (draftDockey) {
+                quotationData.draftDockey = draftDockey;
+            }
+            // Reuse the previewed QT number so submit skips DOCNO re-scan/retry when possible.
+            if (!dockey && previewDocno && !quotationData.docno && !quotationData.docNo) {
+                quotationData.docno = previewDocno;
+            }
+
             const response = await fetch('/api/create_quotation', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -2473,18 +2513,13 @@ if (quotationForm) {
                 window.location.href = '/login';
                 return;
             }
-            
+
             const result = await response.json();
-            
-            // DEBUG: Log the API response
-            console.log('API Response:', result);
-            
+
             if (result.success) {
                 const displayDocNo = result.docno || result.quotationid || result.dockey;
 
-                // Send quotation pending approval email
                 try {
-                    // Calculate total amount (accounting for discount)
                     let totalAmount = 0;
                     items.forEach(item => {
                         const unitPrice = item.price || 0;
@@ -2492,24 +2527,20 @@ if (quotationForm) {
                         const discountAmount = item.discount > 0 ? item.discount : 0;
                         totalAmount += Math.max(0, lineSubtotal - discountAmount);
                     });
-                    
-                    const emailData = {
-                        docno: displayDocNo,
-                        dockey: result.dockey,
-                        totalAmount: totalAmount,
-                        items: items,
-                        companyName: quotationData.companyName
-                    };
-                    
+
                     fetch('/api/send_quotation_email', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(emailData)
+                        body: JSON.stringify({
+                            docno: displayDocNo,
+                            dockey: result.dockey,
+                            totalAmount: totalAmount,
+                            items: items,
+                            companyName: quotationData.companyName
+                        })
                     }).then(emailResponse => emailResponse.json())
                       .then(emailResult => {
-                          if (emailResult.success) {
-                              console.log('Email sent successfully:', emailResult.message);
-                          } else {
+                          if (!emailResult.success) {
                               console.warn('Email sending failed:', emailResult.error);
                           }
                       }).catch(emailError => {
@@ -2539,6 +2570,14 @@ if (quotationForm) {
         } catch (error) {
             console.error('Error saving quotation:', error);
             alert('Failed to save quotation. Please try again.');
+        } finally {
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalSubmitLabel;
+            }
+            if (saveDraftButton) {
+                saveDraftButton.disabled = false;
+            }
         }
     });
 }
@@ -2547,7 +2586,7 @@ if (quotationForm) {
 async function loadUserInfo() {
     try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
         let response;
         try {
             response = await fetch('/api/get_user_info', { signal: controller.signal });
@@ -2582,7 +2621,10 @@ async function loadUserInfo() {
             if (pickedCurrency !== null) {
                 setSqlApiCustomerCurrencyDisplay(pickedCurrency);
             } else {
-                await refreshSqlApiCustomerCurrencyFromGetUserInfo();
+                await refreshSqlApiCustomerCurrencyFromGetUserInfo({ timeoutMs: 2500 });
+            }
+            if (String(data.source || '') === 'local_firebird_ar') {
+                scheduleSqlCustomerOverlay();
             }
 
             const pickFrom = (obj, keys) => {
@@ -3016,6 +3058,9 @@ async function refreshQuotationNextDocnoPreview() {
             return;
         }
         valueEl.textContent = data.nextDocno || '—';
+        if (quotationForm && data.nextDocno && !data.isUpdate) {
+            quotationForm.dataset.previewDocno = String(data.nextDocno).trim();
+        }
         if (data.isUpdate) {
             hintEl.textContent = data.note || 'This quotation already has a number; it will not change on save.';
         } else {

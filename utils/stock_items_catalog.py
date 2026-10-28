@@ -496,18 +496,39 @@ def _attach_catalog_stock_to_line_item(item: dict[str, Any], stock: dict[str, An
     return item
 
 
-def enrich_quotation_submit_line_item(item: dict[str, Any]) -> dict[str, Any]:
+def _quotation_line_has_client_stock_detail(item: dict[str, Any]) -> bool:
+    """True when the browser already attached a catalog/stock blob with a stock code."""
+    for key in ("stockDetail", "stockApi", "stockCatalog", "catalogRow"):
+        blob = item.get(key)
+        if not isinstance(blob, dict):
+            continue
+        if str(blob.get("CODE") or blob.get("code") or "").strip():
+            return True
+    return bool(str(item.get("itemCode") or item.get("itemcode") or item.get("code") or "").strip())
+
+
+def enrich_quotation_submit_line_item(
+    item: dict[str, Any],
+    *,
+    allow_remote: bool | None = None,
+) -> dict[str, Any]:
     """
     Attach catalog stock row + lowercase ``udf_*`` keys on a create-quotation line dict.
 
     Call after ``itemCode`` / product description are known so ``udf_mtype`` is copied from
     ST_ITEM / SQL API stockitem onto the line sent to ``/salesquotation``.
+
+    When the line already carries ``stockDetail`` (or itemCode), skip remote stockitem GETs.
     """
     if not isinstance(item, dict):
         return item
+    remote = allow_remote
+    if remote is None:
+        remote = not _quotation_line_has_client_stock_detail(item)
     stock = _resolve_catalog_stock_for_line(
         item,
         needs_sql_api_detail=_quotation_stock_needs_remote_detail,
+        allow_remote=bool(remote),
     )
     return _attach_catalog_stock_to_line_item(item, stock)
 
