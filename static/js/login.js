@@ -655,6 +655,11 @@ function showError(errorElement, message, type = 'error') {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
+    // Defense in depth: drop prior-user caches whenever login is shown after /logout.
+    if (window.EQCore && typeof window.EQCore.clearSensitiveSessionCaches === 'function') {
+        window.EQCore.clearSensitiveSessionCaches();
+    }
+
     initLoginCarousel();
 
     const otpInputs = Array.from(document.querySelectorAll('.otp-digit'));

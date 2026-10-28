@@ -3049,10 +3049,26 @@ def api_verify_otp():
         print(f"Error verifying OTP: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+def _guide_capture_login_allowed() -> bool:
+    """EQ_GUIDE_CAPTURE must be on, and the caller must be loopback unless explicitly overridden.
+
+    Do not trust X-Forwarded-For here — that header is attacker-controlled without a trusted proxy.
+    """
+    if str(os.getenv('EQ_GUIDE_CAPTURE', '')).strip().lower() not in ('1', 'true', 'yes'):
+        return False
+    if str(os.getenv('EQ_GUIDE_CAPTURE_ALLOW_REMOTE', '')).strip().lower() in ('1', 'true', 'yes'):
+        return True
+    addr = (request.remote_addr or '').strip().lower()
+    return addr in ('127.0.0.1', '::1', 'localhost')
+
+
 @app.route('/api/guide_capture_login', methods=['POST'])
 def api_guide_capture_login():
-    """Dev-only session seed for user-guide screenshots. Requires EQ_GUIDE_CAPTURE=1."""
-    if str(os.getenv('EQ_GUIDE_CAPTURE', '')).strip().lower() not in ('1', 'true', 'yes'):
+    """Dev-only session seed for user-guide screenshots / local perf.
+
+    Requires EQ_GUIDE_CAPTURE=1 and a loopback client (or EQ_GUIDE_CAPTURE_ALLOW_REMOTE=1).
+    """
+    if not _guide_capture_login_allowed():
         return jsonify({'success': False, 'error': 'Guide capture login disabled'}), 404
 
     data = request.get_json(silent=True) or {}

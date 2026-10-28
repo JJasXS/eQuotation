@@ -146,6 +146,27 @@
         }
     }
 
+    /**
+     * Drop browser session caches that can paint another user's data after logout.
+     * Safe to call on login page load and before navigating to /logout.
+     */
+    function clearSensitiveSessionCaches() {
+        try {
+            const exact = [
+                'procurementViewPrFirstPageV3_page15',
+                'admin_pricing_priority_rules_cache_v1',
+            ];
+            exact.forEach((key) => sessionStorage.removeItem(key));
+            Object.keys(sessionStorage).forEach((key) => {
+                if (key.indexOf('adminDashboard.') === 0) {
+                    sessionStorage.removeItem(key);
+                }
+            });
+        } catch (_err) {
+            // Private mode / blocked storage — ignore.
+        }
+    }
+
     const api = {
         escapeHtml,
         formatDate,
@@ -153,6 +174,7 @@
         fetchJson,
         readJsonResponse,
         isAbortError,
+        clearSensitiveSessionCaches,
     };
     global.EQCore = api;
     // Back-compat: older admin pages used window.EQ

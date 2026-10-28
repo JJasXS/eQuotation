@@ -25,14 +25,11 @@ function handleAdminMenuAction(action) {
             showPendingApprovals();
             break;
         case 'logout':
-            try {
-                sessionStorage.removeItem('procurementViewPrFirstPageV3_page15');
-                Object.keys(sessionStorage).forEach((key) => {
-                    if (key.indexOf('adminDashboard.') === 0) {
-                        sessionStorage.removeItem(key);
-                    }
-                });
-            } catch (_e) { /* ignore */ }
+            if (typeof clearSensitiveSessionCachesLocal === 'function') {
+                clearSensitiveSessionCachesLocal();
+            } else if (window.EQCore && typeof window.EQCore.clearSensitiveSessionCaches === 'function') {
+                window.EQCore.clearSensitiveSessionCaches();
+            }
             window.location.href = '/logout';
             break;
         default:
