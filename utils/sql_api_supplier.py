@@ -234,12 +234,69 @@ def looks_like_email(value: Any) -> bool:
     return bool(local.strip()) and "." in domain
 
 
-def resolve_supplier_company_name(supplier_code: str, stored_name: str = "") -> str:
-    """Prefer SQL API company name; never use an email address as PH_PQ / PR company name."""
+def _local_supplier_company_name(supplier_code: str) -> str:
+    """Company name from local Firebird AP_SUPPLIER / AR_SUPPLIER (no SQL API)."""
+    code = _supplier_clean(supplier_code)
+    if not code:
+        return ""
+    try:
+        from utils.db_utils import get_db_connection
+        from utils.firebird_helpers import _get_table_columns, _pick_existing, _table_exists
+    except Exception:
+        return ""
+    con = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        for table in ("AP_SUPPLIER", "AR_SUPPLIER"):
+            if not _table_exists(cur, table):
+                continue
+            cols = _get_table_columns(cur, table)
+            code_col = _pick_existing(cols, "CODE", "SUPPLIERCODE", "SUPPLIER_CODE")
+            name_col = _pick_existing(cols, "COMPANYNAME", "COMPANY_NAME", "NAME", "DESCRIPTION")
+            if not code_col or not name_col:
+                continue
+            cur.execute(
+                f"SELECT FIRST 1 {name_col} FROM {table} WHERE TRIM(UPPER({code_col})) = ?",
+                (code.upper(),),
+            )
+            row = cur.fetchone()
+            if row:
+                raw = _supplier_clean(row[0])
+                if raw and not looks_like_email(raw):
+                    return raw
+    except Exception:
+        return ""
+    finally:
+        if con is not None:
+            try:
+                con.close()
+            except Exception:
+                pass
+    return ""
+
+
+def resolve_supplier_company_name(
+    supplier_code: str,
+    stored_name: str = "",
+    *,
+    allow_remote: bool = True,
+) -> str:
+    """Prefer a real company name; never use an email as PH_PQ / PR company name.
+
+    When ``allow_remote`` is False (bid submit fast path), skip SQL API and use
+    stored / local Firebird only so submit is not blocked on api.sql.my.
+    """
     code = _supplier_clean(supplier_code)
     stored = _supplier_clean(stored_name)
-    company = ""
-    if code:
+    if stored and not looks_like_email(stored):
+        return stored
+
+    company = _local_supplier_company_name(code)
+    if company:
+        return company
+
+    if allow_remote and code:
         row = fetch_supplier_row_by_code(code)
         if isinstance(row, dict):
             raw = _supplier_clean(
@@ -247,11 +304,9 @@ def resolve_supplier_company_name(supplier_code: str, stored_name: str = "") -> 
             )
             if raw and not looks_like_email(raw):
                 company = raw
-    if company and (looks_like_email(stored) or not stored):
+    if company:
         return company
-    if stored and not looks_like_email(stored):
-        return stored
-    return company or code or stored
+    return code or stored
 
 def supplier_billing_branch(supplier_row: dict[str, Any]) -> dict[str, Any]:
     """Prefer BILLING branch from SQL API ``sdsbranch`` array."""

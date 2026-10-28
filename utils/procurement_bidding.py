@@ -740,8 +740,6 @@ def submit_supplier_bid(
 
     from utils.sql_api_supplier import resolve_supplier_company_name
 
-    supplier_name = resolve_supplier_company_name(code, supplier_name)
-
     lines = _normalize_bid_lines(bid_lines)
     now = _utc_now()
 
@@ -750,7 +748,7 @@ def submit_supplier_bid(
         cur = con.cursor()
         cur.execute(
             """
-            SELECT FIRST 1 INVITE_ID, STATUS
+            SELECT FIRST 1 INVITE_ID, STATUS, SUPPLIER_NAME
             FROM PR_BID_INVITE
             WHERE REQUEST_DOCKEY = ? AND SUPPLIER_CODE = ?
             """,
@@ -763,6 +761,14 @@ def submit_supplier_bid(
         invite_status = _clean_text(invite_row[1]).upper() or "OPEN"
         if invite_status == "CLOSED":
             raise BiddingValidationError("bidding invitation is already closed")
+
+        # Prefer invite/local name; never block bid submit on SQL API supplier GET.
+        invite_name = _clean_text(invite_row[2] if len(invite_row) > 2 else "")
+        supplier_name = resolve_supplier_company_name(
+            code,
+            invite_name or supplier_name,
+            allow_remote=False,
+        )
 
         cur.execute(
             """
@@ -1926,6 +1932,52 @@ def _first_award_supplier(
     return "", ""
 
 
+def _clear_header_supplier_local(cur: Any, request_dockey: int, actor: str) -> None:
+    """Leave PH_PQ header supplier empty — awards live on line UDF_SUPCODE / UDF_SUPNAME."""
+    if request_dockey <= 0:
+        return
+    header_cols = _get_table_columns(cur, "PH_PQ")
+    key_col = _pick_existing(header_cols, "DOCKEY", "PQKEY", "ID")
+    if not key_col:
+        return
+    updates: dict[str, Any] = {}
+    for col, val in (
+        ("CODE", ""),
+        ("SUPPLIERID", ""),
+        ("COMPANYNAME", ""),
+        ("COMPANYNAME2", ""),
+        ("UPDATEDBY", _clean_text(actor) or "admin"),
+    ):
+        if col in header_cols:
+            updates[col] = val
+    if not updates:
+        return
+    set_parts = [f"{col} = ?" for col in updates]
+    values = list(updates.values()) + [int(request_dockey)]
+    cur.execute(
+        f"UPDATE PH_PQ SET {', '.join(set_parts)} WHERE {key_col} = ?",
+        tuple(values),
+    )
+
+
+def _sync_line_awards_sql_api_background(
+    request_dockey: int,
+    detail_ids: set[int],
+) -> None:
+    """Best-effort SQL Accounting line UDF sync after awards (header supplier stays empty)."""
+    try:
+        from utils.procurement_sql_api_sync import put_purchaserequest_lines_and_supplier_sql_api
+
+        # Pass empty supplier so header vendor is not overwritten; line UDFs carry awards.
+        put_purchaserequest_lines_and_supplier_sql_api(
+            int(request_dockey),
+            "",
+            keep_dtlkeys=detail_ids,
+        )
+    except Exception as line_sync_exc:
+        print(f"[PROCUREMENT BIDDING] background line SQL sync warning: {line_sync_exc}", flush=True)
+
+
 def _promote_pr_udf_approved_after_awards(cur: Any, dockeys: set[int] | list[int]) -> list[dict[str, Any]]:
     """Set PH_PQ.UDF_STATUS to APPROVED for awarded PRs (View e-PR transition rules).
 
@@ -2134,37 +2186,21 @@ def save_line_awards(
         # Saving awards completes the RFQ: move View e-PR off Pending onto Approved.
         approve_changes = _promote_pr_udf_approved_after_awards(cur, touched_dockeys)
 
+        # Header Supplier stays empty; line UDF_SUPCODE / UDF_SUPNAME hold awards.
+        _clear_header_supplier_local(cur, int(request_dockey), who)
+
         con.commit()
 
-        sql_line_sync: dict[str, Any] | None = None
-        header_code, header_name = _first_award_supplier(normalized, bid_map)
-        if header_code:
-            from utils.sql_api_supplier import resolve_supplier_company_name
+        # Best-effort line UDF sync only (never rewrite header vendor).
+        detail_ids = {int(d) for d, _ in normalized if int(d) > 0}
+        if detail_ids:
+            import threading
 
-            header_name = resolve_supplier_company_name(header_code, header_name)
-            try:
-                from utils.procurement_purchase_request import set_purchase_request_header_supplier
-
-                set_purchase_request_header_supplier(
-                    request_dockey,
-                    header_code,
-                    header_name,
-                    actor=who,
-                )
-            except Exception as sync_exc:
-                print(f"[PROCUREMENT BIDDING] PR header supplier sync warning: {sync_exc}", flush=True)
-            try:
-                from utils.procurement_sql_api_sync import put_purchaserequest_lines_and_supplier_sql_api
-
-                detail_ids = {int(d) for d, _ in normalized if int(d) > 0}
-                sql_line_sync = put_purchaserequest_lines_and_supplier_sql_api(
-                    request_dockey,
-                    header_code,
-                    keep_dtlkeys=detail_ids,
-                )
-            except Exception as line_sync_exc:
-                print(f"[PROCUREMENT BIDDING] PR line SQL API sync warning: {line_sync_exc}", flush=True)
-                sql_line_sync = {"synced": False, "error": str(line_sync_exc)}
+            threading.Thread(
+                target=_sync_line_awards_sql_api_background,
+                args=(int(request_dockey), detail_ids),
+                daemon=True,
+            ).start()
 
         out: dict[str, Any] = {
             "requestDockey": int(request_dockey),
@@ -2172,6 +2208,8 @@ def save_line_awards(
             "supplierCount": len(supplier_codes),
             "lineSupplierUpdates": line_supplier_updates,
             "udfStatus": "APPROVED",
+            "headerSupplierCleared": True,
+            "sqlSyncQueued": bool(detail_ids),
             "approvedRequestIds": [
                 int(c.get("requestId") or 0)
                 for c in approve_changes
@@ -2179,8 +2217,6 @@ def save_line_awards(
             ],
             "udfStatusChanges": approve_changes,
         }
-        if sql_line_sync is not None:
-            out["sqlLineSync"] = sql_line_sync
         return out
     except Exception:
         con.rollback()

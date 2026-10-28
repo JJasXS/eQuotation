@@ -8050,11 +8050,9 @@ def api_supplier_submit_bid():
     bid_lines = payload.get('bidLines') if isinstance(payload.get('bidLines'), list) else []
     remarks = str(payload.get('remarks') or '').strip()
 
+    # Session supplier only — never trust a client-supplied supplierCode.
     supplier_code = (session.get('supplier_code') or session.get('customer_code') or '').strip()
     supplier_name = str(payload.get('supplierName') or session.get('user_email') or '').strip()
-    from utils.sql_api_supplier import resolve_supplier_company_name
-
-    supplier_name = resolve_supplier_company_name(supplier_code, supplier_name)
     actor = (session.get('user_email') or supplier_code or 'supplier').strip()
 
     if not raw_request_id and not request_no:
@@ -8064,11 +8062,16 @@ def api_supplier_submit_bid():
     if not bid_lines:
         return jsonify({'success': False, 'error': 'bidLines[] is required'}), 400
 
+    t0 = time.perf_counter()
     try:
-        headers = _build_sql_api_auth_headers()
-        request_header, last_status = _resolve_purchase_request_header(raw_request_id, request_no, headers, timeout=12)
+        # Local Firebird first — bid submit must not wait on api.sql.my.
+        request_header = _resolve_local_purchase_request_header(raw_request_id, request_no)
+        last_status = 200 if request_header else 404
         if not request_header:
-            request_header = _resolve_local_purchase_request_header(raw_request_id, request_no)
+            headers = _build_sql_api_auth_headers()
+            request_header, last_status = _resolve_purchase_request_header(
+                raw_request_id, request_no, headers, timeout=(1.0, 3.0)
+            )
 
         if not request_header:
             if last_status in (200, 404):
@@ -8077,6 +8080,7 @@ def api_supplier_submit_bid():
 
         request_dockey = int(request_header.get('dockey'))
         request_docno = str(request_header.get('docno') or '').strip()
+        t_resolve = time.perf_counter()
         result = submit_supplier_bid(
             request_dockey=request_dockey,
             request_no=request_docno,
@@ -8085,6 +8089,13 @@ def api_supplier_submit_bid():
             bid_lines=bid_lines,
             remarks=remarks,
             created_by=actor,
+        )
+        t_done = time.perf_counter()
+        print(
+            f"[SUPPLIER BIDDING SUBMIT] timing resolve={((t_resolve - t0) * 1000):.0f}ms "
+            f"save={((t_done - t_resolve) * 1000):.0f}ms total={((t_done - t0) * 1000):.0f}ms "
+            f"dockey={request_dockey} supplier={supplier_code} lines={len(bid_lines)}",
+            flush=True,
         )
         return jsonify({'success': True, 'message': 'Bid submitted successfully', 'data': result})
     except BiddingValidationError as exc:
@@ -8141,22 +8152,29 @@ def _enrich_supplier_rows_company_names(rows: list) -> list:
     return rows
 
 
-def _enrich_bidding_gate_with_pr_udf(request_id: int, gate: dict) -> dict:
-    """Merge SQL API + local PH_PQ UDF status so item awards lock matches View e-PR."""
+def _enrich_bidding_gate_with_pr_udf(request_id: int, gate: dict, *, allow_remote: bool = True) -> dict:
+    """Merge PH_PQ UDF status so item awards lock matches View e-PR.
+
+    Local Firebird is source of truth for award save. SQL API overlay is optional
+    and skipped on the save path so Save Item Awards is not blocked on api.sql.my.
+    """
     if not isinstance(gate, dict):
         gate = {}
     api_udf = ''
-    try:
-        headers = _build_sql_api_auth_headers()
-        request_header, _status = _resolve_purchase_request_header(request_id, '', headers, timeout=8)
-        if isinstance(request_header, dict):
-            api_udf = normalize_pr_udf_status(
-                request_header.get('udf_status') or request_header.get('udfStatus')
+    if allow_remote:
+        try:
+            headers = _build_sql_api_auth_headers()
+            request_header, _status = _resolve_purchase_request_header(
+                request_id, '', headers, timeout=(1.0, 3.0)
             )
-    except Exception:
-        api_udf = ''
+            if isinstance(request_header, dict):
+                api_udf = normalize_pr_udf_status(
+                    request_header.get('udf_status') or request_header.get('udfStatus')
+                )
+        except Exception:
+            api_udf = ''
     local_udf = normalize_pr_udf_status(gate.get('prUdfStatus') or get_pr_udf_status_local(request_id))
-    display_udf = api_udf or local_udf
+    display_udf = local_udf or api_udf
     gate['prUdfStatus'] = display_udf
     gate['prUdfStatusApi'] = api_udf
     gate['prUdfStatusLocal'] = local_udf
@@ -8185,11 +8203,21 @@ def api_admin_save_bid_line_awards(request_id):
     awards = payload.get('awards') if isinstance(payload.get('awards'), list) else []
     udf_reason = str(payload.get('udfReason') or payload.get('reason') or '').strip()
     actor = (session.get('user_email') or session.get('user_name') or 'admin').strip()
+    t0 = time.perf_counter()
     try:
-        gate_preview = _enrich_bidding_gate_with_pr_udf(request_id, get_transfer_gate_state(request_id))
-        api_udf = str(gate_preview.get('prUdfStatusApi') or gate_preview.get('prUdfStatus') or '').strip()
-        result = save_line_awards(request_id, awards, actor, udf_reason, pr_udf_status=api_udf)
-        gate = _enrich_bidding_gate_with_pr_udf(request_id, get_transfer_gate_state(request_id))
+        # Local UDF only — do not wait on SQL API before/after award save.
+        gate_preview = _enrich_bidding_gate_with_pr_udf(
+            request_id, get_transfer_gate_state(request_id), allow_remote=False
+        )
+        local_udf = str(
+            gate_preview.get('prUdfStatusLocal') or gate_preview.get('prUdfStatus') or ''
+        ).strip()
+        t_gate = time.perf_counter()
+        result = save_line_awards(request_id, awards, actor, udf_reason, pr_udf_status=local_udf)
+        t_save = time.perf_counter()
+        gate = _enrich_bidding_gate_with_pr_udf(
+            request_id, get_transfer_gate_state(request_id), allow_remote=False
+        )
         supplier_count = 0
         try:
             supplier_count = int((result or {}).get('supplierCount') or 0)
@@ -8201,6 +8229,12 @@ def api_admin_save_bid_line_awards(request_id):
                 'Line awards saved on one purchase request '
                 '(suppliers stored per line); moved to Approved'
             )
+        print(
+            f"[PROCUREMENT BIDDING LINE AWARD] timing gate={((t_gate - t0) * 1000):.0f}ms "
+            f"save={((t_save - t_gate) * 1000):.0f}ms total={((time.perf_counter() - t0) * 1000):.0f}ms "
+            f"dockey={request_id} awards={len(awards)} suppliers={supplier_count}",
+            flush=True,
+        )
         return jsonify({
             'success': True,
             'message': message,

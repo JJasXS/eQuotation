@@ -149,18 +149,8 @@ def test_save_line_awards_does_not_call_split(monkeypatch):
             return _Cur2()
 
     monkeypatch.setattr(bidding, "_connect_db", lambda: _Con2())
-    monkeypatch.setattr(
-        "utils.sql_api_supplier.resolve_supplier_company_name",
-        lambda code, name: name or code,
-    )
-    monkeypatch.setattr(
-        "utils.procurement_purchase_request.set_purchase_request_header_supplier",
-        lambda *_a, **_k: None,
-    )
-    monkeypatch.setattr(
-        "utils.procurement_sql_api_sync.put_purchaserequest_lines_and_supplier_sql_api",
-        lambda *_a, **_k: {"synced": True},
-    )
+    monkeypatch.setattr(bidding, "_clear_header_supplier_local", lambda *_a, **_k: None)
+    monkeypatch.setattr(bidding, "_sync_line_awards_sql_api_background", lambda *_a, **_k: None)
     monkeypatch.setattr(
         "utils.procurement_pr_split._recalc_header_amounts",
         lambda *_a, **_k: None,
@@ -177,3 +167,4 @@ def test_save_line_awards_does_not_call_split(monkeypatch):
     assert result["supplierCount"] == 2
     assert result["lineSupplierUpdates"] == 2
     assert result["udfStatus"] == "APPROVED"
+    assert result.get("sqlSyncQueued") is True
