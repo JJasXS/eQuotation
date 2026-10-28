@@ -398,6 +398,61 @@ def _ensure_chat_tpl_message_columns(conn):
         cur.close()
 
 
+def _ensure_st_item_udf_direct_checkbox(conn):
+    """Let SQL Accounting turn ST_ITEM.UDF_DIRECT on.
+
+    The column is a Firebird BOOLEAN. A NULL value makes the stock-item checkbox
+    throw "Could not convert variant of type (Null) into type (Double)".
+    FALSE is unchecked and can be switched to TRUE. The report reads IS TRUE.
+    """
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT F.RDB$FIELD_TYPE
+            FROM RDB$RELATION_FIELDS RF
+            JOIN RDB$FIELDS F ON F.RDB$FIELD_NAME = RF.RDB$FIELD_SOURCE
+            WHERE TRIM(RF.RDB$RELATION_NAME) = 'ST_ITEM'
+              AND TRIM(RF.RDB$FIELD_NAME) = 'UDF_DIRECT'
+            """
+        )
+        row = cur.fetchone()
+        if not row or int(row[0] or 0) != 23:
+            print("[DB INIT] ST_ITEM.UDF_DIRECT is not a Firebird boolean; checkbox ensure skipped")
+            return False
+
+        cur.execute("UPDATE ST_ITEM SET UDF_DIRECT = FALSE WHERE UDF_DIRECT IS NULL")
+        conn.commit()
+        try:
+            cur.execute("DROP TRIGGER TRG_ST_ITEM_UDF_DIRECT_BOOL")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+        cur.execute(
+            """
+            CREATE TRIGGER TRG_ST_ITEM_UDF_DIRECT_BOOL FOR ST_ITEM
+            ACTIVE BEFORE INSERT OR UPDATE POSITION 0
+            AS
+            BEGIN
+              IF (NEW.UDF_DIRECT IS NULL) THEN
+                NEW.UDF_DIRECT = FALSE;
+            END
+            """
+        )
+        conn.commit()
+        print("[DB INIT] ST_ITEM.UDF_DIRECT nulls set to FALSE so the checkbox can be turned on")
+        return True
+    except Exception as exc:
+        print(f"[DB INIT WARNING] UDF_DIRECT checkbox ensure skipped: {exc}")
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return False
+    finally:
+        cur.close()
+
+
 def _ensure_st_item_udf_uom_column(conn):
     """Ensure ST_ITEM table has UDF_UOM column for quotation item UOM lookups."""
     cur = conn.cursor()
@@ -2419,6 +2474,7 @@ def initialize_database(db_path, db_user, db_password):
 
         # Ensure ST_ITEM has UDF_UOM for quotation item lookup queries
         _ensure_st_item_udf_uom_column(conn)
+        _ensure_st_item_udf_direct_checkbox(conn)
         
         # One-time backfill from AR_CUSTOMERBRANCH.EMAIL to AR_CUSTOMER.UDF_EMAIL
         _backfill_udf_email_from_branch_email(conn)
