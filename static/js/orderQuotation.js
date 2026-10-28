@@ -2399,6 +2399,38 @@ if (updateQuotationForm) {
     });
 }
 
+function quotationSaveResultFromResponse(status, bodyText) {
+    const trimmed = String(bodyText || '').trim();
+    const looksHtml = trimmed.startsWith('<') || /^<!doctype/i.test(trimmed);
+    if (!looksHtml && trimmed) {
+        try {
+            const payload = JSON.parse(trimmed);
+            if (payload && typeof payload === 'object') {
+                return payload;
+            }
+        } catch (error) {
+            /* Non-JSON body is handled below. */
+        }
+    }
+    if (status === 504) {
+        return {
+            success: false,
+            errorCode: 'SQL_API_TIMEOUT',
+            error: 'Saving the quotation timed out. Check Sales Quotation for this document before submitting again. A second submit can create a duplicate.'
+        };
+    }
+    if (status === 502 || status === 503) {
+        return {
+            success: false,
+            error: 'The quotation service is unavailable right now. Check Sales Quotation before submitting again.'
+        };
+    }
+    return {
+        success: false,
+        error: 'The server returned an unexpected response (HTTP ' + status + '). Check Sales Quotation before submitting again.'
+    };
+}
+
 const quotationForm = document.getElementById('quotation-form');
 if (quotationForm) {
     const saveDraftButton = document.getElementById('save-draft-btn');
@@ -2463,6 +2495,7 @@ if (quotationForm) {
             saveDraftButton.disabled = true;
         }
 
+        let quotationSaved = false;
         try {
             await ensureCurrencyReadyForSave();
             const quotationData = buildQuotationPayload();
@@ -2514,9 +2547,10 @@ if (quotationForm) {
                 return;
             }
 
-            const result = await response.json();
+            const result = quotationSaveResultFromResponse(response.status, await response.text());
 
             if (result.success) {
+                quotationSaved = true;
                 const displayDocNo = result.docno || result.quotationid || result.dockey;
 
                 try {
@@ -2569,13 +2603,13 @@ if (quotationForm) {
             }
         } catch (error) {
             console.error('Error saving quotation:', error);
-            alert('Failed to save quotation. Please try again.');
+            alert('Failed to save quotation. Check Sales Quotation before submitting again.');
         } finally {
-            if (submitBtn) {
+            if (submitBtn && !quotationSaved) {
                 submitBtn.disabled = false;
                 submitBtn.textContent = originalSubmitLabel;
             }
-            if (saveDraftButton) {
+            if (saveDraftButton && !quotationSaved) {
                 saveDraftButton.disabled = false;
             }
         }

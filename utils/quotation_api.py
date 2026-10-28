@@ -998,8 +998,8 @@ def _timeout_failure(doc_no: str, *, updating: bool) -> dict:
         )
     else:
         error = (
-            f"SQL Accounting timed out while saving {doc_no}. "
-            "Wait a minute, then check Sales Quotation for that number before submitting again."
+            f"Saving {doc_no} is unconfirmed after a timeout. "
+            "Check Sales Quotation for that number before submitting again."
         )
     return {"success": False, "errorCode": "SQL_API_TIMEOUT", "error": error}
 
@@ -1046,15 +1046,14 @@ def _after_quotation_timeout(
     """Return (response, retries, retry_same_number).
 
     An update already has an SL_QT row, so that row is not proof the save finished.
-    A create is recovered only when this document number appears.
+    A create is recovered only when this document number appears. A missing row is
+    unconfirmed: do not POST ``/salesquotation`` again.
     """
     if is_update:
         return _timeout_failure(doc_no, updating=True), gateway_retries, False
     found = _wait_for_sl_qt_docno(doc_no)
     if found:
         return _saved_quotation_result(found, doc_no), gateway_retries, False
-    if gateway_retries < 1:
-        return None, gateway_retries + 1, True
     return (
         _draft_after_unconfirmed_save(base_api_url, customer_code, data, doc_no),
         gateway_retries,
@@ -1748,6 +1747,10 @@ def create_or_update_quotation(base_api_url, customer_code, data):
             )
 
         if _is_gateway_timeout(status, raw or ""):
+            print(
+                f"[quotation_api] salesquotation gateway timeout HTTP {status} docno={doc_no!r}",
+                flush=True,
+            )
             outcome, gateway_retries, retry_same = _after_quotation_timeout(
                 base_api_url,
                 customer_code,
