@@ -1,0 +1,93 @@
+{
+  "label": "before",
+  "status": "ok",
+  "base_url": "http://127.0.0.1:8881",
+  "minutes_15": 15,
+  "minutes_30": 30,
+  "visibility_triggered_requests": 0,
+  "server_start": {
+    "WorkingSetMB": 124.57,
+    "CPU": 1.984375,
+    "PrivateMB": 107.52,
+    "Threads": 9,
+    "Handles": 216,
+    "pid": 18520,
+    "status": "ok"
+  },
+  "server_15": {
+    "WorkingSetMB": 133.58,
+    "CPU": 3.265625,
+    "PrivateMB": 115.08,
+    "Threads": 10,
+    "Handles": 304,
+    "pid": 18520,
+    "status": "ok"
+  },
+  "server_30": {
+    "WorkingSetMB": 133.58,
+    "CPU": 4.078125,
+    "PrivateMB": 115.08,
+    "Threads": 10,
+    "Handles": 304,
+    "pid": 18520,
+    "status": "ok"
+  },
+  "pages": {
+    "admin": {
+      "path": "/admin",
+      "heap0": {
+        "usedJSHeapSize": 2844710,
+        "totalJSHeapSize": 5758602
+      },
+      "idle_requests_15": 0,
+      "idle_requests_30": 0,
+      "heap_15": {
+        "usedJSHeapSize": 1868089,
+        "totalJSHeapSize": 2612137
+      },
+      "heap_30": {
+        "usedJSHeapSize": 1887893,
+        "totalJSHeapSize": 2612137
+      },
+      "idle_urls_30": []
+    },
+    "create_quotation": {
+      "path": "/create-quotation",
+      "heap0": {
+        "usedJSHeapSize": 1540401,
+        "totalJSHeapSize": 2529605
+      },
+      "idle_requests_15": 0,
+      "idle_requests_30": 0,
+      "heap_15": {
+        "usedJSHeapSize": 1045157,
+        "totalJSHeapSize": 2005077
+      },
+      "heap_30": {
+        "usedJSHeapSize": 1067833,
+        "totalJSHeapSize": 2267221
+      },
+      "idle_urls_30": []
+    },
+    "procurement": {
+      "path": "/admin/procurement?tab=report",
+      "heap0": {
+        "usedJSHeapSize": 2225842,
+        "totalJSHeapSize": 3546938
+      },
+      "idle_requests_15": 1,
+      "idle_requests_30": 1,
+      "heap_15": {
+        "usedJSHeapSize": 1440874,
+        "totalJSHeapSize": 2488778
+      },
+      "heap_30": {
+        "usedJSHeapSize": 1462086,
+        "totalJSHeapSize": 2488778
+      },
+      "idle_urls_30": [
+        "http://127.0.0.1:8881/api/admin/procurement/stock-card?qty_mode=SUOMQTY"
+      ]
+    }
+  }
+}

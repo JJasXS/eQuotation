@@ -2695,6 +2695,11 @@ def api_lookup_postcode():
         print(f"[ERROR] lookup_postcode failed: {e}")
         return jsonify({'success': False, 'error': 'Failed to lookup postcode'}), 500
 
+def _mock_otp_on_screen() -> bool:
+    """MOCK=true shows the login OTP on the page. Any other value keeps it out of the response."""
+    return (os.getenv("MOCK") or "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def _login_otp_storage_key(email: str, login_mode: str) -> str:
     """OTP is scoped by login tab (customer / admin / supplier) so the same inbox can use different codes."""
     e = (email or '').strip().lower()
@@ -2876,7 +2881,7 @@ def api_send_otp():
             'resend_cooldown_seconds': OTP_RESEND_COOLDOWN_SECONDS,
         }
 
-        if app.debug:
+        if _mock_otp_on_screen():
             response_payload['debug_otp'] = otp
 
         return jsonify(response_payload), 200
@@ -3044,10 +3049,26 @@ def api_verify_otp():
         print(f"Error verifying OTP: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+def _guide_capture_login_allowed() -> bool:
+    """EQ_GUIDE_CAPTURE must be on, and the caller must be loopback unless explicitly overridden.
+
+    Do not trust X-Forwarded-For here — that header is attacker-controlled without a trusted proxy.
+    """
+    if str(os.getenv('EQ_GUIDE_CAPTURE', '')).strip().lower() not in ('1', 'true', 'yes'):
+        return False
+    if str(os.getenv('EQ_GUIDE_CAPTURE_ALLOW_REMOTE', '')).strip().lower() in ('1', 'true', 'yes'):
+        return True
+    addr = (request.remote_addr or '').strip().lower()
+    return addr in ('127.0.0.1', '::1', 'localhost')
+
+
 @app.route('/api/guide_capture_login', methods=['POST'])
 def api_guide_capture_login():
-    """Dev-only session seed for user-guide screenshots. Requires EQ_GUIDE_CAPTURE=1."""
-    if str(os.getenv('EQ_GUIDE_CAPTURE', '')).strip().lower() not in ('1', 'true', 'yes'):
+    """Dev-only session seed for user-guide screenshots / local perf.
+
+    Requires EQ_GUIDE_CAPTURE=1 and a loopback client (or EQ_GUIDE_CAPTURE_ALLOW_REMOTE=1).
+    """
+    if not _guide_capture_login_allowed():
         return jsonify({'success': False, 'error': 'Guide capture login disabled'}), 404
 
     data = request.get_json(silent=True) or {}
@@ -3878,14 +3899,14 @@ def api_admin_update_order_status():
     if status not in valid_statuses:
         return jsonify({'success': False, 'error': 'Invalid status'}), 400
 
+    con = None
+    cur = None
     try:
         con = get_db_connection()
         cur = con.cursor()
         cur.execute('UPDATE ORDER_TPL SET STATUS = ? WHERE ORDERID = ?', (status, orderid))
         con.commit()
         updated = cur.rowcount
-        cur.close()
-        con.close()
 
         if not updated:
             return jsonify({'success': False, 'error': 'Order not found'}), 404
@@ -3893,6 +3914,17 @@ def api_admin_update_order_status():
         return jsonify({'success': True, 'orderid': orderid, 'status': status})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if con:
+                con.close()
+        except Exception:
+            pass
 
 @app.route('/api/insert_chat', methods=['POST'])
 @api_login_required(unauth_message='Unauthorized')
@@ -3901,6 +3933,8 @@ def api_insert_chat():
     chat_name = data.get('chatname', '').strip()
     if not chat_name:
         return jsonify({'success': False, 'error': 'Chat name required'}), 400
+    con = None
+    cur = None
     try:
         con = get_db_connection()
         cur = con.cursor()
@@ -3936,8 +3970,6 @@ def api_insert_chat():
         )
         
         con.commit()
-        cur.close()
-        con.close()
         
         print(f"[INFO] Chat {chatid} created successfully with welcome message")
         
@@ -3953,6 +3985,17 @@ def api_insert_chat():
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if con:
+                con.close()
+        except Exception:
+            pass
 
 @app.route('/get_chat_details')
 @api_login_required(unauth_message='Unauthorized')
@@ -3983,12 +4026,12 @@ def check_draft_order():
     if not user_owns_chat(chatid, session.get('user_email')):
         return jsonify({'success': False, 'error': 'Forbidden'}), 403
     
+    con = None
+    cur = None
     try:
         con = get_db_connection()
         cur = con.cursor()
         order_id = find_draft_order_id_by_chatid(cur, chatid)
-        cur.close()
-        con.close()
         
         if order_id is not None:
             return jsonify({'success': True, 'hasDraft': True, 'orderid': order_id})
@@ -3996,6 +4039,17 @@ def check_draft_order():
             return jsonify({'success': True, 'hasDraft': False})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if con:
+                con.close()
+        except Exception:
+            pass
 
 @app.route('/api/check_user_has_draft')
 @api_login_required(unauth_message='Unauthorized')

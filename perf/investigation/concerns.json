@@ -1,0 +1,120 @@
+{
+  "architecture": {
+    "entry": "main.py unified Starlette+uvicorn (Flask WSGI + FastAPI mount + /static)",
+    "default_port": 8880,
+    "db": "Firebird via utils/db_utils.get_db_connection / db_connection contextmanager",
+    "background_threads": [
+      "utils/tenant_bootstrap.start_tenant_config_refresh_worker (default 24h)",
+      "main.py RFQ email daemon threads on PR invite",
+      "utils/procurement_purchase_request.py pr-sql-line-sync daemon"
+    ]
+  },
+  "concerns": {
+    "1_eager_stock_card": {
+      "confirmed": true,
+      "evidence": "loadStockCardRows() inside DOMContentLoaded near line 10417",
+      "file": "static/js/procurement/precurement_app.js"
+    },
+    "2_fetch_timeouts": {
+      "confirmed": true,
+      "abort_controllers": 1,
+      "fetch_calls_in_precurement_app": 23,
+      "note": "Writes must never be auto-aborted; only GET reads are candidates for timeout helpers."
+    },
+    "3_ttl_cache_growth": {
+      "confirmed": true,
+      "expired_only_on_access": true,
+      "has_max_entries": false,
+      "dict_caches": {
+        "PURCHASE_REQUEST_LIST_CACHE": true,
+        "ADMIN_DASHBOARD_API_CACHE": true,
+        "ttl_cache_sql_api_master": true
+      }
+    },
+    "4_visibility_refresh": {
+      "confirmed": true,
+      "line": 10433,
+      "has_min_age_guard": false
+    },
+    "5_db_connection_cleanup": {
+      "confirmed": true,
+      "suspect_lines_no_close_in_120": [
+        7350,
+        8182,
+        10021,
+        10810
+      ],
+      "note": "Many handlers are long; prefer db_connection() contextmanager. Confirm each before changing."
+    },
+    "6_timers_workers": {
+      "confirmed": true,
+      "setInterval_sites": [
+        {
+          "file": "static/js/login.js",
+          "line": 529
+        },
+        {
+          "file": "static/js/login.js",
+          "line": 543
+        }
+      ],
+      "pagehide_cleanup_present": false
+    },
+    "7_large_files": {
+      "confirmed": true,
+      "largest_js": [
+        {
+          "path": "static/js/procurement/precurement_app.js",
+          "bytes": 372857
+        },
+        {
+          "path": "static/js/orderQuotation.js",
+          "bytes": 137267
+        },
+        {
+          "path": "static/js/adminViewQuotations.js",
+          "bytes": 65182
+        },
+        {
+          "path": "static/js/viewQuotation.js",
+          "bytes": 29572
+        },
+        {
+          "path": "static/js/updateQuotation.js",
+          "bytes": 26747
+        }
+      ],
+      "largest_py": [
+        {
+          "path": "main.py",
+          "bytes": 488135
+        },
+        {
+          "path": "utils/procurement_bidding.py",
+          "bytes": 104810
+        },
+        {
+          "path": "db_initializer.py",
+          "bytes": 88687
+        },
+        {
+          "path": "utils/procurement_purchase_request.py",
+          "bytes": 76732
+        },
+        {
+          "path": "utils/quotation_api.py",
+          "bytes": 74443
+        }
+      ]
+    },
+    "8_external_api_timeouts": {
+      "confirmed": false,
+      "no_timeout_sites": []
+    }
+  },
+  "inactivity_policy": {
+    "pause_polling_when_hidden": true,
+    "refresh_on_visible_only_if_older_than_sec": 60,
+    "do_not_change_session_expiry": true
+  }
+}

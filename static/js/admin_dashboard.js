@@ -246,9 +246,13 @@ async function loadCustomerStatusWidget() {
     const cached = readDashboardCache('adminDashboard.customerStatus');
     if (cached && Array.isArray(cached.items)) {
         renderCustomerStatusChart(cached.items);
+        return;
     }
     try {
-        const response = await fetch('/api/admin/customer_status_summary');
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        const response = await fetch('/api/admin/customer_status_summary', { signal: controller.signal });
+        clearTimeout(timeoutId);
         const payload = await response.json();
 
         if (!response.ok || !payload.success || !payload.data || !Array.isArray(payload.data.items)) {
@@ -273,10 +277,14 @@ async function loadSalesCycleWidget() {
     const cached = readDashboardCache('adminDashboard.salesCycle');
     if (cached) {
         renderSalesCycleWidget(cached);
+        return;
     }
 
     try {
-        const response = await fetch('/api/admin/sales_cycle_summary');
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        const response = await fetch('/api/admin/sales_cycle_summary', { signal: controller.signal });
+        clearTimeout(timeoutId);
         const payload = await response.json();
 
         if (!response.ok || !payload.success || !payload.data || typeof payload.data !== 'object') {
@@ -304,15 +312,20 @@ async function loadQtIvConversionWidget() {
     const cached = readDashboardCache('adminDashboard.qtIvConversion');
     if (cached) {
         renderQtIvConversionWidget(cached);
+        return;
     }
 
     try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
         const response = await fetch('/api/admin/qt_iv_conversion_report?summary_only=1', {
             method: 'GET',
             headers: {
                 Accept: 'application/json',
             },
+            signal: controller.signal,
         });
+        clearTimeout(timeoutId);
         const payload = await response.json();
         if (!response.ok || !payload || payload.success !== true || !payload.data || typeof payload.data !== 'object') {
             throw new Error((payload && payload.error) || 'Failed to load QT->IV conversion report');

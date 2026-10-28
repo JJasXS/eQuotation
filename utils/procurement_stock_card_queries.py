@@ -60,6 +60,59 @@ def _scale_item_location_qty_map(
     return out
 
 
+_FIREBIRD_BOOLEAN = 23
+
+
+def _udf_direct_field_type(cur) -> int | None:
+    """Firebird type code for ST_ITEM.UDF_DIRECT, or None when the column is absent."""
+    cur.execute(
+        """
+        SELECT F.RDB$FIELD_TYPE
+        FROM RDB$RELATION_FIELDS RF
+        JOIN RDB$FIELDS F ON F.RDB$FIELD_NAME = RF.RDB$FIELD_SOURCE
+        WHERE TRIM(RF.RDB$RELATION_NAME) = 'ST_ITEM'
+          AND TRIM(RF.RDB$FIELD_NAME) = 'UDF_DIRECT'
+        """
+    )
+    row = cur.fetchone()
+    if not row or row[0] is None:
+        return None
+    return int(row[0])
+
+
+def _codes_from_direct_rows(rows, *, boolean_column: bool) -> list[str]:
+    codes: list[str] = []
+    for row in rows or []:
+        code = _clean_str(row[0] if row else None)
+        if not code:
+            continue
+        if boolean_column or _truthy(row[1] if len(row) > 1 else None):
+            codes.append(code)
+    return codes
+
+
+def _codes_marked_udf_direct(cur, st_item_cols: set[str]) -> list[str] | None:
+    """Item codes with ST_ITEM.UDF_DIRECT checked. None when the column does not exist.
+
+    SQL Accounting stores this checkbox as a Firebird BOOLEAN. Only TRUE is checked.
+    NULL is not checked, and a CHAR T/Y/1 value is accepted on older books.
+    """
+    if "UDF_DIRECT" not in st_item_cols:
+        return None
+    if _udf_direct_field_type(cur) == _FIREBIRD_BOOLEAN:
+        cur.execute(
+            """
+            SELECT CODE
+            FROM ST_ITEM
+            WHERE UDF_DIRECT IS TRUE
+            ORDER BY CODE
+            """
+        )
+        return _codes_from_direct_rows(cur.fetchall(), boolean_column=True)
+    cur.execute("SELECT CODE, UDF_DIRECT FROM ST_ITEM ORDER BY CODE")
+    return _codes_from_direct_rows(cur.fetchall(), boolean_column=False)
+
+
 def _iv_header_not_cancelled_sql(header_cols: set[str], alias: str = "H") -> str:
     """Exclude cancelled invoices when a cancel flag column exists."""
     upper = {c.upper() for c in header_cols}
@@ -1439,27 +1492,18 @@ def fetch_procurement_stock_card_data(
         if location_code:
             locations.append(location_code)
 
-    # Report tab: only stock items with truthy ST_ITEM.UDF_DIRECT (Create tab stays unfiltered).
+    # Report tab: only stock items with ST_ITEM.UDF_DIRECT checked (Create tab stays unfiltered).
     st_item_cols = _get_table_columns(cur, "ST_ITEM")
-    item_codes = []
-    if "UDF_DIRECT" in st_item_cols:
-        cur.execute("SELECT CODE, UDF_DIRECT FROM ST_ITEM ORDER BY CODE")
-        item_rows = cur.fetchall() or []
-        for row in item_rows:
-            code = _clean_str(row[0] if row and len(row) > 0 else None)
-            if code and _truthy(row[1] if row and len(row) > 1 else None):
-                item_codes.append(code)
-    else:
+    direct_codes = _codes_marked_udf_direct(cur, st_item_cols)
+    if direct_codes is None:
         print(
             "[PROCUREMENT STOCK CARD] ST_ITEM.UDF_DIRECT missing; showing all items",
             flush=True,
         )
         cur.execute("SELECT CODE FROM ST_ITEM ORDER BY CODE")
-        item_rows = cur.fetchall() or []
-        for row in item_rows:
-            code = _clean_str(row[0] if row and len(row) > 0 else None)
-            if code:
-                item_codes.append(code)
+        item_codes = _codes_from_direct_rows(cur.fetchall(), boolean_column=True)
+    else:
+        item_codes = direct_codes
 
     date_params = tuple(value for value in (normalized_from, normalized_to) if value is not None)
 

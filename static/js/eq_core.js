@@ -92,17 +92,90 @@
         }
     }
 
-    async function fetchJson(url, options) {
-        const resp = await fetch(url, options);
-        const payload = await readJsonResponse(resp);
-        if (!resp.ok) {
-            const msg = (payload && (payload.error || payload.message || payload.detail)) || `HTTP ${resp.status}`;
-            throw new Error(String(msg));
-        }
-        return payload;
+    function isAbortError(err) {
+        if (!err) return false;
+        if (err.name === 'AbortError') return true;
+        const msg = String(err.message || err || '');
+        return /aborted|AbortError/i.test(msg);
     }
 
-    const api = { escapeHtml, formatDate, formatMoney, fetchJson, readJsonResponse };
+    /**
+     * GET/POST helper with optional timeoutMs. Pass options.signal to compose with caller abort.
+     * Does not invent retries. Callers must not use this to auto-cancel financial writes unless they intend to.
+     */
+    async function fetchJson(url, options) {
+        const opts = Object.assign({}, options || {});
+        const timeoutMs = Number(opts.timeoutMs);
+        delete opts.timeoutMs;
+        let timer = null;
+        let timedOut = false;
+        const controller = (Number.isFinite(timeoutMs) && timeoutMs > 0) ? new AbortController() : null;
+        if (controller) {
+            const parent = opts.signal;
+            if (parent) {
+                if (parent.aborted) {
+                    controller.abort();
+                } else {
+                    parent.addEventListener('abort', () => controller.abort(), { once: true });
+                }
+            }
+            opts.signal = controller.signal;
+            timer = setTimeout(() => {
+                timedOut = true;
+                try { controller.abort(); } catch (_e) { /* ignore */ }
+            }, timeoutMs);
+        }
+        try {
+            const resp = await fetch(url, opts);
+            const payload = await readJsonResponse(resp);
+            if (!resp.ok) {
+                const msg = (payload && (payload.error || payload.message || payload.detail)) || `HTTP ${resp.status}`;
+                throw new Error(String(msg));
+            }
+            return payload;
+        } catch (err) {
+            if (timedOut) {
+                const e = new Error(`Request timed out after ${timeoutMs}ms`);
+                e.name = 'TimeoutError';
+                e.timeout = true;
+                throw e;
+            }
+            throw err;
+        } finally {
+            if (timer) clearTimeout(timer);
+        }
+    }
+
+    /**
+     * Drop browser session caches that can paint another user's data after logout.
+     * Safe to call on login page load and before navigating to /logout.
+     */
+    function clearSensitiveSessionCaches() {
+        try {
+            const exact = [
+                'procurementViewPrFirstPageV3_page15',
+                'admin_pricing_priority_rules_cache_v1',
+            ];
+            exact.forEach((key) => sessionStorage.removeItem(key));
+            Object.keys(sessionStorage).forEach((key) => {
+                if (key.indexOf('adminDashboard.') === 0) {
+                    sessionStorage.removeItem(key);
+                }
+            });
+        } catch (_err) {
+            // Private mode / blocked storage — ignore.
+        }
+    }
+
+    const api = {
+        escapeHtml,
+        formatDate,
+        formatMoney,
+        fetchJson,
+        readJsonResponse,
+        isAbortError,
+        clearSensitiveSessionCaches,
+    };
     global.EQCore = api;
     // Back-compat: older admin pages used window.EQ
     global.EQ = Object.assign({}, global.EQ || {}, api);

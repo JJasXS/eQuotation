@@ -25,6 +25,11 @@ function handleAdminMenuAction(action) {
             showPendingApprovals();
             break;
         case 'logout':
+            if (typeof clearSensitiveSessionCachesLocal === 'function') {
+                clearSensitiveSessionCachesLocal();
+            } else if (window.EQCore && typeof window.EQCore.clearSensitiveSessionCaches === 'function') {
+                window.EQCore.clearSensitiveSessionCaches();
+            }
             window.location.href = '/logout';
             break;
         default:

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sign In</title>
     <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515">
-    <link rel="stylesheet" href="/static/css/login.css?v=20260814_sub_copy">
+    <link rel="stylesheet" href="/static/css/login.css?v=20261028_mockotp">
     <link rel="stylesheet" href="/static/css/tenant_env_chip.css?v=20260814_license_login">
 </head>
 <body class="equotation-icy-theme login-page-body{% if license_expired %} is-license-expired{% endif %}">
@@ -89,6 +89,7 @@
                     <div id="otp-step" class="login-step">
                         <h1>Verify Your Email</h1>
                         <p class="subtitle">Enter the 6-digit code sent to<br><span id="email-display">your@email.com</span></p>
+                        <div id="otp-mock-code" class="otp-mock-code" hidden></div>
 
                         <form id="otp-form" onsubmit="handleOtpSubmit(event)">
                             <div class="form-group">
@@ -137,6 +138,7 @@
     </div>
 
     {% include 'components/tenant_env_chip.html' %}
-    <script src="/static/js/login.js?v=20260806_otp120"></script>
+    <script src="/static/js/eq_core.js?v=20261028_logout_cache"></script>
+    <script src="/static/js/login.js?v=20261028_mockotp"></script>
 </body>
 </html>
