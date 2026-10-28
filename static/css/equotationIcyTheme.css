@@ -942,7 +942,51 @@ body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .vie
 
 body.equotation-icy-theme.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-table tbody tr:hover td,
 body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table tbody tr:hover td {
-    background: var(--ice-accent-soft) !important;
+    background: #eef6fc !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table {
+    border: none !important;
+    border-left: none !important;
+    border-right: none !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table thead th {
+    border-top: none !important;
+    border-left: none !important;
+    border-right: none !important;
+    border-bottom: 2px solid #c5dff0 !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table tbody td {
+    border-top: none !important;
+    border-left: none !important;
+    border-right: none !important;
+    border-bottom: 1px solid #d5e4ef !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table tbody tr.view-pr-detail-line.is-selected td {
+    background: #d6ebf8 !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table tbody tr.view-pr-detail-line.is-selected:hover td {
+    background: #c9e4f6 !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-sqty,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-suomqty,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-qty {
+    text-align: center !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-unit-price,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-amount {
+    text-align: right !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-unified .view-pr-detail-total-row {
+    border-top: 2px solid #c5dff0 !important;
+    background: transparent !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-table .col-line,
