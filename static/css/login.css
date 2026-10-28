@@ -312,6 +312,22 @@ input[type='text']::placeholder {
     opacity: 0.75;
 }
 
+.otp-mock-code {
+    margin: 0 0 14px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: rgba(46, 160, 90, 0.12);
+    color: #1f6b3a;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 0.28em;
+    text-align: center;
+}
+
+.otp-mock-code[hidden] {
+    display: none;
+}
+
 .otp-hint {
     color: var(--ice-heading, #1a4d6e);
     font-size: 13px;

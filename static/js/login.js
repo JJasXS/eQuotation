@@ -308,16 +308,19 @@ function handleEmailSubmit(event) {
                 document.getElementById('email-display').textContent = email;
                 showStep('otp-step');
                 if (data.debug_otp) {
-                    showError(document.getElementById('otp-error'), `DEBUG OTP: ${data.debug_otp}`, 'success');
-                } else if (data.email_sent === false) {
-                    showError(
-                        document.getElementById('otp-error'),
-                        data.message ||
-                            'Email is not configured on the server (no SMTP). Check inbox only after fixing SMTP.',
-                        'warning'
-                    );
+                    renderMockOtp(data.debug_otp);
                 } else {
-                    showError(document.getElementById('otp-error'), data.message || 'OTP sent successfully', 'success');
+                    renderMockOtp('');
+                    if (data.email_sent === false) {
+                        showError(
+                            document.getElementById('otp-error'),
+                            data.message ||
+                                'Email is not configured on the server (no SMTP). Check inbox only after fixing SMTP.',
+                            'warning'
+                        );
+                    } else {
+                        showError(document.getElementById('otp-error'), data.message || 'OTP sent successfully', 'success');
+                    }
                 }
                 startOtpExpiryTimer(data.expires_at_unix, data.otp_lifetime_seconds || data.expiry);
                 startResendTimer(data.resend_cooldown_seconds);
@@ -426,23 +429,25 @@ function resendOtp() {
         })
         .then(({ data }) => {
             if (data.success) {
-                if (data.debug_otp) {
-                    showError(document.getElementById('otp-error'), `DEBUG OTP: ${data.debug_otp}`, 'success');
-                } else if (data.email_sent === false) {
-                    showError(
-                        document.getElementById('otp-error'),
-                        data.message || 'OTP regenerated but email was not sent (SMTP not configured).',
-                        'warning'
-                    );
-                } else {
-                    showError(document.getElementById('otp-error'), 'OTP sent successfully', 'success');
-                }
-                // Unlock + clear for new code
                 setOtpInputsEnabled(true);
                 document.querySelectorAll('.otp-digit').forEach((input) => {
                     input.value = '';
                     input.classList.remove('otp-digit--filled');
                 });
+                if (data.debug_otp) {
+                    renderMockOtp(data.debug_otp);
+                } else {
+                    renderMockOtp('');
+                    if (data.email_sent === false) {
+                        showError(
+                            document.getElementById('otp-error'),
+                            data.message || 'OTP regenerated but email was not sent (SMTP not configured).',
+                            'warning'
+                        );
+                    } else {
+                        showError(document.getElementById('otp-error'), 'OTP sent successfully', 'success');
+                    }
+                }
                 const first = document.querySelector('.otp-digit');
                 if (first) first.focus();
                 startOtpExpiryTimer(data.expires_at_unix, data.otp_lifetime_seconds || data.expiry);
@@ -468,6 +473,21 @@ function resendOtp() {
                 );
             }
         });
+}
+
+function renderMockOtp(code) {
+    const box = document.getElementById('otp-mock-code');
+    const digits = String(code || '').replace(/\D/g, '').slice(0, 6);
+    if (box) {
+        box.hidden = digits.length === 0;
+        box.textContent = digits ? `OTP ${digits}` : '';
+    }
+    if (!digits) return;
+    document.querySelectorAll('.otp-digit').forEach((input, index) => {
+        const ch = digits[index] || '';
+        input.value = ch;
+        input.classList.toggle('otp-digit--filled', Boolean(ch));
+    });
 }
 
 function setOtpInputsEnabled(enabled) {

@@ -2695,6 +2695,11 @@ def api_lookup_postcode():
         print(f"[ERROR] lookup_postcode failed: {e}")
         return jsonify({'success': False, 'error': 'Failed to lookup postcode'}), 500
 
+def _mock_otp_on_screen() -> bool:
+    """MOCK=true shows the login OTP on the page. Any other value keeps it out of the response."""
+    return (os.getenv("MOCK") or "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def _login_otp_storage_key(email: str, login_mode: str) -> str:
     """OTP is scoped by login tab (customer / admin / supplier) so the same inbox can use different codes."""
     e = (email or '').strip().lower()
@@ -2876,7 +2881,7 @@ def api_send_otp():
             'resend_cooldown_seconds': OTP_RESEND_COOLDOWN_SECONDS,
         }
 
-        if app.debug:
+        if _mock_otp_on_screen():
             response_payload['debug_otp'] = otp
 
         return jsonify(response_payload), 200
