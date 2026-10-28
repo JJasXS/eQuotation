@@ -1,0 +1,91 @@
+{
+  "label": "after",
+  "status": "ok",
+  "base_url": "http://127.0.0.1:8881",
+  "minutes_15": 15,
+  "minutes_30": 30,
+  "visibility_triggered_requests": 0,
+  "server_start": {
+    "WorkingSetMB": 156.11,
+    "CPU": 237.296875,
+    "PrivateMB": 134.46,
+    "Threads": 5,
+    "Handles": 284,
+    "pid": 19104,
+    "status": "ok"
+  },
+  "server_15": {
+    "WorkingSetMB": 155.11,
+    "CPU": 238.109375,
+    "PrivateMB": 138.86,
+    "Threads": 9,
+    "Handles": 301,
+    "pid": 19104,
+    "status": "ok"
+  },
+  "server_30": {
+    "WorkingSetMB": 46,
+    "CPU": 238.9375,
+    "PrivateMB": 138.86,
+    "Threads": 9,
+    "Handles": 301,
+    "pid": 19104,
+    "status": "ok"
+  },
+  "pages": {
+    "admin": {
+      "path": "/admin",
+      "heap0": {
+        "usedJSHeapSize": 2853604,
+        "totalJSHeapSize": 5759976
+      },
+      "idle_requests_15": 0,
+      "idle_requests_30": 0,
+      "heap_15": {
+        "usedJSHeapSize": 1871315,
+        "totalJSHeapSize": 2613511
+      },
+      "heap_30": {
+        "usedJSHeapSize": 1891119,
+        "totalJSHeapSize": 2613511
+      },
+      "idle_urls_30": []
+    },
+    "create_quotation": {
+      "path": "/create-quotation",
+      "heap0": {
+        "usedJSHeapSize": 1546233,
+        "totalJSHeapSize": 2532701
+      },
+      "idle_requests_15": 0,
+      "idle_requests_30": 0,
+      "heap_15": {
+        "usedJSHeapSize": 1050277,
+        "totalJSHeapSize": 2008173
+      },
+      "heap_30": {
+        "usedJSHeapSize": 1072953,
+        "totalJSHeapSize": 2270317
+      },
+      "idle_urls_30": []
+    },
+    "procurement": {
+      "path": "/admin/procurement?tab=report",
+      "heap0": {
+        "usedJSHeapSize": 2193342,
+        "totalJSHeapSize": 3555750
+      },
+      "idle_requests_15": 0,
+      "idle_requests_30": 0,
+      "heap_15": {
+        "usedJSHeapSize": 1418881,
+        "totalJSHeapSize": 2497753
+      },
+      "heap_30": {
+        "usedJSHeapSize": 1441001,
+        "totalJSHeapSize": 2497753
+      },
+      "idle_urls_30": []
+    }
+  }
+}

@@ -4867,59 +4867,24 @@ def _normalize_selected_suppliers(raw_suppliers):
 
 def _save_selected_suppliers(request_dockey, request_no, raw_suppliers, actor):
     """Persist selected suppliers for a purchase request (used by draft and edit flows)."""
-    try:
-        request_id = int(request_dockey)
-    except Exception:
-        return
-
-    if request_id <= 0:
-        return
-
-    suppliers = _normalize_selected_suppliers(raw_suppliers)
     con = None
-    cur = None
     try:
+        from utils.procurement_purchase_request import persist_selected_suppliers
+
         con = get_db_connection()
-        cur = con.cursor()
-
-        cur.execute('DELETE FROM PR_SELECTED_SUPPLIER WHERE REQUEST_DOCKEY = ?', (request_id,))
-
-        if suppliers:
-            cur.execute('SELECT COALESCE(MAX(ID), 0) FROM PR_SELECTED_SUPPLIER')
-            row = cur.fetchone()
-            next_id = int(row[0] or 0) + 1 if row else 1
-            now_sql = datetime.utcnow().replace(microsecond=0)
-
-            for supplier in suppliers:
-                cur.execute(
-                    '''
-                    INSERT INTO PR_SELECTED_SUPPLIER (
-                        ID, REQUEST_DOCKEY, REQUEST_NO, SUPPLIER_CODE, SUPPLIER_NAME,
-                        SUPPLIER_EMAIL, CREATED_BY, CREATED_AT, UPDATED_AT
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''',
-                    (
-                        next_id,
-                        request_id,
-                        str(request_no or '').strip(),
-                        supplier['code'],
-                        supplier['name'],
-                        supplier['email'],
-                        str(actor or 'admin').strip() or 'admin',
-                        now_sql,
-                        now_sql,
-                    ),
-                )
-                next_id += 1
-
+        persist_selected_suppliers(
+            con.cursor(),
+            request_dockey,
+            request_no,
+            raw_suppliers,
+            actor,
+        )
         con.commit()
     except Exception as exc:
         if con:
             con.rollback()
         print(f"[PROCUREMENT SELECTED SUPPLIERS] save warning: {exc}", flush=True)
     finally:
-        if cur:
-            cur.close()
         if con:
             con.close()
 
@@ -5487,10 +5452,8 @@ def api_admin_create_purchase_request():
 
     try:
         _assert_payload_line_locations_in_scope(payload)
+        # Suppliers are persisted inside create_purchase_request (same Firebird tx).
         result = create_purchase_request(payload, created_by=actor, auth_header=auth_header)
-
-        suppliers = payload.get('suppliers') or []
-        _save_selected_suppliers(result.get('id'), result.get('requestNumber'), suppliers, actor)
 
         # SUBMITTED create now lands in UDF_STATUS=AWAITING. Bid invitations and RFQ
         # emails are deferred until header status moves Awaiting -> Pending.

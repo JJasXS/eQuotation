@@ -12754,13 +12754,19 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     } catch (e) { /* ignore */ }
 
-                    loadStockCardRows();
+                    // Do not reload Stock Card here — user left Create for View PR.
+
+                    const syncPending = Boolean(data.data && data.data.sqlSyncPending);
 
                     showPurchaseRequestSuccessModal(
 
                         'Purchase request submitted',
 
-                        'Your purchase request was submitted successfully.',
+                        syncPending
+
+                            ? 'Saved. Accounting sync continues in the background.'
+
+                            : 'Your purchase request was submitted successfully.',
 
                         requestNumber !== 'N/A' ? requestNumber : null
 
@@ -12778,9 +12784,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     _renderChips();
 
-                    loadStockCardRows();
-
-                    loadViewPurchaseRequests(true);
+                    // Stay on Create after draft: refresh PR number only (not Stock Card).
 
                     loadNextPurchaseRequestNumber();
 
