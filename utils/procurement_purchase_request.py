@@ -1235,6 +1235,11 @@ def create_purchase_request(
         try:
             persist_selected_suppliers(cur, int(header_id), request_number, raw_suppliers, normalized_actor)
         except Exception as exc:
+            # SUBMITTED RFQ flow depends on PR_SELECTED_SUPPLIER; do not soft-fail and hide invites.
+            if status == "SUBMITTED":
+                raise RuntimeError(
+                    f"Could not save invited suppliers for {request_number}: {exc}"
+                ) from exc
             print(f"[PROCUREMENT SELECTED SUPPLIERS] save warning: {exc}", flush=True)
         t_suppliers = time.perf_counter()
 
@@ -1746,20 +1751,20 @@ def persist_selected_suppliers(
     now_sql = datetime.utcnow().replace(microsecond=0)
     actor_name = _clean_text(actor) or "admin"
     docno = _clean_text(request_no)
-    fallback_id = None
-    for supplier in suppliers:
-        row_id = None
-        try:
-            row_id = _gen_id(cur, "GEN_PR_SELECTED_SUPPLIER_ID", 1)
-        except Exception:
-            row_id = None
+    # Catch generator up past MAX(ID) so inserts do not collide (-803 KEY VIOLATION).
+    next_ids = _next_keys(
+        cur,
+        "PR_SELECTED_SUPPLIER",
+        "ID",
+        ["GEN_PR_SELECTED_SUPPLIER_ID", "PR_SELECTED_SUPPLIER"],
+        len(suppliers),
+    )
+    for idx, supplier in enumerate(suppliers):
+        row_id = next_ids[idx] if idx < len(next_ids) else None
         if row_id is None:
-            if fallback_id is None:
-                cur.execute("SELECT COALESCE(MAX(ID), 0) FROM PR_SELECTED_SUPPLIER")
-                row = cur.fetchone()
-                fallback_id = int(row[0] or 0) + 1 if row else 1
-            row_id = fallback_id
-            fallback_id += 1
+            cur.execute("SELECT COALESCE(MAX(ID), 0) FROM PR_SELECTED_SUPPLIER")
+            row = cur.fetchone()
+            row_id = int(row[0] or 0) + 1 if row else 1
         cur.execute(
             """
             INSERT INTO PR_SELECTED_SUPPLIER (
