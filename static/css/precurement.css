@@ -8601,6 +8601,25 @@ body.procurement-warm-ui .pr-view-pr-card.view-pr-card-skeleton {
     box-sizing: border-box;
 }
 
+.stock-report-cutoff-inline .stock-report-cutoff-refresh {
+    flex: 0 0 auto;
+    width: 36px;
+    height: 36px;
+    min-height: 36px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    box-sizing: border-box;
+}
+
+.stock-report-cutoff-inline .stock-report-cutoff-refresh .view-pr-icon-btn__svg {
+    width: 18px;
+    height: 18px;
+    display: block;
+}
+
 .stock-report-filter-field--cutoff input[type="date"] {
     display: block;
     width: 168px;

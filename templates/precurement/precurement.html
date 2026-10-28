@@ -149,7 +149,9 @@
                                                             <input type="date" id="stock-card-from-date" aria-label="Cutoff date" title="Cutoff date" />
                                                         </label>
                                                         <button type="button" class="view-pr-refresh-btn" onclick="applyStockCardDateFilter()">Apply Cutoff</button>
-                                                        <button type="button" class="view-pr-refresh-btn" onclick="clearStockCardDateFilter()">Clear Cutoff</button>
+                                                        <button type="button" class="view-pr-icon-btn view-pr-refresh-btn--ghost stock-report-cutoff-refresh" onclick="clearStockCardDateFilter()" title="Clear cutoff and refresh" aria-label="Clear cutoff and refresh">
+                                                            <svg class="view-pr-icon-btn__svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.1A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+                                                        </button>
                                                         <button type="button" class="location-buy-btn" onclick="goToCreateProcurement()">New e-Purchase Request</button>
                                                     </div>
                                                 </div>
