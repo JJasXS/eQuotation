@@ -3454,8 +3454,6 @@
 
         function updateStockReportFilterSummary() {
 
-            const el = document.getElementById('stock-report-filter-summary');
-
             const locValue = document.getElementById('stock-location-ms-value');
 
             const colValue = document.getElementById('stock-column-ms-value');
@@ -3464,17 +3462,9 @@
 
             const colLabel = stockCardColumnSummaryLabel();
 
-            const uomLabel = stockCardUomModeSummaryLabel();
-
             if (locValue) locValue.textContent = locLabel;
 
             if (colValue) colValue.textContent = colLabel;
-
-            if (el) {
-
-                el.textContent = `${locLabel} · ${colLabel} · ${uomLabel}`;
-
-            }
 
         }
 

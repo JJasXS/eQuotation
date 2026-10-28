@@ -8540,25 +8540,10 @@ body.procurement-warm-ui .pr-view-pr-card.view-pr-card-skeleton {
     border-left: 1px solid #b8d4e8;
 }
 
-.stock-report-filter-bar__row--actions {
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 10px 16px;
-    margin-top: 2px;
-    margin-bottom: 0;
-    padding-top: 10px;
-    padding-bottom: 0;
-    border-top: 1px solid #d5e6f2;
-}
-
-.stock-report-filter-summary {
-    margin: 0;
-    flex: 1 1 220px;
-    min-width: 0;
-    font-size: 12px;
-    line-height: 1.35;
-    color: #3a5f7a;
+.stock-report-filter-bar__row--controls > .stock-report-filter-field--cutoff {
+    /* Pull the cutoff divider left vs the default 16px section padding. */
+    padding-left: 8px;
+    flex: 1.35 1 0;
 }
 
 .stock-report-filter-actions {
@@ -8604,10 +8589,16 @@ body.procurement-warm-ui .pr-view-pr-card.view-pr-card-skeleton {
     min-width: 0;
 }
 
-.stock-report-cutoff-inline .view-pr-refresh-btn {
+.stock-report-cutoff-inline .view-pr-refresh-btn,
+.stock-report-cutoff-inline .location-buy-btn {
     flex: 0 0 auto;
     height: 36px;
+    min-height: 36px;
+    padding: 0 12px;
+    font-size: 13px;
+    font-weight: 600;
     white-space: nowrap;
+    box-sizing: border-box;
 }
 
 .stock-report-filter-field--cutoff input[type="date"] {
