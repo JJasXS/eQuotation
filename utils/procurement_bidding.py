@@ -1676,18 +1676,12 @@ def approve_bid(request_dockey: int, bid_id: int, actor: str, udf_reason: str = 
             ("CLOSED", now, request_dockey, supplier_code),
         )
 
-        con.commit()
+        # Keep header Supplier empty; line awards / whole-bid award use line-level fields.
         try:
-            from utils.procurement_purchase_request import set_purchase_request_header_supplier
-
-            set_purchase_request_header_supplier(
-                request_dockey,
-                supplier_code,
-                supplier_name,
-                actor=_clean_text(actor) or "admin",
-            )
-        except Exception as sync_exc:
-            print(f"[PROCUREMENT BIDDING] PR header supplier sync warning: {sync_exc}", flush=True)
+            _clear_header_supplier_local(cur, int(request_dockey), _clean_text(actor) or "admin")
+        except Exception as clear_exc:
+            print(f"[PROCUREMENT BIDDING] clear header supplier warning: {clear_exc}", flush=True)
+        con.commit()
         return {
             "requestDockey": request_dockey,
             "requestNumber": request_no,

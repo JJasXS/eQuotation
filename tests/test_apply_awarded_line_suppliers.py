@@ -168,3 +168,4 @@ def test_save_line_awards_does_not_call_split(monkeypatch):
     assert result["lineSupplierUpdates"] == 2
     assert result["udfStatus"] == "APPROVED"
     assert result.get("sqlSyncQueued") is True
+    assert result.get("headerSupplierCleared") is True
