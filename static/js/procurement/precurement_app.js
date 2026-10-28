@@ -5920,6 +5920,24 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             <tr class="view-pr-detail-line${rowSelected ? ' is-selected' : ''}">
 
+                <td class="col-approved view-pr-approved-cell">
+
+                    <input
+
+                        type="checkbox"
+
+                        aria-label="Selected"
+
+                        ${(!detail.id || !canEditLines) ? 'disabled' : ''}
+
+                        ${isDetailChecked(detail) ? 'checked' : ''}
+
+                        onchange="onDetailApprovalChangeStageOnly(${headerId}, ${Number(detail.id || 0)}, this.checked)"
+
+                    />
+
+                </td>
+
                 <td class="col-line">${escapeHtml(detail.seq || (idx + 1))}</td>
 
                 <td class="col-item-name">${escapeHtml(detail.itemCode || detail.itemName || '-')}</td>
@@ -5945,24 +5963,6 @@ function buildViewPurchaseRequestDetailHtml(header) {
                 <td class="view-pr-num col-unit-price${detail.isFinalChosenPrice ? ' is-approved-bid-price' : ''}">
 
                     ${formatMoney(detail.unitPrice || 0)}
-
-                </td>
-
-                <td class="col-approved view-pr-approved-cell">
-
-                    <input
-
-                        type="checkbox"
-
-                        aria-label="Selected"
-
-                        ${(!detail.id || !canEditLines) ? 'disabled' : ''}
-
-                        ${isDetailChecked(detail) ? 'checked' : ''}
-
-                        onchange="onDetailApprovalChangeStageOnly(${headerId}, ${Number(detail.id || 0)}, this.checked)"
-
-                    />
 
                 </td>
 
@@ -6054,41 +6054,29 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 </div>
 
-                ${canEditLines && selectableDetailCount ? `
-
-                <div class="view-pr-line-bulk-bar" role="group" aria-label="Bulk line selection">
-
-                    <label class="view-pr-line-bulk-bar__select">
-
-                        <input
-
-                            type="checkbox"
-
-                            class="view-pr-line-bulk-master"
-
-                            aria-label="Select all lines"
-
-                            ${allDetailsSelected ? 'checked' : ''}
-
-                            onchange="onDetailApprovalToggleAll(${headerId}, this.checked)"
-
-                        />
-
-                        <span class="view-pr-line-bulk-bar__label">Select all lines</span>
-
-                        <span class="view-pr-line-bulk-bar__count">${selectedDetailCount} of ${selectableDetailCount} selected</span>
-
-                    </label>
-
-                    <span class="view-pr-line-bulk-bar__hint">${escapeHtml(lineBulkHint)}</span>
-
-                </div>` : ''}
-
                 <div class="view-pr-detail-wrap view-pr-detail-wrap--unified">
+
+                    ${canEditLines && selectableDetailCount ? `
+                    <div class="view-pr-line-bulk-bar" role="group" aria-label="Bulk line selection">
+                        <label class="view-pr-line-bulk-bar__select">
+                            <input
+                                type="checkbox"
+                                class="view-pr-line-bulk-master"
+                                aria-label="Select all lines"
+                                ${allDetailsSelected ? 'checked' : ''}
+                                onchange="onDetailApprovalToggleAll(${headerId}, this.checked)"
+                            />
+                            <span class="view-pr-line-bulk-bar__label">Select all lines</span>
+                            <span class="view-pr-line-bulk-bar__count">${selectedDetailCount} of ${selectableDetailCount} selected</span>
+                        </label>
+                        <span class="view-pr-line-bulk-bar__hint">${escapeHtml(lineBulkHint)}</span>
+                    </div>` : ''}
 
                     <table class="view-pr-detail-table">
 
                         <colgroup>
+
+                            <col class="col-approved" />
 
                             <col class="col-line" />
 
@@ -6106,8 +6094,6 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                             <col class="col-unit-price" />
 
-                            <col class="col-approved" />
-
                             <col class="col-amount" />
 
                         </colgroup>
@@ -6115,6 +6101,8 @@ function buildViewPurchaseRequestDetailHtml(header) {
                         <thead>
 
                             <tr>
+
+                                <th class="col-approved">Select</th>
 
                                 <th class="col-line">#</th>
 
@@ -6126,35 +6114,11 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                                 <th class="view-pr-num col-suomqty">SUOMQTY</th>
 
-                                <th class="col-delivery-date">Deliv.</th>
+                                <th class="col-delivery-date">Delivery</th>
 
                                 <th class="view-pr-num col-qty">Qty (x / total)</th>
 
                                 <th class="view-pr-num col-unit-price">Unit</th>
-
-                                <th class="col-approved">
-
-                                    <label class="view-pr-approved-head-toggle" title="Select or unselect all line items">
-
-                                        <input
-
-                                            type="checkbox"
-
-                                            aria-label="Select all line items"
-
-                                            ${allDetailsSelected ? 'checked' : ''}
-
-                                            ${(selectableDetailCount && canEditLines) ? '' : 'disabled'}
-
-                                            onchange="onDetailApprovalToggleAll(${headerId}, this.checked)"
-
-                                        />
-
-                                        <span class="view-pr-approved-head-toggle__text">Select</span>
-
-                                    </label>
-
-                                </th>
 
                                 <th class="view-pr-num col-amount">Amt</th>
 
