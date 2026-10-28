@@ -1542,9 +1542,37 @@
 
             const supplierCount = Number(body?.data?.supplierCount || 0);
 
-            msg(`Item awards saved (${savedCount} item(s), ${supplierCount || 1} supplier group(s)). You can now transfer PR->PO by selected awarded lines.`);
+            const udfStatus = String(body?.data?.udfStatus || '').trim().toUpperCase();
+
+            const approvedNote = udfStatus === 'APPROVED'
+                ? ' PR moved to Approved (left Pending).'
+                : '';
+
+            const supplierNote = supplierCount > 1
+                ? ` ${supplierCount} suppliers stored on line items (one PR).`
+                : '';
+
+            msg(
+                body.message
+                || `Item awards saved (${savedCount} item(s)).${supplierNote}${approvedNote} Transfer PR→PO groups by awarded supplier per line.`
+            );
+
+            if (body.gate) {
+                lineAwardsLocked = !!body.gate.lineAwardsLocked;
+                if (activePr) {
+                    activePr.udfStatus = String(
+                        body.gate.prUdfStatus
+                        || body.gate.prUdfStatusLocal
+                        || body?.data?.udfStatus
+                        || activePr.udfStatus
+                        || ''
+                    ).trim();
+                }
+            }
 
             await loadBidsForActivePr({ force: true });
+
+            applyLineAwardsLockState();
 
         }
 

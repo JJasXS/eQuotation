@@ -8190,7 +8190,23 @@ def api_admin_save_bid_line_awards(request_id):
         api_udf = str(gate_preview.get('prUdfStatusApi') or gate_preview.get('prUdfStatus') or '').strip()
         result = save_line_awards(request_id, awards, actor, udf_reason, pr_udf_status=api_udf)
         gate = _enrich_bidding_gate_with_pr_udf(request_id, get_transfer_gate_state(request_id))
-        return jsonify({'success': True, 'message': 'Line awards saved', 'data': result, 'gate': gate})
+        supplier_count = 0
+        try:
+            supplier_count = int((result or {}).get('supplierCount') or 0)
+        except Exception:
+            supplier_count = 0
+        message = 'Line awards saved; purchase request moved to Approved'
+        if supplier_count > 1:
+            message = (
+                'Line awards saved on one purchase request '
+                '(suppliers stored per line); moved to Approved'
+            )
+        return jsonify({
+            'success': True,
+            'message': message,
+            'data': result,
+            'gate': gate,
+        })
     except BiddingValidationError as exc:
         return jsonify({'success': False, 'error': str(exc)}), 400
     except Exception as exc:

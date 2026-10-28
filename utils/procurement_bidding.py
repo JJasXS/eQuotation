@@ -1839,6 +1839,138 @@ def _apply_awarded_bid_pricing_to_pr_details(
     return touched_dockeys
 
 
+def _resolve_ph_pqdtl_supplier_udf_columns(cur: Any) -> tuple[str | None, str | None]:
+    """Return PH_PQDTL.UDF_SUPCODE / UDF_SUPNAME when present."""
+    if not _table_exists(cur, "PH_PQDTL"):
+        return None, None
+    detail_cols = _get_table_columns(cur, "PH_PQDTL")
+    return (
+        _pick_existing(detail_cols, "UDF_SUPCODE"),
+        _pick_existing(detail_cols, "UDF_SUPNAME"),
+    )
+
+
+def _ensure_line_supplier_udf_columns_ready() -> None:
+    """Add missing line supplier UDF columns on a dedicated connection (Firebird DDL)."""
+    con = None
+    try:
+        from db_initializer import _ensure_ph_pqdtl_supplier_udf_columns
+
+        con = _connect_db()
+        _ensure_ph_pqdtl_supplier_udf_columns(con)
+    except Exception as exc:
+        print(f"[PROCUREMENT BIDDING] ensure line supplier UDF columns warning: {exc}", flush=True)
+    finally:
+        if con is not None:
+            try:
+                con.close()
+            except Exception:
+                pass
+
+
+def _apply_awarded_suppliers_to_pr_details(
+    cur: Any,
+    normalized: list[tuple[int, int]],
+    bid_map: dict[int, dict[str, Any]],
+) -> int:
+    """Write awarded supplier code/name onto each PH_PQDTL line (one PR, multi-supplier)."""
+    if not normalized or not _table_exists(cur, "PH_PQDTL"):
+        return 0
+    code_col, name_col = _resolve_ph_pqdtl_supplier_udf_columns(cur)
+    if not code_col and not name_col:
+        return 0
+    detail_cols = _get_table_columns(cur, "PH_PQDTL")
+    dtl_col = _pick_existing(detail_cols, "DTLKEY", "PQDTLKEY", "ID")
+    if not dtl_col:
+        return 0
+
+    updated = 0
+    for detail_id, bid_id in normalized:
+        bid = bid_map.get(bid_id) if isinstance(bid_map, dict) else None
+        if not isinstance(bid, dict):
+            continue
+        supplier_code = _clean_text(bid.get("supplierCode"))
+        supplier_name = _clean_text(bid.get("supplierName"))
+        set_parts: list[str] = []
+        values: list[Any] = []
+        if code_col:
+            set_parts.append(f"{code_col} = ?")
+            values.append(supplier_code or None)
+        if name_col:
+            set_parts.append(f"{name_col} = ?")
+            values.append(supplier_name or None)
+        if not set_parts:
+            continue
+        values.append(int(detail_id))
+        cur.execute(
+            f"UPDATE PH_PQDTL SET {', '.join(set_parts)} WHERE {dtl_col} = ?",
+            tuple(values),
+        )
+        updated += 1
+    return updated
+
+
+def _first_award_supplier(
+    normalized: list[tuple[int, int]],
+    bid_map: dict[int, dict[str, Any]],
+) -> tuple[str, str]:
+    """First supplier by lowest detail id (header display / SQL sync only)."""
+    for detail_id, bid_id in sorted(normalized, key=lambda pair: pair[0]):
+        bid = bid_map.get(bid_id) if isinstance(bid_map, dict) else None
+        if not isinstance(bid, dict):
+            continue
+        code = _clean_text(bid.get("supplierCode"))
+        if not code:
+            continue
+        return code, _clean_text(bid.get("supplierName"))
+    return "", ""
+
+
+def _promote_pr_udf_approved_after_awards(cur: Any, dockeys: set[int] | list[int]) -> list[dict[str, Any]]:
+    """Set PH_PQ.UDF_STATUS to APPROVED for awarded PRs (View e-PR transition rules).
+
+    Reuses header-status writers so PENDING → APPROVED stays legal and AWAITING → APPROVED
+    still fails. Idempotent when already APPROVED.
+    """
+    ids = sorted({int(d) for d in (dockeys or []) if int(d or 0) > 0})
+    if not ids:
+        return []
+
+    from fastapi import HTTPException
+
+    from api.routes.purchase_requests import _apply_purchase_request_header_status
+    from utils.procurement_purchase_request import _column_is_numeric
+
+    header_cols = _get_table_columns(cur, "PH_PQ")
+    key_col = _pick_existing(header_cols, "DOCKEY", "PQKEY", "ID")
+    udf_status_col = _pick_existing(header_cols, "UDF_STATUS")
+    if not key_col or not udf_status_col:
+        raise BiddingValidationError("PH_PQ UDF_STATUS column not found; cannot approve after awards")
+    status_col = _pick_existing(header_cols, "STATUS")
+    status_is_numeric = bool(status_col and _column_is_numeric(cur, "PH_PQ", status_col))
+
+    applied: list[dict[str, Any]] = []
+    for dockey in ids:
+        try:
+            result = _apply_purchase_request_header_status(
+                cur,
+                {"requestId": dockey, "udfStatus": "APPROVED"},
+                key_col=key_col,
+                udf_status_col=udf_status_col,
+                status_col=status_col or "",
+                status_is_numeric=status_is_numeric,
+            )
+        except HTTPException as exc:
+            detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail or exc)
+            raise BiddingValidationError(detail) from exc
+        if result is None:
+            continue
+        _rowcount, change = result
+        if isinstance(change, dict):
+            applied.append(change)
+    return applied
+
+
 def save_line_awards(
     request_dockey: int,
     awards: list[dict[str, Any]],
@@ -1871,6 +2003,7 @@ def save_line_awards(
     now = _utc_now()
     reason = _clean_text(udf_reason)
     who = _clean_text(actor) or "admin"
+    _ensure_line_supplier_udf_columns_ready()
     con = _connect_db()
     try:
         cur = con.cursor()
@@ -1979,35 +2112,12 @@ def save_line_awards(
                 tuple(["AWARDED", now, request_dockey, *sorted(supplier_codes)]),
             )
 
-        split_result: dict[str, Any] | None = None
-        if len(supplier_codes) > 1:
-            try:
-                from utils.procurement_pr_split import (
-                    mixed_pr_split_enabled,
-                    split_purchase_request_for_mixed_awards,
-                )
-
-                if mixed_pr_split_enabled():
-                    split_result = split_purchase_request_for_mixed_awards(
-                        cur,
-                        request_dockey,
-                        normalized,
-                        bid_map,
-                        who,
-                    )
-            except Exception as split_exc:
-                con.rollback()
-                raise BiddingValidationError(f"Mixed-supplier PR split failed: {split_exc}") from split_exc
+        # Persist awarded suppliers on each PR line (one PR; no mixed-supplier split).
+        line_supplier_updates = _apply_awarded_suppliers_to_pr_details(cur, normalized, bid_map)
 
         # Persist awarded bid pricing on PR lines (unit price drives amount + header totals).
         touched_dockeys = _apply_awarded_bid_pricing_to_pr_details(cur, normalized)
         touched_dockeys.add(int(request_dockey))
-        if split_result and split_result.get("split"):
-            for child in split_result.get("childPrs") or []:
-                if isinstance(child, dict):
-                    child_dk = int(child.get("dockey") or 0)
-                    if child_dk > 0:
-                        touched_dockeys.add(child_dk)
         try:
             from utils.procurement_pr_split import _recalc_header_amounts
 
@@ -2021,46 +2131,24 @@ def save_line_awards(
                 flush=True,
             )
 
+        # Saving awards completes the RFQ: move View e-PR off Pending onto Approved.
+        approve_changes = _promote_pr_udf_approved_after_awards(cur, touched_dockeys)
+
         con.commit()
 
-        sql_sync: dict[str, Any] | None = None
         sql_line_sync: dict[str, Any] | None = None
-        if split_result and split_result.get("split"):
-            try:
-                from utils.procurement_purchase_request import set_purchase_request_header_supplier
-
-                set_purchase_request_header_supplier(
-                    int(split_result.get("existingPrDockey") or request_dockey),
-                    _clean_text(split_result.get("existingPrSupplierCode")),
-                    _clean_text(split_result.get("existingPrSupplierName")),
-                    actor=who,
-                )
-            except Exception as hdr_exc:
-                print(f"[PROCUREMENT BIDDING] PR header after split warning: {hdr_exc}", flush=True)
-            try:
-                from utils.procurement_pr_split import sync_split_prs_to_sql_api
-
-                sql_sync = sync_split_prs_to_sql_api(split_result, actor=who)
-            except Exception as sync_exc:
-                print(f"[PROCUREMENT BIDDING] PR split SQL API warning: {sync_exc}", flush=True)
-                sql_sync = {"synced": False, "error": str(sync_exc)}
-        elif len(supplier_codes) == 1:
-            only_code = next(iter(supplier_codes))
-            award_name = ""
-            for _bid in bid_map.values():
-                if _clean_text(_bid.get("supplierCode")) == only_code:
-                    award_name = _clean_text(_bid.get("supplierName"))
-                    break
+        header_code, header_name = _first_award_supplier(normalized, bid_map)
+        if header_code:
             from utils.sql_api_supplier import resolve_supplier_company_name
 
-            award_name = resolve_supplier_company_name(only_code, award_name)
+            header_name = resolve_supplier_company_name(header_code, header_name)
             try:
                 from utils.procurement_purchase_request import set_purchase_request_header_supplier
 
                 set_purchase_request_header_supplier(
                     request_dockey,
-                    only_code,
-                    award_name,
+                    header_code,
+                    header_name,
                     actor=who,
                 )
             except Exception as sync_exc:
@@ -2071,7 +2159,7 @@ def save_line_awards(
                 detail_ids = {int(d) for d, _ in normalized if int(d) > 0}
                 sql_line_sync = put_purchaserequest_lines_and_supplier_sql_api(
                     request_dockey,
-                    only_code,
+                    header_code,
                     keep_dtlkeys=detail_ids,
                 )
             except Exception as line_sync_exc:
@@ -2082,12 +2170,16 @@ def save_line_awards(
             "requestDockey": int(request_dockey),
             "savedCount": saved,
             "supplierCount": len(supplier_codes),
+            "lineSupplierUpdates": line_supplier_updates,
+            "udfStatus": "APPROVED",
+            "approvedRequestIds": [
+                int(c.get("requestId") or 0)
+                for c in approve_changes
+                if isinstance(c, dict) and int(c.get("requestId") or 0) > 0
+            ],
+            "udfStatusChanges": approve_changes,
         }
-        if split_result:
-            out["split"] = split_result
-            if sql_sync is not None:
-                out["sqlSync"] = sql_sync
-        elif len(supplier_codes) == 1 and sql_line_sync is not None:
+        if sql_line_sync is not None:
             out["sqlLineSync"] = sql_line_sync
         return out
     except Exception:

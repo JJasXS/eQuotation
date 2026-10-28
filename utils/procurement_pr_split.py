@@ -33,8 +33,9 @@ class PrSplitError(ValueError):
 
 
 def mixed_pr_split_enabled() -> bool:
-    raw = _clean_text(os.getenv("PROCUREMENT_SPLIT_PR_ON_MIXED_AWARDS", "true")).lower()
-    return raw not in {"0", "false", "no", "off"}
+    """Mixed awards keep one PR by default; set env to 1/true to re-enable child PR split."""
+    raw = _clean_text(os.getenv("PROCUREMENT_SPLIT_PR_ON_MIXED_AWARDS", "false")).lower()
+    return raw in {"1", "true", "yes", "on"}
 
 
 def _suppliers_in_award_order(

@@ -1999,6 +1999,42 @@ def _ensure_ph_po_approval_slot_columns(conn):
         cur.close()
 
 
+def _ensure_ph_pqdtl_supplier_udf_columns(conn):
+    """Ensure PH_PQDTL.UDF_SUPCODE / UDF_SUPNAME for per-line awarded suppliers (no PR split)."""
+    if not _relation_exists(conn, "PH_PQDTL"):
+        print("[DB INIT] PH_PQDTL not found; line supplier UDF ensure skipped")
+        return False
+
+    cur = conn.cursor()
+    try:
+        for col, width in (("UDF_SUPCODE", 40), ("UDF_SUPNAME", 200)):
+            cur.execute(
+                """
+                SELECT f.RDB$FIELD_NAME
+                FROM RDB$RELATION_FIELDS f
+                WHERE f.RDB$RELATION_NAME = 'PH_PQDTL' AND f.RDB$FIELD_NAME = ?
+                """,
+                (col,),
+            )
+            if cur.fetchone():
+                print(f"[DB INIT] {col} column already exists in PH_PQDTL")
+                continue
+            conn.commit()
+            cur.execute(f"ALTER TABLE PH_PQDTL ADD {col} VARCHAR({width})")
+            conn.commit()
+            print(f"[DB INIT] {col} column added to PH_PQDTL")
+        return True
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "already exists" in error_msg or "duplicate" in error_msg:
+            print("[DB INIT] PH_PQDTL line supplier UDF columns already exist")
+            return True
+        print(f"[DB INIT WARNING] Could not add PH_PQDTL line supplier UDFs: {e}")
+        return False
+    finally:
+        cur.close()
+
+
 def _ensure_ph_pq_status_trigger(conn):
     """Trigger on PH_PQ that enforces UDF_PQAPPROVED based on UDF_STATUS.
 
@@ -2533,6 +2569,7 @@ def initialize_database(db_path, db_user, db_password):
         # Ensure PH_PQ status/approval triggers exist
         _ensure_ph_pq_status_trigger(conn)
         _ensure_ph_pqdtl_defaults_trigger(conn)
+        _ensure_ph_pqdtl_supplier_udf_columns(conn)
 
         # Ensure supplier bidding tables exist
         _ensure_procurement_bidding_tables(conn)
