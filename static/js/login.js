@@ -3,6 +3,7 @@
 let currentEmail = '';
 /** @type {'customer'|'admin'|'supplier'} */
 let currentLoginMode = 'customer';
+const LOGIN_MODES = ['customer', 'admin', 'supplier'];
 let otpExpiryTimerId = null;
 let otpExpiresAtUnix = 0;
 let otpExpired = false;
@@ -49,6 +50,62 @@ function getViewportSlideWidth() {
     return viewport ? viewport.getBoundingClientRect().width : 0;
 }
 
+function normalizeLoginMode(raw) {
+    const mode = String(raw || '').trim().toLowerCase();
+    return LOGIN_MODES.includes(mode) ? mode : 'customer';
+}
+
+function readLoginModeFromUrl() {
+    try {
+        const params = new URLSearchParams(window.location.search || '');
+        // Accept mode= or tab= (email links / bookmarks).
+        return normalizeLoginMode(params.get('mode') || params.get('tab'));
+    } catch (_err) {
+        return 'customer';
+    }
+}
+
+function syncLoginModeToUrl(mode) {
+    const next = normalizeLoginMode(mode);
+    try {
+        const url = new URL(window.location.href);
+        if (url.searchParams.get('mode') === next) {
+            // Keep a lone tab= in sync if present; otherwise leave URL alone.
+            if (url.searchParams.has('tab') && url.searchParams.get('tab') !== next) {
+                url.searchParams.set('tab', next);
+                window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+            }
+            return;
+        }
+        url.searchParams.set('mode', next);
+        if (url.searchParams.has('tab')) {
+            url.searchParams.set('tab', next);
+        }
+        window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+    } catch (_err) {
+        /* ignore */
+    }
+}
+
+/** Mark the real slide for ``mode`` active before clones are built. */
+function selectRealSlideByMode(mode) {
+    const track = getCarouselTrack();
+    if (!track) {
+        return;
+    }
+    const wanted = normalizeLoginMode(mode);
+    const reals = Array.from(track.querySelectorAll('.login-carousel-slide:not(.login-carousel-slide--clone)'));
+    reals.forEach((slide) => {
+        const isMatch = (slide.getAttribute('data-mode') || '') === wanted;
+        slide.classList.toggle('is-active', isMatch);
+    });
+    if (!reals.some((s) => s.classList.contains('is-active')) && reals.length) {
+        const fallback = reals.find((s) => (s.getAttribute('data-mode') || '') === 'customer') || reals[0];
+        fallback.classList.add('is-active');
+    }
+    currentLoginMode = wanted;
+}
+
 /** Apply transform + active slide + dots + currentLoginMode. */
 function applyCarouselPosition(instant) {
     const viewport = document.getElementById('login-carousel-viewport');
@@ -85,7 +142,7 @@ function applyCarouselPosition(instant) {
         el.setAttribute('tabindex', active ? '0' : '-1');
         el.setAttribute('aria-selected', active ? 'true' : 'false');
         if (active) {
-            currentLoginMode = el.getAttribute('data-mode') || 'customer';
+            currentLoginMode = normalizeLoginMode(el.getAttribute('data-mode') || 'customer');
         }
     });
 
@@ -93,6 +150,8 @@ function applyCarouselPosition(instant) {
     document.querySelectorAll('.login-carousel-dot').forEach((dot, i) => {
         dot.setAttribute('aria-current', i === logical ? 'true' : 'false');
     });
+
+    syncLoginModeToUrl(currentLoginMode);
 }
 
 /** Measure viewport so one full slide shows; keep current extendedIndex. */
@@ -207,6 +266,8 @@ function initLoginCarousel() {
     const next = document.getElementById('login-mode-next');
     const track = getCarouselTrack();
 
+    // Open on ?mode= / ?tab= from email links or bookmarks.
+    selectRealSlideByMode(readLoginModeFromUrl());
     buildCarouselClones();
 
     if (dotsHost && realSlideCount) {
@@ -386,7 +447,21 @@ function handleOtpSubmit(event) {
             submitBtn.textContent = 'Verify';
 
             if (data.success) {
-                const redirectUrl = data.redirect || '/create-quotation';
+                let redirectUrl = data.redirect || '/create-quotation';
+                try {
+                    const params = new URLSearchParams(window.location.search || '');
+                    const requestId = String(params.get('request_id') || '').trim();
+                    if (
+                        requestId
+                        && String(redirectUrl).indexOf('/supplier/bidding') === 0
+                    ) {
+                        const next = new URL(redirectUrl, window.location.origin);
+                        next.searchParams.set('request_id', requestId);
+                        redirectUrl = next.pathname + next.search;
+                    }
+                } catch (_err) {
+                    /* keep server redirect */
+                }
                 console.log(`Redirecting ${data.user_type} to ${redirectUrl}`);
                 window.location.href = redirectUrl;
             } else if (data.expired) {

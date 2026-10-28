@@ -39,6 +39,15 @@ class TtlCache(Generic[T]):
         with self._lock:
             self._store.pop(key, None)
 
+    def put(self, key: Hashable, value: T, ttl_seconds: Optional[float] = None) -> None:
+        """Insert or replace a value with a fresh TTL (no loader)."""
+        ttl = float(ttl_seconds if ttl_seconds is not None else self._default_ttl)
+        exp = time.monotonic() + max(1.0, ttl)
+        with self._lock:
+            self._purge_expired_unlocked(time.monotonic())
+            self._evict_overflow_unlocked()
+            self._store[key] = (exp, value)
+
     def _purge_expired_unlocked(self, now: float) -> None:
         dead = [k for k, (exp, _) in self._store.items() if now >= exp]
         for k in dead:
@@ -133,3 +142,5 @@ class TtlCache(Generic[T]):
 
 # Shared caches (single process). TTL configurable via env in callers.
 sql_api_master_cache: TtlCache[Any] = TtlCache(default_ttl_seconds=600.0, max_entries=256)
+user_info_cache: TtlCache[Any] = TtlCache(default_ttl_seconds=90.0, max_entries=128)
+stock_search_cache: TtlCache[Any] = TtlCache(default_ttl_seconds=90.0, max_entries=128)

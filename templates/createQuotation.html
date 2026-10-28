@@ -268,17 +268,17 @@
     </div>
     
     <!-- Quotation Chat Bubble -->
-    <button id="quotation-chat-preview" class="quotation-chat-preview quotation-chat-preview-hidden" type="button" onclick="openQuotationChatFromPreview()" aria-label="Open chat assistant">
+    <button id="quotation-chat-preview" class="quotation-chat-preview quotation-chat-preview-hidden" type="button" onclick="eqQuotationChat('openQuotationChatFromPreview')" aria-label="Open chat assistant">
         <span class="quotation-chat-preview-text">Hi, How can I help you?</span>
     </button>
-    <button id="quotation-chat-bubble" class="quotation-chat-bubble" onclick="toggleQuotationChatPopup()" title="Chat with us">
+    <button id="quotation-chat-bubble" class="quotation-chat-bubble" onclick="eqQuotationChat('toggleQuotationChatPopup')" title="Chat with us">
         <span>💬</span>
     </button>
     <!-- Quotation Chat Popup Modal -->
     <div id="quotation-chat-popup" class="quotation-chat-popup quotation-chat-popup-hidden" data-size="normal">
         <div class="quotation-chat-popup-header">
             <h4>Quotation Chat Assistant</h4>
-            <button type="button" class="quotation-close-btn" onclick="closeQuotationChatPopup()">✕</button>
+            <button type="button" class="quotation-close-btn" onclick="eqQuotationChat('closeQuotationChatPopup')">✕</button>
         </div>
         <div id="quotation-chat-popup-messages" class="quotation-chat-popup-messages">
             <div class="quotation-chat-message bot-message">
@@ -287,7 +287,7 @@
         </div>
         <div class="quotation-chat-popup-input">
             <textarea id="quotation-chat-popup-textarea" placeholder="Type your message..." rows="1"></textarea>
-            <button type="button" class="quotation-send-btn" onclick="sendQuotationChatMessage()">Send</button>
+            <button type="button" class="quotation-send-btn" onclick="eqQuotationChat('sendQuotationChatMessage')">Send</button>
         </div>
     </div>
                             <!-- Hide Quotation Name field -->
@@ -299,10 +299,43 @@
     </datalist>
     
     <script src="/static/js/hamburger_menu.js"></script>
-    <script src="/static/js/orderQuotation.js?v=20261027_draft_restore2"></script>
-    <script src="/static/js/quotationChatPopup.js?v=20260515_bubble_1_5s"></script>
+    <script src="/static/js/orderQuotation.js?v=20261028_quote_speed2"></script>
     <script>
-        // Set today's date as default for all delivery date inputs on load
+        // Lazy-load quotation chat CSS/JS only when the bubble is used.
+        window.__eqQuotationChatLoader = null;
+        window.eqEnsureQuotationChat = function() {
+            if (window.__eqQuotationChatReady) {
+                return Promise.resolve();
+            }
+            if (window.__eqQuotationChatLoader) {
+                return window.__eqQuotationChatLoader;
+            }
+            window.__eqQuotationChatLoader = new Promise(function(resolve, reject) {
+                var script = document.createElement('script');
+                script.src = '/static/js/quotationChatPopup.js?v=20260515_bubble_1_5s';
+                script.onload = function() {
+                    window.__eqQuotationChatReady = true;
+                    resolve();
+                };
+                script.onerror = function(err) {
+                    window.__eqQuotationChatLoader = null;
+                    reject(err);
+                };
+                document.body.appendChild(script);
+            });
+            return window.__eqQuotationChatLoader;
+        };
+        window.eqQuotationChat = function(fnName) {
+            return window.eqEnsureQuotationChat().then(function() {
+                var fn = window[fnName];
+                if (typeof fn === 'function') {
+                    return fn();
+                }
+            }).catch(function(err) {
+                console.warn('[quotation chat] failed to load:', err);
+            });
+        };
+
         document.addEventListener('DOMContentLoaded', function() {
             const today = new Date().toISOString().split('T')[0];
             document.querySelectorAll('#quotation-line-items .item-delivery-date').forEach(function(el) {
@@ -310,15 +343,12 @@
                     el.value = today;
                 }
             });
-            // Default validity to today + 30 days
             const validityInput = document.getElementById('quotation-validity');
             if (validityInput && !validityInput.value) {
                 const d = new Date();
                 d.setDate(d.getDate() + 30);
                 validityInput.value = d.toISOString().split('T')[0];
             }
-            // Customer fields: orderQuotation.js loads /api/get_user_info once on DOMContentLoaded (avoid duplicate calls).
-            // Chat stays closed on load; quotationChatPopup.js shows the greeting bubble then fades it out.
         });
     </script>
 </body>

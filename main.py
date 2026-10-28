@@ -4102,21 +4102,24 @@ def api_search_stock_items():
     query = (request.args.get('q') or '').strip()
     if len(query) < 1:
         return jsonify({'success': True, 'items': []})
-    con = None
-    cur = None
+    cache_key = query.casefold()
     try:
         from utils.sql_query_helpers import search_stock_items
+        from utils.ttl_cache import stock_search_cache
 
-        con = get_db_connection()
-        cur = con.cursor()
-        return jsonify({'success': True, 'items': search_stock_items(cur, query, limit=40)})
+        def _load():
+            con = get_db_connection()
+            cur = con.cursor()
+            try:
+                return search_stock_items(cur, query, limit=40)
+            finally:
+                cur.close()
+                con.close()
+
+        items = stock_search_cache.get_or_load(cache_key, _load, ttl_seconds=90.0)
+        return jsonify({'success': True, 'items': items})
     except Exception as exc:
         return jsonify({'success': False, 'error': str(exc), 'items': []}), 500
-    finally:
-        if cur:
-            cur.close()
-        if con:
-            con.close()
 
 
 @app.route('/api/get_stock_items')
@@ -4867,59 +4870,24 @@ def _normalize_selected_suppliers(raw_suppliers):
 
 def _save_selected_suppliers(request_dockey, request_no, raw_suppliers, actor):
     """Persist selected suppliers for a purchase request (used by draft and edit flows)."""
-    try:
-        request_id = int(request_dockey)
-    except Exception:
-        return
-
-    if request_id <= 0:
-        return
-
-    suppliers = _normalize_selected_suppliers(raw_suppliers)
     con = None
-    cur = None
     try:
+        from utils.procurement_purchase_request import persist_selected_suppliers
+
         con = get_db_connection()
-        cur = con.cursor()
-
-        cur.execute('DELETE FROM PR_SELECTED_SUPPLIER WHERE REQUEST_DOCKEY = ?', (request_id,))
-
-        if suppliers:
-            cur.execute('SELECT COALESCE(MAX(ID), 0) FROM PR_SELECTED_SUPPLIER')
-            row = cur.fetchone()
-            next_id = int(row[0] or 0) + 1 if row else 1
-            now_sql = datetime.utcnow().replace(microsecond=0)
-
-            for supplier in suppliers:
-                cur.execute(
-                    '''
-                    INSERT INTO PR_SELECTED_SUPPLIER (
-                        ID, REQUEST_DOCKEY, REQUEST_NO, SUPPLIER_CODE, SUPPLIER_NAME,
-                        SUPPLIER_EMAIL, CREATED_BY, CREATED_AT, UPDATED_AT
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''',
-                    (
-                        next_id,
-                        request_id,
-                        str(request_no or '').strip(),
-                        supplier['code'],
-                        supplier['name'],
-                        supplier['email'],
-                        str(actor or 'admin').strip() or 'admin',
-                        now_sql,
-                        now_sql,
-                    ),
-                )
-                next_id += 1
-
+        persist_selected_suppliers(
+            con.cursor(),
+            request_dockey,
+            request_no,
+            raw_suppliers,
+            actor,
+        )
         con.commit()
     except Exception as exc:
         if con:
             con.rollback()
         print(f"[PROCUREMENT SELECTED SUPPLIERS] save warning: {exc}", flush=True)
     finally:
-        if cur:
-            cur.close()
         if con:
             con.close()
 
@@ -5487,10 +5455,8 @@ def api_admin_create_purchase_request():
 
     try:
         _assert_payload_line_locations_in_scope(payload)
+        # Suppliers are persisted inside create_purchase_request (same Firebird tx).
         result = create_purchase_request(payload, created_by=actor, auth_header=auth_header)
-
-        suppliers = payload.get('suppliers') or []
-        _save_selected_suppliers(result.get('id'), result.get('requestNumber'), suppliers, actor)
 
         # SUBMITTED create now lands in UDF_STATUS=AWAITING. Bid invitations and RFQ
         # emails are deferred until header status moves Awaiting -> Pending.
@@ -5928,6 +5894,57 @@ def _queue_rfq_invitation_emails_for_suppliers(
     return _rfq_recipient_count(targets)
 
 
+def _request_no_from_header_changes(changes, request_id: int) -> str:
+    for raw in changes or []:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            rid = int(raw.get('requestId') or 0)
+        except Exception:
+            rid = 0
+        if rid != request_id:
+            continue
+        return str(
+            raw.get('requestNumber')
+            or raw.get('requestNo')
+            or raw.get('docNo')
+            or ''
+        ).strip()
+    return ''
+
+
+def _send_pending_bid_invites_worker(changes, applied, previous_by_id, actor) -> None:
+    """Create RFQ invites after Awaiting -> Pending without blocking the status response."""
+    if not isinstance(applied, list):
+        return
+    for applied_change in applied:
+        if not isinstance(applied_change, dict):
+            continue
+        try:
+            request_id = int(applied_change.get('requestId') or 0)
+        except Exception:
+            request_id = 0
+        if not request_id:
+            continue
+        status_value = normalize_pr_udf_status(applied_change.get('udfStatus'))
+        previous = normalize_pr_udf_status(
+            applied_change.get('previousUdfStatus')
+            if applied_change.get('previousUdfStatus') is not None
+            else previous_by_id.get(request_id, '')
+        )
+        if status_value != 'PENDING' or previous != 'AWAITING':
+            continue
+        request_no = _request_no_from_header_changes(changes, request_id)
+        try:
+            _send_bidding_invitations_for_pr(request_id, request_no, actor)
+        except Exception as invite_exc:
+            print(
+                f"[PROCUREMENT PR HEADER STATUS] bid invite on PENDING failed "
+                f"for {request_id}: {invite_exc}",
+                flush=True,
+            )
+
+
 def _send_bidding_invitations_for_pr(request_dockey, request_no, actor):
     """Create PR_BID_INVITE rows and queue RFQ emails once, on Awaiting -> Pending.
 
@@ -6069,11 +6086,12 @@ def _send_rfq_invitation_emails_background(
         dockey = int(request_dockey or 0)
     except Exception:
         dockey = 0
-    bidding_url = f"{portal_base}/supplier/bidding"
+    # Land on login with Supplier carousel selected; request_id carried through after OTP.
+    bidding_url = f"{portal_base}/login?mode=supplier"
     if dockey > 0:
-        bidding_url = f"{bidding_url}?request_id={dockey}"
+        bidding_url = f"{bidding_url}&request_id={int(dockey)}"
     portal_cta_html = (
-        "<p style='margin-top:14px;'>Please go to the supplier bidding portal to submit your quotation:</p>"
+        "<p style='margin-top:14px;'>Please sign in on the supplier portal to submit your quotation:</p>"
         f"<p style='margin-top:8px;'><a href='{_rfq_invite_safe_html(bidding_url)}' "
         f"style='color:#1d4ed8;font-weight:600;'>{_rfq_invite_safe_html(bidding_url)}</a></p>"
     )
@@ -9518,7 +9536,7 @@ def api_admin_purchase_request_header_status_update():
             previous_by_id[request_id] = previous
             status_value = str(raw.get('udfStatus') or '').strip().upper()
             if status_value == 'PENDING' and previous == 'AWAITING':
-                suppliers = _list_selected_suppliers(request_id)
+                suppliers = _list_selected_suppliers(request_id, enrich=False)
                 if not suppliers:
                     return jsonify({
                         'success': False,
@@ -9547,8 +9565,8 @@ def api_admin_purchase_request_header_status_update():
             err = f"SQL API returned {st}" + (f": {message}" if message else '')
             return jsonify({'success': False, 'error': err}), st if st in (400, 404) else 502
 
-        # Awaiting Approval -> Pending only: create invitations and queue RFQ emails.
-        invite_results = []
+        # Status is already stored. Refresh the list immediately, then send RFQ
+        # invites in the background so the Pending tab does not wait on supplier lookup.
         applied = body.get('changes') if isinstance(body, dict) else None
         if not isinstance(applied, list) or not applied:
             applied = []
@@ -9567,66 +9585,17 @@ def api_admin_purchase_request_header_status_update():
                     'previousUdfStatus': previous_by_id.get(request_id, ''),
                 })
 
-        for applied_change in applied:
-            if not isinstance(applied_change, dict):
-                continue
-            try:
-                request_id = int(applied_change.get('requestId') or 0)
-            except Exception:
-                request_id = 0
-            if not request_id:
-                continue
-            status_value = normalize_pr_udf_status(applied_change.get('udfStatus'))
-            previous = normalize_pr_udf_status(
-                applied_change.get('previousUdfStatus')
-                if applied_change.get('previousUdfStatus') is not None
-                else previous_by_id.get(request_id, '')
-            )
-            if status_value != 'PENDING' or previous != 'AWAITING':
-                continue
-            request_no = ''
-            for raw in changes:
-                if not isinstance(raw, dict):
-                    continue
-                try:
-                    rid = int(raw.get('requestId') or 0)
-                except Exception:
-                    rid = 0
-                if rid == request_id:
-                    request_no = str(
-                        raw.get('requestNumber')
-                        or raw.get('requestNo')
-                        or raw.get('docNo')
-                        or ''
-                    ).strip()
-                    break
-            try:
-                invite_results.append(
-                    _send_bidding_invitations_for_pr(request_id, request_no, actor)
-                )
-            except Exception as invite_exc:
-                print(
-                    f"[PROCUREMENT PR HEADER STATUS] bid invite on PENDING failed "
-                    f"for {request_id}: {invite_exc}",
-                    flush=True,
-                )
-                invite_results.append({
-                    'inviteCount': 0,
-                    'emailsQueued': 0,
-                    'skipped': True,
-                    'reason': str(invite_exc),
-                    'requestId': request_id,
-                })
-
-        out = body if isinstance(body, dict) else {'upstream': body}
-        if invite_results:
-            out = dict(out)
-            out['bidInvitationResults'] = invite_results
         try:
             with PURCHASE_REQUEST_LIST_CACHE_LOCK:
                 PURCHASE_REQUEST_LIST_CACHE.clear()
         except Exception:
             pass
+        threading.Thread(
+            target=_send_pending_bid_invites_worker,
+            args=(changes, applied, previous_by_id, actor),
+            daemon=True,
+        ).start()
+        out = body if isinstance(body, dict) else {'upstream': body}
         return jsonify({'success': True, 'data': out})
     except requests.exceptions.Timeout:
         return jsonify({'success': False, 'error': 'Header status update request timed out'}), 504
@@ -11283,10 +11252,82 @@ def _debug_log_user_info_payload(source, payload):
     print(f"[DEBUG] get_user_info: Final payload source={source} summary={summary}", flush=True)
 
 
+def _build_get_user_info_body(customer_code: str, *, prefer_sql: bool = False) -> tuple[dict, int]:
+    """Build get_user_info JSON body and HTTP status (no Flask response)."""
+    from utils.sql_api_customer import (
+        apply_sql_api_currency_to_customer_payload,
+        currency_fields_from_sql_row,
+        fetch_sql_api_customer_row,
+    )
+
+    local_payload = _fetch_customer_info_from_local_ar(customer_code)
+    prefer_local = str(os.getenv('EQ_USER_INFO_LOCAL_FIRST', '1')).strip().lower() in (
+        '1', 'true', 'yes', 'on',
+    )
+    if local_payload and prefer_local and not prefer_sql:
+        _debug_log_user_info_payload('local_firebird_ar', local_payload)
+        payload_out = apply_sql_api_currency_to_customer_payload(
+            _merge_session_login_customer_udf_meta(local_payload),
+            customer_code,
+            sql_fields={'code': str(customer_code).strip(), 'currencycode': ''},
+        )
+        return {'success': True, 'data': payload_out, 'source': 'local_firebird_ar'}, 200
+
+    sql_access_key = (os.getenv('SQL_API_ACCESS_KEY') or '').strip()
+    sql_secret_key = (os.getenv('SQL_API_SECRET_KEY') or '').strip()
+    sql_host = (os.getenv('SQL_API_HOST') or '').strip()
+
+    if sql_access_key and sql_secret_key and sql_host:
+        sql_row, last_sql_status = fetch_sql_api_customer_row(customer_code)
+        sql_fields = currency_fields_from_sql_row(sql_row, customer_code, last_sql_status)
+        normalized = _normalize_customer_info(sql_row, customer_code) if sql_row else None
+        if normalized and _customer_info_has_meaningful_data(normalized):
+            _debug_log_user_info_payload('sql_api', normalized)
+            payload_out = apply_sql_api_currency_to_customer_payload(
+                _merge_session_login_customer_udf_meta(normalized),
+                customer_code,
+                sql_fields=sql_fields,
+            )
+            return {'success': True, 'data': payload_out, 'source': 'sql_api'}, 200
+
+        if local_payload:
+            _debug_log_user_info_payload('local_firebird_ar', local_payload)
+            payload_out = apply_sql_api_currency_to_customer_payload(
+                _merge_session_login_customer_udf_meta(local_payload),
+                customer_code,
+                sql_fields=sql_fields,
+            )
+            return {'success': True, 'data': payload_out, 'source': 'local_firebird_ar'}, 200
+
+        fail_status = 502 if (last_sql_status and last_sql_status >= 500) else 404
+        err_msg = 'No SQL API customer data returned'
+        if last_sql_status:
+            err_msg = f'No SQL API customer data returned (upstream HTTP {last_sql_status})'
+        fail_body = {'success': False, 'error': err_msg}
+        if last_sql_status is not None:
+            fail_body['upstream_http_status'] = last_sql_status
+        return fail_body, fail_status
+
+    if local_payload:
+        _debug_log_user_info_payload('local_firebird_ar', local_payload)
+        payload_out = apply_sql_api_currency_to_customer_payload(
+            _merge_session_login_customer_udf_meta(local_payload),
+            customer_code,
+            sql_fields={'code': str(customer_code).strip(), 'currencycode': ''},
+        )
+        return {'success': True, 'data': payload_out, 'source': 'local_firebird_ar'}, 200
+    return {'success': False, 'error': 'No customer data from SQL API or local database'}, 404
+
+
 @app.route('/api/get_user_info')
 @api_login_required(unauth_message='Unauthorized')
 def api_get_user_info():
-    """Return customer info for create-quotation: SQL API when configured, else local Firebird AR_* tables."""
+    """Return customer info for create-quotation: SQL API when configured, else local Firebird AR_* tables.
+
+    Query flags:
+    - ``prefer_sql=1`` — try SQL Accounting first (background overlay).
+    - ``nocache=1`` — bypass the 90s process cache.
+    """
     customer_code = get_current_customer_code(resolve_missing=True)
     if not customer_code:
         if can_access_create_quotation(session) and session.get('user_type') == 'admin':
@@ -11307,76 +11348,37 @@ def api_get_user_info():
         print("[DEBUG] get_user_info: customer_code not in session", flush=True)
         return jsonify({'success': False, 'error': 'Customer code not found'}), 400
 
+    prefer_sql = str(request.args.get('prefer_sql') or '').strip().lower() in ('1', 'true', 'yes')
+    no_cache = str(request.args.get('nocache') or '').strip().lower() in ('1', 'true', 'yes')
+    cache_key = f"{customer_code}|{'sql' if prefer_sql else 'local'}"
+
     try:
-        # 1) Preferred path: SQL API customer details endpoint (example: /customer/*?code=...)
-        sql_access_key = (os.getenv('SQL_API_ACCESS_KEY') or '').strip()
-        sql_secret_key = (os.getenv('SQL_API_SECRET_KEY') or '').strip()
-        sql_host = (os.getenv('SQL_API_HOST') or '').strip()
+        from utils.ttl_cache import user_info_cache
 
-        if sql_access_key and sql_secret_key and sql_host:
-            from utils.sql_api_customer import (
-                apply_sql_api_currency_to_customer_payload,
-                currency_fields_from_sql_row,
-                fetch_sql_api_customer_row,
+        if no_cache:
+            user_info_cache.invalidate(cache_key)
+            user_info_cache.invalidate(f"{customer_code}|local")
+            user_info_cache.invalidate(f"{customer_code}|sql")
+
+        def _load():
+            body, status = _build_get_user_info_body(customer_code, prefer_sql=prefer_sql)
+            return {'body': body, 'status': int(status)}
+
+        packed = user_info_cache.get_or_load(cache_key, _load, ttl_seconds=90.0)
+        body = packed.get('body') if isinstance(packed, dict) else None
+        status = int((packed or {}).get('status') or 500)
+        if not isinstance(body, dict):
+            body, status = _build_get_user_info_body(customer_code, prefer_sql=prefer_sql)
+        if status >= 400:
+            user_info_cache.invalidate(cache_key)
+        elif prefer_sql and body.get('success'):
+            # Overlay upgrades the fast local cache too.
+            user_info_cache.put(
+                f"{customer_code}|local",
+                {'body': body, 'status': status},
+                ttl_seconds=90.0,
             )
-
-            # One SigV4 customer read. Do not repeat it for currency, and do not fall back to
-            # raw key headers. Those extra calls were the Create Quotation delay.
-            sql_row, last_sql_status = fetch_sql_api_customer_row(customer_code)
-            sql_fields = currency_fields_from_sql_row(sql_row, customer_code, last_sql_status)
-            normalized = _normalize_customer_info(sql_row, customer_code) if sql_row else None
-            if normalized and _customer_info_has_meaningful_data(normalized):
-                _debug_log_user_info_payload('sql_api', normalized)
-                payload_out = apply_sql_api_currency_to_customer_payload(
-                    _merge_session_login_customer_udf_meta(normalized),
-                    customer_code,
-                    sql_fields=sql_fields,
-                )
-                return jsonify({
-                    'success': True,
-                    'data': payload_out,
-                    'source': 'sql_api',
-                })
-
-            local_payload = _fetch_customer_info_from_local_ar(customer_code)
-            if local_payload:
-                _debug_log_user_info_payload('local_firebird_ar', local_payload)
-                payload_out = apply_sql_api_currency_to_customer_payload(
-                    _merge_session_login_customer_udf_meta(local_payload),
-                    customer_code,
-                    sql_fields=sql_fields,
-                )
-                return jsonify({
-                    'success': True,
-                    'data': payload_out,
-                    'source': 'local_firebird_ar',
-                })
-
-            # Upstream errors (e.g. 500 "Regenerate views are required") are not "not found"; use 502 for 5xx.
-            fail_status = 502 if (last_sql_status and last_sql_status >= 500) else 404
-            err_msg = 'No SQL API customer data returned'
-            if last_sql_status:
-                err_msg = f'No SQL API customer data returned (upstream HTTP {last_sql_status})'
-            fail_body = {'success': False, 'error': err_msg}
-            if last_sql_status is not None:
-                fail_body['upstream_http_status'] = last_sql_status
-            return jsonify(fail_body), fail_status
-
-        local_only = _fetch_customer_info_from_local_ar(customer_code)
-        if local_only:
-            _debug_log_user_info_payload('local_firebird_ar', local_only)
-            from utils.sql_api_customer import apply_sql_api_currency_to_customer_payload
-
-            payload_out = apply_sql_api_currency_to_customer_payload(
-                _merge_session_login_customer_udf_meta(local_only),
-                customer_code,
-            )
-            return jsonify({
-                'success': True,
-                'data': payload_out,
-                'source': 'local_firebird_ar',
-            })
-        return jsonify({'success': False, 'error': 'No customer data from SQL API or local database'}), 404
+        return jsonify(body), status
     except Exception as e:
         print(f"[DEBUG] get_user_info: Exception occurred: {str(e)}", flush=True)
         import traceback

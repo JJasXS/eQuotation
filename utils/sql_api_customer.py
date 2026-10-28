@@ -70,15 +70,27 @@ def fetch_sql_api_customer_row(customer_code: str) -> tuple[dict[str, Any] | Non
     best: dict[str, Any] | None = None
     best_status: int | None = None
 
-    for url in _customer_detail_urls(code):
+    urls = _customer_detail_urls(code)
+    # Default: one URL shape only (fast). Set EQ_CUSTOMER_SQL_TRY_ALL=1 to probe alternates.
+    try_all = str(os.getenv("EQ_CUSTOMER_SQL_TRY_ALL", "")).strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    if not try_all:
+        urls = urls[:1]
+
+    for url in urls:
         if url in seen:
             continue
         seen.add(url)
         try:
             # One signed attempt. Customer display must not stack transport retries.
+            # Keep Create Quotation snappy: one short attempt per URL shape.
             status, parsed, _raw = client.get_json(
                 url,
-                timeout_seconds=5,
+                timeout_seconds=2.5,
                 max_attempts=1,
                 retry_transport=False,
             )

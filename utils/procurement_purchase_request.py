@@ -72,7 +72,15 @@ def _connect_db():
     return get_db_connection()
 
 
+_COLUMN_NUMERIC_CACHE: dict[tuple[str, str], bool] = {}
+_WORKING_GENERATOR: dict[str, str] = {}
+
+
 def _column_is_numeric(cur: Any, table_name: str, column_name: str) -> bool:
+    cache_key = (str(table_name or "").upper(), str(column_name or "").upper())
+    cached = _COLUMN_NUMERIC_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
     cur.execute(
         """
         SELECT F.RDB$FIELD_TYPE
@@ -80,14 +88,17 @@ def _column_is_numeric(cur: Any, table_name: str, column_name: str) -> bool:
         JOIN RDB$FIELDS F ON RF.RDB$FIELD_SOURCE = F.RDB$FIELD_NAME
         WHERE RF.RDB$RELATION_NAME = ? AND RF.RDB$FIELD_NAME = ?
         """,
-        (table_name.upper(), column_name.upper()),
+        cache_key,
     )
     row = cur.fetchone()
     if not row or row[0] is None:
+        _COLUMN_NUMERIC_CACHE[cache_key] = False
         return False
 
     # Firebird numeric family: SMALLINT(7), INTEGER/LONG(8), BIGINT(16), NUMERIC/DECIMAL(27)
-    return int(row[0]) in {7, 8, 16, 27}
+    result = int(row[0]) in {7, 8, 16, 27}
+    _COLUMN_NUMERIC_CACHE[cache_key] = result
+    return result
 
 
 def _encode_status(status: str, numeric_target: bool) -> Any:
@@ -331,68 +342,106 @@ def _is_firebird_key_violation(exc: BaseException) -> bool:
     )
 
 
-def _next_key(cur: Any, table_name: str, key_column: str, generator_candidates: list[str]) -> int:
-    """Allocate the next numeric key for a shared SQL Accounting table.
-
-    Prefer Firebird generators (atomic across sessions). SQL Accounting names
-    generators after the table (e.g. PH_PQ, PH_PO, ST_XTRANS). If a generator
-    lags behind rows inserted by SQL Accounting, catch it up with GEN_ID jumps —
-    never return a bare MAX+1 while a generator exists (that races with concurrent inserts).
-    """
-    cur.execute(f"SELECT COALESCE(MAX({key_column}), 0) FROM {table_name}")
-    row = cur.fetchone()
-    max_existing = int(row[0] if row and row[0] is not None else 0)
-
-    # Table-named generator first (SQL Accounting convention), then explicit aliases.
-    ordered_candidates: list[str] = []
+def _generator_candidates(table_name: str, generator_candidates: list[str] | None) -> list[str]:
+    """Ordered generator names; prefer a previously working generator for this table."""
+    ordered: list[str] = []
+    table_key = str(table_name or "").strip().upper()
+    cached = _WORKING_GENERATOR.get(table_key)
+    if cached:
+        ordered.append(cached)
     for name in [table_name, *(generator_candidates or [])]:
         cleaned = str(name or "").strip()
-        if cleaned and cleaned.upper() not in {c.upper() for c in ordered_candidates}:
-            ordered_candidates.append(cleaned)
+        if cleaned and cleaned.upper() not in {c.upper() for c in ordered}:
+            ordered.append(cleaned)
+    return ordered
 
-    for generator_name in ordered_candidates:
-        try:
-            cur.execute(f"SELECT GEN_ID({generator_name}, 1) FROM RDB$DATABASE")
-            row = cur.fetchone()
-            if row is None or row[0] is None:
-                continue
-            gen_val = int(row[0])
-            if gen_val > max_existing:
-                return gen_val
 
-            # Generator is behind table data (SQL Accounting / other writers). Jump
-            # forward so the returned value is at least max_existing + 1.
-            delta = (max_existing + 1) - gen_val
-            if delta > 0:
-                cur.execute(
-                    f"SELECT GEN_ID({generator_name}, {int(delta)}) FROM RDB$DATABASE"
-                )
-                row = cur.fetchone()
-                if row and row[0] is not None:
-                    gen_val = int(row[0])
-            if gen_val > max_existing:
-                return gen_val
+def _remember_working_generator(table_name: str, generator_name: str) -> None:
+    cleaned = str(generator_name or "").strip()
+    if cleaned:
+        _WORKING_GENERATOR[str(table_name or "").strip().upper()] = cleaned
 
-            # Extremely rare: another writer advanced MAX during the jump.
-            cur.execute(f"SELECT COALESCE(MAX({key_column}), 0) FROM {table_name}")
-            row = cur.fetchone()
-            max_existing = int(row[0] if row and row[0] is not None else 0)
-            if gen_val > max_existing:
-                return gen_val
-            delta = (max_existing + 1) - gen_val
-            if delta > 0:
-                cur.execute(
-                    f"SELECT GEN_ID({generator_name}, {int(delta)}) FROM RDB$DATABASE"
-                )
-                row = cur.fetchone()
-                if row and row[0] is not None:
-                    return int(row[0])
-            return max_existing + 1
-        except Exception:
-            continue
 
-    # No usable generator — last resort (still racy under concurrency; callers retry inserts).
-    return max_existing + 1
+def _max_key(cur: Any, table_name: str, key_column: str) -> int:
+    cur.execute(f"SELECT COALESCE(MAX({key_column}), 0) FROM {table_name}")
+    row = cur.fetchone()
+    return int(row[0] if row and row[0] is not None else 0)
+
+
+def _gen_id(cur: Any, generator_name: str, delta: int) -> int | None:
+    cur.execute(f"SELECT GEN_ID({generator_name}, {int(delta)}) FROM RDB$DATABASE")
+    row = cur.fetchone()
+    if row is None or row[0] is None:
+        return None
+    return int(row[0])
+
+
+def _allocate_from_generator(
+    cur: Any,
+    table_name: str,
+    key_column: str,
+    generator_name: str,
+    count: int,
+    max_existing: int,
+) -> list[int] | None:
+    """Return ``count`` keys from one generator, catching it up past MAX when needed."""
+    if count <= 0:
+        return []
+    try:
+        # Catch up so the first returned id is > max_existing.
+        probe = _gen_id(cur, generator_name, 1)
+        if probe is None:
+            return None
+        if probe <= max_existing:
+            jump = (max_existing + 1) - probe
+            if jump > 0:
+                probe = _gen_id(cur, generator_name, jump)
+                if probe is None:
+                    return None
+            if probe <= max_existing:
+                max_existing = _max_key(cur, table_name, key_column)
+                if probe <= max_existing:
+                    jump = (max_existing + 1) - probe
+                    if jump > 0:
+                        probe = _gen_id(cur, generator_name, jump)
+                        if probe is None:
+                            return None
+        keys = [probe]
+        for _ in range(count - 1):
+            nxt = _gen_id(cur, generator_name, 1)
+            if nxt is None:
+                return None
+            keys.append(nxt)
+        _remember_working_generator(table_name, generator_name)
+        return keys
+    except Exception:
+        return None
+
+
+def _next_keys(
+    cur: Any,
+    table_name: str,
+    key_column: str,
+    generator_candidates: list[str],
+    count: int,
+) -> list[int]:
+    """Allocate ``count`` numeric keys with one MAX read and generator steps."""
+    if count <= 0:
+        return []
+    max_existing = _max_key(cur, table_name, key_column)
+    for generator_name in _generator_candidates(table_name, generator_candidates):
+        keys = _allocate_from_generator(
+            cur, table_name, key_column, generator_name, count, max_existing
+        )
+        if keys is not None and len(keys) == count:
+            return keys
+    # No usable generator — last resort (still racy; callers retry inserts).
+    return [max_existing + i for i in range(1, count + 1)]
+
+
+def _next_key(cur: Any, table_name: str, key_column: str, generator_candidates: list[str]) -> int:
+    """Allocate the next numeric key for a shared SQL Accounting table."""
+    return _next_keys(cur, table_name, key_column, generator_candidates, 1)[0]
 
 
 def _allocate_unique_request_number(
@@ -467,17 +516,35 @@ def _insert_dynamic(cur: Any, table_name: str, data: dict[str, Any], existing_co
     cur.execute(f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})", values)
 
 
-def ensure_purchase_request_schema() -> None:
-    """Verify existing PR tables are present. This function does not create tables."""
+_PR_SCHEMA_OK_UNTIL = 0.0
+_PR_SCHEMA_TTL_SEC = 300.0
+
+
+def _mark_pr_schema_ok(active_cur: Any) -> None:
+    global _PR_SCHEMA_OK_UNTIL
+    header_cols = _get_table_columns(active_cur, "PH_PQ")
+    detail_cols = _get_table_columns(active_cur, "PH_PQDTL")
+    if not header_cols:
+        raise RuntimeError("PH_PQ table not found")
+    if not detail_cols:
+        raise RuntimeError("PH_PQDTL table not found")
+    _PR_SCHEMA_OK_UNTIL = time.monotonic() + _PR_SCHEMA_TTL_SEC
+
+
+def ensure_purchase_request_schema(cur: Any | None = None) -> None:
+    """Verify existing PR tables are present. This function does not create tables.
+
+    Result is cached briefly so Create PR does not open an extra Firebird
+    connection on every submit. Pass ``cur`` to reuse the create transaction.
+    """
+    if time.monotonic() < _PR_SCHEMA_OK_UNTIL:
+        return
+    if cur is not None:
+        _mark_pr_schema_ok(cur)
+        return
     con = _connect_db()
     try:
-        cur = con.cursor()
-        header_cols = _get_table_columns(cur, "PH_PQ")
-        detail_cols = _get_table_columns(cur, "PH_PQDTL")
-        if not header_cols:
-            raise RuntimeError("PH_PQ table not found")
-        if not detail_cols:
-            raise RuntimeError("PH_PQDTL table not found")
+        _mark_pr_schema_ok(con.cursor())
     finally:
         con.close()
 
@@ -786,10 +853,6 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
             errors.append(f"lineItems[{idx}] must be an object")
             continue
 
-        from utils.stock_items_catalog import enrich_pr_submit_line_item
-
-        item = enrich_pr_submit_line_item(dict(item))
-
         item_code = _clean_text(item.get("itemCode"))
         location_code = _clean_text(item.get("locationCode") or item.get("location") or item.get("loc"))
         item_name = _clean_text(item.get("itemName"))
@@ -851,6 +914,7 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
             norm_line["stockDetail"] = dict(stock_detail)
         from utils.stock_items_catalog import merge_item_and_stock_udf_fields_for_api
 
+        # Keep client-sent UDFs; ST_ITEM fill-in happens once in create_purchase_request.
         for udf_key, udf_val in merge_item_and_stock_udf_fields_for_api(
             item,
             stock_detail if isinstance(stock_detail, dict) else {},
@@ -927,8 +991,9 @@ def _forward_to_upstream(payload: dict[str, Any], auth_header: str | None) -> tu
     if not upstream_url:
         return ("SKIPPED", "")
 
-    timeout_seconds = int(_clean_text(os.getenv("PROCUREMENT_UPSTREAM_TIMEOUT", "8")) or "8")
-    max_attempts = int(_clean_text(os.getenv("PROCUREMENT_UPSTREAM_RETRY", "2")) or "2")
+    # Keep submit responsive; retries stay low. Default timeout 3s (was 8).
+    timeout_seconds = int(_clean_text(os.getenv("PROCUREMENT_UPSTREAM_TIMEOUT", "3")) or "3")
+    max_attempts = int(_clean_text(os.getenv("PROCUREMENT_UPSTREAM_RETRY", "1")) or "1")
     max_attempts = max(0, max_attempts)
 
     headers = {
@@ -980,17 +1045,30 @@ def create_purchase_request(
     auth_header: str | None = None,
 ) -> dict[str, Any]:
     """Validate, persist, and optionally forward a purchase request."""
-    ensure_purchase_request_schema()
+    t0 = time.perf_counter()
     validated = _validate_and_normalize(payload)
     normalized_actor = _clean_text(created_by) or "system"
     now_iso = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
     now_date = datetime.utcnow().date()
+    raw_suppliers = payload.get("suppliers") if isinstance(payload, dict) else None
 
     con = _connect_db()
     try:
         cur = con.cursor()
+        ensure_purchase_request_schema(cur)
+        t_schema = time.perf_counter()
+
+        from utils.stock_items_catalog import enrich_pr_submit_line_item
+
+        validated["lineItems"] = [
+            enrich_pr_submit_line_item(dict(item), allow_remote=False, db_cur=cur)
+            for item in validated["lineItems"]
+        ]
+        t_enrich = time.perf_counter()
+
         header_cols = _get_table_columns(cur, "PH_PQ")
         detail_cols = _get_table_columns(cur, "PH_PQDTL")
+        t_meta = time.perf_counter()
 
         request_number = _allocate_unique_request_number(
             cur,
@@ -998,6 +1076,7 @@ def create_purchase_request(
             preferred=_clean_text(validated.get("requestNumber") or ""),
         )
         status = _resolve_initial_status(validated.get("status") or "")
+        t_alloc = time.perf_counter()
 
         header_key_col = _pick_existing(header_cols, "DOCKEY", "PQKEY", "ID")
         detail_key_col = _pick_existing(detail_cols, "DTLKEY", "PQDTLKEY", "ID")
@@ -1013,9 +1092,17 @@ def create_purchase_request(
         pq_header_gens = ["PH_PQ", "GEN_PH_PQ_ID", "GEN_PH_PQ_DOCKEY", "GEN_PH_PQ", "SEQ_PH_PQ_DOCKEY"]
         pq_detail_gens = ["PH_PQDTL", "GEN_PH_PQDTL_ID", "GEN_PH_PQDTL_DTLKEY", "GEN_PH_PQDTL", "SEQ_PH_PQDTL_DTLKEY"]
         header_id = _next_key(cur, "PH_PQ", header_key_col, pq_header_gens)
+        line_count = len(validated["lineItems"])
+        detail_keys = (
+            _next_keys(cur, "PH_PQDTL", detail_key_col, pq_detail_gens, line_count)
+            if detail_key_col and line_count
+            else []
+        )
 
         upstream_status = "PENDING"
         upstream_reference = ""
+        if status == "SUBMITTED" and not _clean_text(os.getenv("PROCUREMENT_CREATE_PR_URL")):
+            upstream_status = "SKIPPED"
         status_col = _pick_existing(header_cols, "STATUS")
         status_is_numeric = bool(status_col and _column_is_numeric(cur, "PH_PQ", status_col))
 
@@ -1120,12 +1207,12 @@ def create_purchase_request(
                 "CREATED_AT": now_iso,
             }
             if detail_key_col:
-                detail_values[detail_key_col] = _next_key(
-                    cur,
-                    "PH_PQDTL",
-                    detail_key_col,
-                    pq_detail_gens,
-                )
+                if idx - 1 < len(detail_keys):
+                    detail_values[detail_key_col] = detail_keys[idx - 1]
+                else:
+                    detail_values[detail_key_col] = _next_key(
+                        cur, "PH_PQDTL", detail_key_col, pq_detail_gens
+                    )
             _apply_pqdtl_sqty_suom_columns(
                 detail_values,
                 detail_cols,
@@ -1144,64 +1231,51 @@ def create_purchase_request(
                 generator_candidates=pq_detail_gens,
             )
 
-        if status == "SUBMITTED":
-            upstream_payload = _build_upstream_payload(
-                {
-                    **validated,
-                    "requestNumber": request_number,
-                    "status": status,
-                }
-            )
-            upstream_status, upstream_reference = _forward_to_upstream(upstream_payload, auth_header)
-
-            status_col = _pick_existing(header_cols, "STATUS")
-            upstream_status_col = _pick_existing(header_cols, "UPSTREAM_STATUS")
-            upstream_ref_col = _pick_existing(header_cols, "UPSTREAM_REFERENCE")
-            status_is_numeric = bool(status_col and _column_is_numeric(cur, "PH_PQ", status_col))
-
-            updates: list[str] = []
-            values: list[Any] = []
-            if status_col:
-                updates.append(f"{status_col} = ?")
-                values.append(_encode_status(status, status_is_numeric))
-            if upstream_status_col:
-                updates.append(f"{upstream_status_col} = ?")
-                values.append(upstream_status)
-            if upstream_ref_col:
-                updates.append(f"{upstream_ref_col} = ?")
-                values.append(upstream_reference)
-            if updates:
-                values.append(header_id)
-                cur.execute(
-                    f"UPDATE PH_PQ SET {', '.join(updates)} WHERE {header_key_col} = ?",
-                    tuple(values),
-                )
+        t_insert = time.perf_counter()
+        try:
+            persist_selected_suppliers(cur, int(header_id), request_number, raw_suppliers, normalized_actor)
+        except Exception as exc:
+            print(f"[PROCUREMENT SELECTED SUPPLIERS] save warning: {exc}", flush=True)
+        t_suppliers = time.perf_counter()
 
         con.commit()
 
         if status == "SUBMITTED":
-            _schedule_pr_sql_line_sync(
-                int(header_id),
-                request_number,
-                {
-                    **validated,
-                    "requestNumber": request_number,
-                    "status": status,
-                },
-            )
+            sync_payload = {
+                **validated,
+                "requestNumber": request_number,
+                "status": status,
+            }
+            _schedule_upstream_forward(int(header_id), request_number, sync_payload, auth_header)
+            _schedule_pr_sql_line_sync(int(header_id), request_number, sync_payload)
+
+        total_ms = (time.perf_counter() - t0) * 1000
+        print(
+            "[PROCUREMENT CREATE PR] timing "
+            f"schema={(t_schema - t0) * 1000:.0f}ms "
+            f"enrich={(t_enrich - t_schema) * 1000:.0f}ms "
+            f"meta={(t_meta - t_enrich) * 1000:.0f}ms "
+            f"alloc={(t_alloc - t_meta) * 1000:.0f}ms "
+            f"insert={(t_insert - t_alloc) * 1000:.0f}ms "
+            f"suppliers={(t_suppliers - t_insert) * 1000:.0f}ms "
+            f"total={total_ms:.0f}ms "
+            f"lines={line_count} status={status} docno={request_number}",
+            flush=True,
+        )
 
         return {
             "id": header_id,
             "requestNumber": request_number,
             "status": status,
             "upstreamStatus": upstream_status if status == "SUBMITTED" else "PENDING",
-            "upstreamReference": upstream_reference or None,
+            "upstreamReference": None,
             "requestDate": validated["requestDate"],
             "requiredDate": validated["requiredDate"],
             "totalAmount": validated["totalAmount"],
             "currency": validated["currency"],
-            "lineItemCount": len(validated["lineItems"]),
+            "lineItemCount": line_count,
             "udfStatus": "AWAITING" if status == "SUBMITTED" else "",
+            "sqlSyncPending": status == "SUBMITTED",
         }
     except Exception:
         con.rollback()
@@ -1622,6 +1696,148 @@ def _mark_draft_submitted(cur: Any, header_cols: set[str], key_col: str, request
         f"UPDATE PH_PQ SET {', '.join(updates)} WHERE {key_col} = ?",
         tuple(values),
     )
+
+
+def _normalize_selected_supplier_rows(raw_suppliers: Any) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for raw in raw_suppliers or []:
+        if not isinstance(raw, dict):
+            continue
+        code = _normalize_supplier_id_for_header(
+            raw.get("code") or raw.get("supplierCode") or raw.get("supplierId")
+        )
+        if not code:
+            continue
+        key = code.upper()
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(
+            {
+                "code": code,
+                "name": _clean_text(raw.get("name") or raw.get("companyname") or raw.get("supplierName")),
+                "email": _clean_text(raw.get("email") or raw.get("udf_email")),
+            }
+        )
+    return rows
+
+
+def persist_selected_suppliers(
+    cur: Any,
+    request_dockey: int,
+    request_no: str,
+    raw_suppliers: Any,
+    actor: str,
+) -> None:
+    """Write PR_SELECTED_SUPPLIER rows on an existing cursor (same create transaction)."""
+    try:
+        request_id = int(request_dockey)
+    except Exception:
+        return
+    if request_id <= 0:
+        return
+
+    suppliers = _normalize_selected_supplier_rows(raw_suppliers)
+    cur.execute("DELETE FROM PR_SELECTED_SUPPLIER WHERE REQUEST_DOCKEY = ?", (request_id,))
+    if not suppliers:
+        return
+
+    now_sql = datetime.utcnow().replace(microsecond=0)
+    actor_name = _clean_text(actor) or "admin"
+    docno = _clean_text(request_no)
+    fallback_id = None
+    for supplier in suppliers:
+        row_id = None
+        try:
+            row_id = _gen_id(cur, "GEN_PR_SELECTED_SUPPLIER_ID", 1)
+        except Exception:
+            row_id = None
+        if row_id is None:
+            if fallback_id is None:
+                cur.execute("SELECT COALESCE(MAX(ID), 0) FROM PR_SELECTED_SUPPLIER")
+                row = cur.fetchone()
+                fallback_id = int(row[0] or 0) + 1 if row else 1
+            row_id = fallback_id
+            fallback_id += 1
+        cur.execute(
+            """
+            INSERT INTO PR_SELECTED_SUPPLIER (
+                ID, REQUEST_DOCKEY, REQUEST_NO, SUPPLIER_CODE, SUPPLIER_NAME,
+                SUPPLIER_EMAIL, CREATED_BY, CREATED_AT, UPDATED_AT
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row_id,
+                request_id,
+                docno,
+                supplier["code"],
+                supplier["name"],
+                supplier["email"],
+                actor_name,
+                now_sql,
+                now_sql,
+            ),
+        )
+
+
+def _schedule_upstream_forward(
+    header_id: int,
+    request_number: str,
+    validated: dict[str, Any],
+    auth_header: str | None,
+) -> None:
+    """Send PROCUREMENT_CREATE_PR_URL after local commit so submit is not blocked."""
+    import threading
+
+    if not _clean_text(os.getenv("PROCUREMENT_CREATE_PR_URL")):
+        return
+
+    snapshot = dict(validated)
+    snapshot["requestNumber"] = request_number
+    snapshot["status"] = "SUBMITTED"
+
+    def _run() -> None:
+        try:
+            payload = _build_upstream_payload(snapshot)
+            status, reference = _forward_to_upstream(payload, auth_header)
+            con = _connect_db()
+            try:
+                cur = con.cursor()
+                header_cols = _get_table_columns(cur, "PH_PQ")
+                key_col = _pick_existing(header_cols, "DOCKEY", "PQKEY", "ID")
+                if not key_col:
+                    return
+                updates: list[str] = []
+                values: list[Any] = []
+                status_col = _pick_existing(header_cols, "UPSTREAM_STATUS")
+                ref_col = _pick_existing(header_cols, "UPSTREAM_REFERENCE")
+                if status_col:
+                    updates.append(f"{status_col} = ?")
+                    values.append(status)
+                if ref_col:
+                    updates.append(f"{ref_col} = ?")
+                    values.append(reference or "")
+                if not updates:
+                    return
+                values.append(int(header_id))
+                cur.execute(
+                    f"UPDATE PH_PQ SET {', '.join(updates)} WHERE {key_col} = ?",
+                    tuple(values),
+                )
+                con.commit()
+            except Exception:
+                con.rollback()
+                raise
+            finally:
+                con.close()
+        except Exception as exc:
+            print(
+                f"[PROCUREMENT] upstream forward warning dockey={header_id}: {exc}",
+                flush=True,
+            )
+
+    threading.Thread(target=_run, name="pr-upstream-forward", daemon=True).start()
 
 
 def _schedule_pr_sql_line_sync(header_id: int, request_number: str, validated: dict[str, Any]) -> None:
