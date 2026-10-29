@@ -678,12 +678,17 @@ function scheduleSqlCustomerOverlay() {
     }, 0);
 }
 
-/** Best-effort currency for UX; server still resolves from customer master on save. */
+/** Best-effort currency for UX; server still resolves from customer master on save.
+
+Do not block Submit/Draft on a slow SQL API GET /customer — that alone can add ~2.5s
+and does not change the authoritative server-side currency resolution.
+*/
 async function ensureCurrencyReadyForSave() {
     if (currencyCodeForQuotationSave()) {
         return true;
     }
-    await refreshSqlApiCustomerCurrencyFromGetUserInfo({ timeoutMs: 2500 });
+    // Fire-and-forget refresh for display; save proceeds immediately.
+    refreshSqlApiCustomerCurrencyFromGetUserInfo({ timeoutMs: 2500 }).catch(() => {});
     return Boolean(currencyCodeForQuotationSave());
 }
 
