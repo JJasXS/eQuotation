@@ -8353,11 +8353,15 @@ def _enrich_bidding_gate_with_pr_udf(request_id: int, gate: dict, *, allow_remot
         except Exception:
             api_udf = ''
     local_udf = normalize_pr_udf_status(gate.get('prUdfStatus') or get_pr_udf_status_local(request_id))
+    # Local Firebird is source of truth for award lock / display; SQL API is informational only.
     display_udf = local_udf or api_udf
+    has_line_awards = bool(gate.get('hasLineAwards'))
     gate['prUdfStatus'] = display_udf
     gate['prUdfStatusApi'] = api_udf
     gate['prUdfStatusLocal'] = local_udf
-    gate['lineAwardsLocked'] = is_pr_line_awards_locked(api_udf) or is_pr_line_awards_locked(local_udf)
+    gate['lineAwardsLocked'] = is_pr_line_awards_locked(
+        local_udf or display_udf, has_line_awards=has_line_awards
+    )
     return gate
 
 

@@ -487,7 +487,10 @@
         function isLineAwardsLocked() {
             if (!activePr) return false;
             const udf = normalizePrUdfStatus(activePr.udfStatus);
-            return lineAwardsLocked || udf === 'APPROVED' || udf === 'CANCELLED';
+            // Server gate is authoritative (locks after first Save Item, or Cancelled).
+            // Do not lock on APPROVED alone — Save Item is what moves Pending → Approved.
+            if (lineAwardsLocked) return true;
+            return udf === 'CANCELLED';
         }
 
         function applyLineAwardsLockState() {
@@ -496,8 +499,8 @@
             if (saveBtn) {
                 saveBtn.disabled = !activePr || locked;
                 saveBtn.title = locked
-                    ? 'Locked: PR is Approved or Cancelled on View e-PR'
-                    : '';
+                    ? 'Locked: item awards already saved, or PR is Cancelled'
+                    : 'Save selected line awards and move this PR to Approved';
             }
             document.querySelectorAll('.line-award-checkbox').forEach((cb) => {
                 cb.disabled = locked;
@@ -786,7 +789,7 @@
             }
             const udf = normalizePrUdfStatus(activePr.udfStatus);
             const lockNote = isLineAwardsLocked()
-                ? ' · Item awards locked (Approved/Cancelled on View e-PR)'
+                ? ' · Item awards locked (already saved or Cancelled)'
                 : '';
             const gate = lastBiddingGate || {};
             let splitNote = '';
@@ -1317,7 +1320,7 @@
                 : '';
 
             const awardsLockNote = isLineAwardsLocked()
-                ? '<div class="compare-note compare-note--locked">Item awards are locked because this PR is <strong>Approved</strong> or <strong>Cancelled</strong> on View e-PR. Change status there first if you need to revise awards.</div>'
+                ? '<div class="compare-note compare-note--locked">Item awards are locked because they were already saved (or this PR is <strong>Cancelled</strong>). Pick winners and use <strong>Save Item</strong> before the first award save.</div>'
                 : '<div class="compare-note">Tick line checkboxes in Submitted bids, then click Save Item Awards. You can choose Item A from Supplier 1 and Item B from Supplier 2.</div>';
 
             const linesHeader = isSplitChild ? 'RFQ lines' : 'Lines';
@@ -1499,7 +1502,7 @@
 
             if (isLineAwardsLocked()) {
                 if (el) el.checked = false;
-                msg('Item awards are locked for Approved or Cancelled purchase requests.', true);
+                msg('Item awards are locked after Save Item (or when the PR is Cancelled).', true);
                 return;
             }
 
@@ -1539,7 +1542,7 @@
 
             if (isLineAwardsLocked()) {
 
-                msg('Item awards cannot be changed after this PR is Approved or Cancelled on View e-PR.', true);
+                msg('Item awards cannot be changed after they were saved (or when the PR is Cancelled).', true);
 
                 return;
 

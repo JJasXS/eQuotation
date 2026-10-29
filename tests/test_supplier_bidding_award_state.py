@@ -1,5 +1,14 @@
 """Supplier bidding row colour / award state helpers."""
-from utils.procurement_bidding import get_supplier_bidding_award_state
+from utils.procurement_bidding import get_supplier_bidding_award_state, is_pr_line_awards_locked
+
+
+def test_line_awards_lock_only_after_save_or_cancelled():
+    # Save Item is what promotes Pending → Approved; APPROVED alone must stay editable.
+    assert is_pr_line_awards_locked("PENDING") is False
+    assert is_pr_line_awards_locked("APPROVED") is False
+    assert is_pr_line_awards_locked("APPROVED", has_line_awards=True) is True
+    assert is_pr_line_awards_locked("PENDING", has_line_awards=True) is True
+    assert is_pr_line_awards_locked("CANCELLED") is True
 
 
 def test_full_award_not_partial(monkeypatch):

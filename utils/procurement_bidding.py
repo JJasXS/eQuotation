@@ -2490,8 +2490,21 @@ def normalize_pr_udf_status(value: Any) -> str:
     return text
 
 
-def is_pr_line_awards_locked(udf_status: Any) -> bool:
-    return normalize_pr_udf_status(udf_status) in {"APPROVED", "CANCELLED"}
+def is_pr_line_awards_locked(
+    udf_status: Any,
+    *,
+    has_line_awards: bool = False,
+) -> bool:
+    """Lock Save Item only after awards exist, or when the PR is Cancelled.
+
+    Save Item Awards is what promotes Pending → Approved and writes prices.
+    UDF APPROVED alone (with no line awards) must stay editable so a stuck/mis-set
+    header status cannot block the first award save.
+    """
+    status = normalize_pr_udf_status(udf_status)
+    if status == "CANCELLED":
+        return True
+    return bool(has_line_awards)
 
 
 def get_pr_udf_status_local(request_dockey: int) -> str:
@@ -2551,16 +2564,18 @@ def map_pr_udf_status_local(request_dockeys: list[int]) -> dict[int, str]:
 
 
 def assert_pr_line_awards_editable(request_dockey: int, udf_status: Any = "") -> None:
-    """Block item-award changes after View e-PR marks the PR Approved or Cancelled."""
-    statuses = []
-    if udf_status:
-        statuses.append(normalize_pr_udf_status(udf_status))
+    """Block revising item awards after they were saved, or when the PR is Cancelled."""
     local = get_pr_udf_status_local(request_dockey)
-    if local:
-        statuses.append(local)
-    if any(is_pr_line_awards_locked(s) for s in statuses):
+    status = normalize_pr_udf_status(local or udf_status)
+    has_awards = bool(get_line_awards_for_request(int(request_dockey or 0)))
+    if is_pr_line_awards_locked(status, has_line_awards=has_awards):
+        if status == "CANCELLED":
+            raise BiddingValidationError(
+                "Item awards cannot be changed after this purchase request is Cancelled."
+            )
         raise BiddingValidationError(
-            "Item awards cannot be changed after this purchase request is Approved or Cancelled on View e-PR."
+            "Item awards are already saved for this purchase request. "
+            "Revise awards only before the first Save Item."
         )
 
 
@@ -2704,6 +2719,7 @@ def get_transfer_gate_state(request_dockey: int) -> dict[str, Any]:
         approved = get_approved_bid_for_request(request_dockey)
         line_awards = get_line_awards_for_request(request_dockey)
         pr_udf_status = get_pr_udf_status_local(request_dockey)
+        has_line_awards = bool(line_awards)
         return {
             "requestDockey": request_dockey,
             "hasInvitations": invite_count > 0,
@@ -2711,9 +2727,11 @@ def get_transfer_gate_state(request_dockey: int) -> dict[str, Any]:
             "bidCount": bid_count,
             "approvedBid": approved,
             "lineAwards": line_awards,
-            "hasLineAwards": bool(line_awards),
+            "hasLineAwards": has_line_awards,
             "prUdfStatus": pr_udf_status,
-            "lineAwardsLocked": is_pr_line_awards_locked(pr_udf_status),
+            "lineAwardsLocked": is_pr_line_awards_locked(
+                pr_udf_status, has_line_awards=has_line_awards
+            ),
             "biddingSourceDockey": source_dockey,
             "isSplitChild": bool(ctx.get("isSplitChild")),
             "splitFromDocno": _clean_text(ctx.get("splitFromDocno")),
