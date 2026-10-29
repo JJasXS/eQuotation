@@ -4096,7 +4096,25 @@
 
                 const label = VIEW_PR_TAB_LABELS[tabStatus] || tabStatus;
 
-                tab.textContent = `${label} (${n})`;
+                let labelEl = tab.querySelector('.avq-status-tab__label');
+
+                let badgeEl = tab.querySelector('.avq-status-tab__badge, [data-pr-tab-count]');
+
+                if (!labelEl || !badgeEl) {
+
+                    tab.innerHTML =
+                        `<span class="avq-status-tab__label">${label}</span>` +
+                        `<span class="avq-status-tab__badge" data-pr-tab-count="${tabStatus}">${n}</span>`;
+
+                    return;
+
+                }
+
+                labelEl.textContent = label;
+
+                badgeEl.textContent = String(n);
+
+                badgeEl.setAttribute('data-pr-tab-count', tabStatus);
 
             });
 
@@ -4256,7 +4274,9 @@
 
             if (hint) {
 
-                hint.textContent = n === 0 ? 'No PRs selected.' : `${n} selected`;
+                hint.hidden = false;
+
+                hint.textContent = n === 0 ? '0 selected' : `${n} selected`;
 
             }
 
@@ -4290,15 +4310,21 @@
 
             }
 
+            const transferToggle = document.getElementById('view-bulk-transfer-toggle');
+
             const actions = bar.querySelector('.view-pr-bulk-pending-bar__actions');
 
-            if (actions && approveBtn) {
+            if (actions) {
 
-                actions.hidden = !!approveBtn.hidden;
+                const transferVisible = !!(transferToggle && !transferToggle.hidden);
+
+                const approveVisible = !!(approveBtn && !approveBtn.hidden);
+
+                actions.hidden = !(transferVisible || approveVisible);
 
             }
 
-                    syncViewListBulkMasterCheckbox();
+            syncViewListBulkMasterCheckbox();
 
         }
 
@@ -6199,21 +6225,21 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                             <tr>
 
-                                <th class="col-approved">Select</th>
+                                <th class="col-approved">Sel</th>
 
                                 <th class="col-line">#</th>
 
-                                <th class="col-item-name">Item code</th>
+                                <th class="col-item-name">Item</th>
 
-                                <th class="col-location col-batch">Location</th>
+                                <th class="col-location col-batch">Loc</th>
 
                                 <th class="view-pr-num col-sqty">SQTY</th>
 
-                                <th class="view-pr-num col-suomqty">SUOMQTY</th>
+                                <th class="view-pr-num col-suomqty">SUOM</th>
 
-                                <th class="col-delivery-date">Delivery</th>
+                                <th class="col-delivery-date">Deliv</th>
 
-                                <th class="view-pr-num col-qty">Qty (x / total)</th>
+                                <th class="view-pr-num col-qty" title="Qty (x / total)">Qty</th>
 
                                 <th class="view-pr-num col-unit-price">Unit</th>
 
@@ -6231,9 +6257,9 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     </table>
 
-                    <div class="view-pr-detail-total-row" aria-label="Purchase request total">
+                    <div class="view-pr-detail-total-row" aria-label="Purchase request total amount">
 
-                        <span class="view-pr-detail-total-row__label">Total</span>
+                        <span class="view-pr-detail-total-row__label">Total Amount</span>
 
                         <span class="view-pr-detail-total-row__value">RM ${formatMoney(header.totalAmount || 0)}</span>
 
