@@ -16,7 +16,7 @@ import string
 from difflib import SequenceMatcher
 import traceback
 from typing import Any
-from flask import Flask, render_template, request, jsonify, session, redirect, make_response
+from flask import Flask, render_template, request, jsonify, session, redirect, make_response, g
 import fdb
 import openai
 import requests
@@ -1331,6 +1331,38 @@ app = Flask(__name__, template_folder="templates", static_folder="static", stati
 # Always reload templates from disk so UI edits show without a full restart.
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.jinja_env.auto_reload = True
+
+
+@app.before_request
+def _eq_mark_request_start():
+    try:
+        g._eq_request_started = time.perf_counter()
+    except Exception:
+        pass
+
+
+@app.after_request
+def _eq_log_slow_api(response):
+    """Log /api/* requests slower than 500ms to help diagnose create-quotation latency."""
+    try:
+        path = str(request.path or '')
+        if not path.startswith('/api/'):
+            return response
+        started = getattr(g, '_eq_request_started', None)
+        if started is None:
+            return response
+        elapsed_ms = (time.perf_counter() - float(started)) * 1000.0
+        if elapsed_ms < 500.0:
+            return response
+        print(
+            f"[SLOW API] {request.method} {path} "
+            f"status={getattr(response, 'status_code', '?')} "
+            f"ms={elapsed_ms:.1f}",
+            flush=True,
+        )
+    except Exception:
+        pass
+    return response
 
 
 @app.context_processor
@@ -10047,13 +10079,18 @@ def api_create_quotation():
 
         if draft_dockey:
             try:
-                con = get_db_connection()
-                cur = con.cursor()
-                cur.execute('DELETE FROM SL_QTDTLDRAFT WHERE DOCKEY = ?', (draft_dockey,))
-                cur.execute('DELETE FROM SL_QTDRAFT WHERE DOCKEY = ? AND CODE = ?', (draft_dockey, customer_code))
-                con.commit()
-                cur.close()
-                con.close()
+                from utils.db_utils import db_connection
+                with db_connection() as con:
+                    cur = con.cursor()
+                    try:
+                        cur.execute('DELETE FROM SL_QTDTLDRAFT WHERE DOCKEY = ?', (draft_dockey,))
+                        cur.execute(
+                            'DELETE FROM SL_QTDRAFT WHERE DOCKEY = ? AND CODE = ?',
+                            (draft_dockey, customer_code),
+                        )
+                        con.commit()
+                    finally:
+                        cur.close()
                 print(f"DEBUG [Flask api_create_quotation]: Deleted draft DOCKEY={draft_dockey} after successful submission", flush=True)
             except Exception as cleanup_error:
                 print(f"WARNING [Flask api_create_quotation]: Failed to delete draft DOCKEY={draft_dockey}: {cleanup_error}", flush=True)
@@ -11848,7 +11885,7 @@ if __name__ == "__main__":
         # Single port: uvicorn serves FastAPI (mounted) + Flask (WSGI) together on FLASK_PORT (default 8880).
         FASTAPI_BASE_URL = f'http://127.0.0.1:{flask_port}{EQ_SQL_API_MOUNT_PATH}'.rstrip('/')
 
-        from asgiref.wsgi import WsgiToAsgi
+        from a2wsgi import WSGIMiddleware
         from starlette.applications import Starlette
         from starlette.routing import Mount
         from starlette.staticfiles import StaticFiles
@@ -11856,10 +11893,14 @@ if __name__ == "__main__":
         from api.app import app as fastapi_app
 
         app.debug = flask_debug
-        flask_asgi = WsgiToAsgi(app)
-        # Serve /static via Starlette so CSS/JS do not go through WsgiToAsgi. That wrapper uses
-        # CurrentThreadExecutor; concurrent static requests can raise:
-        # RuntimeError: CurrentThreadExecutor already quit or is broken
+        # a2wsgi runs Flask WSGI on a worker thread pool so concurrent /api/* calls
+        # do not serialize behind asgiref WsgiToAsgi's thread_sensitive executor.
+        try:
+            flask_workers = max(4, min(64, int(os.getenv('EQ_FLASK_WORKERS', '16'))))
+        except (TypeError, ValueError):
+            flask_workers = 16
+        flask_asgi = WSGIMiddleware(app, workers=flask_workers)
+        # Serve /static via Starlette so CSS/JS do not go through the WSGI bridge.
         _static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
         _unified_routes = [
             Mount(EQ_SQL_API_MOUNT_PATH, fastapi_app),
@@ -11872,7 +11913,8 @@ if __name__ == "__main__":
         unified_asgi = Starlette(routes=_unified_routes)
         print(
             f"Starting unified server at http://{flask_host}:{flask_port} "
-            f"(Flask / + FastAPI {EQ_SQL_API_MOUNT_PATH}/ ; debug={flask_debug}) ...",
+            f"(Flask / + FastAPI {EQ_SQL_API_MOUNT_PATH}/ ; "
+            f"flask_workers={flask_workers}; debug={flask_debug}) ...",
             flush=True,
         )
         print(f"FastAPI docs: http://127.0.0.1:{flask_port}{EQ_SQL_API_MOUNT_PATH}/docs", flush=True)

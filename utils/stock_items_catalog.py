@@ -185,7 +185,7 @@ def fetch_stock_item_sql_api_by_code(code: str) -> dict[str, Any] | None:
         status, parsed, raw = client.get_json(
             settings.resolved_stock_item_detail_url(item_code),
             timeout_seconds=float(
-                os.getenv("SQL_API_STOCK_ITEM_TIMEOUT_SECONDS") or settings.timeout_seconds
+                os.getenv("SQL_API_STOCK_ITEM_TIMEOUT_SECONDS") or "5"
             ),
             max_attempts=1,
             retry_transport=False,
@@ -231,7 +231,7 @@ def _try_fetch_stock_items_sql_api() -> list[dict[str, Any]] | None:
         status, parsed, raw = client.get_json(
             settings.resolved_stock_item_list_url(),
             timeout_seconds=float(
-                os.getenv("SQL_API_STOCK_ITEM_TIMEOUT_SECONDS") or settings.timeout_seconds
+                os.getenv("SQL_API_STOCK_ITEM_TIMEOUT_SECONDS") or "5"
             ),
         )
     except SqlAccountingApiError as exc:

@@ -671,7 +671,7 @@ function scheduleSqlCustomerOverlay() {
     window.setTimeout(() => {
         refreshSqlApiCustomerCurrencyFromGetUserInfo({
             preferSql: true,
-            noCache: true,
+            noCache: false,
             applyFullPayload: true,
             timeoutMs: 4000,
         }).catch(() => {});
@@ -1794,6 +1794,8 @@ function clearQuotationForm() {
 }
 
 // Fetch product price when a product is selected
+const _productPriceInFlight = new WeakMap();
+
 async function fetchProductPrice(input) {
     if (input.classList && input.classList.contains('item-product-custom')) {
         return;
@@ -1818,6 +1820,23 @@ async function fetchProductPrice(input) {
         return;
     }
 
+    const priceParams = inQuotationTable && row
+        ? buildProductPriceQueryParams(row)
+        : new URLSearchParams({ description: productName });
+    if (!priceParams.get('description')) {
+        priceParams.set('description', productName);
+    }
+    const priceKey = priceParams.toString();
+    const trackTarget = row || input;
+    const prior = _productPriceInFlight.get(trackTarget);
+    if (prior && prior.key === priceKey) {
+        // Same product already priced or in flight for this row (picker + blur double-fire).
+        return prior.promise;
+    }
+    if (prior && prior.controller) {
+        try { prior.controller.abort(); } catch (_e) { /* ignore */ }
+    }
+
     if (row && inQuotationTable) {
         applyQuotationLineStItemExtrasFromProduct(row, findCatalogProductByDescription(productName));
     }
@@ -1830,87 +1849,99 @@ async function fetchProductPrice(input) {
     if (orderItem) {
         orderItem.dataset.productDescription = productName;
     }
-    
-    try {
-        const priceParams = inQuotationTable && row
-            ? buildProductPriceQueryParams(row)
-            : new URLSearchParams({ description: productName });
-        if (!priceParams.get('description')) {
-            priceParams.set('description', productName);
-        }
-        const response = await fetch(`/api/get_product_price?${priceParams.toString()}`);
-        const data = await response.json();
 
-        if (data.success && data.price !== undefined && data.price !== null) {
-            if (row && inQuotationTable) {
-                if (data.suggestedPrice !== undefined && data.suggestedPrice !== null) {
-                    writeQuotationLineField(row, '.item-suggested-price', Number(data.suggestedPrice).toFixed(2));
-                } else {
-                    writeQuotationLineField(row, '.item-suggested-price', '');
-                    if (data.suggestedReason) {
-                        console.log('Suggested price unavailable:', data.suggestedReason, '| source:', data.source, '| rule:', data.matchedRuleCode);
-                    }
-                }
-                const stItemPrice = Number(data.stItemPrice);
-                if (Number.isFinite(stItemPrice)) {
-                    writeQuotationLineField(row, '.item-price', stItemPrice.toFixed(2));
-                } else {
-                    writeQuotationLineField(row, '.item-price', data.price.toFixed(2));
-                }
-            } else if (row) {
-                const suggestedPriceInput = row.querySelector('.item-suggested-price');
-                const unitPriceInput = row.querySelector('.item-price');
-                if (suggestedPriceInput) {
+    const controller = new AbortController();
+    const runPromise = (async () => {
+        try {
+            const response = await fetch(
+                `/api/get_product_price?${priceKey}`,
+                { signal: controller.signal },
+            );
+            const data = await response.json();
+
+            if (data.success && data.price !== undefined && data.price !== null) {
+                if (row && inQuotationTable) {
                     if (data.suggestedPrice !== undefined && data.suggestedPrice !== null) {
-                        suggestedPriceInput.value = Number(data.suggestedPrice).toFixed(2);
+                        writeQuotationLineField(row, '.item-suggested-price', Number(data.suggestedPrice).toFixed(2));
                     } else {
-                        suggestedPriceInput.value = '';
+                        writeQuotationLineField(row, '.item-suggested-price', '');
+                        if (data.suggestedReason) {
+                            console.log('Suggested price unavailable:', data.suggestedReason, '| source:', data.source, '| rule:', data.matchedRuleCode);
+                        }
+                    }
+                    const stItemPrice = Number(data.stItemPrice);
+                    if (Number.isFinite(stItemPrice)) {
+                        writeQuotationLineField(row, '.item-price', stItemPrice.toFixed(2));
+                    } else {
+                        writeQuotationLineField(row, '.item-price', data.price.toFixed(2));
+                    }
+                } else if (row) {
+                    const suggestedPriceInput = row.querySelector('.item-suggested-price');
+                    const unitPriceInput = row.querySelector('.item-price');
+                    if (suggestedPriceInput) {
+                        if (data.suggestedPrice !== undefined && data.suggestedPrice !== null) {
+                            suggestedPriceInput.value = Number(data.suggestedPrice).toFixed(2);
+                        } else {
+                            suggestedPriceInput.value = '';
+                        }
+                    }
+                    if (unitPriceInput) {
+                        const stItemPrice = Number(data.stItemPrice);
+                        unitPriceInput.value = Number.isFinite(stItemPrice)
+                            ? stItemPrice.toFixed(2)
+                            : data.price.toFixed(2);
                     }
                 }
-                if (unitPriceInput) {
-                    const stItemPrice = Number(data.stItemPrice);
-                    unitPriceInput.value = Number.isFinite(stItemPrice)
-                        ? stItemPrice.toFixed(2)
-                        : data.price.toFixed(2);
+                // Trigger total recalculation
+                const isOrder = input.closest && input.closest('#order-items-list') !== null;
+                if (isOrder) {
+                    calculateOrderTotal();
+                } else {
+                    calculateQuotationTotal();
                 }
+                if (row && inQuotationTable) {
+                    const savedDims = {
+                        t: readQuotationLineField(row, '.item-udf-thickness'),
+                        w: readQuotationLineField(row, '.item-udf-width'),
+                        l: readQuotationLineField(row, '.item-udf-length'),
+                    };
+                    applyQuotationLineStItemExtras(row, data);
+                    if (savedDims.t) {
+                        writeQuotationLineField(row, '.item-udf-thickness', savedDims.t);
+                    }
+                    if (savedDims.w) {
+                        writeQuotationLineField(row, '.item-udf-width', savedDims.w);
+                    }
+                    if (savedDims.l) {
+                        writeQuotationLineField(row, '.item-udf-length', savedDims.l);
+                    }
+                    applyQuotationLineSuomQtyPreview(row);
+                }
+            } else if (row && inQuotationTable) {
+                clearQuotationLineStItemExtras(row);
             }
-            // Trigger total recalculation
-            const isOrder = input.closest && input.closest('#order-items-list') !== null;
-            if (isOrder) {
-                calculateOrderTotal();
-            } else {
-                calculateQuotationTotal();
+        } catch (error) {
+            if (error && error.name === 'AbortError') {
+                return;
             }
+            console.error('Failed to fetch product price:', error);
             if (row && inQuotationTable) {
-                const savedDims = {
-                    t: readQuotationLineField(row, '.item-udf-thickness'),
-                    w: readQuotationLineField(row, '.item-udf-width'),
-                    l: readQuotationLineField(row, '.item-udf-length'),
-                };
-                applyQuotationLineStItemExtras(row, data);
-                if (savedDims.t) {
-                    writeQuotationLineField(row, '.item-udf-thickness', savedDims.t);
-                }
-                if (savedDims.w) {
-                    writeQuotationLineField(row, '.item-udf-width', savedDims.w);
-                }
-                if (savedDims.l) {
-                    writeQuotationLineField(row, '.item-udf-length', savedDims.l);
-                }
-                applyQuotationLineSuomQtyPreview(row);
+                clearQuotationLineStItemExtras(row);
             }
-        } else if (row && inQuotationTable) {
-            clearQuotationLineStItemExtras(row);
+        } finally {
+            const current = _productPriceInFlight.get(trackTarget);
+            if (current && current.controller === controller) {
+                // Keep key so a duplicate blur for the same product is skipped.
+                _productPriceInFlight.set(trackTarget, { key: priceKey, controller: null, promise: Promise.resolve() });
+            }
+            if (inQuotationTable) {
+                refreshQuotationMiniItemCodes();
+            }
         }
-    } catch (error) {
-        console.error('Failed to fetch product price:', error);
-        if (row && inQuotationTable) {
-            clearQuotationLineStItemExtras(row);
-        }
-    }
-    if (inQuotationTable) {
-        refreshQuotationMiniItemCodes();
-    }
+    })();
+
+    _productPriceInFlight.set(trackTarget, { key: priceKey, controller, promise: runPromise });
+    return runPromise;
 }
 
 // Store products globally
@@ -3139,6 +3170,15 @@ document.addEventListener('DOMContentLoaded', async function() {
     const draftDockey = urlParams.get('draftDockey');
     const dockey = quotationForm ? quotationForm.dataset.dockey : null;
 
+    const nextDocnoRefresh = document.getElementById('quotation-next-docno-refresh');
+    if (nextDocnoRefresh) {
+        nextDocnoRefresh.addEventListener('click', () => refreshQuotationNextDocnoPreview());
+    }
+    // Start next-docno preview in parallel with customer/product load (do not wait on get_user_info).
+    const nextDocnoPromise = (!isAdminUpdatePage)
+        ? refreshQuotationNextDocnoPreview()
+        : Promise.resolve();
+
     if (isAdminUpdatePage && dockey) {
         await loadProducts();
         await loadAdminQuotationForEdit(dockey);
@@ -3177,12 +3217,10 @@ document.addEventListener('DOMContentLoaded', async function() {
     initQuotationLineTableEvents();
     initQuotationCatalogProductPickers();
 
-    const nextDocnoRefresh = document.getElementById('quotation-next-docno-refresh');
-    if (nextDocnoRefresh) {
-        nextDocnoRefresh.addEventListener('click', () => refreshQuotationNextDocnoPreview());
-    }
-    if (!isAdminUpdatePage) {
-        await refreshQuotationNextDocnoPreview();
+    try {
+        await nextDocnoPromise;
+    } catch (err) {
+        console.warn('next_docno preview failed:', err);
     }
 });
 

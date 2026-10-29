@@ -1858,7 +1858,7 @@ def list_draft_quotations(customer_code=None):
 
 def save_draft_quotation(base_api_url, customer_code, data):
     """Save a quotation draft directly to Firebird DB (no PHP)."""
-    from utils import get_db_connection
+    from utils.db_utils import db_connection
     import traceback
     data = _strip_client_currency_fields(dict(data or {}))
     dockey = data.get('dockey')
@@ -1877,70 +1877,71 @@ def save_draft_quotation(base_api_url, customer_code, data):
     total_doc_amt = sum(float(item.get('qty', 0)) * float(item.get('price', 0)) for item in items)
 
     try:
-        con = get_db_connection()
-        cur = con.cursor()
-        # Insert or update draft header
-        if dockey:
-            # Update existing draft
-            cur.execute("""
-                UPDATE SL_QTDRAFT SET DESCRIPTION=?, VALIDITY=?, TERMS=?, DOCAMT=?, COMPANYNAME=?, ADDRESS1=?, ADDRESS2=?, PHONE1=?, CURRENCYCODE=?, DOCDATE=?
-                WHERE DOCKEY=? AND CODE=?
-            """, (description, valid_until, terms, total_doc_amt, company_name, address1, address2, phone1, currency_code, docdate, dockey, customer_code))
-        else:
-            # Get next DOCKEY from generator/sequence (fallback to MAX+1 if generator is unavailable)
+        with db_connection() as con:
+            cur = con.cursor()
             try:
-                cur.execute("SELECT GEN_ID(GEN_SL_QTDRAFT_ID, 1) FROM RDB$DATABASE")
-                dockey = cur.fetchone()[0]
-            except Exception:
-                cur.execute("SELECT COALESCE(MAX(DOCKEY), 0) + 1 FROM SL_QTDRAFT")
-                dockey = cur.fetchone()[0]
+                # Insert or update draft header
+                if dockey:
+                    # Update existing draft
+                    cur.execute("""
+                        UPDATE SL_QTDRAFT SET DESCRIPTION=?, VALIDITY=?, TERMS=?, DOCAMT=?, COMPANYNAME=?, ADDRESS1=?, ADDRESS2=?, PHONE1=?, CURRENCYCODE=?, DOCDATE=?
+                        WHERE DOCKEY=? AND CODE=?
+                    """, (description, valid_until, terms, total_doc_amt, company_name, address1, address2, phone1, currency_code, docdate, dockey, customer_code))
+                else:
+                    # Get next DOCKEY from generator/sequence (fallback to MAX+1 if generator is unavailable)
+                    try:
+                        cur.execute("SELECT GEN_ID(GEN_SL_QTDRAFT_ID, 1) FROM RDB$DATABASE")
+                        dockey = cur.fetchone()[0]
+                    except Exception:
+                        cur.execute("SELECT COALESCE(MAX(DOCKEY), 0) + 1 FROM SL_QTDRAFT")
+                        dockey = cur.fetchone()[0]
 
-            docno = docno_input or f"DRAFT-{int(dockey):05d}"
-            cur.execute("""
-                INSERT INTO SL_QTDRAFT (DOCKEY, DOCNO, CODE, DESCRIPTION, VALIDITY, TERMS, DOCAMT, SHIPPER, COMPANYNAME, ADDRESS1, ADDRESS2, PHONE1, CURRENCYCODE, DOCDATE)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (dockey, docno, customer_code, description, valid_until, terms, total_doc_amt, shipper, company_name, address1, address2, phone1, currency_code, docdate))
+                    docno = docno_input or f"DRAFT-{int(dockey):05d}"
+                    cur.execute("""
+                        INSERT INTO SL_QTDRAFT (DOCKEY, DOCNO, CODE, DESCRIPTION, VALIDITY, TERMS, DOCAMT, SHIPPER, COMPANYNAME, ADDRESS1, ADDRESS2, PHONE1, CURRENCYCODE, DOCDATE)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (dockey, docno, customer_code, description, valid_until, terms, total_doc_amt, shipper, company_name, address1, address2, phone1, currency_code, docdate))
 
-        # Remove old draft items
-        cur.execute("DELETE FROM SL_QTDTLDRAFT WHERE DOCKEY=?", (dockey,))
-        # Insert draft items (ITEMCODE must match SL_QTDTLDRAFT schema — used when reloading drafts / SQL API)
-        for idx, item in enumerate(items, start=1):
-            qty = float(item.get('qty', 0))
-            price = float(item.get('price', 0))
-            discount = float(item.get('discount', 0))
-            product_desc = str(item.get('product', '')).strip()
-            if not product_desc:
-                continue
-            item_code = str(
-                item.get('itemCode') or item.get('itemcode') or item.get('code') or ''
-            ).strip()
-            source_line = str(item.get('source') or '').strip().lower()
-            if source_line == 'custom' and not item_code:
-                # Match the submit flow: custom lines carry the CUSTOM placeholder so the draft
-                # reloads deterministically as a custom line (rather than relying on description).
-                item_code = _quotation_custom_item_code()
-            if not item_code and source_line != 'custom':
-                item_code = _resolve_item_code_from_local_db(product_desc)
-            if not item_code:
-                item_code = _quotation_fallback_item_code()
-            item_code = _normalize_item_code(item_code)
-            try:
-                cur.execute("SELECT GEN_ID(GEN_SL_QTDTLDRAFT_ID, 1) FROM RDB$DATABASE")
-                dtlkey = cur.fetchone()[0]
-            except Exception:
-                cur.execute("SELECT COALESCE(MAX(DTLKEY), 0) + 1 FROM SL_QTDTLDRAFT")
-                dtlkey = cur.fetchone()[0]
-            cur.execute(
-                """
-                INSERT INTO SL_QTDTLDRAFT (DTLKEY, DOCKEY, SEQ, ITEMCODE, DESCRIPTION, QTY, UNITPRICE, DISC)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (dtlkey, dockey, idx, item_code or None, product_desc, qty, price, str(discount)),
-            )
+                # Remove old draft items
+                cur.execute("DELETE FROM SL_QTDTLDRAFT WHERE DOCKEY=?", (dockey,))
+                # Insert draft items (ITEMCODE must match SL_QTDTLDRAFT schema — used when reloading drafts / SQL API)
+                for idx, item in enumerate(items, start=1):
+                    qty = float(item.get('qty', 0))
+                    price = float(item.get('price', 0))
+                    discount = float(item.get('discount', 0))
+                    product_desc = str(item.get('product', '')).strip()
+                    if not product_desc:
+                        continue
+                    item_code = str(
+                        item.get('itemCode') or item.get('itemcode') or item.get('code') or ''
+                    ).strip()
+                    source_line = str(item.get('source') or '').strip().lower()
+                    if source_line == 'custom' and not item_code:
+                        # Match the submit flow: custom lines carry the CUSTOM placeholder so the draft
+                        # reloads deterministically as a custom line (rather than relying on description).
+                        item_code = _quotation_custom_item_code()
+                    if not item_code and source_line != 'custom':
+                        item_code = _resolve_item_code_from_local_db(product_desc)
+                    if not item_code:
+                        item_code = _quotation_fallback_item_code()
+                    item_code = _normalize_item_code(item_code)
+                    try:
+                        cur.execute("SELECT GEN_ID(GEN_SL_QTDTLDRAFT_ID, 1) FROM RDB$DATABASE")
+                        dtlkey = cur.fetchone()[0]
+                    except Exception:
+                        cur.execute("SELECT COALESCE(MAX(DTLKEY), 0) + 1 FROM SL_QTDTLDRAFT")
+                        dtlkey = cur.fetchone()[0]
+                    cur.execute(
+                        """
+                        INSERT INTO SL_QTDTLDRAFT (DTLKEY, DOCKEY, SEQ, ITEMCODE, DESCRIPTION, QTY, UNITPRICE, DISC)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (dtlkey, dockey, idx, item_code or None, product_desc, qty, price, str(discount)),
+                    )
 
-        con.commit()
-        cur.close()
-        con.close()
+                con.commit()
+            finally:
+                cur.close()
         return {"success": True, "dockey": dockey, "docno": None, "message": "Draft saved"}
     except Exception as e:
         traceback.print_exc()

@@ -133,14 +133,15 @@ def api_customer_sql_api_currency():
         user_email = (session.get('user_email') or '').strip()
         if user_email:
             try:
-                from utils import get_db_connection
+                from utils.db_utils import db_connection
                 from utils.sql_query_helpers import find_customer_code_by_email
 
-                con = get_db_connection()
-                cur = con.cursor()
-                customer_code = find_customer_code_by_email(cur, user_email) or ''
-                cur.close()
-                con.close()
+                with db_connection() as con:
+                    cur = con.cursor()
+                    try:
+                        customer_code = find_customer_code_by_email(cur, user_email) or ''
+                    finally:
+                        cur.close()
             except Exception:
                 customer_code = ''
 
