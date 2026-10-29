@@ -166,7 +166,13 @@ from config.order_config import (
 )
 
 # Import OTP configuration
-from config.otp_config import generate_otp, OTP_LENGTH, OTP_EXPIRY_SECONDS, OTP_RESEND_COOLDOWN_SECONDS
+from config.otp_config import (
+    generate_otp,
+    OTP_LENGTH,
+    OTP_EXPIRY_SECONDS,
+    OTP_RESEND_COOLDOWN_SECONDS,
+    OTP_MAX_VERIFY_ATTEMPTS,
+)
 
 # ============================================
 # CONFIGURATION - Load from environment variables
@@ -1393,11 +1399,75 @@ def inject_tenant_code_for_ui():
 
 
 # Configure Flask session
-app.secret_key = os.getenv('FLASK_SECRET_KEY', 'dev-secret-key-change-in-production')
-app.config['SESSION_COOKIE_SECURE'] = False  # Set to True in production with HTTPS
+_flask_env = (os.getenv('FLASK_ENV') or os.getenv('EQ_ENV') or '').strip().lower()
+_is_production = _flask_env in ('production', 'prod') or (
+    str(os.getenv('EQ_REQUIRE_SECURE_COOKIES', '')).strip().lower() in ('1', 'true', 'yes', 'on')
+)
+_secret = (os.getenv('FLASK_SECRET_KEY') or '').strip()
+_dev_secret_fallback = 'dev-secret-key-change-in-production'
+if _is_production:
+    if not _secret or _secret == _dev_secret_fallback or len(_secret) < 32:
+        raise RuntimeError(
+            'FLASK_SECRET_KEY must be set to a strong unique value (32+ chars) in production. '
+            'Refusing to start with the development fallback.'
+        )
+    app.secret_key = _secret
+else:
+    app.secret_key = _secret or _dev_secret_fallback
+    if not _secret:
+        print(
+            '[SECURITY] FLASK_SECRET_KEY unset — using development fallback. '
+            'Set FLASK_SECRET_KEY before any production deploy.',
+            flush=True,
+        )
+
+# Secure cookies when HTTPS / production; allow explicit override for local HTTP.
+_secure_cookie_raw = (os.getenv('SESSION_COOKIE_SECURE') or '').strip().lower()
+if _secure_cookie_raw in ('1', 'true', 'yes', 'on'):
+    _session_cookie_secure = True
+elif _secure_cookie_raw in ('0', 'false', 'no', 'off'):
+    _session_cookie_secure = False
+else:
+    _session_cookie_secure = bool(_is_production)
+app.config['SESSION_COOKIE_SECURE'] = _session_cookie_secure
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
+print(
+    f"[SECURITY] SESSION_COOKIE_SECURE={_session_cookie_secure} production={_is_production}",
+    flush=True,
+)
+
+
+@app.before_request
+def _eq_csrf_origin_guard():
+    """Reject cross-origin state-changing /api/* calls when Origin is present and mismatched.
+
+    SameSite=Lax already blocks most cookie CSRF for cross-site POSTs; this adds
+    defense-in-depth for browsers that send Origin. Requests with no Origin
+    (same-origin navigations, some tools) are allowed.
+    """
+    if request.method not in ('POST', 'PUT', 'PATCH', 'DELETE'):
+        return None
+    path = str(request.path or '')
+    if not path.startswith('/api/'):
+        return None
+    origin = (request.headers.get('Origin') or '').strip()
+    if not origin:
+        return None
+    try:
+        from urllib.parse import urlparse
+        origin_host = (urlparse(origin).netloc or '').lower()
+        req_host = (request.host or '').lower()
+        if origin_host and req_host and origin_host != req_host:
+            print(
+                f"[SECURITY] CSRF Origin rejected: origin={origin!r} host={req_host!r} path={path}",
+                flush=True,
+            )
+            return jsonify({'success': False, 'error': 'Cross-origin request blocked'}), 403
+    except Exception:
+        return None
+    return None
 
 # Register blueprints
 from routes.quotation_routes import quotation_bp
@@ -1428,6 +1498,12 @@ register_procurement_routes(
 
 @app.after_request
 def add_no_cache_headers(response):
+    """Keep authenticated HTML/API responses uncached. Static assets are served by
+    Starlette outside this hook and may use long-lived cache with versioned URLs.
+    """
+    path = str(request.path or '')
+    if path.startswith('/static/'):
+        return response
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
@@ -2789,16 +2865,12 @@ def api_send_otp():
     
     if not email:
         return jsonify({'success': False, 'error': 'Email is required'}), 400
-    
-    # ============================================
-    # VALIDATION DISABLED FOR TESTING
-    # Uncomment below to enable email validation
-    # ============================================
-    # import re
-    # email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    # if not re.match(email_pattern, email):
-    #     return jsonify({'success': False, 'error': 'Invalid email format'}), 400
-    
+
+    import re
+    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    if not re.match(email_pattern, email):
+        return jsonify({'success': False, 'error': 'Invalid email format'}), 400
+
     try:
         # Use cached FastAPI identity lookup so OTP send + verify share one round-trip.
         is_admin = False
@@ -2839,17 +2911,18 @@ def api_send_otp():
                     'resend_cooldown_seconds': OTP_RESEND_COOLDOWN_SECONDS,
                 }), 429
 
-        # Generate OTP
+        # Generate OTP (never log the code — only that one was issued)
         otp = generate_otp(OTP_LENGTH)
-        print(f"[DEBUG OTP] {email} -> {otp}", flush=True)
+        print(f"[DEBUG OTP] OTP issued for mode={login_mode} (code not logged)", flush=True)
         now = datetime.now()
         expiry = now + timedelta(seconds=OTP_EXPIRY_SECONDS)
-        
+
         # Store OTP temporarily (keyed by email + login tab)
         OTP_STORAGE[otp_key] = {
             'otp': otp,
             'expiry': expiry,
             'last_sent': now,
+            'attempts': 0,
         }
         
         # Send OTP via email
@@ -2950,8 +3023,30 @@ def api_verify_otp():
             del OTP_STORAGE[otp_key]
             return jsonify({'success': False, 'error': 'OTP has expired. Request a new one.', 'expired': True}), 400
 
+        attempts = int(stored_data.get('attempts') or 0)
+        if attempts >= OTP_MAX_VERIFY_ATTEMPTS:
+            del OTP_STORAGE[otp_key]
+            return jsonify({
+                'success': False,
+                'error': 'Too many invalid attempts. Request a new OTP.',
+                'expired': True,
+            }), 429
+
         if otp != stored_data['otp']:
-            return jsonify({'success': False, 'error': 'Invalid OTP. Please try again.'}), 400
+            stored_data['attempts'] = attempts + 1
+            OTP_STORAGE[otp_key] = stored_data
+            remaining = OTP_MAX_VERIFY_ATTEMPTS - stored_data['attempts']
+            if remaining <= 0:
+                del OTP_STORAGE[otp_key]
+                return jsonify({
+                    'success': False,
+                    'error': 'Too many invalid attempts. Request a new OTP.',
+                    'expired': True,
+                }), 429
+            return jsonify({
+                'success': False,
+                'error': f'Invalid OTP. {remaining} attempt(s) remaining.',
+            }), 400
 
         # One-time use: consume OTP immediately after successful verification
         del OTP_STORAGE[otp_key]
@@ -3029,7 +3124,8 @@ def api_verify_otp():
                 'error': 'Email not found in customer or supplier records, please contact administrator'
             }), 401
 
-        # OTP is valid - create session
+        # OTP is valid - rotate session to prevent fixation, then bind identity
+        session.clear()
         session['user_email'] = email
         session['access_tier'] = access_tier or ('supplier' if user_type == 'supplier' else 'customer')
         session['staff_udf'] = staff_udf
@@ -10006,6 +10102,19 @@ def api_quotation_next_docno():
         for_dockey = int(request.args.get('dockey') or 0)
     except (TypeError, ValueError):
         for_dockey = 0
+    # Prevent DOCNO probing of other customers' quotations via dockey guess.
+    if for_dockey > 0 and session.get('user_type') != 'admin':
+        try:
+            from utils.quotation_api import _read_sl_qt_header_for_sales_api
+            hb = _read_sl_qt_header_for_sales_api(for_dockey)
+            qt_code = str(hb.get('code') or '').strip().upper()
+            sess_code = str(
+                get_current_customer_code(resolve_missing=True) or session.get('customer_code') or ''
+            ).strip().upper()
+            if not qt_code or not sess_code or qt_code != sess_code:
+                return jsonify({'success': False, 'error': 'Forbidden'}), 403
+        except Exception:
+            return jsonify({'success': False, 'error': 'Forbidden'}), 403
     try:
         result = peek_next_qt_docno(for_dockey=for_dockey)
         if not result.get('success'):
@@ -10023,6 +10132,9 @@ def api_create_quotation():
         return jsonify({'success': False, 'error': 'Forbidden'}), 403
     customer_code = get_current_customer_code(resolve_missing=True) or session.get('customer_code')
     data = dict(request.get_json() or {})
+    # Never trust client-supplied admin bypass flags on the customer create path.
+    data.pop('adminUpdate', None)
+    data.pop('skipCustomerCodeCheck', None)
     # Same identity as OTP login (e.g. UDF_EMAIL2) — carried into SQL Accounting header note / cc / attention.
     data['loginEmail'] = (session.get('user_email') or '').strip()
     mc = session.get('login_matched_udf_email_column')
@@ -10083,15 +10195,32 @@ def api_create_quotation():
                 with db_connection() as con:
                     cur = con.cursor()
                     try:
-                        cur.execute('DELETE FROM SL_QTDTLDRAFT WHERE DOCKEY = ?', (draft_dockey,))
+                        # Ownership first: only wipe lines after confirming the draft belongs
+                        # to this customer (prevents deleting another customer's draft lines).
                         cur.execute(
-                            'DELETE FROM SL_QTDRAFT WHERE DOCKEY = ? AND CODE = ?',
+                            'SELECT FIRST 1 DOCKEY FROM SL_QTDRAFT WHERE DOCKEY = ? AND CODE = ?',
                             (draft_dockey, customer_code),
                         )
-                        con.commit()
+                        owned = cur.fetchone()
+                        if owned:
+                            cur.execute('DELETE FROM SL_QTDTLDRAFT WHERE DOCKEY = ?', (draft_dockey,))
+                            cur.execute(
+                                'DELETE FROM SL_QTDRAFT WHERE DOCKEY = ? AND CODE = ?',
+                                (draft_dockey, customer_code),
+                            )
+                            con.commit()
+                            print(
+                                f"DEBUG [Flask api_create_quotation]: Deleted draft DOCKEY={draft_dockey} after successful submission",
+                                flush=True,
+                            )
+                        else:
+                            print(
+                                f"WARNING [Flask api_create_quotation]: Skipping draft cleanup — "
+                                f"DOCKEY={draft_dockey} not owned by session customer",
+                                flush=True,
+                            )
                     finally:
                         cur.close()
-                print(f"DEBUG [Flask api_create_quotation]: Deleted draft DOCKEY={draft_dockey} after successful submission", flush=True)
             except Exception as cleanup_error:
                 print(f"WARNING [Flask api_create_quotation]: Failed to delete draft DOCKEY={draft_dockey}: {cleanup_error}", flush=True)
 
@@ -11910,7 +12039,23 @@ if __name__ == "__main__":
                 Mount('/static', StaticFiles(directory=_static_dir), name='eq_static'),
             )
         _unified_routes.append(Mount('/', flask_asgi))
+
+        from starlette.middleware.base import BaseHTTPMiddleware
+
+        class _StaticCacheMiddleware(BaseHTTPMiddleware):
+            async def dispatch(self, request, call_next):
+                response = await call_next(request)
+                path = request.url.path or ''
+                if path.startswith('/static/'):
+                    # Versioned URLs (?v=…) make long-lived caching safe for JS/CSS.
+                    response.headers.setdefault(
+                        'Cache-Control',
+                        'public, max-age=604800, immutable',
+                    )
+                return response
+
         unified_asgi = Starlette(routes=_unified_routes)
+        unified_asgi.add_middleware(_StaticCacheMiddleware)
         print(
             f"Starting unified server at http://{flask_host}:{flask_port} "
             f"(Flask / + FastAPI {EQ_SQL_API_MOUNT_PATH}/ ; "

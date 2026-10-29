@@ -1882,6 +1882,16 @@ def save_draft_quotation(base_api_url, customer_code, data):
             try:
                 # Insert or update draft header
                 if dockey:
+                    # Ownership gate before wiping lines (prevents draft-line IDOR).
+                    cur.execute(
+                        "SELECT FIRST 1 DOCKEY FROM SL_QTDRAFT WHERE DOCKEY=? AND CODE=?",
+                        (dockey, customer_code),
+                    )
+                    if not cur.fetchone():
+                        return {
+                            "success": False,
+                            "error": "Draft not found or does not belong to the signed-in customer",
+                        }
                     # Update existing draft
                     cur.execute("""
                         UPDATE SL_QTDRAFT SET DESCRIPTION=?, VALIDITY=?, TERMS=?, DOCAMT=?, COMPANYNAME=?, ADDRESS1=?, ADDRESS2=?, PHONE1=?, CURRENCYCODE=?, DOCDATE=?

@@ -3263,7 +3263,12 @@ function escapeChatHtml(value) {
 function escapeInlineJsString(value) {
     return String(value ?? '')
         .replace(/\\/g, '\\\\')
-        .replace(/'/g, "\\'");
+        .replace(/'/g, "\\'")
+        .replace(/"/g, '\\"')
+        .replace(/\r/g, '\\r')
+        .replace(/\n/g, '\\n')
+        .replace(/</g, '\\u003c')
+        .replace(/>/g, '\\u003e');
 }
 
 function sendQuickChatMessage(message, sourceButton = null) {
@@ -3581,10 +3586,13 @@ function sendChatMessage(messageOverride = null) {
     
     if (!message || !quotationChatId) return;
     
-    // Add user message to chat
+    // Add user message to chat (textContent — never interpolate raw user input into HTML)
     const userMsgDiv = document.createElement('div');
     userMsgDiv.className = 'chat-message user-message';
-    userMsgDiv.innerHTML = `<div class="chat-popup-message-content">${message}</div>`;
+    const userMsgContent = document.createElement('div');
+    userMsgContent.className = 'chat-popup-message-content';
+    userMsgContent.textContent = message;
+    userMsgDiv.appendChild(userMsgContent);
     messagesContainer.appendChild(userMsgDiv);
     
     // Clear input
