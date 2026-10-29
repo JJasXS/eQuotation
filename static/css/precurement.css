@@ -3530,6 +3530,18 @@ body.procurement-warm-ui .pr-line-items-table .pr-stock-uom-readonly {
     min-width: 88px;
 }
 
+.view-pr-detail-cancel-btn {
+    min-width: 108px;
+    background: #fff;
+    color: #b42318;
+    border: 1px solid #fecdca;
+}
+
+.view-pr-detail-cancel-btn:hover {
+    background: #fef3f2;
+    border-color: #f97066;
+}
+
 .view-pr-toggle {
     text-align: center;
     font-weight: 700;

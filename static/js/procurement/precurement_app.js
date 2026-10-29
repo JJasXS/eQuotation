@@ -4503,7 +4503,14 @@
 
             }
 
-            if (saved === 'APPROVED' || saved === 'CANCELLED') {
+            if (saved === 'CANCELLED') {
+
+                return false;
+
+            }
+
+            // Approved can only move to Cancelled (no Approve/Update status churn).
+            if (saved === 'APPROVED' && normalizedTarget !== 'CANCELLED') {
 
                 return false;
 
@@ -4906,7 +4913,15 @@
 
             const saved = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
 
-            if (saved === 'APPROVED' || saved === 'CANCELLED' || saved === 'PENDING') {
+            if (saved === 'CANCELLED' || saved === 'PENDING') {
+
+                renderFilteredViewPurchaseRequests();
+
+                return;
+
+            }
+
+            if (saved === 'APPROVED' && normalizeUdfStatus(value) !== 'CANCELLED') {
 
                 renderFilteredViewPurchaseRequests();
 
@@ -4919,6 +4934,48 @@
             updateViewApprovalButtonState();
 
             renderViewPurchaseRequestDetailPanel();
+
+        }
+
+        async function cancelApprovedPurchaseRequest(headerId) {
+
+            if (document.body.classList.contains('procurement-hide-pr-approval-edits')) {
+
+                return;
+
+            }
+
+            const id = Number(headerId || 0);
+
+            const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === id);
+
+            if (!header || normalizeUdfStatus(header._originalUdfStatus || header.udfStatus) !== 'APPROVED') {
+
+                return;
+
+            }
+
+            const docno = String(header.requestNumber || id || '').trim() || String(id);
+
+            const ok = window.confirm(`Cancel approved purchase request ${docno}? This moves it to the Cancelled tab.`);
+
+            if (!ok) {
+
+                return;
+
+            }
+
+            if (!queueHeaderUdfPendingFromSaved(id, 'CANCELLED')) {
+
+                alert('Unable to cancel this purchase request.');
+
+                return;
+
+            }
+
+            viewSelectedHeaderId = id;
+
+            await saveViewDetailApprovals();
 
         }
 
@@ -6170,15 +6227,22 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     </div>
 
-                    ${hideApprovalEdits || savedUdfDisplay === 'CANCELLED' || pendingReadOnly ? '' : `
-
+                    ${hideApprovalEdits || savedUdfDisplay === 'CANCELLED' || pendingReadOnly ? '' : (
+                        savedUdfDisplay === 'APPROVED'
+                            ? `
+                    <div class="view-pr-detail-lines-footer">
+                        <div class="view-pr-detail-status-actions">
+                            <button type="button" class="view-pr-refresh-btn view-pr-detail-cancel-btn" onclick="cancelApprovedPurchaseRequest(${headerId})" title="Cancel this approved e-PR">Cancel e-PR</button>
+                        </div>
+                    </div>`
+                            : `
                     <div class="view-pr-detail-lines-footer">
 
                         <div class="view-pr-detail-status-actions">
 
                             <label class="view-pr-detail-status-label" for="view-pr-detail-udf-${headerId}">Status</label>
 
-                            <select id="view-pr-detail-udf-${headerId}" class="view-pr-udf-status view-pr-detail-udf-status" onchange="onHeaderUdfStatusChange(${headerId}, this.value)" title="Approval status" ${udfLocked && savedUdfDisplay === 'APPROVED' ? 'disabled' : ''}>
+                            <select id="view-pr-detail-udf-${headerId}" class="view-pr-udf-status view-pr-detail-udf-status" onchange="onHeaderUdfStatusChange(${headerId}, this.value)" title="Approval status">
 
                                 ${viewPrUdfStatusOptionsHtml(savedUdfDisplay, selectUdf, header.status)}
 
@@ -6188,7 +6252,8 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                         </div>
 
-                    </div>`}
+                    </div>`
+                    )}
 
                 </div>
 
