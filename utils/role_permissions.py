@@ -300,7 +300,6 @@ def hide_pr_approval_edits_for_pstaff(session) -> bool:
     return infer_access_tier_from_session(session) in (
         ACCESS_TIER_HOD,
         ACCESS_TIER_PURCH_STAFF,
-        ACCESS_TIER_DIRECTOR,
     )
 
 
@@ -387,16 +386,15 @@ def hide_quotation_status_actions(session) -> bool:
 
 
 def hide_pr_transfer_for_pstaff(session) -> bool:
-    """Hide Transfer to PO for HOD / Director (and legacy purchase_staff sessions)."""
+    """Hide Transfer to PO for HOD (and legacy purchase_staff sessions)."""
     return infer_access_tier_from_session(session) in (
         ACCESS_TIER_HOD,
-        ACCESS_TIER_DIRECTOR,
         ACCESS_TIER_PURCH_STAFF,
     )
 
 
 def hide_pr_awaiting_tab(session) -> bool:
-    """Purchasing manager owns Pending/Approved — Awaiting tab is HOD's queue."""
+    """Purchasing manager: hide Awaiting Approval status tab (HOD owns that queue)."""
     return infer_access_tier_from_session(session) == ACCESS_TIER_PURCH_MGMT
 
 
