@@ -1881,3 +1881,190 @@ body.supplier-bidding-page .secondary-btn {
 body.supplier-bidding-page .secondary-btn:hover {
     background: var(--ice-accent-soft, #dbeafe);
 }
+
+/* Bid submit success modal (same pattern as PR success dialog) */
+.sb-success-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1400;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+.sb-success-modal__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(45, 36, 22, 0.55);
+    backdrop-filter: blur(3px);
+}
+
+.sb-success-modal__dialog {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 400px;
+    border-radius: 14px;
+    padding: 28px 26px 22px;
+    text-align: center;
+    background: linear-gradient(165deg, #fffef9 0%, #f5ebe0 100%);
+    border: 1px solid #dccfb8;
+    box-shadow:
+        0 22px 48px rgba(80, 60, 30, 0.18),
+        0 0 0 1px rgba(255, 255, 255, 0.6) inset;
+}
+
+.sb-success-modal__icon {
+    width: 52px;
+    height: 52px;
+    margin: 0 auto 14px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 26px;
+    font-weight: 700;
+    color: #0d1f14;
+    background: linear-gradient(145deg, #5ecf7a 0%, #3aa85a 100%);
+    box-shadow: 0 6px 18px rgba(62, 168, 90, 0.35);
+}
+
+.sb-success-modal__title {
+    margin: 0 0 10px;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #3d3224;
+    letter-spacing: 0.02em;
+}
+
+.sb-success-modal__body {
+    margin: 0 0 18px;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    color: #5c4f3d;
+}
+
+.sb-success-modal__pr-wrap {
+    margin: 0 0 22px;
+    padding: 14px 16px;
+    border-radius: 10px;
+    background: #faf6ee;
+    border: 1px solid #dccfb8;
+}
+
+.sb-success-modal__pr-label {
+    display: block;
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #7a6b52;
+    margin-bottom: 6px;
+}
+
+.sb-success-modal__pr-number {
+    display: block;
+    font-size: 1.15rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: #2d6a4f;
+    word-break: break-all;
+}
+
+.sb-success-modal__ok {
+    width: 100%;
+    max-width: 220px;
+    margin: 0 auto;
+    display: block;
+    padding: 11px 20px;
+    border: 1px solid #c5dce9;
+    border-radius: 10px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    color: #2a241b;
+    background: linear-gradient(180deg, #f0e4d4 0%, #dccfb8 100%);
+    box-shadow: 0 2px 0 rgba(255, 255, 255, 0.12) inset;
+}
+
+.sb-success-modal__ok:hover {
+    filter: brightness(1.04);
+}
+
+.sb-success-modal__ok:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(110, 163, 226, 0.45);
+}
+
+/* Simple notice/error popup for bid submit */
+.sb-alert-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1400;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+.sb-alert-modal__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(20, 40, 60, 0.45);
+}
+
+.sb-alert-modal__dialog {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 380px;
+    border-radius: 12px;
+    padding: 22px 22px 18px;
+    text-align: left;
+    background: #fff;
+    border: 1px solid var(--ice-border, #b8d4e8);
+    box-shadow: 0 16px 40px rgba(26, 77, 110, 0.18);
+}
+
+.sb-alert-modal__title {
+    margin: 0 0 8px;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--ice-heading, #1a4d6e);
+}
+
+.sb-alert-modal__body {
+    margin: 0 0 18px;
+    font-size: 0.92rem;
+    line-height: 1.45;
+    color: var(--ice-text, #1e3a52);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.sb-alert-modal__ok {
+    display: block;
+    width: 100%;
+    max-width: 140px;
+    margin-left: auto;
+    padding: 9px 16px;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.92rem;
+    font-weight: 600;
+    cursor: pointer;
+    color: #fff;
+    background: var(--ice-accent, #3b8fc4);
+}
+
+.sb-alert-modal__ok:hover {
+    background: var(--ice-accent-hover, #2d74a3);
+}
+
+.sb-alert-modal__ok:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(59, 143, 196, 0.35);
+}

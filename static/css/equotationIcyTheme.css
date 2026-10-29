@@ -1314,13 +1314,13 @@ body.equotation-icy-theme.view-quotation-page .view-quotation-tabs button:hover 
     border-color: var(--ice-accent) !important;
 }
 
-/* eq-line tabs on /view-quotation (adminViewQuotations shell): same active style as admin — no filled Pending pill */
+/* eq-line tabs on /view-quotation — underline under label only (badge counts) */
 body.equotation-icy-theme.view-quotation-page .avq-status-tabs .eq-line-tab.is-active,
 body.equotation-icy-theme.view-quotation-page.admin-quotations-view-page .eq-line-tab.avq-status-tab.is-active {
     color: var(--ice-heading) !important;
-    font-weight: 600 !important;
-    background: var(--ice-surface) !important;
-    border-bottom-color: var(--ice-accent) !important;
+    font-weight: 650 !important;
+    background: transparent !important;
+    border-bottom-color: transparent !important;
 }
 
 body.equotation-icy-theme.view-quotation-page .view-quotation-split,
@@ -1397,34 +1397,35 @@ body.equotation-icy-theme.admin-quotations-view-page .tab-content.active {
 }
 
 body.equotation-icy-theme.admin-quotations-view-page .quotation-page-header {
-    background: var(--ice-surface) !important;
-    border-color: var(--ice-border) !important;
+    background: transparent !important;
+    border: none !important;
     box-shadow: none !important;
 }
 
 body.equotation-icy-theme.admin-quotations-view-page .avq-status-tabs.eq-line-tabs,
 body.equotation-icy-theme.admin-quotations-view-page .approvals-tabs {
-    background: var(--ice-surface-alt) !important;
-    border-color: var(--ice-border) !important;
+    background: #fff !important;
+    border-color: var(--ice-border-soft) !important;
 }
 
 body.equotation-icy-theme.admin-quotations-view-page .eq-line-tab.avq-status-tab,
 body.equotation-icy-theme.admin-quotations-view-page .approval-tab {
-    color: var(--ice-text-muted) !important;
-    flex: 0 1 auto !important;
+    color: #7a90a4 !important;
+    flex: 0 0 auto !important;
+    background: transparent !important;
 }
 
 body.equotation-icy-theme.admin-quotations-view-page .eq-line-tab.avq-status-tab:hover,
 body.equotation-icy-theme.admin-quotations-view-page .approval-tab:hover {
-    background: var(--ice-accent-soft) !important;
+    background: transparent !important;
     color: var(--ice-heading) !important;
 }
 
 body.equotation-icy-theme.admin-quotations-view-page .eq-line-tab.avq-status-tab.is-active,
 body.equotation-icy-theme.admin-quotations-view-page .approval-tab.active {
     color: var(--ice-heading) !important;
-    border-bottom-color: var(--ice-accent) !important;
-    background: var(--ice-surface) !important;
+    border-bottom-color: transparent !important;
+    background: transparent !important;
 }
 
 body.equotation-icy-theme.admin-quotations-view-page .admin-quotations-view,
@@ -1459,20 +1460,74 @@ body.equotation-icy-theme.admin-quotations-view-page tr.quotation-card.is-select
     box-shadow: inset 0 0 0 1px rgba(59, 143, 196, 0.35) !important;
 }
 
-body.equotation-icy-theme.admin-quotations-view-page .quotation-card__doc-value,
-body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-title {
+body.equotation-icy-theme.admin-quotations-view-page .quotation-card__doc-value {
     color: var(--ice-heading) !important;
 }
 
-body.equotation-icy-theme.admin-quotations-view-page .quotation-card__date-value,
-body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-sub {
+body.equotation-icy-theme.admin-quotations-view-page .quotation-card__date-value {
     color: var(--ice-text-muted) !important;
 }
 
-body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane {
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark {
     background: var(--ice-surface) !important;
     border-color: var(--ice-border) !important;
     box-shadow: 0 2px 8px var(--ice-shadow) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .quotation-detail-title,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .quotation-detail-amount,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-meta__value,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-items-footer__value,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-item__code {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-doc__company {
+    color: #3d5a78 !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-doc__eyebrow,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-doc__code,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-doc__total-label,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-meta__label,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-item__desc {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .quotation-detail-meta {
+    background: var(--ice-surface-alt) !important;
+    border-color: var(--ice-border-soft) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .quotation-detail-items {
+    background: #fff !important;
+    border-color: var(--ice-border-soft) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-items-footer {
+    background: #fff !important;
+    border-color: var(--ice-border-soft) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-items-footer__label {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-items-table thead th {
+    color: var(--ice-text-muted) !important;
+    background: #f3f6f9 !important;
+    border-bottom-color: var(--ice-border-soft) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-items-table tbody td {
+    border-top-color: var(--ice-border-soft) !important;
+    color: var(--ice-text-muted) !important;
+    background: #fff !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-item__subtotal {
+    color: var(--ice-heading) !important;
 }
 
 body.equotation-icy-theme.admin-quotations-view-page .admin-quotations-view .quotation-items-table thead th {
@@ -1498,35 +1553,49 @@ body.equotation-icy-theme.admin-quotations-view-page .quotation-company-select,
 body.equotation-icy-theme.admin-quotations-view-page #quotation-date-from,
 body.equotation-icy-theme.admin-quotations-view-page #quotation-date-to,
 body.equotation-icy-theme.admin-quotations-view-page #company-filter-dropdown {
-    background: var(--ice-surface-input) !important;
+    background: #fff !important;
     border-color: var(--ice-border-soft) !important;
     color: var(--ice-text) !important;
 }
 
-body.equotation-icy-theme.admin-quotations-view-page .quotation-filter-btn--primary,
-body.equotation-icy-theme.admin-quotations-view-page #quotation-date-apply {
-    background: var(--ice-accent) !important;
-    color: #fff !important;
-    border: none !important;
+body.equotation-icy-theme.admin-quotations-view-page .avq-filters-card,
+body.equotation-icy-theme.admin-quotations-view-page .avq-status-tabs.eq-line-tabs {
+    background: #fff !important;
+    border-color: var(--ice-border-soft) !important;
 }
 
-body.equotation-icy-theme.admin-quotations-view-page .quotation-filter-btn--primary:hover,
-body.equotation-icy-theme.admin-quotations-view-page #quotation-date-apply:hover {
-    background: var(--ice-accent-hover) !important;
+body.equotation-icy-theme.admin-quotations-view-page .avq-filters-card__title {
+    color: var(--ice-heading) !important;
 }
 
-body.equotation-icy-theme.admin-quotations-view-page .quotation-filter-btn--secondary,
-body.equotation-icy-theme.admin-quotations-view-page #quotation-date-clear,
-body.equotation-icy-theme.admin-quotations-view-page #company-filter-clear {
-    background: var(--ice-surface) !important;
-    color: var(--ice-accent-hover) !important;
+body.equotation-icy-theme.admin-quotations-view-page .avq-filters-clear-btn {
+    background: #fff !important;
+    color: var(--ice-heading) !important;
     border: 1px solid var(--ice-border) !important;
 }
 
-body.equotation-icy-theme.admin-quotations-view-page .quotation-filter-btn--secondary:hover,
-body.equotation-icy-theme.admin-quotations-view-page #quotation-date-clear:hover,
-body.equotation-icy-theme.admin-quotations-view-page #company-filter-clear:hover {
+body.equotation-icy-theme.admin-quotations-view-page .avq-filters-clear-btn:hover {
     background: var(--ice-accent-soft) !important;
+    border-color: var(--ice-accent) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .avq-filter-field__label {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-filter-input,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-company-select {
+    background: #fff !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .avq-status-tab__badge {
+    background: #eef4f8 !important;
+    color: #7a90a4 !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .avq-status-tab.is-active .avq-status-tab__badge {
+    color: var(--ice-heading) !important;
+    background: #e8f1f7 !important;
 }
 
 body.equotation-icy-theme.admin-quotations-view-page .active-tab-controls {
@@ -1542,10 +1611,9 @@ body.equotation-icy-theme.admin-quotations-view-page .quotation-bulk-selected-co
     color: var(--ice-text-muted) !important;
 }
 
-body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-meta {
-    color: var(--ice-text-muted) !important;
-    border-top-color: var(--ice-border) !important;
-    border-bottom-color: var(--ice-border) !important;
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .quotation-detail-meta {
+    color: var(--ice-heading) !important;
+    border-color: var(--ice-border-soft) !important;
 }
 
 /* ---- Pricing priority rules ---- */
