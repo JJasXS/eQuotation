@@ -1958,18 +1958,17 @@ def _sync_line_awards_sql_api_background(
     request_dockey: int,
     detail_ids: set[int],
 ) -> None:
-    """Best-effort SQL Accounting line UDF sync after awards (header supplier stays empty)."""
+    """Best-effort create-or-update SQL Accounting PR after awards (same DOCNO/DOCKEY)."""
     try:
-        from utils.procurement_sql_api_sync import put_purchaserequest_lines_and_supplier_sql_api
+        from utils.procurement_sql_api_sync import sync_purchase_request_sql_api_after_awards
 
-        # Pass empty supplier so header vendor is not overwritten; line UDFs carry awards.
-        put_purchaserequest_lines_and_supplier_sql_api(
+        # Header supplier stays blank; line UDF_SUPCODE / UDF_SUPNAME carry awards.
+        sync_purchase_request_sql_api_after_awards(
             int(request_dockey),
-            "",
-            keep_dtlkeys=detail_ids,
+            keep_dtlkeys=detail_ids if detail_ids else None,
         )
     except Exception as line_sync_exc:
-        print(f"[PROCUREMENT BIDDING] background line SQL sync warning: {line_sync_exc}", flush=True)
+        print(f"[PROCUREMENT BIDDING] background awards SQL sync warning: {line_sync_exc}", flush=True)
 
 
 def _promote_pr_udf_approved_after_awards(cur: Any, dockeys: set[int] | list[int]) -> list[dict[str, Any]]:
@@ -2185,16 +2184,15 @@ def save_line_awards(
 
         con.commit()
 
-        # Best-effort line UDF sync only (never rewrite header vendor).
+        # One SQL Accounting create-or-update with line supplier remarks (same DOCNO).
         detail_ids = {int(d) for d, _ in normalized if int(d) > 0}
-        if detail_ids:
-            import threading
+        import threading
 
-            threading.Thread(
-                target=_sync_line_awards_sql_api_background,
-                args=(int(request_dockey), detail_ids),
-                daemon=True,
-            ).start()
+        threading.Thread(
+            target=_sync_line_awards_sql_api_background,
+            args=(int(request_dockey), detail_ids),
+            daemon=True,
+        ).start()
 
         out: dict[str, Any] = {
             "requestDockey": int(request_dockey),
@@ -2203,7 +2201,7 @@ def save_line_awards(
             "lineSupplierUpdates": line_supplier_updates,
             "udfStatus": "APPROVED",
             "headerSupplierCleared": True,
-            "sqlSyncQueued": bool(detail_ids),
+            "sqlSyncQueued": True,
             "approvedRequestIds": [
                 int(c.get("requestId") or 0)
                 for c in approve_changes

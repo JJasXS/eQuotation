@@ -832,3 +832,363 @@ def put_purchaserequest_lines_and_supplier_sql_api(
         "includedLines": with_lines,
         "lineCount": len(existing.get("sdsdocdetail") or []),
     }
+
+
+def _iso_date_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if hasattr(value, "isoformat"):
+        try:
+            return str(value.isoformat())[:10]
+        except Exception:
+            return ""
+    text = _clean_text(value)
+    return text[:10] if text else ""
+
+
+def _fmt_money_api(value: Any) -> str:
+    from utils.firebird_helpers import _as_decimal, _money
+
+    return str(_money(_as_decimal(value, "0")))
+
+
+def _all_local_pqdtl_keys(request_dockey: int) -> set[int]:
+    from utils.db_utils import get_db_connection
+    from utils.firebird_helpers import _get_table_columns, _pick_existing
+
+    con = get_db_connection()
+    try:
+        cur = con.cursor()
+        detail_cols = _get_table_columns(cur, "PH_PQDTL")
+        fk_col = _pick_existing(detail_cols, "DOCKEY", "PQKEY", "REQUEST_ID", "HEADER_ID")
+        dtl_col = _pick_existing(detail_cols, "DTLKEY", "PQDTLKEY", "ID")
+        if not fk_col or not dtl_col:
+            return set()
+        cur.execute(
+            f"SELECT {dtl_col} FROM PH_PQDTL WHERE {fk_col} = ?",
+            (int(request_dockey),),
+        )
+        out: set[int] = set()
+        for row in cur.fetchall() or []:
+            if not row or row[0] is None:
+                continue
+            try:
+                out.add(int(row[0]))
+            except (TypeError, ValueError):
+                continue
+        return out
+    finally:
+        con.close()
+
+
+def _build_purchaserequest_body_from_local(
+    request_dockey: int,
+    *,
+    keep_dtlkeys: set[int] | None = None,
+) -> tuple[str, dict[str, Any] | None]:
+    """Build SQL API purchaserequest body from local PH_PQ / PH_PQDTL (header supplier blank)."""
+    from utils.db_utils import get_db_connection
+    from utils.firebird_helpers import _as_decimal, _get_table_columns, _money, _pick_existing
+
+    dockey = int(request_dockey or 0)
+    if dockey <= 0:
+        return "", None
+
+    con = get_db_connection()
+    try:
+        cur = con.cursor()
+        header_cols = _get_table_columns(cur, "PH_PQ")
+        detail_cols = _get_table_columns(cur, "PH_PQDTL")
+        key_col = _pick_existing(header_cols, "DOCKEY", "PQKEY", "ID")
+        if not key_col:
+            return "", None
+
+        docno_col = _pick_existing(header_cols, "DOCNO", "REQUESTNO", "PRNO")
+        date_col = _pick_existing(header_cols, "DOCDATE", "REQUESTDATE")
+        desc_col = _pick_existing(header_cols, "DESCRIPTION")
+        project_col = _pick_existing(header_cols, "PROJECT")
+        currency_col = _pick_existing(header_cols, "CURRENCYCODE", "CURRENCY")
+        amt_col = _pick_existing(header_cols, "DOCAMT", "TOTALAMT", "TOTAL_AMOUNT")
+        udf_status_col = _pick_existing(header_cols, "UDF_STATUS", "UDFSTATUS")
+        note_col = _pick_existing(header_cols, "NOTES", "NOTE")
+
+        select_hdr = [key_col]
+        for col in (docno_col, date_col, desc_col, project_col, currency_col, amt_col, udf_status_col, note_col):
+            if col and col not in select_hdr:
+                select_hdr.append(col)
+        cur.execute(
+            f"SELECT {', '.join(select_hdr)} FROM PH_PQ WHERE {key_col} = ?",
+            (dockey,),
+        )
+        hdr = cur.fetchone()
+        if not hdr:
+            return "", None
+
+        by_name = {select_hdr[i].upper(): hdr[i] for i in range(len(select_hdr))}
+        docno = _clean_text(by_name.get((docno_col or "").upper()) if docno_col else "")
+        request_date = _iso_date_value(by_name.get((date_col or "").upper()) if date_col else None)
+        if not request_date:
+            from datetime import date as _date
+
+            request_date = _date.today().isoformat()
+        project = _clean_text(by_name.get((project_col or "").upper()) if project_col else "") or "----"
+        currency = _clean_text(by_name.get((currency_col or "").upper()) if currency_col else "") or "----"
+        total = _fmt_money_api(by_name.get((amt_col or "").upper()) if amt_col else 0)
+        udf_status = _clean_text(by_name.get((udf_status_col or "").upper()) if udf_status_col else "")
+        description = _clean_text(by_name.get((desc_col or "").upper()) if desc_col else "")
+        note = _clean_text(by_name.get((note_col or "").upper()) if note_col else "")
+
+        fk_col = _pick_existing(detail_cols, "DOCKEY", "PQKEY", "REQUEST_ID", "HEADER_ID")
+        dtl_col = _pick_existing(detail_cols, "DTLKEY", "PQDTLKEY", "ID")
+        seq_col = _pick_existing(detail_cols, "SEQ", "LINE_NO", "LINENO")
+        item_col = _pick_existing(detail_cols, "ITEMCODE")
+        loc_col = _pick_existing(detail_cols, "LOCATION", "LOC")
+        line_project_col = _pick_existing(detail_cols, "PROJECT")
+        desc1_col = _pick_existing(detail_cols, "DESCRIPTION")
+        desc2_col = _pick_existing(detail_cols, "DESCRIPTION2")
+        qty_col = _pick_existing(detail_cols, "QTY", "QUANTITY")
+        uom_col = _pick_existing(detail_cols, "UOM")
+        sqty_col = _pick_existing(detail_cols, "SQTY")
+        suom_col = _pick_existing(detail_cols, "SUOMQTY")
+        price_col = _pick_existing(detail_cols, "UNITPRICE", "UNIT_PRICE")
+        tax_col = _pick_existing(detail_cols, "TAXAMT", "TAX")
+        line_amt_col = _pick_existing(detail_cols, "AMOUNT", "TOTAL", "LINEAMOUNT")
+        delivery_col = _pick_existing(detail_cols, "DELIVERYDATE", "DELIVERY_DATE")
+        batch_col = _pick_existing(detail_cols, "BATCH")
+        udf_cols = sorted(c for c in detail_cols if str(c).upper().startswith("UDF_"))
+        if not fk_col or not dtl_col:
+            return docno, None
+
+        line_select = [dtl_col]
+        optional_line = [
+            seq_col, item_col, loc_col, line_project_col, desc1_col, desc2_col,
+            qty_col, uom_col, sqty_col, suom_col, price_col, tax_col, line_amt_col,
+            delivery_col, batch_col, *udf_cols,
+        ]
+        for col in optional_line:
+            if col and col not in line_select:
+                line_select.append(col)
+
+        keep = {int(k) for k in (keep_dtlkeys or set()) if int(k) > 0}
+        if keep:
+            placeholders = ", ".join(["?"] * len(keep))
+            cur.execute(
+                f"""
+                SELECT {', '.join(line_select)}
+                FROM PH_PQDTL
+                WHERE {fk_col} = ? AND {dtl_col} IN ({placeholders})
+                ORDER BY {seq_col or dtl_col}
+                """,
+                tuple([dockey, *sorted(keep)]),
+            )
+        else:
+            cur.execute(
+                f"""
+                SELECT {', '.join(line_select)}
+                FROM PH_PQDTL
+                WHERE {fk_col} = ?
+                ORDER BY {seq_col or dtl_col}
+                """,
+                (dockey,),
+            )
+
+        details: list[dict[str, Any]] = []
+        for seq_idx, row in enumerate(cur.fetchall() or [], start=1):
+            if not row:
+                continue
+            named = {line_select[i].upper(): row[i] for i in range(len(line_select))}
+            try:
+                dtlkey = int(named.get((dtl_col or "").upper()) or 0)
+            except (TypeError, ValueError):
+                dtlkey = 0
+            unit_price = float(_money(_as_decimal(named.get((price_col or "").upper()) if price_col else 0, "0")))
+            tax = float(_money(_as_decimal(named.get((tax_col or "").upper()) if tax_col else 0, "0")))
+            amount = float(_money(_as_decimal(named.get((line_amt_col or "").upper()) if line_amt_col else 0, "0")))
+            if amount <= 0:
+                qty = float(_money(_as_decimal(named.get((qty_col or "").upper()) if qty_col else 0, "0")))
+                amount = float(_money(unit_price * qty + tax))
+            try:
+                seq_val = int(named.get((seq_col or "").upper()) or seq_idx) if seq_col else seq_idx
+            except (TypeError, ValueError):
+                seq_val = seq_idx
+            line: dict[str, Any] = {
+                "seq": seq_val,
+                "itemcode": _clean_text(named.get((item_col or "").upper()) if item_col else ""),
+                "location": _clean_text(named.get((loc_col or "").upper()) if loc_col else "") or "----",
+                "batch": _clean_text(named.get((batch_col or "").upper()) if batch_col else "") or None,
+                "project": _clean_text(named.get((line_project_col or "").upper()) if line_project_col else "") or project,
+                "description": _clean_text(named.get((desc1_col or "").upper()) if desc1_col else ""),
+                "description2": _clean_text(named.get((desc2_col or "").upper()) if desc2_col else "") or None,
+                "description3": None,
+                "qty": _fmt_money_api(named.get((qty_col or "").upper()) if qty_col else 0),
+                "uom": _clean_text(named.get((uom_col or "").upper()) if uom_col else "") or "UNIT",
+                "rate": None,
+                "sqty": _fmt_money_api(
+                    named.get((sqty_col or "").upper())
+                    if sqty_col
+                    else (named.get((qty_col or "").upper()) if qty_col else 0)
+                ),
+                "suomqty": _fmt_money_api(
+                    named.get((suom_col or "").upper())
+                    if suom_col
+                    else (named.get((qty_col or "").upper()) if qty_col else 0)
+                ),
+                "unitprice": _fmt_money_api(unit_price),
+                "deliverydate": _iso_date_value(named.get((delivery_col or "").upper()) if delivery_col else None) or request_date,
+                "disc": "0",
+                "tax": _fmt_money_api(tax),
+                "amount": _fmt_money_api(amount),
+                "changed": False,
+            }
+            if dtlkey > 0:
+                line["dtlkey"] = dtlkey
+            for col in udf_cols:
+                val = named.get(str(col).upper())
+                if val is None:
+                    continue
+                if isinstance(val, str) and not _clean_text(val):
+                    continue
+                line[str(col).lower()] = val
+            details.append(line)
+
+        body: dict[str, Any] = {
+            "dockey": dockey,
+            "docno": docno,
+            "docnoex": docno,
+            "docdate": request_date,
+            "postdate": request_date,
+            "taxdate": request_date,
+            "code": "----",
+            "companyname": "",
+            "project": project,
+            "currencycode": currency,
+            "currencyrate": "1",
+            "shipper": "----",
+            "description": description,
+            "status": 1,
+            "docamt": total,
+            "note": note,
+            "daddress1": None,
+            "sdsdocdetail": details,
+            "changed": False,
+            "udf_status": udf_status or "APPROVED",
+        }
+        return docno, body
+    finally:
+        con.close()
+
+
+def _blank_header_supplier_fields(document: dict[str, Any]) -> dict[str, Any]:
+    """Keep SQL PR header vendor empty; line UDF_SUPCODE / UDF_SUPNAME hold awards."""
+    out = dict(document)
+    out["code"] = "----"
+    out["companyname"] = ""
+    out["companyname2"] = ""
+    return out
+
+
+def sync_purchase_request_sql_api_after_awards(
+    request_dockey: int,
+    *,
+    keep_dtlkeys: set[int] | None = None,
+) -> dict[str, Any]:
+    """
+    After Save Item Awards: one SQL Accounting create-or-update for the same DOCNO/DOCKEY.
+
+    Header supplier stays blank; line UDF_SUPCODE / UDF_SUPNAME (and awarded prices) come from local PH_PQDTL.
+    """
+    dockey = int(request_dockey or 0)
+    if dockey <= 0:
+        return {"skipped": True, "reason": "missing request dockey"}
+
+    settings = load_sql_accounting_api_settings()
+    if not settings.access_key or not settings.secret_key:
+        return {"skipped": True, "reason": "SQL API not configured"}
+
+    keep = {int(k) for k in (keep_dtlkeys or set()) if int(k) > 0}
+    if not keep:
+        keep = _all_local_pqdtl_keys(dockey)
+
+    docno, body = _build_purchaserequest_body_from_local(dockey, keep_dtlkeys=keep or None)
+    if not body:
+        return {"skipped": True, "reason": "local purchase request not found"}
+
+    client = SqlAccountingApiClient(settings)
+    timeout = min(60.0, settings.timeout_seconds + 15.0)
+    base = _api_root_url("SQL_API_PURCHASE_REQUEST_PATH", "/purchaserequest")
+
+    existing = _get_document(
+        client,
+        base_path=base,
+        dockey=dockey,
+        docno=docno,
+        timeout_seconds=timeout,
+    )
+
+    if not existing:
+        status, _parsed, preview = client.post_json(base, body, timeout_seconds=timeout)
+        if status < 200 or status >= 300:
+            raise RuntimeError(
+                f"SQL API POST purchaserequest returned HTTP {status}: {(preview or '')[:300]}"
+            )
+        print(
+            f"[PROCUREMENT] SQL API PR created after awards dockey={dockey} docno={docno}",
+            flush=True,
+        )
+        return {
+            "synced": True,
+            "mode": "post",
+            "httpStatus": status,
+            "dockey": dockey,
+            "docno": docno,
+            "lineCount": len(body.get("sdsdocdetail") or []),
+        }
+
+    put_dockey = int(existing.get("dockey") or dockey)
+    lines = existing.get("sdsdocdetail") if isinstance(existing.get("sdsdocdetail"), list) else []
+    if keep:
+        existing = {
+            **existing,
+            "sdsdocdetail": [
+                ln
+                for ln in lines
+                if isinstance(ln, dict) and int(ln.get("dtlkey") or 0) in keep
+            ],
+        }
+        existing = _merge_local_pqdtl_prices_into_document(existing, dockey, keep)
+    existing = _blank_header_supplier_fields(existing)
+    if docno and not existing.get("docno"):
+        existing["docno"] = docno
+    existing["changed"] = False
+    existing["dockey"] = put_dockey
+    if body.get("udf_status"):
+        existing["udf_status"] = body["udf_status"]
+    if body.get("docamt") is not None:
+        existing["docamt"] = body["docamt"]
+
+    allowed = _PUT_HEADER_KEYS | frozenset({"sdsdocdetail", "udf_status", "note"})
+    put_body = {k: v for k, v in existing.items() if k in allowed or k == "changed"}
+    put_body["sdsdocdetail"] = _strip_readonly_nested_fields(put_body.get("sdsdocdetail") or [])
+
+    status, preview = _put_document(
+        client,
+        base_path=base,
+        dockey=put_dockey,
+        payload=put_body,
+        timeout_seconds=timeout,
+    )
+    if status < 200 or status >= 300:
+        raise RuntimeError(f"SQL API PUT purchaserequest/{put_dockey} returned HTTP {status}: {preview}")
+
+    print(
+        f"[PROCUREMENT] SQL API PR updated after awards dockey={put_dockey} docno={docno}",
+        flush=True,
+    )
+    return {
+        "synced": True,
+        "mode": "put",
+        "httpStatus": status,
+        "dockey": put_dockey,
+        "docno": docno,
+        "lineCount": len(put_body.get("sdsdocdetail") or []),
+    }

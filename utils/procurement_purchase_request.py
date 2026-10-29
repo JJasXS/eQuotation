@@ -1099,10 +1099,9 @@ def create_purchase_request(
             else []
         )
 
-        upstream_status = "PENDING"
+        # SQL Accounting sync waits for Save Item Awards; no upstream/SQL API push on submit.
+        upstream_status = "DEFERRED_UNTIL_AWARDS" if status == "SUBMITTED" else "PENDING"
         upstream_reference = ""
-        if status == "SUBMITTED" and not _clean_text(os.getenv("PROCUREMENT_CREATE_PR_URL")):
-            upstream_status = "SKIPPED"
         status_col = _pick_existing(header_cols, "STATUS")
         status_is_numeric = bool(status_col and _column_is_numeric(cur, "PH_PQ", status_col))
 
@@ -1246,13 +1245,11 @@ def create_purchase_request(
         con.commit()
 
         if status == "SUBMITTED":
-            sync_payload = {
-                **validated,
-                "requestNumber": request_number,
-                "status": status,
-            }
-            _schedule_upstream_forward(int(header_id), request_number, sync_payload, auth_header)
-            _schedule_pr_sql_line_sync(int(header_id), request_number, sync_payload)
+            print(
+                f"[PROCUREMENT CREATE PR] SQL API sync deferred until Save Item Awards "
+                f"dockey={header_id} docno={request_number}",
+                flush=True,
+            )
 
         total_ms = (time.perf_counter() - t0) * 1000
         print(
@@ -1280,7 +1277,8 @@ def create_purchase_request(
             "currency": validated["currency"],
             "lineItemCount": line_count,
             "udfStatus": "AWAITING" if status == "SUBMITTED" else "",
-            "sqlSyncPending": status == "SUBMITTED",
+            "sqlSyncPending": False,
+            "sqlSyncDeferredUntilAwards": status == "SUBMITTED",
         }
     except Exception:
         con.rollback()
