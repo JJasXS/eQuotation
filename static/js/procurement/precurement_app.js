@@ -6706,13 +6706,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     console.error('Failed to load request detail:', error);
 
-                    record._detailError = error && error.message ? String(error.message) : 'Failed to load detail rows';
-
-                    if (!Array.isArray(record.details)) {
-
-                        record.details = [];
-
-                    }
+                    markViewPrDetailLoadFailed(record, error);
 
                 })
 
@@ -6724,6 +6718,20 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 });
 
+        }
+
+        function markViewPrDetailLoadFailed(record, error) {
+            if (!record) return;
+            // Keep details unset so the panel shows Retry, not "No line items".
+            const aborted = isRequestAbortError(error);
+            record._detailError = aborted
+                ? 'Detail load timed out or was cancelled. Click Retry.'
+                : (error && error.message ? String(error.message) : 'Failed to load detail rows');
+            try {
+                delete record.details;
+            } catch (e) {
+                record.details = undefined;
+            }
         }
 
         function narrowViewPrSuppliersForApproved(header, suppliers) {
@@ -6896,6 +6904,13 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             if (!record) return;
 
+            try {
+                delete record.details;
+            } catch (e) {
+                record.details = undefined;
+            }
+            record._detailError = '';
+
             viewLoadingDetailIds.add(id);
 
             renderFilteredViewPurchaseRequests();
@@ -6912,13 +6927,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     console.error('Retry failed to load request detail:', error);
 
-                    record._detailError = error && error.message ? String(error.message) : 'Failed to load detail rows';
-
-                    if (!Array.isArray(record.details)) {
-
-                        record.details = [];
-
-                    }
+                    markViewPrDetailLoadFailed(record, error);
 
                 })
 
@@ -7072,7 +7081,18 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     console.warn('[View PR] Failed to refresh selected detail:', error);
 
-                    record._detailError = error && error.message ? String(error.message) : 'Failed to load detail rows';
+                    // Keep prior good lines; only clear when nothing usable is loaded.
+                    if (!Array.isArray(record.details) || !record.details.length) {
+
+                        markViewPrDetailLoadFailed(record, error);
+
+                    } else {
+
+                        record._detailError = error && error.message
+                            ? String(error.message)
+                            : 'Failed to load detail rows';
+
+                    }
 
                 })
 

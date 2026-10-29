@@ -18,7 +18,7 @@
 
     <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260604_tabs_size">
 
-    <link rel="stylesheet" href="/static/css/adminBidding.css?v=20261027_reload_icon">
+    <link rel="stylesheet" href="/static/css/adminBidding.css?v=20261029_bids_toolbar">
 
     <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515_admin_blue">
 
@@ -80,17 +80,17 @@
 
                 <section class="bidding-col" aria-label="Submitted bids">
 
-                    <div class="bidding-col-head">
+                    <div class="bidding-col-head bidding-col-head--bids">
 
                         <h2>Submitted bids</h2>
 
-                        <div class="toolbar">
+                        <div class="toolbar toolbar--bids-actions">
+
+                            <button class="btn" type="button" id="save-line-awards-btn" onclick="saveLineAwards()" disabled>Save Item</button>
 
                             <button class="bidding-reload-btn" type="button" id="load-bids-btn" onclick="loadBidsForActivePr({force:true})" title="Refresh bids" aria-label="Refresh bids" disabled>
                                 <svg class="bidding-reload-btn__svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.1A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
                             </button>
-
-                            <button class="btn" type="button" id="save-line-awards-btn" onclick="saveLineAwards()" disabled>Save Item Awards</button>
 
                         </div>
 
@@ -122,6 +122,18 @@
 
         </div>
 
+    </div>
+
+    <div id="bid-remark-modal" class="bid-remark-modal" hidden>
+        <div class="bid-remark-modal__backdrop" onclick="closeBidLineRemark()"></div>
+        <div class="bid-remark-modal__panel" role="dialog" aria-modal="true" aria-labelledby="bid-remark-modal-title">
+            <div class="bid-remark-modal__head">
+                <h3 id="bid-remark-modal-title">Supplier remark</h3>
+                <button type="button" class="bid-remark-modal__close" onclick="closeBidLineRemark()" aria-label="Close">&times;</button>
+            </div>
+            <div class="bid-remark-modal__item muted" id="bid-remark-modal-item"></div>
+            <div class="bid-remark-modal__body" id="bid-remark-modal-body"></div>
+        </div>
     </div>
 
     <div id="invite-drawer-backdrop" class="invite-drawer-backdrop" hidden></div>
@@ -225,7 +237,13 @@
         document.getElementById('invite-drawer-close')?.addEventListener('click', () => setInviteDrawerOpen(false));
         document.getElementById('invite-drawer-backdrop')?.addEventListener('click', () => setInviteDrawerOpen(false));
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && isInviteDrawerOpen()) {
+            if (e.key !== 'Escape') return;
+            const remarkModal = document.getElementById('bid-remark-modal');
+            if (remarkModal && !remarkModal.hidden) {
+                closeBidLineRemark();
+                return;
+            }
+            if (isInviteDrawerOpen()) {
                 setInviteDrawerOpen(false);
             }
         });
@@ -580,6 +598,46 @@
 
             return Number.isFinite(n) ? n.toFixed(2) : '0.00';
 
+        }
+
+        function openBidLineRemark(btn) {
+            const modal = document.getElementById('bid-remark-modal');
+            const itemEl = document.getElementById('bid-remark-modal-item');
+            const bodyEl = document.getElementById('bid-remark-modal-body');
+            if (!modal || !bodyEl) return;
+            const remark = String((btn && btn.getAttribute('data-remark')) || '').trim();
+            const item = String((btn && btn.getAttribute('data-item')) || '').trim();
+            if (itemEl) itemEl.textContent = item || 'Line item';
+            bodyEl.textContent = remark || 'No remark.';
+            modal.hidden = false;
+        }
+
+        function closeBidLineRemark() {
+            const modal = document.getElementById('bid-remark-modal');
+            if (modal) modal.hidden = true;
+        }
+
+        function renderRemarkCell(line) {
+            const remark = String((line && line.remarks) || '').trim();
+            if (!remark) {
+                return '<td class="bid-td-remark"><span class="bid-remark-empty">—</span></td>';
+            }
+            const itemLabel = formatBidLineItem(line);
+            return `
+                <td class="bid-td-remark">
+                    <button type="button"
+                            class="bid-remark-btn"
+                            aria-label="View supplier remark"
+                            data-item="${esc(itemLabel)}"
+                            data-remark="${esc(remark)}"
+                            onclick="openBidLineRemark(this)">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path fill="currentColor" d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h4l4 4 4-4h4c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/>
+                        </svg>
+                        <span class="bid-remark-tooltip" role="tooltip">${esc(remark)}</span>
+                    </button>
+                </td>
+            `;
         }
 
         let bidsLoadedForId = 0;
@@ -1371,6 +1429,8 @@
 
                         <td class="bid-td-num">${Number(line.leadDays || 0)}</td>
 
+                        ${renderRemarkCell(line)}
+
                     </tr>
 
                 `).join('');
@@ -1408,11 +1468,12 @@
                                 <col class="bid-col-price" />
                                 <col class="bid-col-amt" />
                                 <col class="bid-col-lead" />
+                                <col class="bid-col-remark" />
                             </colgroup>
 
-                            <thead><tr><th>Pick</th><th>Item</th><th>Qty</th><th>Unit Price</th><th>Amount</th><th>Lead</th></tr></thead>
+                            <thead><tr><th>Pick</th><th>Item</th><th>Qty</th><th>Unit Price</th><th>Amount</th><th>Lead</th><th>Remark</th></tr></thead>
 
-                            <tbody>${rows || `<tr><td colspan="6" class="muted">${emptyLinesMsg}</td></tr>`}</tbody>
+                            <tbody>${rows || `<tr><td colspan="7" class="muted">${emptyLinesMsg}</td></tr>`}</tbody>
 
                         </table>
 

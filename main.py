@@ -5418,7 +5418,10 @@ def _assert_detail_ids_in_location_scope(detail_ids) -> tuple[bool, str]:
 
 
 def _list_detail_suppliers_for_request(request_dockey, request_no=None):
-    """View e-PR detail: show awarded vendor(s) when set; else selected invite list."""
+    """View e-PR detail: show awarded vendor(s) when set; else selected invite list.
+
+    Local-only (enrich=False): SQL API supplier-master lookup must not block line load.
+    """
     try:
         request_id = int(request_dockey or 0)
     except Exception:
@@ -5427,8 +5430,8 @@ def _list_detail_suppliers_for_request(request_dockey, request_no=None):
     if request_id > 0:
         awarded = list_awarded_suppliers_for_request(request_id)
         if awarded:
-            return _enrich_supplier_display_rows(awarded)
-    return _list_selected_suppliers(request_id, request_no=request_no)
+            return awarded
+    return _list_selected_suppliers(request_id, request_no=request_no, enrich=False)
 
 
 @app.route('/api/admin/procurement/purchase-requests', methods=['POST'])
@@ -5913,10 +5916,11 @@ def _request_no_from_header_changes(changes, request_id: int) -> str:
     return ''
 
 
-def _send_pending_bid_invites_worker(changes, applied, previous_by_id, actor) -> None:
-    """Create RFQ invites after Awaiting -> Pending without blocking the status response."""
+def _awaiting_to_pending_targets(changes, applied, previous_by_id) -> list[tuple[int, str]]:
+    """Return (request_id, request_no) pairs that just moved Awaiting -> Pending."""
     if not isinstance(applied, list):
-        return
+        return []
+    targets: list[tuple[int, str]] = []
     for applied_change in applied:
         if not isinstance(applied_change, dict):
             continue
@@ -5934,22 +5938,62 @@ def _send_pending_bid_invites_worker(changes, applied, previous_by_id, actor) ->
         )
         if status_value != 'PENDING' or previous != 'AWAITING':
             continue
-        request_no = _request_no_from_header_changes(changes, request_id)
+        targets.append((request_id, _request_no_from_header_changes(changes, request_id)))
+    return targets
+
+
+def _send_pending_bid_invites_worker(changes, applied, previous_by_id, actor) -> None:
+    """Queue RFQ emails after Awaiting -> Pending (invites are created synchronously)."""
+    for request_id, request_no in _awaiting_to_pending_targets(changes, applied, previous_by_id):
         try:
-            _send_bidding_invitations_for_pr(request_id, request_no, actor)
+            _queue_rfq_emails_for_existing_invites(request_id, request_no)
         except Exception as invite_exc:
             print(
-                f"[PROCUREMENT PR HEADER STATUS] bid invite on PENDING failed "
+                f"[PROCUREMENT PR HEADER STATUS] RFQ email queue on PENDING failed "
                 f"for {request_id}: {invite_exc}",
                 flush=True,
             )
 
 
-def _send_bidding_invitations_for_pr(request_dockey, request_no, actor):
-    """Create PR_BID_INVITE rows and queue RFQ emails once, on Awaiting -> Pending.
+def _count_bid_invites_for_request(request_dockey: int) -> int:
+    """Cheap EXISTS-style count for PR_BID_INVITE (avoid full invite list join)."""
+    try:
+        dockey = int(request_dockey or 0)
+    except Exception:
+        dockey = 0
+    if dockey <= 0:
+        return 0
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        cur.execute(
+            "SELECT COUNT(*) FROM PR_BID_INVITE WHERE REQUEST_DOCKEY = ?",
+            (dockey,),
+        )
+        row = cur.fetchone()
+        return int(row[0] or 0) if row else 0
+    except Exception as exc:
+        print(f"[PROCUREMENT] count bid invites failed for {dockey}: {exc}", flush=True)
+        return 0
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if con:
+                con.close()
+        except Exception:
+            pass
 
-    Skips if invitations already exist for this dockey (idempotent for re-saves).
-    Returns dict with inviteCount and emailsQueued.
+
+def _create_bidding_invitations_sync(request_dockey, request_no, actor):
+    """Create PR_BID_INVITE rows immediately on Awaiting -> Pending (local DB only).
+
+    Email send stays async so supplier portal can list the RFQ as soon as status saves.
     """
     try:
         dockey = int(request_dockey or 0)
@@ -5959,33 +6003,38 @@ def _send_bidding_invitations_for_pr(request_dockey, request_no, actor):
     if not dockey:
         return {'inviteCount': 0, 'emailsQueued': 0, 'skipped': True, 'reason': 'missing_dockey'}
 
-    existing = []
-    try:
-        existing = list_invited_suppliers_for_request(dockey) or []
-    except Exception as exc:
-        print(f"[PROCUREMENT] list_invited_suppliers_for_request failed for {dockey}: {exc}", flush=True)
-
-    if existing:
+    existing_count = _count_bid_invites_for_request(dockey)
+    if existing_count > 0:
         print(
             f"[PROCUREMENT] Bid invitations already exist for PR {req_no or dockey} "
-            f"({len(existing)}); skip re-send",
+            f"({existing_count}); skip re-create",
             flush=True,
         )
         return {
-            'inviteCount': len(existing),
+            'inviteCount': existing_count,
             'emailsQueued': 0,
             'skipped': True,
             'reason': 'already_invited',
+            'requestNumber': req_no,
+            'requestId': dockey,
         }
 
-    suppliers = _list_selected_suppliers(dockey)
+    # enrich=False: do not wait on SQL API before suppliers can see the RFQ.
+    suppliers = _list_selected_suppliers(dockey, enrich=False)
     if not suppliers:
         print(
             f"[PROCUREMENT] No selected suppliers for PR {req_no or dockey}; "
             "cannot create bid invitations",
             flush=True,
         )
-        return {'inviteCount': 0, 'emailsQueued': 0, 'skipped': True, 'reason': 'no_suppliers'}
+        return {
+            'inviteCount': 0,
+            'emailsQueued': 0,
+            'skipped': True,
+            'reason': 'no_suppliers',
+            'requestNumber': req_no,
+            'requestId': dockey,
+        }
 
     if not req_no:
         local = _resolve_local_purchase_request_header(str(dockey), '')
@@ -5997,19 +6046,56 @@ def _send_bidding_invitations_for_pr(request_dockey, request_no, actor):
                 or ''
             ).strip()
 
-    from utils.procurement_bidding import create_bid_invitations
     create_bid_invitations(
         request_dockey=dockey,
         request_no=req_no,
         suppliers=suppliers,
         created_by=actor,
     )
+    print(
+        f"[PROCUREMENT] Awaiting->Pending: created bid invitations for "
+        f"{len(suppliers)} supplier(s) on PR {req_no or dockey}",
+        flush=True,
+    )
+    return {
+        'inviteCount': len(suppliers),
+        'emailsQueued': 0,
+        'skipped': False,
+        'requestNumber': req_no,
+        'requestId': dockey,
+    }
+
+
+def _queue_rfq_emails_for_existing_invites(request_dockey, request_no):
+    """Resolve emails (may hit SQL API) and queue RFQ mail for an already-invited PR."""
+    try:
+        dockey = int(request_dockey or 0)
+    except Exception:
+        dockey = 0
+    req_no = str(request_no or '').strip()
+    if not dockey:
+        return {'emailsQueued': 0, 'skipped': True, 'reason': 'missing_dockey'}
+
+    suppliers = _list_selected_suppliers(dockey, enrich=True)
+    if not suppliers:
+        return {'emailsQueued': 0, 'skipped': True, 'reason': 'no_suppliers'}
+
+    if not req_no:
+        local = _resolve_local_purchase_request_header(str(dockey), '')
+        if isinstance(local, dict):
+            req_no = str(
+                local.get('docno')
+                or local.get('docNo')
+                or local.get('requestNumber')
+                or ''
+            ).strip()
+
     lines, req_date = _local_pr_lines_for_rfq_email(dockey, req_no)
     queued = _queue_rfq_invitation_emails_for_suppliers(
         suppliers, req_no, req_date, lines, request_dockey=dockey,
     )
     print(
-        f"[PROCUREMENT] Awaiting->Pending: created bid invitations for "
+        f"[PROCUREMENT] Awaiting->Pending: queued RFQ emails for "
         f"{len(suppliers)} supplier(s) on PR {req_no or dockey}; emailsQueued={queued}",
         flush=True,
     )
@@ -6022,6 +6108,18 @@ def _send_bidding_invitations_for_pr(request_dockey, request_no, actor):
     }
     if queued <= 0 and not (os.getenv('SUPPLIER_PORTAL_BASE_URL') or '').strip():
         result['reason'] = 'missing_portal_url'
+    return result
+
+
+def _send_bidding_invitations_for_pr(request_dockey, request_no, actor):
+    """Create PR_BID_INVITE rows then queue RFQ emails (legacy combined helper)."""
+    result = _create_bidding_invitations_sync(request_dockey, request_no, actor)
+    if result.get('skipped') and result.get('reason') in ('missing_dockey', 'no_suppliers'):
+        return result
+    email_result = _queue_rfq_emails_for_existing_invites(request_dockey, request_no)
+    result['emailsQueued'] = int(email_result.get('emailsQueued') or 0)
+    if email_result.get('reason') and not result.get('reason'):
+        result['reason'] = email_result.get('reason')
     return result
 
 
@@ -7597,7 +7695,11 @@ def _draft_line_from_local(row: dict, idx: int) -> dict:
         'amount': _num(row.get('amount')),
         'deliveryDate': row.get('deliveryDate') or row.get('deliverydate'),
         'transferable': row.get('transferable'),
-        'udfPqApproved': row.get('udf_pqapproved'),
+        'udfPqApproved': row.get('udf_pqapproved') if row.get('udf_pqapproved') is not None else row.get('udfPqApproved'),
+        'udfReason': str(row.get('udf_reason') or row.get('udfReason') or '').strip(),
+        'transferredQty': 0.0,
+        'remainingQty': qty,
+        'isFinalChosenPrice': False,
         'sqty': sqty,
         'suomqty': suom,
         'stockQtyUom': basis,
@@ -7605,13 +7707,60 @@ def _draft_line_from_local(row: dict, idx: int) -> dict:
     }
 
 
+def _apply_awarded_pricing_from_gate(details: list, gate: dict | None) -> None:
+    """Overlay awarded unit prices onto View e-PR detail rows (mutates details)."""
+    if not details or not isinstance(gate, dict):
+        return
+    approved_line_map: dict[int, dict] = {}
+    line_awards = gate.get('lineAwards')
+    if isinstance(line_awards, list) and line_awards:
+        for line in line_awards:
+            if not isinstance(line, dict):
+                continue
+            try:
+                approved_line_map[int(line.get('detailId'))] = line
+            except Exception:
+                continue
+    else:
+        approved_bid = gate.get('approvedBid')
+        approved_lines = approved_bid.get('lines') if isinstance(approved_bid, dict) else []
+        for line in approved_lines if isinstance(approved_lines, list) else []:
+            if not isinstance(line, dict):
+                continue
+            try:
+                approved_line_map[int(line.get('detailId'))] = line
+            except Exception:
+                continue
+    if not approved_line_map:
+        return
+    for detail in details:
+        if not isinstance(detail, dict):
+            continue
+        try:
+            detail_id = int(detail.get('id'))
+        except Exception:
+            continue
+        hit = approved_line_map.get(detail_id)
+        if not hit:
+            continue
+        qty = _num(detail.get('quantity'))
+        approved_price = _num(hit.get('unitPrice'))
+        approved_tax = _num(hit.get('tax'))
+        detail['unitPrice'] = approved_price
+        detail['tax'] = approved_tax
+        detail['amount'] = _num(hit.get('amount')) or max(0.0, (qty * approved_price) + approved_tax)
+        detail['isFinalChosenPrice'] = True
+        detail['finalPriceSource'] = 'APPROVED_BID'
+
+
 def _draft_purchase_request_detail_response(raw_request_id, request_no):
-    """Read one PR from PH_PQDTL. Approved PRs still use the bid gate."""
+    """Read one PR from local PH_PQ/PH_PQDTL (including Approved after awards).
+
+    Avoids waiting on SQL Acc API / supplier-master enrich for View e-PR line load.
+    """
+    started = time.perf_counter()
     local = _resolve_local_purchase_request_header(raw_request_id, request_no)
     if not isinstance(local, dict):
-        return None
-    status = normalize_pr_udf_status(local.get('udf_status') or local.get('udfStatus'))
-    if status == 'APPROVED':
         return None
     lines = local.get('sdsdocdetail')
     if not isinstance(lines, list):
@@ -7621,14 +7770,44 @@ def _draft_purchase_request_detail_response(raw_request_id, request_no):
         for idx, row in enumerate(lines, start=1)
         if isinstance(row, dict)
     ]
+    detail_count_before_scope = len(details)
     details = _filter_pr_details_by_location_scope(details)
+    if detail_count_before_scope and not details:
+        print(
+            f"[PROCUREMENT PR DETAIL] location scope removed all lines "
+            f"for request_id={local.get('dockey')} before={detail_count_before_scope}",
+            flush=True,
+        )
     dockey = local.get('dockey')
+    try:
+        dockey_int = int(dockey or 0)
+    except Exception:
+        dockey_int = 0
     docno = str(local.get('docno') or request_no or '').strip()
-    suppliers = _list_selected_suppliers(dockey, request_no=docno, enrich=False)
+    gate = None
+    if dockey_int > 0 and details:
+        try:
+            gate = get_transfer_gate_state(dockey_int)
+            _apply_awarded_pricing_from_gate(details, gate)
+            apply_transferable_flags_for_approved_pr(dockey_int, details, gate=gate)
+        except Exception as gate_exc:
+            print(
+                f"[PROCUREMENT PR DETAIL] local gate warning for {dockey_int}: {gate_exc}",
+                flush=True,
+            )
+    suppliers = _list_detail_suppliers_for_request(dockey_int, request_no=docno)
     total_amount = sum(_num(row.get('amount')) for row in details if isinstance(row, dict))
+    total_ms = round((time.perf_counter() - started) * 1000, 1)
+    print(
+        f"[PROCUREMENT PR DETAIL PERF] request_id={dockey_int} total_ms={total_ms} "
+        f"source=local detail_count={len(details)} detail_count_before_scope={detail_count_before_scope} "
+        f"supplier_count={len(suppliers)} "
+        f"udf={normalize_pr_udf_status(local.get('udf_status') or local.get('udfStatus'))}",
+        flush=True,
+    )
     return jsonify({
         'success': True,
-        'id': dockey,
+        'id': dockey_int or dockey,
         'requestNumber': docno or None,
         'udfReason': str(local.get('udf_reason') or '').strip(),
         'details': details,
@@ -9557,10 +9736,83 @@ def api_create_order():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+def _apply_header_status_changes_local(changes: list) -> dict:
+    """Write PH_PQ.UDF_STATUS locally (same rules as /purchaserequest/header-status).
+
+    Avoids the Flask -> mounted FastAPI HTTP hop so Awaiting -> Pending + RFQ invite
+    can finish in one local Firebird transaction path.
+    """
+    from fastapi import HTTPException
+    from api.routes.purchase_requests import _apply_purchase_request_header_status
+    from utils.firebird_helpers import _get_table_columns, _pick_existing
+    from utils.procurement_purchase_request import _column_is_numeric
+
+    con = get_db_connection()
+    cur = None
+    try:
+        cur = con.cursor()
+        header_cols = _get_table_columns(cur, "PH_PQ")
+        key_col = _pick_existing(header_cols, "DOCKEY", "PQKEY", "ID")
+        udf_status_col = _pick_existing(header_cols, "UDF_STATUS")
+        if not key_col:
+            raise ValueError("PH_PQ key column not found")
+        if not udf_status_col:
+            raise ValueError("PH_PQ.UDF_STATUS column not found")
+        status_col = _pick_existing(header_cols, "STATUS") or ""
+        status_is_numeric = bool(status_col and _column_is_numeric(cur, "PH_PQ", status_col))
+
+        updated = 0
+        applied: list[dict] = []
+        for raw in changes:
+            if not isinstance(raw, dict):
+                continue
+            try:
+                result = _apply_purchase_request_header_status(
+                    cur,
+                    raw,
+                    key_col=key_col,
+                    udf_status_col=udf_status_col,
+                    status_col=status_col,
+                    status_is_numeric=status_is_numeric,
+                )
+            except HTTPException as exc:
+                detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail or exc)
+                raise ValueError(detail) from exc
+            if result is None:
+                continue
+            rowcount, applied_change = result
+            updated += int(rowcount or 0)
+            if isinstance(applied_change, dict):
+                applied.append(applied_change)
+        con.commit()
+        return {
+            "success": True,
+            "updated": updated,
+            "requested": len(changes),
+            "changes": applied,
+        }
+    except Exception:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            con.close()
+        except Exception:
+            pass
+
+
 @app.route('/api/admin/procurement/purchase-requests/header-status', methods=['POST'])
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_purchase_request_header_status_update():
-    """Update UDF_STATUS for purchase request headers."""
+    """Update UDF_STATUS for purchase request headers (local-first + sync RFQ invites)."""
     if not can_update_pr_approvals_and_header_status(session):
         return jsonify({'success': False, 'error': 'Insufficient permissions to update PR header status'}), 403
     payload = request.get_json(silent=True) or {}
@@ -9590,33 +9842,17 @@ def api_admin_purchase_request_header_status_update():
                 if not suppliers:
                     return jsonify({
                         'success': False,
-                        'error': (
-                            'Select at least one supplier before moving to Pending (Awaiting RFQ).'
-                        ),
+                        'error': 'Select at least one supplier before moving to Pending.',
                     }), 400
 
-        headers = _build_sql_api_auth_headers()
+        # Local Firebird write — no HTTP hop to mounted /eq-sql-api.
         try:
-            body, _resp = http_request_json(
-                'POST',
-                f"{FASTAPI_BASE_URL}/purchaserequest/header-status",
-                json=payload,
-                headers=headers or None,
-            )
-        except requests.exceptions.HTTPError as e:
-            message = ''
-            if e.response is not None:
-                try:
-                    b = e.response.json()
-                    message = b.get('detail') if isinstance(b, dict) else ''
-                except Exception:
-                    message = (e.response.text or '').strip()
-            st = e.response.status_code if e.response is not None else 502
-            err = f"SQL API returned {st}" + (f": {message}" if message else '')
-            return jsonify({'success': False, 'error': err}), st if st in (400, 404) else 502
+            body = _apply_header_status_changes_local(changes)
+        except ValueError as exc:
+            message = str(exc or '').strip() or 'Invalid header status change'
+            status_code = 404 if 'not found' in message.lower() else 400
+            return jsonify({'success': False, 'error': message}), status_code
 
-        # Status is already stored. Refresh the list immediately, then send RFQ
-        # invites in the background so the Pending tab does not wait on supplier lookup.
         applied = body.get('changes') if isinstance(body, dict) else None
         if not isinstance(applied, list) or not applied:
             applied = []
@@ -9635,22 +9871,42 @@ def api_admin_purchase_request_header_status_update():
                     'previousUdfStatus': previous_by_id.get(request_id, ''),
                 })
 
+        # Invites before response so supplier Open tab can see the RFQ immediately.
+        bid_invitation_results = []
+        for request_id, request_no in _awaiting_to_pending_targets(changes, applied, previous_by_id):
+            try:
+                bid_invitation_results.append(
+                    _create_bidding_invitations_sync(request_id, request_no, actor)
+                )
+            except Exception as invite_exc:
+                print(
+                    f"[PROCUREMENT PR HEADER STATUS] bid invite on PENDING failed "
+                    f"for {request_id}: {invite_exc}",
+                    flush=True,
+                )
+                bid_invitation_results.append({
+                    'inviteCount': 0,
+                    'emailsQueued': 0,
+                    'skipped': True,
+                    'reason': str(invite_exc),
+                    'requestId': request_id,
+                    'requestNumber': request_no,
+                })
+
         try:
             with PURCHASE_REQUEST_LIST_CACHE_LOCK:
                 PURCHASE_REQUEST_LIST_CACHE.clear()
         except Exception:
             pass
+        # Emails may hit SQL API for udf_email01..15 — keep off the request path.
         threading.Thread(
             target=_send_pending_bid_invites_worker,
             args=(changes, applied, previous_by_id, actor),
             daemon=True,
         ).start()
-        out = body if isinstance(body, dict) else {'upstream': body}
+        out = dict(body) if isinstance(body, dict) else {'upstream': body}
+        out['bidInvitationResults'] = bid_invitation_results
         return jsonify({'success': True, 'data': out})
-    except requests.exceptions.Timeout:
-        return jsonify({'success': False, 'error': 'Header status update request timed out'}), 504
-    except requests.exceptions.ConnectionError:
-        return jsonify({'success': False, 'error': 'Cannot reach SQL API for header status update'}), 503
     except Exception as exc:
         print(f"[PROCUREMENT PR HEADER STATUS UPDATE] error: {exc}", flush=True)
         return jsonify({'success': False, 'error': str(exc)}), 500

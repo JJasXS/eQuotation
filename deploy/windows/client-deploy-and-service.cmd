@@ -29,6 +29,9 @@ set "ENV_PREP=%TEMP%\ProAcc_eQuotation.env.prepared"
 set "ENV_BACKUP=%TEMP%\ProAcc_eQuotation_env_backup.bak"
 REM ----------------------------------------------
 
+REM Remember the interactive user BEFORE elevation (Admin window is a different user).
+echo %USERDOMAIN%\%USERNAME%> "%TEMP%\ProAcc_eQuotation.restart-user.txt"
+
 REM --- Auto-elevate (first window closes; a new Admin window opens) ---
 net session >nul 2>&1
 if errorlevel 1 (
@@ -267,11 +270,28 @@ nssm set "%APP_NAME%" Start SERVICE_AUTO_START
 nssm set "%APP_NAME%" DisplayName "ProAcc eQuotation"
 nssm set "%APP_NAME%" Description "ProAcc eQuotation unified server (Flask + FastAPI on port %FLASK_PORT%)."
 
-echo [11/12] Start service...
+echo [11/13] Start service...
 nssm start "%APP_NAME%"
 timeout /t 8 /nobreak >nul
 
-echo [12/12] Verify...
+echo [12/13] Grant non-admin restart rights to deploy user...
+if exist "%~dp0grant-equotation-restart-rights.ps1" (
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0grant-equotation-restart-rights.ps1" -ServiceName "%APP_NAME%"
+  if errorlevel 1 (
+    echo WARNING: could not grant restart rights. Hotfix restarts may still need Admin.
+  ) else (
+    copy /Y "%~dp0grant-equotation-restart-rights.ps1" "%APP_DIR%\deploy\windows\" >nul 2>&1
+    copy /Y "%~dp0grant-equotation-restart-rights.cmd" "%APP_DIR%\deploy\windows\" >nul 2>&1
+    copy /Y "%~dp0restart-equotation.cmd" "%APP_DIR%\deploy\windows\" >nul 2>&1
+    copy /Y "%~dp0README-restart.md" "%APP_DIR%\deploy\windows\" >nul 2>&1
+  )
+) else if exist "%APP_DIR%\deploy\windows\grant-equotation-restart-rights.ps1" (
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%APP_DIR%\deploy\windows\grant-equotation-restart-rights.ps1" -ServiceName "%APP_NAME%"
+) else (
+  echo WARNING: grant-equotation-restart-rights.ps1 not found — skip ACL grant.
+)
+
+echo [13/13] Verify...
 echo.
 echo ========== VERIFY ==========
 nssm status "%APP_NAME%"
@@ -287,6 +307,7 @@ echo.
 echo Browser:  http://127.0.0.1:%FLASK_PORT%/
 echo API docs: http://127.0.0.1:%FLASK_PORT%/eq-sql-api/docs
 echo Logs:     %APP_DIR%\service-error.log
+echo Hotfix:  %APP_DIR%\deploy\windows\restart-equotation.cmd ^(no Admin after grant^)
 echo.
 start "" "http://127.0.0.1:%FLASK_PORT%/"
 echo Done. Press any key to close.
