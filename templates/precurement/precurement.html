@@ -23,7 +23,7 @@
     <link rel="stylesheet" href="/static/css/adminViewQuotations.css?v=20260430">
 
     <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260810_tabs_phone_v3">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=20261029_5tabs_cancel">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=20261029_cancel_beside_transfer">
     <style id="pr-report-phone-layout">
     @media (max-width: 900px) {
       body.procurement-warm-ui .procurement-module-tabs.eq-line-tabs {
@@ -306,8 +306,6 @@
                                             <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="CANCELLED" aria-selected="false" onclick="toggleViewStatusFilter('CANCELLED')">Cancelled</button>
                                         </nav>
                                         <div class="pr-view-toolbar-actions view-pr-actions-right view-pr-actions-right--toolbar">
-                                            <button type="button" class="view-pr-refresh-btn view-pr-bulk-transfer-toggle" id="view-bulk-transfer-toggle" onclick="onBulkTransferToolbarClick()" aria-pressed="false" hidden title="Transfer selected lines on the open/checked PR(s) — same as Transfer to Purchase Order">Bulk Transfer to PO</button>
-                                            <button type="button" class="view-pr-refresh-btn view-pr-refresh-btn--ghost" id="view-bulk-consolidate-btn" onclick="toggleViewBulkTransferPanel(true)" hidden title="Combine lines from multiple approved PRs into one transfer workspace">Consolidate…</button>
                                             <button type="button" class="view-pr-icon-btn view-pr-refresh-btn--ghost" onclick="loadViewPurchaseRequests(true, { bustCache: true })" title="Refresh list" aria-label="Refresh list">
                                                 <svg class="view-pr-icon-btn__svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.1A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
                                             </button>
@@ -333,15 +331,26 @@
 
                                                 <div class="pr-view-left-search-top">
                                                     <label class="pr-view-left-search-label" for="view-pr-search-input">Search PR</label>
-                                                    <label class="pr-view-left-bulk-select" id="view-pr-list-bulk-select-wrap" hidden title="Select all visible purchase requests">
-                                                        <input
-                                                            type="checkbox"
-                                                            id="view-pr-list-bulk-select-all"
-                                                            aria-label="Select all purchase requests for bulk update"
-                                                            onchange="onViewPrListBulkSelectAllChange(this)"
-                                                        />
-                                                        <span>Select all</span>
-                                                    </label>
+                                                    <div class="pr-view-left-bulk-actions" id="view-pr-list-bulk-actions">
+                                                        <button
+                                                            type="button"
+                                                            class="view-pr-refresh-btn view-pr-bulk-transfer-toggle pr-view-left-bulk-transfer"
+                                                            id="view-bulk-transfer-toggle"
+                                                            onclick="onBulkTransferToolbarClick()"
+                                                            aria-pressed="false"
+                                                            hidden
+                                                            title="Transfer selected lines on the open/checked PR(s) — same as Transfer to Purchase Order"
+                                                        >Bulk Transfer to PO</button>
+                                                        <label class="pr-view-left-bulk-select" id="view-pr-list-bulk-select-wrap" hidden title="Select all visible purchase requests">
+                                                            <input
+                                                                type="checkbox"
+                                                                id="view-pr-list-bulk-select-all"
+                                                                aria-label="Select all purchase requests for bulk update"
+                                                                onchange="onViewPrListBulkSelectAllChange(this)"
+                                                            />
+                                                            <span>Select all</span>
+                                                        </label>
+                                                    </div>
                                                 </div>
 
                                                 <input
@@ -1032,7 +1041,7 @@
     <script src="/static/js/procurement/procurement_stock_card.js?v=20260813_extract"></script>
     <script src="/static/js/procurement/procurement_view_pr.js?v=20260813_extract"></script>
     <script src="/static/js/procurement/procurement_create_pr.js?v=20260813_extract"></script>
-    <script src="/static/js/procurement/precurement_app.js?v=20261029_5tabs_cancel"></script>
+    <script src="/static/js/procurement/precurement_app.js?v=20261029_cancel_beside_transfer"></script>
 
     <script src="/static/js/hamburger_menu.js"></script>
 

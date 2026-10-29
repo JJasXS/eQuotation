@@ -3530,16 +3530,32 @@ body.procurement-warm-ui .pr-line-items-table .pr-stock-uom-readonly {
     min-width: 88px;
 }
 
+.view-pr-detail-actions__btns {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+    margin-left: auto;
+}
+
 .view-pr-detail-cancel-btn {
-    min-width: 108px;
-    background: #fff;
-    color: #b42318;
-    border: 1px solid #fecdca;
+    flex: 0 0 auto;
+    min-width: 88px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+    background: #c62828;
+    color: #fff;
+    border: none;
+    box-shadow: none;
 }
 
 .view-pr-detail-cancel-btn:hover {
-    background: #fef3f2;
-    border-color: #f97066;
+    background: #b71c1c;
+    color: #fff;
 }
 
 .view-pr-toggle {
@@ -5873,25 +5889,49 @@ body.procurement-warm-ui .view-pr-icon-btn {
     height: 34px;
     min-height: 34px;
     padding: 0;
-    border: 1px solid #c5dce9;
+    border: none;
     border-radius: 8px;
-    background: #fff;
-    color: #2f5f7a;
+    background: transparent;
+    color: #1a4d6e;
     cursor: pointer;
     box-sizing: border-box;
     flex: 0 0 auto;
+    box-shadow: none;
+    outline: none;
 }
 
 body.procurement-warm-ui .view-pr-icon-btn:hover {
-    background: #e8f4fc;
-    border-color: #9ecae8;
-    color: #1a4d6e;
+    background: rgba(59, 143, 196, 0.12);
+    border: none;
+    color: #0f3a54;
+}
+
+body.procurement-warm-ui .view-pr-icon-btn:focus,
+body.procurement-warm-ui .view-pr-icon-btn:focus-visible {
+    outline: none;
+    box-shadow: none;
+    border: none;
 }
 
 body.procurement-warm-ui .view-pr-icon-btn__svg {
-    width: 18px;
-    height: 18px;
+    width: 22px;
+    height: 22px;
     display: block;
+    opacity: 1;
+}
+
+body.procurement-warm-ui .pr-view-page-header--compact .view-pr-icon-btn.view-pr-refresh-btn--ghost {
+    border: none;
+    background: transparent;
+    color: #1a4d6e;
+    padding: 0;
+    box-shadow: none;
+}
+
+body.procurement-warm-ui .pr-view-page-header--compact .view-pr-icon-btn.view-pr-refresh-btn--ghost:hover {
+    background: rgba(59, 143, 196, 0.12);
+    border: none;
+    color: #0f3a54;
 }
 
 body.procurement-warm-ui .view-pr-icon-btn--clear {
@@ -6136,6 +6176,26 @@ body.procurement-warm-ui .pr-view-left-search-top {
     align-items: center;
     justify-content: space-between;
     gap: 8px;
+}
+
+body.procurement-warm-ui .pr-view-left-bulk-actions {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+body.procurement-warm-ui .pr-view-left-bulk-transfer {
+    min-width: 0;
+    padding: 4px 10px;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+body.procurement-warm-ui .pr-view-left-bulk-transfer[hidden] {
+    display: none !important;
 }
 
 body.procurement-warm-ui .pr-view-left-bulk-select {
@@ -6988,6 +7048,27 @@ body.procurement-warm-ui .view-pr-detail-unified .view-pr-line-bulk-bar__hint {
     font-weight: 500;
     color: #8a7860;
     white-space: nowrap;
+}
+
+body.procurement-warm-ui .view-pr-detail-actions__btns {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+
+body.procurement-warm-ui .view-pr-detail-actions--toolbar .view-pr-detail-cancel-btn {
+    min-height: 34px;
+    padding: 8px 14px;
+    border: none;
+    border-radius: 8px;
+    background: #c62828;
+    color: #fff;
+}
+
+body.procurement-warm-ui .view-pr-detail-actions--toolbar .view-pr-detail-cancel-btn:hover {
+    background: #b71c1c;
+    color: #fff;
 }
 
 body.procurement-warm-ui .view-pr-detail-unified .view-pr-detail-wrap--unified {

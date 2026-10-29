@@ -588,29 +588,23 @@
 
         }
 
-        /** Bulk Transfer / Consolidate only belong on the Approved tab. */
+        /** Bulk Transfer to PO sits beside Select all on the Approved list header. */
 
         function syncViewPrApprovedOnlyToolbarActions() {
 
             const approved = isViewApprovedTabActive();
 
-            const transferToggle = document.getElementById('view-bulk-transfer-toggle');
+            const hideTransfer = document.body.classList.contains('procurement-hide-transfer');
 
-            const consolidateBtn = document.getElementById('view-bulk-consolidate-btn');
+            const transferToggle = document.getElementById('view-bulk-transfer-toggle');
 
             if (transferToggle) {
 
-                transferToggle.hidden = !approved;
+                const show = approved && !hideTransfer;
 
-                transferToggle.setAttribute('aria-hidden', approved ? 'false' : 'true');
+                transferToggle.hidden = !show;
 
-            }
-
-            if (consolidateBtn) {
-
-                consolidateBtn.hidden = !approved;
-
-                consolidateBtn.setAttribute('aria-hidden', approved ? 'false' : 'true');
+                transferToggle.setAttribute('aria-hidden', show ? 'false' : 'true');
 
             }
 
@@ -950,9 +944,9 @@
 
             if (open && !isViewApprovedTabActive()) {
 
-                setBulkTransferMessage('Consolidate / Bulk Transfer is only available on the Approved tab.', true);
+                setBulkTransferMessage('Bulk Transfer is only available on the Approved tab.', true);
 
-                alert('Consolidate / Bulk Transfer is only available on the Approved tab.');
+                alert('Bulk Transfer is only available on the Approved tab.');
 
                 return;
 
@@ -6114,6 +6108,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     </div>
 
+                    <div class="view-pr-detail-actions__btns">
                     <button
 
                         type="button"
@@ -6127,6 +6122,10 @@ function buildViewPurchaseRequestDetailHtml(header) {
                         title="${escapeHtml(transferTitle)}"
 
                     >${isTransferring ? 'Transferring...' : (canTransfer ? 'Transfer to Purchase Order' : 'Enter transfer qty')}</button>
+                    ${savedUdfDisplay === 'APPROVED' && !hideApprovalEdits ? `
+                    <button type="button" class="view-pr-detail-cancel-btn" onclick="cancelApprovedPurchaseRequest(${headerId})" title="Cancel this approved e-PR">Cancel</button>
+                    ` : ''}
+                    </div>
 
                 </div>`}
 
@@ -6218,15 +6217,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     </div>
 
-                    ${hideApprovalEdits || savedUdfDisplay === 'CANCELLED' || pendingReadOnly ? '' : (
-                        savedUdfDisplay === 'APPROVED'
-                            ? `
-                    <div class="view-pr-detail-lines-footer">
-                        <div class="view-pr-detail-status-actions">
-                            <button type="button" class="view-pr-refresh-btn view-pr-detail-cancel-btn" onclick="cancelApprovedPurchaseRequest(${headerId})" title="Cancel this approved e-PR">Cancel e-PR</button>
-                        </div>
-                    </div>`
-                            : `
+                    ${hideApprovalEdits || savedUdfDisplay === 'CANCELLED' || pendingReadOnly || savedUdfDisplay === 'APPROVED' ? '' : `
                     <div class="view-pr-detail-lines-footer">
 
                         <div class="view-pr-detail-status-actions">
@@ -6243,8 +6234,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                         </div>
 
-                    </div>`
-                    )}
+                    </div>`}
 
                 </div>
 
