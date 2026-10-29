@@ -294,8 +294,7 @@
 
         let viewApprovalSaving = false;
 
-        // Awaiting Approval tab removed — AWAITING rows are shown under Pending.
-        const VIEW_STATUS_FILTER_OPTIONS = ['DRAFT', 'PENDING', 'APPROVED', 'CANCELLED'];
+        const VIEW_STATUS_FILTER_OPTIONS = ['DRAFT', 'AWAITING', 'PENDING', 'APPROVED', 'CANCELLED'];
 
         const VIEW_PR_TAB_LABELS = {
 
@@ -2273,9 +2272,7 @@
 
                 const raw = new URLSearchParams(window.location.search || '').get('status');
 
-                let s = String(raw || '').trim().toUpperCase();
-
-                if (s === 'AWAITING') s = 'PENDING';
+                const s = String(raw || '').trim().toUpperCase();
 
                 return VIEW_STATUS_FILTER_OPTIONS.includes(s) ? s : null;
 
@@ -2303,9 +2300,7 @@
 
                 ).trim();
 
-                let status = String(params.get('status') || '').trim().toUpperCase();
-
-                if (status === 'AWAITING') status = 'PENDING';
+                const status = String(params.get('status') || '').trim().toUpperCase();
 
                 return {
 
@@ -3989,16 +3984,7 @@
 
             }
 
-            const udf = rowSavedUdfStatus(row);
-
-            // Pending tab also lists legacy AWAITING rows (Awaiting Approval tab removed).
-            if (f === 'PENDING') {
-
-                return udf === 'PENDING' || udf === 'AWAITING';
-
-            }
-
-            return udf === f;
+            return rowSavedUdfStatus(row) === f;
 
         }
 
@@ -5842,19 +5828,24 @@ if (viewHeaderStatusPendingChanges.size > 0) {
 
             if (doc === 'DRAFT' || saved === 'DRAFT') {
 
-                const current = (picked === 'PENDING' || picked === 'AWAITING' || picked === 'CANCELLED')
-                    ? (picked === 'AWAITING' ? 'PENDING' : picked)
-                    : '';
+                const current = (picked === 'AWAITING' || picked === 'CANCELLED') ? picked : '';
 
                 return [
 
                     viewPrUdfOption('', 'Draft', current),
 
-                    viewPrUdfOption('PENDING', 'Pending', current),
+                    viewPrUdfOption('AWAITING', 'Awaiting Approval', current),
 
                     viewPrUdfOption('CANCELLED', 'Cancelled', current),
 
                 ].join('');
+
+            }
+
+            // Approved detail uses Cancel e-PR button — no Approved/Update status control.
+            if (saved === 'APPROVED') {
+
+                return '';
 
             }
 
@@ -12755,7 +12746,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     initPurchaseRequestForm();
 
-                    goToViewPrStatus('PENDING');
+                    goToViewPrStatus('AWAITING');
 
                     if (isSubmitFromEdit) {
 
@@ -12869,7 +12860,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     initPurchaseRequestForm();
 
-                    goToViewPrStatus('PENDING');
+                    goToViewPrStatus('AWAITING');
 
                     try {
 

@@ -23,7 +23,7 @@
     <link rel="stylesheet" href="/static/css/adminViewQuotations.css?v=20260430">
 
     <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260810_tabs_phone_v3">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=20261029_approved_cancel">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=20261029_5tabs_cancel">
     <style id="pr-report-phone-layout">
     @media (max-width: 900px) {
       body.procurement-warm-ui .procurement-module-tabs.eq-line-tabs {
@@ -300,6 +300,7 @@
                                     <div class="pr-view-toolbar">
                                         <nav class="eq-line-tabs pr-view-filter-tabs" id="view-pr-filter-tabs" role="tablist" aria-label="Filter by approval status">
                                             <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="DRAFT" aria-selected="false" onclick="toggleViewStatusFilter('DRAFT')">Draft</button>
+                                            <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="AWAITING" aria-selected="false" onclick="toggleViewStatusFilter('AWAITING')">Awaiting Approval</button>
                                             <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab is-active" data-status="PENDING" aria-selected="true" onclick="toggleViewStatusFilter('PENDING')">Pending</button>
                                             <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="APPROVED" aria-selected="false" onclick="toggleViewStatusFilter('APPROVED')">Approved</button>
                                             <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="CANCELLED" aria-selected="false" onclick="toggleViewStatusFilter('CANCELLED')">Cancelled</button>
@@ -1031,7 +1032,7 @@
     <script src="/static/js/procurement/procurement_stock_card.js?v=20260813_extract"></script>
     <script src="/static/js/procurement/procurement_view_pr.js?v=20260813_extract"></script>
     <script src="/static/js/procurement/procurement_create_pr.js?v=20260813_extract"></script>
-    <script src="/static/js/procurement/precurement_app.js?v=20261029_approved_cancel"></script>
+    <script src="/static/js/procurement/precurement_app.js?v=20261029_5tabs_cancel"></script>
 
     <script src="/static/js/hamburger_menu.js"></script>
 
