@@ -226,6 +226,21 @@ def _view_pr_tab_where_sql(
     return "1 = 0", []
 
 
+def _ph_pqdtl_header_fk_col(cur) -> str:
+    """PH_PQDTL column that points at PH_PQ header key."""
+    detail_cols = _get_table_columns(cur, "PH_PQDTL")
+    return _pick_existing(detail_cols, "DOCKEY", "PQKEY", "REQUEST_ID", "HEADER_ID") or ""
+
+
+def _view_pr_has_detail_lines_sql(header_key_col: str, detail_fk_col: str) -> str:
+    """Require at least one PH_PQDTL row so empty headers are not listed in View e-PR."""
+    hk = str(header_key_col or "").strip()
+    fk = str(detail_fk_col or "").strip()
+    if not hk or not fk:
+        return ""
+    return f"EXISTS (SELECT 1 FROM PH_PQDTL D WHERE D.{fk} = H.{hk})"
+
+
 def list_view_pr_headers_for_status(
     view_status: str,
     *,
@@ -277,6 +292,9 @@ def list_view_pr_headers_for_status(
             udf_col=udf_status_col,
             status_is_numeric=status_is_numeric,
         )
+        has_lines_sql = _view_pr_has_detail_lines_sql(key_col, _ph_pqdtl_header_fk_col(cur))
+        if has_lines_sql:
+            where_sql = f"({where_sql}) AND {has_lines_sql}"
         order_col = docdate_col or key_col
         order_sql = f"H.{order_col} DESC"
         if key_col.upper() != (order_col or "").upper():
@@ -389,11 +407,13 @@ def map_view_pr_status_counts() -> dict[str, int]:
     try:
         cur = con.cursor()
         header_cols = _get_table_columns(cur, "PH_PQ")
+        key_col = _pick_existing(header_cols, "DOCKEY", "PQKEY", "ID")
         status_col = _pick_existing(header_cols, "STATUS")
         udf_col = _pick_existing(header_cols, "UDF_STATUS")
         if not status_col or not udf_col:
             return counts
         status_is_numeric = _column_is_numeric(cur, "PH_PQ", status_col)
+        has_lines_sql = _view_pr_has_detail_lines_sql(key_col or "", _ph_pqdtl_header_fk_col(cur))
         for tab in counts:
             where_sql, where_params = _view_pr_tab_where_sql(
                 tab,
@@ -401,6 +421,8 @@ def map_view_pr_status_counts() -> dict[str, int]:
                 udf_col=udf_col,
                 status_is_numeric=status_is_numeric,
             )
+            if has_lines_sql:
+                where_sql = f"({where_sql}) AND {has_lines_sql}"
             cur.execute(f"SELECT COUNT(*) FROM PH_PQ H WHERE {where_sql}", tuple(where_params))
             counts[tab] = int((cur.fetchone() or [0])[0] or 0)
         return counts

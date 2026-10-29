@@ -4017,11 +4017,35 @@
 
             VIEW_STATUS_FILTER_OPTIONS.forEach((s) => {
 
-                counts[s] = rows.filter((row) => rowMatchesViewStatusFilter(row, s)).length;
+                counts[s] = rows.filter(
+
+                    (row) => rowMatchesViewStatusFilter(row, s) && purchaseRequestHasItemLines(row)
+
+                ).length;
 
             });
 
             return counts;
+
+        }
+
+        function purchaseRequestHasItemLines(row) {
+
+            if (!row) return false;
+
+            if (Array.isArray(row.details)) {
+
+                return row.details.some((d) => Number(d && d.id ? d.id : 0) > 0);
+
+            }
+
+            if (row.lineCount == null || row.lineCount === '') {
+
+                return true;
+
+            }
+
+            return Number(row.lineCount) > 0;
 
         }
 
@@ -4055,6 +4079,8 @@
                 rows = rows.filter((row) => Array.from(filters).some((f) => rowMatchesViewStatusFilter(row, f)));
 
             }
+
+            rows = rows.filter((row) => purchaseRequestHasItemLines(row));
 
             if (searchText) {
 
@@ -7854,6 +7880,12 @@ function buildViewPurchaseRequestDetailHtml(header) {
                             patchViewPrCardSelectionBadge(id, selected, total);
 
                         });
+
+                        try {
+
+                            renderFilteredViewPurchaseRequests();
+
+                        } catch (e) { /* ignore */ }
 
                         try {
 
