@@ -4,6 +4,11 @@
 .env
 .env.*.local
 
+# Local runtime store (OTP / email notify idempotency)
+data/eq_runtime_store.sqlite3
+data/eq_runtime_store.sqlite3-*
+data/*.sqlite3
+
 # Python
 __pycache__/
 *.py[cod]

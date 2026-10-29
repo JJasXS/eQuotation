@@ -133,7 +133,11 @@ function handleMenuAction(action) {
             break;
         case 'logout':
             clearSensitiveSessionCachesLocal();
-            window.location.href = '/logout';
+            if (window.EQCore && typeof window.EQCore.logout === 'function') {
+                window.EQCore.logout();
+            } else {
+                window.location.href = '/logout';
+            }
             break;
         default:
             console.log('Unknown action:', action);
@@ -260,10 +264,16 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     restoreHamburgerExpandedState();
 
-    // Real logout uses <a href="/logout">; clear client caches before navigating.
+    // Logout must POST with CSRF; intercept legacy GET links.
     document.querySelectorAll('a.logout-link[href="/logout"], a[href="/logout"]').forEach((link) => {
-        link.addEventListener('click', function () {
+        link.addEventListener('click', function (event) {
+            event.preventDefault();
             clearSensitiveSessionCachesLocal();
+            if (window.EQCore && typeof window.EQCore.logout === 'function') {
+                window.EQCore.logout();
+            } else {
+                window.location.href = '/logout';
+            }
         });
     });
 });

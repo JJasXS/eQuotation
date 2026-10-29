@@ -3,13 +3,14 @@ from datetime import datetime
 from html import escape as html_escape
 from flask import Blueprint, request, jsonify, session
 from utils import send_email
+from utils.quotation_email_notify import (
+    mark_failed,
+    mark_sent,
+    reserve_notification,
+)
 
 # Create Blueprint for quotation routes
 quotation_bp = Blueprint('quotation', __name__)
-
-# Simple in-process rate limit: dockey -> last sent unix time (per process).
-_EMAIL_NOTIFY_LAST_SENT: dict[str, float] = {}
-_EMAIL_NOTIFY_COOLDOWN_SECONDS = 60.0
 
 
 def _html(value) -> str:
@@ -31,18 +32,6 @@ def send_quotation_email():
     if dockey <= 0:
         return jsonify({'success': False, 'error': 'dockey is required'}), 400
 
-    # Rate-limit duplicate notifications for the same document.
-    import time as _time
-    rate_key = f"{session.get('customer_code') or user_email}:{dockey}"
-    now = _time.time()
-    last = float(_EMAIL_NOTIFY_LAST_SENT.get(rate_key) or 0)
-    if last and (now - last) < _EMAIL_NOTIFY_COOLDOWN_SECONDS:
-        return jsonify({
-            'success': True,
-            'message': 'Notification already sent recently',
-            'deduped': True,
-        })
-
     try:
         from utils.quotation_api import fetch_quotation_details_for_email
 
@@ -59,6 +48,24 @@ def send_quotation_email():
             sess_code = str(session.get('customer_code') or '').strip().upper()
             if not sess_code or sess_code != qt_code.upper():
                 return jsonify({'success': False, 'error': 'Forbidden'}), 403
+
+        # Reserve AFTER ownership check so strangers cannot lock a dockey.
+        reservation = reserve_notification(dockey)
+        status = reservation.get('status')
+        if status == 'already_sent':
+            return jsonify({
+                'success': True,
+                'message': 'Notification already sent',
+                'deduped': True,
+            })
+        if status == 'in_progress':
+            return jsonify({
+                'success': True,
+                'message': 'Notification already in progress',
+                'deduped': True,
+            })
+        if status != 'reserved':
+            return jsonify({'success': False, 'error': 'Could not reserve notification'}), 409
 
         docno = str(row.get('DOCNO') or row.get('docno') or '').strip() or 'N/A'
         company_name = qt_company or 'Valued Customer'
@@ -105,8 +112,6 @@ def send_quotation_email():
             </tr>
             '''
 
-        subject = f"Quotation {_html(docno)} - Pending Approval".replace('&amp;', '&')
-        # Subject should not contain HTML entities — use plain docno.
         subject = f"Quotation {docno} - Pending Approval"
         body = f"""
         <html>
@@ -168,21 +173,31 @@ def send_quotation_email():
         </html>
         """
 
-        email_sent = send_email(user_email, subject, body)
+        try:
+            email_sent = send_email(user_email, subject, body)
+        except Exception as send_err:
+            mark_failed(dockey, str(send_err))
+            print(f"[EMAIL ERROR] Failed to send quotation email: {send_err}")
+            return jsonify({'success': False, 'error': 'Failed to send quotation email'}), 500
 
         if email_sent:
-            _EMAIL_NOTIFY_LAST_SENT[rate_key] = now
+            mark_sent(dockey, user_email)
             print(f"[EMAIL] Quotation pending email sent to {user_email} for {docno}")
             return jsonify({
                 'success': True,
                 'message': f'Quotation pending email sent to {user_email}'
             })
+        mark_failed(dockey, 'send_email returned False')
         return jsonify({
             'success': False,
             'error': 'Failed to send email. Please check email configuration.'
         }), 500
 
     except Exception as e:
+        try:
+            mark_failed(dockey, str(e))
+        except Exception:
+            pass
         print(f"[EMAIL ERROR] Failed to send quotation email: {e}")
         return jsonify({'success': False, 'error': 'Failed to send quotation email'}), 500
 

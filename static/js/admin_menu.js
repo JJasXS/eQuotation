@@ -30,7 +30,11 @@ function handleAdminMenuAction(action) {
             } else if (window.EQCore && typeof window.EQCore.clearSensitiveSessionCaches === 'function') {
                 window.EQCore.clearSensitiveSessionCaches();
             }
-            window.location.href = '/logout';
+            if (window.EQCore && typeof window.EQCore.logout === 'function') {
+                window.EQCore.logout();
+            } else {
+                window.location.href = '/logout';
+            }
             break;
         default:
             console.log('Unknown action:', action);

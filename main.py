@@ -361,6 +361,7 @@ set_ai_config(OPENAI_API_KEY, OPENAI_MODEL)
 # OTP STORAGE & CONFIGURATION
 # ============================================
 # In-memory OTP storage: { "email|login_mode": {'otp': code, 'expiry': datetime} }
+# Legacy in-process dict kept empty; OTP state lives in utils.otp_store (sqlite/memory).
 OTP_STORAGE = {}
 
 # Helper configuration
@@ -1421,14 +1422,21 @@ else:
             flush=True,
         )
 
-# Secure cookies when HTTPS / production; allow explicit override for local HTTP.
+# Production always uses Secure session cookies. Local HTTP may disable via env.
 _secure_cookie_raw = (os.getenv('SESSION_COOKIE_SECURE') or '').strip().lower()
-if _secure_cookie_raw in ('1', 'true', 'yes', 'on'):
+if _is_production:
+    if _secure_cookie_raw in ('0', 'false', 'no', 'off'):
+        print(
+            '[SECURITY] Ignoring SESSION_COOKIE_SECURE=0 in production — forcing Secure cookies.',
+            flush=True,
+        )
+    _session_cookie_secure = True
+elif _secure_cookie_raw in ('1', 'true', 'yes', 'on'):
     _session_cookie_secure = True
 elif _secure_cookie_raw in ('0', 'false', 'no', 'off'):
     _session_cookie_secure = False
 else:
-    _session_cookie_secure = bool(_is_production)
+    _session_cookie_secure = False
 app.config['SESSION_COOKIE_SECURE'] = _session_cookie_secure
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
@@ -1438,36 +1446,35 @@ print(
     flush=True,
 )
 
+# Trust X-Forwarded-Proto / Host when behind HTTPS reverse proxy (staging/prod).
+_trust_proxy = (os.getenv('EQ_TRUST_PROXY') or ('1' if _is_production else '0')).strip().lower()
+if _trust_proxy in ('1', 'true', 'yes', 'on'):
+    try:
+        from werkzeug.middleware.proxy_fix import ProxyFix
+
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+        print('[SECURITY] ProxyFix enabled (EQ_TRUST_PROXY)', flush=True)
+    except Exception as _proxy_err:
+        print(f'[SECURITY] ProxyFix unavailable: {_proxy_err}', flush=True)
+
 
 @app.before_request
-def _eq_csrf_origin_guard():
-    """Reject cross-origin state-changing /api/* calls when Origin is present and mismatched.
+def _eq_csrf_guard():
+    """CSRF token + Origin/Referer checks for cookie-authenticated mutations."""
+    from utils.csrf_protect import validate_csrf_request
 
-    SameSite=Lax already blocks most cookie CSRF for cross-site POSTs; this adds
-    defense-in-depth for browsers that send Origin. Requests with no Origin
-    (same-origin navigations, some tools) are allowed.
-    """
-    if request.method not in ('POST', 'PUT', 'PATCH', 'DELETE'):
-        return None
-    path = str(request.path or '')
-    if not path.startswith('/api/'):
-        return None
-    origin = (request.headers.get('Origin') or '').strip()
-    if not origin:
-        return None
-    try:
-        from urllib.parse import urlparse
-        origin_host = (urlparse(origin).netloc or '').lower()
-        req_host = (request.host or '').lower()
-        if origin_host and req_host and origin_host != req_host:
-            print(
-                f"[SECURITY] CSRF Origin rejected: origin={origin!r} host={req_host!r} path={path}",
-                flush=True,
-            )
-            return jsonify({'success': False, 'error': 'Cross-origin request blocked'}), 403
-    except Exception:
-        return None
-    return None
+    return validate_csrf_request(request)
+
+
+@app.route('/api/csrf_token', methods=['GET'])
+def api_csrf_token():
+    """Return/mint CSRF token for browser clients (session cookie auth)."""
+    from utils.csrf_protect import ensure_csrf_token
+
+    if 'user_email' not in session:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    token = ensure_csrf_token()
+    return jsonify({'success': True, 'csrf_token': token})
 
 # Register blueprints
 from routes.quotation_routes import quotation_bp
@@ -1507,6 +1514,32 @@ def add_no_cache_headers(response):
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
+    return response
+
+
+@app.after_request
+def _eq_set_csrf_cookie(response):
+    """Expose a readable CSRF cookie mirroring the session token (double-submit)."""
+    from utils.csrf_protect import CSRF_COOKIE_NAME, ensure_csrf_token
+
+    path = str(request.path or '')
+    if path.startswith('/static/'):
+        return response
+    if 'user_email' not in session:
+        return response
+    try:
+        token = ensure_csrf_token()
+        response.set_cookie(
+            CSRF_COOKIE_NAME,
+            token,
+            max_age=int(app.config['PERMANENT_SESSION_LIFETIME'].total_seconds()),
+            secure=bool(app.config.get('SESSION_COOKIE_SECURE')),
+            httponly=False,
+            samesite='Lax',
+            path='/',
+        )
+    except Exception:
+        pass
     return response
 
 
@@ -2807,7 +2840,9 @@ def api_lookup_postcode():
         return jsonify({'success': False, 'error': 'Failed to lookup postcode'}), 500
 
 def _mock_otp_on_screen() -> bool:
-    """MOCK=true shows the login OTP on the page. Any other value keeps it out of the response."""
+    """MOCK=true shows the login OTP on the page. Blocked in production."""
+    if _is_production:
+        return False
     return (os.getenv("MOCK") or "").strip().lower() in ("1", "true", "yes", "on")
 
 
@@ -2898,8 +2933,10 @@ def api_send_otp():
                 'error': 'Email not found, please contact administrator'
             }), 401
 
-        # Resend cooldown (server-side)
-        existing = OTP_STORAGE.get(otp_key)
+        from utils import otp_store as _otp_store
+
+        # Resend cooldown (server-side; shared across threads/processes)
+        existing = _otp_store.get_otp(otp_key)
         if existing and existing.get('last_sent'):
             since = (datetime.now() - existing['last_sent']).total_seconds()
             if since < OTP_RESEND_COOLDOWN_SECONDS:
@@ -2918,12 +2955,7 @@ def api_send_otp():
         expiry = now + timedelta(seconds=OTP_EXPIRY_SECONDS)
 
         # Store OTP temporarily (keyed by email + login tab)
-        OTP_STORAGE[otp_key] = {
-            'otp': otp,
-            'expiry': expiry,
-            'last_sent': now,
-            'attempts': 0,
-        }
+        _otp_store.put_otp(otp_key, otp, expiry=expiry, last_sent=now, attempts=0)
         
         # Send OTP via email
         subject = "Your Login OTP Code"
@@ -2957,12 +2989,12 @@ def api_send_otp():
             mail_ok = send_email(email, subject, body)
         except Exception as mail_err:
             print(f"[DEBUG OTP] send_email raised for {email!r}: {mail_err}", flush=True)
-            del OTP_STORAGE[otp_key]
+            _otp_store.delete_otp(otp_key)
             return jsonify({'success': False, 'error': f'Email send error: {mail_err}'}), 502
 
         if has_smtp and not mail_ok:
             print(f"[DEBUG OTP] send_email returned False for {email!r} (SMTP auth or transport failure).", flush=True)
-            del OTP_STORAGE[otp_key]
+            _otp_store.delete_otp(otp_key)
             return jsonify({
                 'success': False,
                 'error': (
@@ -3013,43 +3045,27 @@ def api_verify_otp():
         return jsonify({'success': False, 'error': 'Email and OTP are required'}), 400
     
     try:
-        # OTP validation (120s expiry + one-time use)
-        if otp_key not in OTP_STORAGE:
-            return jsonify({'success': False, 'error': 'OTP not found. Request a new one.', 'expired': True}), 400
+        from utils import otp_store as _otp_store
 
-        stored_data = OTP_STORAGE[otp_key]
-
-        if datetime.now() > stored_data['expiry']:
-            del OTP_STORAGE[otp_key]
-            return jsonify({'success': False, 'error': 'OTP has expired. Request a new one.', 'expired': True}), 400
-
-        attempts = int(stored_data.get('attempts') or 0)
-        if attempts >= OTP_MAX_VERIFY_ATTEMPTS:
-            del OTP_STORAGE[otp_key]
-            return jsonify({
-                'success': False,
-                'error': 'Too many invalid attempts. Request a new OTP.',
-                'expired': True,
-            }), 429
-
-        if otp != stored_data['otp']:
-            stored_data['attempts'] = attempts + 1
-            OTP_STORAGE[otp_key] = stored_data
-            remaining = OTP_MAX_VERIFY_ATTEMPTS - stored_data['attempts']
-            if remaining <= 0:
-                del OTP_STORAGE[otp_key]
+        ok, err_code, meta = _otp_store.verify_and_consume(
+            otp_key, otp, max_attempts=OTP_MAX_VERIFY_ATTEMPTS
+        )
+        if not ok:
+            if err_code == 'missing':
+                return jsonify({'success': False, 'error': 'OTP not found. Request a new one.', 'expired': True}), 400
+            if err_code == 'expired':
+                return jsonify({'success': False, 'error': 'OTP has expired. Request a new one.', 'expired': True}), 400
+            if err_code == 'locked':
                 return jsonify({
                     'success': False,
                     'error': 'Too many invalid attempts. Request a new OTP.',
                     'expired': True,
                 }), 429
+            remaining = int(meta.get('remaining') or 0)
             return jsonify({
                 'success': False,
                 'error': f'Invalid OTP. {remaining} attempt(s) remaining.',
             }), 400
-
-        # One-time use: consume OTP immediately after successful verification
-        del OTP_STORAGE[otp_key]
 
         # Cached identity lookup — typically a hit because send_otp populated it ~seconds ago.
         try:
@@ -3135,6 +3151,8 @@ def api_verify_otp():
         session['customer_code'] = customer_code  # Store customer/supplier code in session
         if user_type == 'supplier':
             session['supplier_code'] = customer_code
+        from utils.csrf_protect import ensure_csrf_token as _ensure_csrf_token
+        _ensure_csrf_token()
         session.pop('login_customer_department', None)
         session.pop('login_matched_udf_email_column', None)
         session.pop('login_udf_email_suffix', None)
@@ -12028,6 +12046,13 @@ if __name__ == "__main__":
             flask_workers = max(4, min(64, int(os.getenv('EQ_FLASK_WORKERS', '16'))))
         except (TypeError, ValueError):
             flask_workers = 16
+        # EQ_FLASK_WORKERS = a2wsgi ThreadPoolExecutor size (same process). Not uvicorn OS workers.
+        otp_store_mode = (os.getenv('EQ_OTP_STORE') or 'sqlite').strip().lower() or 'sqlite'
+        print(
+            f"[SECURITY] Flask concurrency=threads({flask_workers}); "
+            f"OTP store={otp_store_mode}; uvicorn processes=1 (default)",
+            flush=True,
+        )
         flask_asgi = WSGIMiddleware(app, workers=flask_workers)
         # Serve /static via Starlette so CSS/JS do not go through the WSGI bridge.
         _static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')

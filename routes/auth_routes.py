@@ -4,7 +4,8 @@ from __future__ import annotations
 import csv
 import os
 
-from flask import Blueprint, redirect, render_template, session
+from flask import Blueprint, make_response, redirect, render_template, request, session
+from utils.csrf_protect import CSRF_COOKIE_NAME, clear_csrf_token
 
 auth_bp = Blueprint("auth_pages", __name__)
 
@@ -40,11 +41,20 @@ def sign_in_guest():
     return render_template("newSignInGuest.html", countries=countries)
 
 
-@auth_bp.route("/logout")
+@auth_bp.route("/logout", methods=["GET", "POST"])
 def logout():
-    """Logout user."""
+    """Logout user. State-changing logout requires POST + CSRF (enforced globally).
+
+    GET remains a safe redirect to /login without clearing the session (CSRF-safe).
+    """
+    if request.method == "GET":
+        return redirect("/login")
+
     session.clear()
-    return redirect("/login")
+    clear_csrf_token()
+    resp = make_response(redirect("/login"))
+    resp.set_cookie(CSRF_COOKIE_NAME, "", max_age=0, path="/")
+    return resp
 
 
 def register_auth_routes(app):

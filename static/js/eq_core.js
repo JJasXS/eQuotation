@@ -7,6 +7,82 @@
 (function (global) {
     'use strict';
 
+    const CSRF_COOKIE = 'eq_csrf';
+    const CSRF_HEADER = 'X-CSRF-Token';
+    const nativeFetch = global.fetch ? global.fetch.bind(global) : null;
+
+    function readCookie(name) {
+        const prefix = `${name}=`;
+        const parts = String(document.cookie || '').split(';');
+        for (let i = 0; i < parts.length; i += 1) {
+            const part = parts[i].trim();
+            if (part.indexOf(prefix) === 0) {
+                return decodeURIComponent(part.slice(prefix.length));
+            }
+        }
+        return '';
+    }
+
+    function getCsrfToken() {
+        const meta = document.querySelector('meta[name="csrf-token"]');
+        if (meta && meta.content) return String(meta.content).trim();
+        return readCookie(CSRF_COOKIE);
+    }
+
+    function isSameOriginUrl(url) {
+        try {
+            const resolved = new URL(url, global.location.href);
+            return resolved.origin === global.location.origin;
+        } catch (_err) {
+            return false;
+        }
+    }
+
+    function withCsrfHeaders(url, options) {
+        const opts = Object.assign({}, options || {});
+        const method = String(opts.method || 'GET').toUpperCase();
+        if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+            return opts;
+        }
+        if (!isSameOriginUrl(url)) {
+            return opts;
+        }
+        const headers = new Headers(opts.headers || {});
+        if (!headers.has(CSRF_HEADER) && !headers.has('X-Csrf-Token')) {
+            const token = getCsrfToken();
+            if (token) headers.set(CSRF_HEADER, token);
+        }
+        opts.headers = headers;
+        if (opts.credentials == null) {
+            opts.credentials = 'same-origin';
+        }
+        return opts;
+    }
+
+    if (nativeFetch) {
+        global.fetch = function eqFetch(url, options) {
+            return nativeFetch(url, withCsrfHeaders(url, options));
+        };
+    }
+
+    function logout() {
+        clearSensitiveSessionCaches();
+        const token = getCsrfToken();
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '/logout';
+        form.style.display = 'none';
+        if (token) {
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'csrf_token';
+            input.value = token;
+            form.appendChild(input);
+        }
+        document.body.appendChild(form);
+        form.submit();
+    }
+
     function escapeHtml(value) {
         return String(value ?? '')
             .replace(/&/g, '&amp;')
@@ -104,7 +180,7 @@
      * Does not invent retries. Callers must not use this to auto-cancel financial writes unless they intend to.
      */
     async function fetchJson(url, options) {
-        const opts = Object.assign({}, options || {});
+        const opts = withCsrfHeaders(url, Object.assign({}, options || {}));
         const timeoutMs = Number(opts.timeoutMs);
         delete opts.timeoutMs;
         let timer = null;
@@ -175,6 +251,8 @@
         readJsonResponse,
         isAbortError,
         clearSensitiveSessionCaches,
+        getCsrfToken,
+        logout,
     };
     global.EQCore = api;
     // Back-compat: older admin pages used window.EQ
