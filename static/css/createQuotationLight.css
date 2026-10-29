@@ -107,23 +107,57 @@ body.create-quotation-page .form-container h3 {
     font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
 }
 
+body.create-quotation-page .create-quotation-customer-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    justify-content: space-between;
+    gap: 12px 16px;
+    margin: 0 0 12px;
+}
+
+body.create-quotation-page .create-quotation-customer-header .create-quotation-section-title {
+    margin: 0;
+    align-self: center;
+}
+
 body.create-quotation-page .quotation-next-docno-panel {
-    margin: 0 0 18px;
+    margin: 0;
     padding: 0;
     background: transparent;
     border: none;
     border-radius: 0;
 }
 
+body.create-quotation-page .quotation-next-docno-panel--side {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    flex: 0 1 auto;
+    margin: 0;
+    margin-left: auto;
+    padding: 8px 12px 8px 14px;
+    min-width: 11.5rem;
+    background: linear-gradient(135deg, #eef7fc 0%, #e3f0f8 100%);
+    border: 1.5px solid var(--ice-accent, #3d7ea6);
+    border-left-width: 4px;
+    border-radius: 12px;
+    box-shadow: 0 2px 10px rgba(30, 80, 120, 0.08);
+}
+
 body.create-quotation-page .quotation-next-docno-main {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px 12px;
+    gap: 4px 6px;
 }
 
 body.create-quotation-page .quotation-next-docno-label {
-    font-size: 13px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
     color: var(--ice-text-muted);
 }
 
@@ -132,6 +166,7 @@ body.create-quotation-page .quotation-next-docno-value {
     font-weight: 700;
     color: var(--ice-heading);
     letter-spacing: 0.02em;
+    line-height: 1.2;
 }
 
 body.create-quotation-page .quotation-next-docno-refresh {
@@ -144,22 +179,33 @@ body.create-quotation-page .quotation-next-docno-refresh {
     cursor: pointer;
     font-size: 16px;
     line-height: 1;
+    padding: 0;
 }
 
 body.create-quotation-page .quotation-next-docno-refresh:hover {
-    background: var(--ice-accent-soft);
+    background: rgba(61, 126, 166, 0.12);
 }
 
 body.create-quotation-page .quotation-next-docno-hint {
-    margin: 6px 0 0;
-    font-size: 12px;
+    margin: 4px 0 0;
+    font-size: 11px;
     color: var(--ice-text-muted);
-    line-height: 1.4;
+    line-height: 1.35;
+    max-width: 16rem;
+}
+
+body.create-quotation-page .quotation-next-docno-hint:empty {
+    display: none;
 }
 
 body.create-quotation-page .quotation-next-docno-panel.is-error .quotation-next-docno-value {
     color: #b42318;
     font-size: 14px;
+}
+
+body.create-quotation-page .quotation-next-docno-panel--side.is-error {
+    border-color: #d92d20;
+    background: #fff5f5;
 }
 
 /* Single-column layout: customer details on top, quotation lines below */
@@ -241,7 +287,7 @@ body.create-quotation-page .create-quotation-section--customer {
 }
 
 body.create-quotation-page .create-quotation-section--customer .create-quotation-section-title {
-    margin-bottom: 10px;
+    margin-bottom: 0;
     font-size: 1rem;
 }
 
@@ -692,6 +738,17 @@ body.update-quotation-page #update-quotation-form .form-actions .btn-secondary {
 }
 
 @media (max-width: 1100px) {
+    body.create-quotation-page .create-quotation-customer-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    body.create-quotation-page .quotation-next-docno-panel--side {
+        margin-left: 0;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
     body.create-quotation-page .customer-details-grid4 {
         grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
         gap: 8px;

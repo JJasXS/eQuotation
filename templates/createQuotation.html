@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
     <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515">
     <link rel="stylesheet" href="/static/css/quotationChatPopup.css?v=20260515_greeting_bubble">
-    <link rel="stylesheet" href="/static/css/createQuotationLight.css?v=20261027_row_short">
+    <link rel="stylesheet" href="/static/css/createQuotationLight.css?v=20261029_docno_side">
     <link rel="stylesheet" href="/static/css/createQuotationLinesTable.css?v=20261027_row_short">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <style id="cq-lines-critical">
@@ -74,19 +74,20 @@
             <!-- Quotation Form -->
             <div class="tab-content active">
                 <div class="form-container">
-                    <h3>Request New Quotation</h3>
-                    <div id="quotation-next-docno-panel" class="quotation-next-docno-panel" aria-live="polite">
-                        <div class="quotation-next-docno-main">
-                            <span class="quotation-next-docno-label">Next quotation no. (eQuotation)</span>
-                            <strong id="quotation-next-docno-value" class="quotation-next-docno-value">…</strong>
-                            <button type="button" id="quotation-next-docno-refresh" class="quotation-next-docno-refresh" title="Refresh preview">↻</button>
-                        </div>
-                        <p id="quotation-next-docno-hint" class="quotation-next-docno-hint"></p>
-                    </div>
                     <form id="quotation-form" data-dockey="{{ dockey }}" data-draft-dockey="{{ draft_dockey }}">
                         <div class="create-quotation-form-body">
                             <section class="create-quotation-section create-quotation-section--customer">
-                                <h4 class="create-quotation-section-title">Customer details</h4>
+                                <div class="create-quotation-customer-header">
+                                    <h4 class="create-quotation-section-title">Customer details</h4>
+                                    <aside id="quotation-next-docno-panel" class="quotation-next-docno-panel quotation-next-docno-panel--side" aria-live="polite">
+                                        <span class="quotation-next-docno-label">Next quotation no.</span>
+                                        <div class="quotation-next-docno-main">
+                                            <strong id="quotation-next-docno-value" class="quotation-next-docno-value">…</strong>
+                                            <button type="button" id="quotation-next-docno-refresh" class="quotation-next-docno-refresh" title="Refresh preview">↻</button>
+                                        </div>
+                                        <p id="quotation-next-docno-hint" class="quotation-next-docno-hint"></p>
+                                    </aside>
+                                </div>
                                 <div class="customer-details-panel">
                                     <div class="customer-details-grid4" role="list">
                                         <div class="customer-detail-tile" role="listitem">
