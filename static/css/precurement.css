@@ -5790,35 +5790,48 @@ body.procurement-warm-ui .pr-panel-view-quotation-like {
 }
 
 body.procurement-warm-ui .pr-panel-view-quotation-like .quotation-page-header {
-    background: linear-gradient(180deg, #fdfaf4 0%, #f8efdd 100%);
-    border: 1px solid #e2cfab;
-    border-radius: 8px;
-    margin-bottom: 8px;
-    overflow: hidden;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    margin-top: 8px;
+    margin-bottom: 10px;
+    overflow: visible;
     box-shadow: none;
 }
 
-/* View e-PR — organized desktop chrome (title/actions, then tabs, then bulk) */
+/* View e-PR status menubar — match Quotation > View Quotation tabs */
 body.procurement-warm-ui .pr-view-page-header--compact {
     display: flex;
     flex-direction: column;
-    gap: 0;
+    gap: 10px;
     padding-bottom: 0;
 }
 
 body.procurement-warm-ui .pr-view-page-header--compact .pr-view-toolbar {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas: "tabs actions";
-    align-items: center;
-    column-gap: 16px;
-    row-gap: 0;
-    padding: 10px 14px 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 10px 12px;
+    padding: 0;
     min-height: 0;
 }
 
+body.procurement-warm-ui .pr-view-page-header--compact .pr-view-menubar-card {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 8px 12px;
+    padding: 0 10px 0 16px;
+    border: 1px solid #d5e6f0;
+    border-radius: 10px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(26, 77, 110, 0.04);
+    overflow: hidden;
+}
+
 body.procurement-warm-ui .pr-view-page-header--compact .pr-view-page-title {
-    grid-area: title;
     margin: 0;
     flex: 0 0 auto;
     font-size: 1.05rem;
@@ -5829,37 +5842,106 @@ body.procurement-warm-ui .pr-view-page-header--compact .pr-view-page-title {
     white-space: nowrap;
 }
 
-body.procurement-warm-ui .pr-view-page-header--compact .pr-view-filter-tabs.eq-line-tabs {
-    grid-area: tabs;
+body.procurement-warm-ui .pr-view-page-header--compact .pr-view-filter-tabs.eq-line-tabs,
+body.procurement-warm-ui .pr-view-page-header--compact .avq-status-tabs.eq-line-tabs {
     flex: 1 1 auto;
     min-width: 0;
-    width: 100%;
+    width: auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 20px;
     margin: 0;
     padding: 0;
     border: none;
-    border-bottom: 1px solid #e2cfab;
+    border-radius: 0;
     background: transparent;
+    box-shadow: none;
+    overflow: visible;
 }
 
-body.procurement-warm-ui .pr-view-page-header--compact .pr-view-filter-tabs .eq-line-tab {
-    padding: 10px 16px;
-    font-size: 13px;
+body.procurement-warm-ui .pr-view-page-header--compact .pr-view-filter-tabs .eq-line-tab.avq-status-tab,
+body.procurement-warm-ui .pr-view-page-header--compact .pr-view-filter-tabs .eq-line-tab.view-pr-filter-tab {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 8px 0;
+    border: none !important;
+    border-bottom: none !important;
+    border-radius: 0;
+    background: transparent !important;
+    box-shadow: none !important;
+    color: #7a90a4;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.25;
+}
+
+body.procurement-warm-ui .pr-view-page-header--compact .pr-view-filter-tabs .eq-line-tab .avq-status-tab__label {
+    position: relative;
+    display: inline-block;
+    padding-bottom: 8px;
+    margin-bottom: -8px;
+}
+
+body.procurement-warm-ui .pr-view-page-header--compact .pr-view-filter-tabs .eq-line-tab.view-pr-filter-tab:hover {
+    color: #1a4d6e;
+    background: transparent !important;
+}
+
+body.procurement-warm-ui .pr-view-page-header--compact .pr-view-filter-tabs .eq-line-tab.view-pr-filter-tab.is-active {
+    color: #1a4d6e;
+    font-weight: 650;
+    background: transparent !important;
+}
+
+/* Compact underline under label only — flush to tab bottom */
+body.procurement-warm-ui .pr-view-page-header--compact .pr-view-filter-tabs .eq-line-tab.view-pr-filter-tab::after {
+    content: none;
+    display: none;
+}
+
+body.procurement-warm-ui .pr-view-page-header--compact .pr-view-filter-tabs .avq-status-tab .avq-status-tab__label::after,
+body.procurement-warm-ui .pr-view-page-header--compact .pr-view-filter-tabs .view-pr-filter-tab .avq-status-tab__label::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 2.5px;
+    border-radius: 2px 2px 0 0;
+    background: transparent;
+    pointer-events: none;
+    display: block !important;
+}
+
+body.procurement-warm-ui .pr-view-page-header--compact .pr-view-filter-tabs .view-pr-filter-tab:hover .avq-status-tab__label::after {
+    background: rgba(26, 77, 110, 0.28);
+}
+
+body.procurement-warm-ui .pr-view-page-header--compact .pr-view-filter-tabs .view-pr-filter-tab.is-active .avq-status-tab__label::after,
+body.procurement-warm-ui .pr-view-page-header--compact .pr-view-filter-tabs .view-pr-filter-tab.is-active:hover .avq-status-tab__label::after {
+    background: #1a4d6e;
 }
 
 body.procurement-warm-ui .pr-view-page-header--compact .pr-view-toolbar-actions {
-    grid-area: actions;
     display: flex;
     flex-wrap: nowrap;
     align-items: center;
     justify-content: flex-end;
     gap: 8px;
     flex: 0 0 auto;
-    margin-left: 0;
+    margin-left: auto;
+    align-self: center;
+    padding: 0;
 }
 
 body.procurement-warm-ui .pr-view-page-header--compact .pr-view-toolbar-actions > button {
-    min-height: 34px;
-    padding: 6px 12px;
+    min-height: 30px;
+    padding: 4px 10px;
     font-size: 12px;
     line-height: 1.2;
     border-radius: 8px;
@@ -6044,10 +6126,10 @@ body.procurement-warm-ui .pr-panel-view-quotation-like .view-pr-list-perf--inlin
 }
 
 body.procurement-warm-ui .pr-panel-view-quotation-like .pr-view-filter-tabs {
-    border-top: 1px solid #e8dcc4;
-    padding: 11px 14px 13px;
-    background: rgba(255, 253, 248, 0.55);
-    gap: 8px;
+    border-top: none;
+    padding: 0;
+    background: transparent;
+    gap: 0 22px;
 }
 
 body.procurement-warm-ui .pr-panel-view-quotation-like .pr-view-filter-tabs .approval-tab {
@@ -6086,9 +6168,9 @@ body.procurement-warm-ui .quotation-split-wrap.pr-procurement-split {
     min-height: clamp(420px, calc(100vh - 220px), 78vh);
     height: clamp(420px, calc(100vh - 220px), 78vh);
     max-height: clamp(420px, calc(100vh - 220px), 78vh);
-    grid-template-columns: minmax(280px, 35%) minmax(380px, 65%) !important;
+    grid-template-columns: minmax(240px, 28%) minmax(0, 1fr) !important;
     align-items: stretch;
-    gap: 16px;
+    gap: 14px;
 }
 
 body.procurement-warm-ui .pr-view-quotation-list {
@@ -6168,7 +6250,7 @@ body.procurement-warm-ui .pr-view-left-list-body {
 body.procurement-warm-ui .pr-view-left-search {
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: 8px;
 }
 
 body.procurement-warm-ui .pr-view-left-search-top {
@@ -6189,13 +6271,60 @@ body.procurement-warm-ui .pr-view-left-bulk-actions {
 
 body.procurement-warm-ui .pr-view-left-bulk-transfer {
     min-width: 0;
-    padding: 4px 10px;
+    padding: 5px 10px;
     font-size: 11px;
     white-space: nowrap;
 }
 
 body.procurement-warm-ui .pr-view-left-bulk-transfer[hidden] {
     display: none !important;
+}
+
+body.procurement-warm-ui .pr-view-left-bulk-bar .pr-view-left-bulk-transfer {
+    margin: 0;
+}
+
+/* Awaiting / Approved bulk submenu lives under Search PR */
+body.procurement-warm-ui .pr-view-left-bulk-bar.view-pr-bulk-pending-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+    margin: 0;
+    padding: 8px 10px;
+    min-height: 0;
+    border: 1px solid var(--ice-border-soft, #d5e6f0);
+    border-radius: 8px;
+    background: var(--ice-surface-alt, #eef6fc);
+    box-shadow: none;
+}
+
+body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-bulk-selection-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.5rem;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #e8f1f7;
+    color: var(--ice-heading, #1a4d6e);
+    font-size: 11px;
+    font-weight: 650;
+    line-height: 1.35;
+}
+
+body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-bulk-pending-bar__actions {
+    margin-left: auto;
+    flex: 0 0 auto;
+}
+
+body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-bulk-btn {
+    min-height: 30px;
+    padding: 5px 10px;
+    font-size: 11px;
+    line-height: 1.2;
+    border-radius: 8px;
+    white-space: nowrap;
 }
 
 body.procurement-warm-ui .pr-view-left-bulk-select {
@@ -6205,7 +6334,7 @@ body.procurement-warm-ui .pr-view-left-bulk-select {
     margin: 0;
     cursor: pointer;
     user-select: none;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 700;
     color: var(--ice-heading, #1a4d6e);
     white-space: nowrap;
@@ -6581,14 +6710,18 @@ body.procurement-warm-ui .view-pr-detail-unified {
 body.procurement-warm-ui .view-pr-detail-unified .view-pr-detail-panel-head--rich {
     margin: 10px 10px 0;
     border: 1px solid #e4d8c4;
-    border-bottom: none;
-    border-radius: 8px 8px 0 0;
+    border-radius: 8px;
     box-shadow: none;
     background: #f7f4ee;
 }
 
+body.procurement-warm-ui .view-pr-detail-unified .view-pr-detail-panel-head--rich:has(+ .view-pr-detail-actions--toolbar) {
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+}
+
 body.procurement-warm-ui .view-pr-detail-unified .view-pr-detail-actions--toolbar {
-    margin: 0 10px 12px;
+    margin: 0 10px 0;
     border: 1px solid #e4d8c4;
     border-top: 1px solid #e8dcc4;
     border-radius: 0 0 8px 8px;
@@ -6597,10 +6730,10 @@ body.procurement-warm-ui .view-pr-detail-unified .view-pr-detail-actions--toolba
 }
 
 body.procurement-warm-ui .view-pr-detail-unified .view-pr-detail-wrap--unified {
-    border: none;
-    border-radius: 0;
+    margin: 10px 10px 10px;
+    border: 1px solid #e4d8c4;
+    border-radius: 8px;
     box-shadow: none;
-    border-top: 1px solid #e8dcc4;
     background: #fffef9;
     overflow: auto;
     max-width: 100%;
@@ -6832,14 +6965,29 @@ body.procurement-warm-ui .view-pr-detail-wrap--card {
     max-height: min(62vh, 560px);
 }
 
-body.procurement-warm-ui .view-pr-detail-wrap--card .view-pr-detail-table,
-body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table {
+body.procurement-warm-ui .view-pr-detail-wrap--card .view-pr-detail-table {
     border: none !important;
     border-radius: 0;
     width: 100%;
     min-width: 0;
     max-width: 100%;
     table-layout: fixed;
+}
+
+body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table {
+    border: 1px solid #dccfb8 !important;
+    border-collapse: collapse;
+    border-radius: 0;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    table-layout: fixed;
+}
+
+body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table th,
+body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table td {
+    border: 1px solid #efe6d8;
+    box-sizing: border-box;
 }
 
 body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-table thead th {
@@ -6872,7 +7020,7 @@ body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-table tbody t
 }
 
 body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-table .col-item-name {
-    min-width: 200px;
+    min-width: 0;
     max-width: none;
 }
 
@@ -6959,42 +7107,57 @@ body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table {
     table-layout: fixed;
 }
 
-body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table col.col-line { width: 4%; }
-body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table col.col-item-name { width: 9%; }
-body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table col.col-location { width: 8%; }
-body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table col.col-sqty { width: 7%; }
-body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table col.col-suomqty { width: 10%; }
-body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table col.col-delivery-date { width: 14%; }
-body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table col.col-qty { width: 21%; }
-body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table col.col-unit-price { width: 8%; }
-body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table col.col-amount { width: 9%; }
-body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table col.col-approved { width: 10%; }
+/* Fluid columns — fit pane width without horizontal scroll */
+body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table col.col-approved { width: 5.5%; }
+body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table col.col-line { width: 3.5%; }
+body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table col.col-item-name { width: 11%; }
+body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table col.col-location { width: 7%; }
+body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table col.col-sqty { width: 6.5%; }
+body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table col.col-suomqty { width: 9%; }
+body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table col.col-delivery-date { width: 11%; }
+body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table col.col-qty { width: 18%; }
+body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table col.col-unit-price { width: 8.5%; }
+body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table col.col-amount { width: 10%; }
 
 body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table th,
 body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table td {
-    min-width: 0;
-    overflow: visible;
+    overflow: hidden;
+    text-overflow: ellipsis;
     letter-spacing: 0;
+    vertical-align: middle !important;
+    line-height: 1.25;
 }
 
 body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified .view-pr-detail-table thead th {
     letter-spacing: 0;
-    padding-left: 6px;
-    padding-right: 6px;
+    padding: 8px 4px;
+    font-size: 9px;
+    white-space: nowrap;
+    text-align: center !important;
+}
+
+body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified .view-pr-detail-table tbody td {
+    padding: 8px 4px;
+    font-size: 10.5px;
+    text-align: center !important;
 }
 
 body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified .view-pr-detail-table .col-location,
 body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified .view-pr-detail-table .col-sqty,
-body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified .view-pr-detail-table .col-suomqty {
+body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified .view-pr-detail-table .col-suomqty,
+body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified .view-pr-detail-table .col-line,
+body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified .view-pr-detail-table .col-item-name,
+body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified .view-pr-detail-table .col-delivery-date {
     text-align: center !important;
 }
 
 body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-sqty,
 body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-suomqty,
 body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-delivery-date,
+body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-unit-price,
+body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-amount,
 body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-qty {
-    padding-left: 6px;
-    padding-right: 6px;
+    white-space: nowrap;
 }
 
 body.procurement-warm-ui .view-pr-detail-unified .view-pr-line-bulk-bar {
@@ -7072,48 +7235,70 @@ body.procurement-warm-ui .view-pr-detail-actions--toolbar .view-pr-detail-cancel
 }
 
 body.procurement-warm-ui .view-pr-detail-unified .view-pr-detail-wrap--unified {
-    padding-left: 16px;
-    padding-right: 16px;
+    padding: 10px 10px;
     overflow-x: hidden;
+    overflow-y: auto;
 }
 
-body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-qty {
+body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-qty,
+body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified .view-pr-transfer-ratio-cell {
     text-align: center !important;
+    white-space: nowrap;
+    vertical-align: middle !important;
 }
 
 body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified .view-pr-transfer-qty-input--inline {
-    width: 42px;
-    max-width: 42px;
-    min-width: 0;
-    padding: 3px 4px;
+    width: 40px;
+    max-width: 40px;
+    min-width: 36px;
+    padding: 3px 3px;
     font-size: 10px;
     box-sizing: border-box;
+    display: inline-block;
+    vertical-align: middle;
+    text-align: center;
 }
 
 body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified .view-pr-transfer-ratio-sep {
-    margin: 0 4px;
+    margin: 0 3px;
+    vertical-align: middle;
 }
 
 body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified .view-pr-transfer-ratio-total {
     min-width: 0;
+    display: inline-block;
+    max-width: 4.5em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
 }
 
 body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-approved,
 body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-approved-cell {
-    padding-left: 6px;
-    padding-right: 6px;
+    padding-left: 4px;
+    padding-right: 4px;
     text-align: center !important;
+    vertical-align: middle !important;
+}
+
+body.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-approved-cell input[type="checkbox"] {
+    margin: 0;
+    vertical-align: middle;
 }
 
 body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified .view-pr-detail-table thead th.col-amount,
-body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified .view-pr-detail-table td.col-amount {
-    padding-left: 6px;
-    padding-right: 16px;
-    text-align: right !important;
+body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified .view-pr-detail-table td.col-amount,
+body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified .view-pr-detail-table thead th.col-unit-price,
+body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified .view-pr-detail-table td.col-unit-price {
+    padding-left: 4px;
+    padding-right: 4px;
+    text-align: center !important;
+    vertical-align: middle !important;
 }
 
 body.procurement-warm-ui .view-pr-detail-unified .view-pr-detail-total-row {
-    padding-right: 16px;
+    padding-right: 6px;
+    min-width: 0;
 }
 
 body.procurement-warm-ui .view-pr-detail-lines-footer .view-pr-line-bulk-bar__hint {
@@ -7128,22 +7313,10 @@ body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified
 body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified .view-pr-detail-table .col-qty,
 body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified .view-pr-detail-table .col-unit-price,
 body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified .view-pr-detail-table .col-amount,
-body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified .view-pr-detail-table .col-approved {
+body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified .view-pr-detail-table .col-approved,
+body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified .view-pr-detail-table .col-item-name {
     min-width: 0;
     width: auto;
-}
-
-body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified .view-pr-transfer-qty-input--inline {
-    width: 42px;
-    max-width: 42px;
-    min-width: 0;
-    padding: 3px 4px;
-    font-size: 10px;
-    box-sizing: border-box;
-}
-
-body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-wrap--unified .view-pr-transfer-ratio-sep {
-    margin: 0 4px;
 }
 
 @media (max-width: 1080px) {
@@ -8490,15 +8663,10 @@ body.procurement-warm-ui .pr-view-pr-card.view-pr-card-skeleton {
 @media (max-width: 900px) {
     /* Module tabs stay compact (already handled in template); organize View toolbar */
     body.procurement-warm-ui #panel-view .pr-view-page-header--compact .pr-view-toolbar {
-        display: grid;
-        grid-template-columns: 1fr;
-        grid-template-areas:
-            "tabs"
-            "actions";
+        display: flex;
+        flex-direction: column;
         gap: 8px;
-        column-gap: 8px;
-        row-gap: 8px;
-        padding: 8px 10px 6px;
+        padding: 0;
         align-items: stretch;
     }
 
@@ -8508,16 +8676,22 @@ body.procurement-warm-ui .pr-view-pr-card.view-pr-card-skeleton {
         padding: 0 2px;
     }
 
+    body.procurement-warm-ui #panel-view .pr-view-page-header--compact .pr-view-menubar-card {
+        flex-wrap: nowrap;
+        padding: 0 8px 0 12px;
+    }
+
     body.procurement-warm-ui #panel-view .pr-view-page-header--compact .pr-view-filter-tabs.eq-line-tabs {
         display: flex;
         flex-wrap: nowrap;
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
         scrollbar-width: none;
-        gap: 0;
+        gap: 0 16px;
         padding: 0;
-        margin: 0 -2px;
-        border-bottom: 1px solid #e2cfab;
+        margin: 0;
+        border: none;
+        background: transparent;
     }
 
     body.procurement-warm-ui #panel-view .pr-view-page-header--compact .pr-view-filter-tabs.eq-line-tabs::-webkit-scrollbar {
@@ -8526,8 +8700,8 @@ body.procurement-warm-ui .pr-view-pr-card.view-pr-card-skeleton {
 
     body.procurement-warm-ui #panel-view .pr-view-page-header--compact .pr-view-filter-tabs .eq-line-tab {
         flex: 0 0 auto;
-        padding: 8px 12px;
-        font-size: 12px;
+        padding: 8px 0;
+        font-size: 13px;
         white-space: nowrap;
     }
 

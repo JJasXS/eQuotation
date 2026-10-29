@@ -865,26 +865,77 @@ body.equotation-icy-theme.procurement-warm-ui .view-pr-transfer-btn:disabled {
     color: var(--ice-text-muted) !important;
 }
 
-body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs.eq-line-tabs {
-    background: var(--ice-surface-alt) !important;
-    border-bottom-color: var(--ice-border) !important;
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-menubar-card {
+    background: #fff !important;
+    border: 1px solid var(--ice-border-soft, #d5e6f0) !important;
+    border-radius: 10px !important;
+    box-shadow: 0 1px 2px rgba(26, 77, 110, 0.04) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs.eq-line-tabs,
+body.equotation-icy-theme.procurement-warm-ui #panel-view .avq-status-tabs.pr-view-filter-tabs {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .eq-line-tab.view-pr-filter-tab {
-    color: var(--ice-text-muted) !important;
+    color: #7a90a4 !important;
     background: transparent !important;
     border: none !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .eq-line-tab.view-pr-filter-tab:hover {
-    background: var(--ice-accent-soft) !important;
+    background: transparent !important;
     color: var(--ice-heading) !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .eq-line-tab.view-pr-filter-tab.is-active {
     color: var(--ice-heading) !important;
-    background: var(--ice-surface) !important;
-    border-bottom-color: var(--ice-accent) !important;
+    background: transparent !important;
+    border-bottom-color: transparent !important;
+    font-weight: 650 !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .eq-line-tab.view-pr-filter-tab::after {
+    content: none !important;
+    display: none !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .view-pr-filter-tab .avq-status-tab__label::after,
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .avq-status-tab .avq-status-tab__label::after {
+    content: '' !important;
+    display: block !important;
+    position: absolute !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    height: 2.5px !important;
+    border-radius: 2px 2px 0 0 !important;
+    background: transparent !important;
+    pointer-events: none !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .view-pr-filter-tab:hover .avq-status-tab__label::after {
+    background: rgba(26, 77, 110, 0.28) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .avq-status-tab.is-active .avq-status-tab__label::after,
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .view-pr-filter-tab.is-active .avq-status-tab__label::after,
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .view-pr-filter-tab.is-active:hover .avq-status-tab__label::after {
+    background: var(--ice-heading, #1a4d6e) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .avq-status-tab__badge {
+    background: #eef4f8 !important;
+    color: #7a90a4 !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .avq-status-tab.is-active .avq-status-tab__badge,
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .view-pr-filter-tab.is-active .avq-status-tab__badge {
+    color: var(--ice-heading) !important;
+    background: #e8f1f7 !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui .view-pr-list-column .view-pr-list::-webkit-scrollbar-track {
@@ -992,23 +1043,17 @@ body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .vie
 }
 
 body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table {
-    border: none !important;
-    border-left: none !important;
-    border-right: none !important;
+    border: 1px solid var(--ice-border) !important;
+    border-collapse: collapse !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table thead th {
-    border-top: none !important;
-    border-left: none !important;
-    border-right: none !important;
+    border: 1px solid var(--ice-border) !important;
     border-bottom: 2px solid #c5dff0 !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table tbody td {
-    border-top: none !important;
-    border-left: none !important;
-    border-right: none !important;
-    border-bottom: 1px solid #d5e4ef !important;
+    border: 1px solid #d5e4ef !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table tbody tr.view-pr-detail-line.is-selected td {
@@ -1019,15 +1064,18 @@ body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .vie
     background: #c9e4f6 !important;
 }
 
-body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-sqty,
-body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-suomqty,
-body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-qty {
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table th,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table td {
+    vertical-align: middle !important;
     text-align: center !important;
 }
 
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-sqty,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-suomqty,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-qty,
 body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-unit-price,
 body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-amount {
-    text-align: right !important;
+    text-align: center !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-unified .view-pr-detail-total-row {
@@ -1094,9 +1142,14 @@ body.equotation-icy-theme.procurement-warm-ui .pr-view-page-header--compact .pr-
     font-size: 0.95rem !important;
 }
 
+body.equotation-icy-theme.procurement-warm-ui .pr-view-page-header--compact .pr-view-menubar-card {
+    background: #fff !important;
+    border-color: var(--ice-border-soft, #d5e6f0) !important;
+}
+
 body.equotation-icy-theme.procurement-warm-ui .pr-view-page-header--compact .pr-view-filter-tabs.eq-line-tabs {
     background: transparent !important;
-    border-bottom-color: var(--ice-border) !important;
+    border: none !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui .pr-view-page-header--compact .view-pr-refresh-btn--ghost {
@@ -1137,8 +1190,8 @@ body.equotation-icy-theme.procurement-warm-ui .pr-view-left-search-input:focus {
 }
 
 body.equotation-icy-theme.procurement-warm-ui .pr-panel-view-quotation-like .pr-view-filter-tabs {
-    border-top-color: var(--ice-border) !important;
-    background: var(--ice-surface-alt) !important;
+    border: none !important;
+    background: transparent !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui .pr-panel-view-quotation-like .pr-view-header-row {
@@ -1251,8 +1304,16 @@ body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-unified .view-pr-d
 }
 
 body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-unified .view-pr-detail-wrap--unified {
-    border-top-color: var(--ice-border) !important;
+    border-color: var(--ice-border) !important;
     background: var(--ice-surface) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-unified .view-pr-detail-panel-head--rich {
+    border-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-unified .view-pr-detail-actions--toolbar {
+    border-color: var(--ice-border) !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-panel-head--rich {

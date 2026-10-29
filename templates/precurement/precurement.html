@@ -22,8 +22,8 @@
 
     <link rel="stylesheet" href="/static/css/adminViewQuotations.css?v=20260430">
 
-    <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260810_tabs_phone_v3">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=20261029_cancelled_tab_fix">
+    <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20261029_pr_menubar_pad">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=20261029_pr_menubar_pad">
     <style id="pr-report-phone-layout">
     @media (max-width: 900px) {
       body.procurement-warm-ui .procurement-module-tabs.eq-line-tabs {
@@ -41,7 +41,7 @@
     }
     </style>
 
-    <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20261028_pr_detail_borders">
+    <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20261029_pr_hover_line">
 
     <script src="/static/js/eq_core.js?v=20261029_csrf1"></script>
 </head>
@@ -296,26 +296,37 @@
 
                             <div class="admin-quotations-view" style="padding: 0;">
 
-                                <div class="quotation-page-header pr-view-page-header pr-view-page-header--compact">
+                                <div class="quotation-page-header quotation-page-header--compact pr-view-page-header pr-view-page-header--compact">
                                     <div class="pr-view-toolbar">
-                                        <nav class="eq-line-tabs pr-view-filter-tabs" id="view-pr-filter-tabs" role="tablist" aria-label="Filter by approval status">
-                                            <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="DRAFT" aria-selected="false" onclick="toggleViewStatusFilter('DRAFT')">Draft</button>
-                                            <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="AWAITING" aria-selected="false" onclick="toggleViewStatusFilter('AWAITING')">Awaiting Approval</button>
-                                            <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab is-active" data-status="PENDING" aria-selected="true" onclick="toggleViewStatusFilter('PENDING')">Pending</button>
-                                            <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="APPROVED" aria-selected="false" onclick="toggleViewStatusFilter('APPROVED')">Approved</button>
-                                            <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="CANCELLED" aria-selected="false" onclick="toggleViewStatusFilter('CANCELLED')">Cancelled</button>
-                                        </nav>
-                                        <div class="pr-view-toolbar-actions view-pr-actions-right view-pr-actions-right--toolbar">
-                                            <button type="button" class="view-pr-icon-btn view-pr-refresh-btn--ghost" onclick="loadViewPurchaseRequests(true, { bustCache: true })" title="Refresh list" aria-label="Refresh list">
-                                                <svg class="view-pr-icon-btn__svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.1A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
-                                            </button>
-                                            <button type="button" class="view-pr-refresh-btn view-pr-update-availability-btn" hidden aria-hidden="true" id="view-pr-update-btn" onclick="saveViewDetailApprovals()" disabled title="Check and update item availability before transferring this PR.">Update</button>
-                                        </div>
-                                    </div>
-                                    <div id="view-pr-bulk-pending-bar" class="view-pr-bulk-pending-bar" hidden>
-                                        <span id="view-pr-bulk-selection-count" class="view-pr-bulk-selection-count">No PRs selected.</span>
-                                        <div class="view-pr-bulk-pending-bar__actions">
-                                            <button type="button" class="view-pr-refresh-btn view-pr-bulk-btn view-pr-bulk-btn--primary" id="view-pr-bulk-approve-btn" onclick="viewPrBulkQueueApproveSelected()" disabled>Update selected</button>
+                                        <div class="pr-view-menubar-card">
+                                            <nav class="eq-line-tabs avq-status-tabs pr-view-filter-tabs" id="view-pr-filter-tabs" role="tablist" aria-label="Filter by approval status">
+                                                <button type="button" role="tab" class="eq-line-tab avq-status-tab view-pr-filter-tab" data-status="DRAFT" aria-selected="false" onclick="toggleViewStatusFilter('DRAFT')">
+                                                    <span class="avq-status-tab__label">Draft</span>
+                                                    <span class="avq-status-tab__badge" data-pr-tab-count="DRAFT">0</span>
+                                                </button>
+                                                <button type="button" role="tab" class="eq-line-tab avq-status-tab view-pr-filter-tab" data-status="AWAITING" aria-selected="false" onclick="toggleViewStatusFilter('AWAITING')">
+                                                    <span class="avq-status-tab__label">Awaiting Approval</span>
+                                                    <span class="avq-status-tab__badge" data-pr-tab-count="AWAITING">0</span>
+                                                </button>
+                                                <button type="button" role="tab" class="eq-line-tab avq-status-tab view-pr-filter-tab is-active" data-status="PENDING" aria-selected="true" onclick="toggleViewStatusFilter('PENDING')">
+                                                    <span class="avq-status-tab__label">Pending</span>
+                                                    <span class="avq-status-tab__badge" data-pr-tab-count="PENDING">0</span>
+                                                </button>
+                                                <button type="button" role="tab" class="eq-line-tab avq-status-tab view-pr-filter-tab" data-status="APPROVED" aria-selected="false" onclick="toggleViewStatusFilter('APPROVED')">
+                                                    <span class="avq-status-tab__label">Approved</span>
+                                                    <span class="avq-status-tab__badge" data-pr-tab-count="APPROVED">0</span>
+                                                </button>
+                                                <button type="button" role="tab" class="eq-line-tab avq-status-tab view-pr-filter-tab" data-status="CANCELLED" aria-selected="false" onclick="toggleViewStatusFilter('CANCELLED')">
+                                                    <span class="avq-status-tab__label">Cancelled</span>
+                                                    <span class="avq-status-tab__badge" data-pr-tab-count="CANCELLED">0</span>
+                                                </button>
+                                            </nav>
+                                            <div class="pr-view-toolbar-actions view-pr-actions-right view-pr-actions-right--toolbar">
+                                                <button type="button" class="view-pr-icon-btn view-pr-refresh-btn--ghost" onclick="loadViewPurchaseRequests(true, { bustCache: true })" title="Refresh list" aria-label="Refresh list">
+                                                    <svg class="view-pr-icon-btn__svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.1A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+                                                </button>
+                                                <button type="button" class="view-pr-refresh-btn view-pr-update-availability-btn" hidden aria-hidden="true" id="view-pr-update-btn" onclick="saveViewDetailApprovals()" disabled title="Check and update item availability before transferring this PR.">Update</button>
+                                            </div>
                                         </div>
                                     </div>
                                     <p id="view-pr-list-perf" class="view-pr-list-perf view-pr-list-perf--inline" aria-live="polite" hidden></p>
@@ -331,26 +342,6 @@
 
                                                 <div class="pr-view-left-search-top">
                                                     <label class="pr-view-left-search-label" for="view-pr-search-input">Search PR</label>
-                                                    <div class="pr-view-left-bulk-actions" id="view-pr-list-bulk-actions">
-                                                        <button
-                                                            type="button"
-                                                            class="view-pr-refresh-btn view-pr-bulk-transfer-toggle pr-view-left-bulk-transfer"
-                                                            id="view-bulk-transfer-toggle"
-                                                            onclick="onBulkTransferToolbarClick()"
-                                                            aria-pressed="false"
-                                                            hidden
-                                                            title="Transfer selected lines on the open/checked PR(s) — same as Transfer to Purchase Order"
-                                                        >Bulk Transfer to PO</button>
-                                                        <label class="pr-view-left-bulk-select" id="view-pr-list-bulk-select-wrap" hidden title="Select all visible purchase requests">
-                                                            <input
-                                                                type="checkbox"
-                                                                id="view-pr-list-bulk-select-all"
-                                                                aria-label="Select all purchase requests for bulk update"
-                                                                onchange="onViewPrListBulkSelectAllChange(this)"
-                                                            />
-                                                            <span>Select all</span>
-                                                        </label>
-                                                    </div>
                                                 </div>
 
                                                 <input
@@ -368,6 +359,31 @@
                                                     autocomplete="off"
 
                                                 />
+
+                                                <div id="view-pr-bulk-pending-bar" class="view-pr-bulk-pending-bar pr-view-left-bulk-bar" hidden>
+                                                    <label class="pr-view-left-bulk-select" id="view-pr-list-bulk-select-wrap" hidden title="Select all visible purchase requests">
+                                                        <input
+                                                            type="checkbox"
+                                                            id="view-pr-list-bulk-select-all"
+                                                            aria-label="Select all purchase requests for bulk update"
+                                                            onchange="onViewPrListBulkSelectAllChange(this)"
+                                                        />
+                                                        <span>Select all</span>
+                                                    </label>
+                                                    <span id="view-pr-bulk-selection-count" class="view-pr-bulk-selection-count">No PRs selected.</span>
+                                                    <div class="view-pr-bulk-pending-bar__actions" id="view-pr-list-bulk-actions">
+                                                        <button
+                                                            type="button"
+                                                            class="view-pr-refresh-btn view-pr-bulk-transfer-toggle pr-view-left-bulk-transfer view-pr-bulk-btn view-pr-bulk-btn--primary"
+                                                            id="view-bulk-transfer-toggle"
+                                                            onclick="onBulkTransferToolbarClick()"
+                                                            aria-pressed="false"
+                                                            hidden
+                                                            title="Transfer selected lines on the open/checked PR(s) — same as Transfer to Purchase Order"
+                                                        >Bulk Transfer to PO</button>
+                                                        <button type="button" class="view-pr-refresh-btn view-pr-bulk-btn view-pr-bulk-btn--primary" id="view-pr-bulk-approve-btn" onclick="viewPrBulkQueueApproveSelected()" disabled>Update selected</button>
+                                                    </div>
+                                                </div>
 
                                             </div>
 
@@ -1041,7 +1057,7 @@
     <script src="/static/js/procurement/procurement_stock_card.js?v=20260813_extract"></script>
     <script src="/static/js/procurement/procurement_view_pr.js?v=20260813_extract"></script>
     <script src="/static/js/procurement/procurement_create_pr.js?v=20260813_extract"></script>
-    <script src="/static/js/procurement/precurement_app.js?v=20261029_pending_no_edit"></script>
+    <script src="/static/js/procurement/precurement_app.js?v=20261029_pr_ui_pending_edit"></script>
 
     <script src="/static/js/hamburger_menu.js"></script>
 
