@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
     <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515_icy">
     <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260604_tabs_size">
-    <link rel="stylesheet" href="/static/css/supplierBidding.css?v=20261026_reload">
+    <link rel="stylesheet" href="/static/css/supplierBidding.css?v=20261029_bid_alert_modal">
     <script src="/static/js/eq_core.js?v=20260813_core"></script>
 </head>
 <body class="equotation-icy-theme supplier-bidding-page">
@@ -90,6 +90,29 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <div id="sb-success-modal" class="sb-success-modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="sb-success-modal-title" aria-hidden="true">
+        <div class="sb-success-modal__backdrop" onclick="closeBidSuccessModal()"></div>
+        <div class="sb-success-modal__dialog">
+            <div class="sb-success-modal__icon" aria-hidden="true">✓</div>
+            <h2 id="sb-success-modal-title" class="sb-success-modal__title">Bid submitted</h2>
+            <p id="sb-success-modal-body" class="sb-success-modal__body">Your bid was submitted successfully.</p>
+            <div id="sb-success-modal-pr-wrap" class="sb-success-modal__pr-wrap" style="display:none;">
+                <span class="sb-success-modal__pr-label">Request number</span>
+                <span id="sb-success-modal-request-no" class="sb-success-modal__pr-number"></span>
+            </div>
+            <button type="button" class="sb-success-modal__ok" id="sb-success-modal-ok" onclick="closeBidSuccessModal()">OK</button>
+        </div>
+    </div>
+
+    <div id="sb-alert-modal" class="sb-alert-modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="sb-alert-modal-title" aria-hidden="true">
+        <div class="sb-alert-modal__backdrop" onclick="closeBidAlertModal()"></div>
+        <div class="sb-alert-modal__dialog">
+            <h2 id="sb-alert-modal-title" class="sb-alert-modal__title">Notice</h2>
+            <p id="sb-alert-modal-body" class="sb-alert-modal__body"></p>
+            <button type="button" class="sb-alert-modal__ok" id="sb-alert-modal-ok" onclick="closeBidAlertModal()">OK</button>
         </div>
     </div>
 
@@ -623,19 +646,104 @@
             );
         }
 
-        function showBidMessage(message, isError) {
-            const box = document.getElementById('supplier-bid-message');
-            box.style.display = 'block';
-            box.textContent = message;
-            box.style.background = isError ? '#fde3e3' : '#e4f4e1';
-            box.style.color = isError ? '#8d1f1f' : '#1f6b2a';
-        }
-
         function clearBidMessage() {
             const box = document.getElementById('supplier-bid-message');
+            if (!box) return;
             box.style.display = 'none';
             box.textContent = '';
         }
+
+        let sbModalEscapeHandler = null;
+
+        function clearBidModalEscapeHandler() {
+            if (sbModalEscapeHandler) {
+                document.removeEventListener('keydown', sbModalEscapeHandler);
+                sbModalEscapeHandler = null;
+            }
+        }
+
+        function bindBidModalEscape(closeFn) {
+            clearBidModalEscapeHandler();
+            sbModalEscapeHandler = function (e) {
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    closeFn();
+                }
+            };
+            document.addEventListener('keydown', sbModalEscapeHandler);
+        }
+
+        function closeBidSuccessModal() {
+            const modal = document.getElementById('sb-success-modal');
+            if (modal) {
+                modal.style.display = 'none';
+                modal.setAttribute('aria-hidden', 'true');
+            }
+            clearBidModalEscapeHandler();
+        }
+
+        function closeBidAlertModal() {
+            const modal = document.getElementById('sb-alert-modal');
+            if (modal) {
+                modal.style.display = 'none';
+                modal.setAttribute('aria-hidden', 'true');
+            }
+            clearBidModalEscapeHandler();
+        }
+
+        function showBidAlertModal(title, body) {
+            const modal = document.getElementById('sb-alert-modal');
+            const titleEl = document.getElementById('sb-alert-modal-title');
+            const bodyEl = document.getElementById('sb-alert-modal-body');
+            const okBtn = document.getElementById('sb-alert-modal-ok');
+            if (!modal || !titleEl || !bodyEl) return;
+
+            closeBidSuccessModal();
+            titleEl.textContent = title || 'Notice';
+            bodyEl.textContent = body || '';
+            modal.style.display = '';
+            modal.setAttribute('aria-hidden', 'false');
+            bindBidModalEscape(closeBidAlertModal);
+            if (okBtn) {
+                setTimeout(function () { okBtn.focus(); }, 0);
+            }
+        }
+
+        function showBidMessage(message, isError) {
+            clearBidMessage();
+            showBidAlertModal(isError ? 'Unable to submit bid' : 'Notice', message || '');
+        }
+
+        function showBidSuccessModal(title, body, requestNumber) {
+            const modal = document.getElementById('sb-success-modal');
+            const titleEl = document.getElementById('sb-success-modal-title');
+            const bodyEl = document.getElementById('sb-success-modal-body');
+            const wrap = document.getElementById('sb-success-modal-pr-wrap');
+            const numEl = document.getElementById('sb-success-modal-request-no');
+            const okBtn = document.getElementById('sb-success-modal-ok');
+            if (!modal || !titleEl || !bodyEl) return;
+
+            closeBidAlertModal();
+            titleEl.textContent = title || 'Bid submitted';
+            bodyEl.textContent = body || 'Your bid was submitted successfully.';
+            const rn = requestNumber != null ? String(requestNumber).trim() : '';
+            if (rn && wrap && numEl) {
+                numEl.textContent = rn;
+                wrap.style.display = '';
+            } else if (wrap) {
+                wrap.style.display = 'none';
+            }
+
+            modal.style.display = '';
+            modal.setAttribute('aria-hidden', 'false');
+            bindBidModalEscape(closeBidSuccessModal);
+            if (okBtn) {
+                setTimeout(function () { okBtn.focus(); }, 0);
+            }
+        }
+
+        window.closeBidSuccessModal = closeBidSuccessModal;
+        window.closeBidAlertModal = closeBidAlertModal;
 
         function clearWorkbenchIfHiddenByFilter() {
             if (!activeInvite) return;
@@ -1127,7 +1235,7 @@
                 return;
             }
             if (!activeInvite || !activeRequest) {
-                alert('Please open an invitation first.');
+                showBidAlertModal('Unable to submit bid', 'Please open an invitation first.');
                 return;
             }
             const lines = collectBidLines();
@@ -1155,7 +1263,15 @@
                     showBidMessage(body.error || 'Failed to submit bid', true);
                     return;
                 }
-                showBidMessage('Bid submitted successfully. Awaiting admin review.', false);
+                const requestNo =
+                    (activeInvite && activeInvite.requestNo) ||
+                    (body.data && (body.data.requestNo || body.data.requestNumber)) ||
+                    '';
+                showBidSuccessModal(
+                    'Bid submitted',
+                    'Your bid was submitted successfully. Awaiting admin review.',
+                    requestNo,
+                );
                 await loadInvitations();
             } catch (err) {
                 showBidMessage('Bid submission failed: ' + err.message, true);
