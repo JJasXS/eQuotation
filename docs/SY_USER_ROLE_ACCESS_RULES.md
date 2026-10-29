@@ -15,6 +15,30 @@ Truthy values (same as other UDF flags): `1`, `Y`, `YES`, `T`, `TRUE`, `ON`, `-1
 
 ---
 
+## Gate: who can see View e-PR
+
+**View e-PR is only available if at least one of these four flags is true:**
+
+- `UDF_ISADMIN`
+- `UDF_ISHOD`
+- `UDF_ISPURMNG`
+- `UDF_ISDIRECTOR`
+
+**If all four are false:**
+
+- User **cannot see View e-PR** (hide menu entry / Purchase → View e-PR).
+- Direct URL / API list for View e-PR should **403 / redirect** (same gate server-side).
+- They may still access other parts of the system only if other roles allow it — but **not** View e-PR.
+
+```text
+can_see_view_pr =
+  ISADMIN OR ISHOD OR ISPURMNG OR ISDIRECTOR
+```
+
+(`ISDIRECTOR` counts for the gate even while Director tab/action rules are still TBD.)
+
+---
+
 ## Priority when multiple flags are set
 
 If a user has more than one of these flags, resolve **one primary role** in this order:
@@ -25,6 +49,8 @@ If a user has more than one of these flags, resolve **one primary role** in this
 4. `UDF_ISDIRECTOR` (future)
 
 Do not grant a weaker role’s limits when a higher flag is on.
+
+Having **any** of the four true is enough to **see** View e-PR; the priority list only picks **which** tab/action rules apply.
 
 ---
 
@@ -69,10 +95,10 @@ Do not grant a weaker role’s limits when a higher flag is on.
   - `perm_hide_pr_transfer = false`
   - `perm_hide_pr_approval_edits = false`
 
-### 4. `UDF_ISDIRECTOR` — reserved
+### 4. `UDF_ISDIRECTOR` — reserved (still part of View e-PR gate)
 
-- **No behaviour in this draft.**
-- Do not map to a tier yet; treat as unused until product defines Director vs HOD / Purchasing Manager.
+- **Tab/action behaviour:** not defined yet — leave product rules for later.
+- **Gate only:** once Director is productized, `UDF_ISDIRECTOR = true` alone should satisfy `can_see_view_pr` (see gate above). Until Director UX exists, prefer not relying on this flag alone in production data.
 
 ---
 
@@ -136,13 +162,14 @@ Existing helpers to extend later:
 
 ## Implementation checklist (when we build this)
 
-1. Add `UDF_ISADMIN` / `UDF_ISHOD` / `UDF_ISPURMNG` (/ later `UDF_ISDIRECTOR`) to SY_USER flag map and login identity.
-2. Introduce `ACCESS_TIER_HOD` (or equivalent) with menu access like purch staff/admin but approval read-only.
-3. Hide Awaiting tab + block `view_status=AWAITING` for `ISPURMNG`.
-4. HOD: allow Awaiting status transitions only; force hide transfer + approval edits on Pending/Approved.
-5. Align Admin hamburger: confirm whether HOD sees Sales / Pricing (draft assumes yes for “whole admin login”; tighten if needed).
-6. Tests: login tier resolution; tab visibility; transfer/cancel/approve API 403 for HOD; Awaiting forbidden for Purch Mng.
-7. Director: add a short subsection here when defined — do not invent behaviour.
+1. Add `UDF_ISADMIN` / `UDF_ISHOD` / `UDF_ISPURMNG` / `UDF_ISDIRECTOR` to SY_USER flag map and login identity.
+2. **`can_see_view_pr`:** `ISADMIN | ISHOD | ISPURMNG | ISDIRECTOR` — hide View e-PR menu + block page/API when all false.
+3. Introduce `ACCESS_TIER_HOD` (or equivalent) with menu access like purch staff/admin but approval read-only.
+4. Hide Awaiting tab + block `view_status=AWAITING` for `ISPURMNG`.
+5. HOD: allow Awaiting status transitions only; force hide transfer + approval edits on Pending/Approved.
+6. Align Admin hamburger: confirm whether HOD sees Sales / Pricing (draft assumes yes for “whole admin login”; tighten if needed).
+7. Tests: all-four-false cannot open View e-PR; login tier resolution; tab visibility; transfer/cancel/approve API 403 for HOD; Awaiting forbidden for Purch Mng.
+8. Director: add tab/action rules here when defined — do not invent behaviour beyond the gate.
 
 ---
 
@@ -152,7 +179,8 @@ Existing helpers to extend later:
 2. Should HOD see **Sales / quotations / pricing**, or Purchase only inside admin?
 3. When both `ISHOD` and `ISPURMNG` are true, confirm priority (this draft: Purch Mng wins after Admin).
 4. Exact Awaiting status transitions HOD may set (only → Pending, or also Cancelled?).
-5. How `UDF_ISDIRECTOR` differs from Admin / HOD / Purch Mng.
+5. How `UDF_ISDIRECTOR` differs from Admin / HOD / Purch Mng (beyond being enough to see View e-PR).
+6. If all four are false but legacy `UDF_PMANAGEMENT` / `UDF_PUSER` is true — cut over fully to the four flags, or keep a temporary legacy alias?
 
 ---
 
@@ -161,3 +189,4 @@ Existing helpers to extend later:
 | Date | Note |
 |------|------|
 | 2026-10-29 | Initial draft from product rules (Admin / HOD / Purch Mng / Director deferred). |
+| 2026-10-29 | Gate: View e-PR only if any of the four flags is true; all false → no View e-PR. |
