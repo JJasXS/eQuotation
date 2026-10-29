@@ -24,6 +24,52 @@ body.equotation-icy-theme {
     color: var(--ice-text) !important;
 }
 
+/*
+ * Quotation module type: match Purchase (chat.css / procurement) — system UI stack
+ * and Windows ClearType. Avoid antialiased + heavy tracking that looks “sharp”.
+ */
+body.equotation-icy-theme.view-quotation-page,
+body.equotation-icy-theme.admin-quotations-view-page,
+body.equotation-icy-theme.customer-my-quotations-page,
+body.equotation-icy-theme.create-quotation-page,
+body.equotation-icy-theme.update-quotation-page {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif !important;
+    -webkit-font-smoothing: auto;
+    -moz-osx-font-smoothing: auto;
+    text-rendering: auto;
+}
+
+body.equotation-icy-theme.view-quotation-page .quotation-list-th,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-list-th,
+body.equotation-icy-theme.customer-my-quotations-page .quotation-list-th,
+body.equotation-icy-theme.view-quotation-page .avq-detail-doc__eyebrow,
+body.equotation-icy-theme.admin-quotations-view-page .avq-detail-doc__eyebrow,
+body.equotation-icy-theme.customer-my-quotations-page .avq-detail-doc__eyebrow,
+body.equotation-icy-theme.view-quotation-page .avq-detail-doc__total-label,
+body.equotation-icy-theme.admin-quotations-view-page .avq-detail-doc__total-label,
+body.equotation-icy-theme.customer-my-quotations-page .avq-detail-doc__total-label {
+    font-weight: 600 !important;
+    letter-spacing: 0.02em !important;
+}
+
+body.equotation-icy-theme.view-quotation-page .quotation-card__doc-value,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-card__doc-value,
+body.equotation-icy-theme.customer-my-quotations-page .quotation-card__doc-value,
+body.equotation-icy-theme.view-quotation-page .view-quotation-detail-title,
+body.equotation-icy-theme.view-quotation-page .view-qt-list-card__docno,
+body.equotation-icy-theme.view-quotation-page .view-qt-detail-doc__total,
+body.equotation-icy-theme.create-quotation-page .form-container h3,
+body.equotation-icy-theme.create-quotation-page .create-quotation-section-title {
+    font-weight: 600 !important;
+    letter-spacing: normal !important;
+}
+
+body.equotation-icy-theme.view-quotation-page .avq-status-tabs .eq-line-tab.is-active,
+body.equotation-icy-theme.view-quotation-page.admin-quotations-view-page .eq-line-tab.avq-status-tab.is-active,
+body.equotation-icy-theme.admin-quotations-view-page .eq-line-tab.avq-status-tab.is-active {
+    font-weight: 600 !important;
+}
+
 body.equotation-icy-theme .container,
 body.equotation-icy-theme .main-content {
     background: var(--ice-bg) !important;

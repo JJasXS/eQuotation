@@ -28,7 +28,9 @@ body.create-quotation-page {
     margin: 0;
     background: linear-gradient(180deg, #dceef8 0%, #e8f4fb 40%, #eef6fc 100%);
     color: var(--ice-text);
-    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: auto;
+    -moz-osx-font-smoothing: auto;
 }
 
 body.create-quotation-page .container,
@@ -104,7 +106,7 @@ body.create-quotation-page .form-container h3 {
     font-weight: 700;
     letter-spacing: -0.02em;
     color: var(--ice-heading);
-    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
 }
 
 body.create-quotation-page .create-quotation-customer-header {
@@ -235,7 +237,7 @@ body.create-quotation-page .create-quotation-section-title {
     font-weight: 700;
     letter-spacing: -0.01em;
     color: var(--ice-heading);
-    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
 }
 
 body.create-quotation-page .create-quotation-section-title-lines {
@@ -1217,12 +1219,12 @@ body.create-quotation-page .tab-content.active {
 
 body.create-quotation-page .form-container h3 {
     color: var(--ice-heading) !important;
-    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif !important;
 }
 
 body.create-quotation-page .form-container h4 {
     color: var(--ice-heading) !important;
-    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif !important;
 }
 
 body.create-quotation-page .create-quotation-form-body,
