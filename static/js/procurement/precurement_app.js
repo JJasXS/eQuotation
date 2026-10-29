@@ -3716,7 +3716,14 @@
 
             const s = normalizeUdfStatus((header && (header._originalUdfStatus || header.udfStatus)) || '');
 
-            return s === 'AWAITING' || s === 'PENDING' || s === 'APPROVED';
+            // Pending is RFQ/bidding view-only; line select + transfer qty only on Approved (Awaiting keeps select for staging).
+            return s === 'AWAITING' || s === 'APPROVED';
+
+        }
+
+        function isPendingPurchaseRequestReadOnly(header) {
+
+            return normalizeUdfStatus((header && (header._originalUdfStatus || header.udfStatus)) || '') === 'PENDING';
 
         }
 
@@ -4148,7 +4155,7 @@
 
         function isViewPendingBulkSelectMode() {
 
-            // List bulk select for Awaiting / Pending / Approved tabs.
+            // List bulk select for Awaiting (→ Pending) and Approved tabs. Pending is view-only.
 
             return (
 
@@ -4156,7 +4163,7 @@
 
                 && viewStatusFilters.size === 1
 
-                && (viewStatusFilters.has('AWAITING') || viewStatusFilters.has('PENDING') || viewStatusFilters.has('APPROVED'))
+                && (viewStatusFilters.has('AWAITING') || viewStatusFilters.has('APPROVED'))
 
             );
 
@@ -4167,12 +4174,6 @@
             if (!(viewStatusFilters instanceof Set) || viewStatusFilters.size !== 1) {
 
                 return '';
-
-            }
-
-            if (viewStatusFilters.has('PENDING')) {
-
-                return 'APPROVED';
 
             }
 
@@ -4446,7 +4447,8 @@
 
                 AWAITING: new Set(['AWAITING', 'PENDING', 'CANCELLED']),
 
-                PENDING: new Set(['PENDING', 'APPROVED', 'CANCELLED']),
+                // Pending is view-only in View e-PR (awards promote to Approved elsewhere).
+                PENDING: new Set(['PENDING']),
 
                 APPROVED: new Set(['APPROVED', 'CANCELLED']),
 
@@ -4461,6 +4463,12 @@
             const allowed = allowedFrom[saved] || new Set([saved, 'CANCELLED']);
 
             if (!allowed.has(normalizedTarget)) {
+
+                return false;
+
+            }
+
+            if (saved === 'PENDING') {
 
                 return false;
 
@@ -4656,6 +4664,10 @@
 
             if (isCancelledPurchaseRequest(header)) return false;
 
+            if (isPendingPurchaseRequestReadOnly(header)) return false;
+
+            if (normalizeUdfStatus(header._originalUdfStatus || header.udfStatus) !== 'APPROVED') return false;
+
             if (hasPendingHeaderStatusChangesForHeader(header.id)) return false;
 
             const selectedDetails = getSelectedTransferDetails(header);
@@ -4714,7 +4726,13 @@
 
             const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(headerId));
 
-            if (!header || isCancelledPurchaseRequest(header)) {
+            if (!header || isCancelledPurchaseRequest(header) || isPendingPurchaseRequestReadOnly(header)) {
+
+                if (header && isPendingPurchaseRequestReadOnly(header)) {
+
+                    alert('Pending e-PRs are view-only while suppliers bid. Transfer after Save Item Awards (Approved).');
+
+                }
 
                 return;
 
@@ -4816,7 +4834,7 @@
 
             const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(headerId));
 
-            if (!header || !Array.isArray(header.details) || isCancelledPurchaseRequest(header)) {
+            if (!header || !Array.isArray(header.details) || isCancelledPurchaseRequest(header) || isPendingPurchaseRequestReadOnly(header) || !canEditPrLineSelection(header)) {
 
                 return;
 
@@ -4862,7 +4880,7 @@
 
             const saved = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
 
-            if (saved === 'APPROVED' || saved === 'CANCELLED') {
+            if (saved === 'APPROVED' || saved === 'CANCELLED' || saved === 'PENDING') {
 
                 renderFilteredViewPurchaseRequests();
 
@@ -4888,7 +4906,7 @@
 
             const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(headerId));
 
-            if (!header || !Array.isArray(header.details) || isCancelledPurchaseRequest(header)) {
+            if (!header || !Array.isArray(header.details) || isCancelledPurchaseRequest(header) || isPendingPurchaseRequestReadOnly(header) || !canEditPrLineSelection(header)) {
 
                 return;
 
@@ -4958,7 +4976,7 @@
 
             const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(headerId));
 
-            if (!header || !Array.isArray(header.details)) {
+            if (!header || !Array.isArray(header.details) || isPendingPurchaseRequestReadOnly(header) || !canEditPrLineSelection(header)) {
 
                 return;
 
@@ -5004,21 +5022,11 @@
 
             const selectable = header.details.filter((row) => Number(row && row.id ? row.id : 0) > 0);
 
-            const hasChecked = selectable.some((row) => isDetailChecked(row));
-
             header.selectedLineCount = selectable.filter((row) => isDetailChecked(row)).length;
 
             header.lineCount = selectable.length;
 
-            const savedUdf = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
-
-            // Only Pending auto-stages header → Approved; Awaiting keeps header UDF unchanged.
-
-            if (savedUdf === 'PENDING' && !viewPrExplicitUdfIsCancelled(headerId)) {
-
-                queueHeaderUdfPendingFromSaved(headerId, hasChecked ? 'APPROVED' : 'PENDING');
-
-            }
+            // Pending is view-only; Approved/Awaiting line staging does not auto-change Pending → Approved here.
 
             updateViewApprovalButtonState();
 
@@ -5040,23 +5048,14 @@
 
             }
 
-            const savedUdf = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
-
             const selectable = header.details.filter((row) => Number(row && row.id ? row.id : 0) > 0);
-
-            const hasChecked = selectable.some((row) => isDetailChecked(row));
 
             header.selectedLineCount = selectable.filter((row) => isDetailChecked(row)).length;
 
             header.lineCount = selectable.length;
 
             // Stage only — Update button persists. Do not POST on checkbox click.
-
-            if (savedUdf === 'PENDING' && !viewPrExplicitUdfIsCancelled(headerId)) {
-
-                queueHeaderUdfPendingFromSaved(headerId, hasChecked ? 'APPROVED' : 'PENDING');
-
-            }
+            // Pending → Approved happens via Save Item Awards, not View e-PR line ticks.
 
             syncAllLineApprovalsBeforeHeaderApprove(headerId);
 
@@ -5233,20 +5232,6 @@
                     // Always capture current checkbox state for the open PR.
 
                     syncAllLineApprovalsBeforeHeaderApprove(selectedId);
-
-                    const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === selectedId);
-
-                    const savedUdf = normalizeUdfStatus(header && (header._originalUdfStatus || header.udfStatus));
-
-                    const hasChecked = !!(header && Array.isArray(header.details)
-
-                        && header.details.some((row) => Number(row && row.id ? row.id : 0) > 0 && isDetailChecked(row)));
-
-                    if (savedUdf === 'PENDING' && hasChecked && !viewPrExplicitUdfIsCancelled(selectedId)) {
-
-                        queueHeaderUdfPendingFromSaved(selectedId, 'APPROVED');
-
-                    }
 
                 }
 
@@ -5763,13 +5748,10 @@ if (viewHeaderStatusPendingChanges.size > 0) {
 
             if (saved === 'PENDING') {
 
+                // View-only while suppliers bid; awards promote to Approved outside this screen.
                 return [
 
-                    viewPrUdfOption('PENDING', 'Pending', picked),
-
-                    viewPrUdfOption('APPROVED', 'Approved', picked),
-
-                    viewPrUdfOption('CANCELLED', 'Cancelled', picked),
+                    viewPrUdfOption('PENDING', 'Pending', 'PENDING'),
 
                 ].join('');
 
@@ -5809,9 +5791,15 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             const isTransferring = viewTransferSavingHeaderIds.has(headerId);
 
-            const canTransfer = isPurchaseRequestTransferReady(header);
+            const pendingReadOnly = isPendingPurchaseRequestReadOnly(header);
 
-            const transferTitle = getPurchaseRequestTransferTitle(header);
+            const canTransfer = !pendingReadOnly && isPurchaseRequestTransferReady(header);
+
+            const transferTitle = pendingReadOnly
+
+                ? 'Pending e-PRs are view-only while suppliers bid. Transfer after Save Item Awards (Approved).'
+
+                : getPurchaseRequestTransferTitle(header);
 
             const suppliers = Array.isArray(header._suppliers) && header._suppliers.length
 
@@ -5853,7 +5841,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             const savedUdfDisplay = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
 
-            const udfLocked = ['APPROVED', 'CANCELLED'].includes(normalizeUdfStatus(header._originalUdfStatus || header.udfStatus));
+            const udfLocked = ['PENDING', 'APPROVED', 'CANCELLED'].includes(savedUdfDisplay);
 
             const selectUdfRaw = normalizeUdfStatus(getHeaderPendingUdfStatus(header) || savedUdfDisplay);
 
@@ -5870,7 +5858,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             const hideApprovalEdits = document.body.classList.contains('procurement-hide-pr-approval-edits');
 
-            const canEditLines = !hideApprovalEdits && savedUdfDisplay !== 'CANCELLED' && canEditPrLineSelection(header);
+            const canEditLines = !hideApprovalEdits && !pendingReadOnly && savedUdfDisplay !== 'CANCELLED' && canEditPrLineSelection(header);
 
             const supplierRowsHtml = suppliers.map((supplier, idx) => {
 
@@ -5910,11 +5898,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 ? 'Selected lines can be transferred'
 
-                : savedUdfDisplay === 'PENDING'
-
-                    ? 'Update to save · selected lines stage Approved'
-
-                    : 'Update to save selected lines';
+                : 'Update to save selected lines';
 
             const detailRows = details.length
 
@@ -5924,7 +5908,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 const rowSelected = isDetailChecked(detail);
 
-                const qtyControlHtml = savedUdfDisplay === 'CANCELLED'
+                const qtyControlHtml = (!canEditLines || savedUdfDisplay === 'CANCELLED' || pendingReadOnly)
 
                     ? `<span>${formatStockCardNumber(getDetailTransferQuantity(detail))}</span>`
 
@@ -6044,7 +6028,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 </div>
 
-                <div class="view-pr-detail-actions view-pr-detail-actions--toolbar">
+                ${(savedUdfDisplay === 'CANCELLED' || pendingReadOnly) ? '' : `<div class="view-pr-detail-actions view-pr-detail-actions--toolbar">
 
                     <div class="view-pr-detail-summary">
 
@@ -6052,7 +6036,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     </div>
 
-                    ${savedUdfDisplay === 'CANCELLED' ? '' : `<button
+                    <button
 
                         type="button"
 
@@ -6064,9 +6048,9 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                         title="${escapeHtml(transferTitle)}"
 
-                    >${isTransferring ? 'Transferring...' : (canTransfer ? 'Transfer to Purchase Order' : 'Awaiting Approval')}</button>`}
+                    >${isTransferring ? 'Transferring...' : (canTransfer ? 'Transfer to Purchase Order' : 'Awaiting Approval')}</button>
 
-                </div>
+                </div>`}
 
                 <div class="view-pr-detail-wrap view-pr-detail-wrap--unified">
 
@@ -6156,7 +6140,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     </div>
 
-                    ${hideApprovalEdits || savedUdfDisplay === 'CANCELLED' ? '' : `
+                    ${hideApprovalEdits || savedUdfDisplay === 'CANCELLED' || pendingReadOnly ? '' : `
 
                     <div class="view-pr-detail-lines-footer">
 
