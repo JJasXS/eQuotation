@@ -312,7 +312,31 @@
 
         let viewStatusFilters = new Set(['PENDING']);
 
+        let viewPrServerStatusCounts = null;
+
         let viewBulkSelectedHeaderIds = new Set();
+
+        function getActiveViewStatusFilter() {
+
+            if (viewStatusFilters instanceof Set && viewStatusFilters.size === 1) {
+
+                return String([...viewStatusFilters][0] || '').toUpperCase();
+
+            }
+
+            return 'PENDING';
+
+        }
+
+        function buildViewPrListQuery(offset) {
+
+            const off = Math.max(0, Number(offset) || 0);
+
+            const status = getActiveViewStatusFilter();
+
+            return `/api/admin/procurement/purchase-requests?offset=${off}&limit=${VIEW_PR_LIST_PAGE_SIZE}&fast=1&include_qty=0&view_status=${encodeURIComponent(status)}`;
+
+        }
 
         /** Bulk PR→PO consolidation workspace state */
 
@@ -2564,21 +2588,9 @@
 
                             record.status = 'CANCELLED';
 
-                            viewPurchaseRequests = (viewPurchaseRequests || []).filter(
-
-                                (row) => Number(row.id || 0) !== keepId
-
-                            );
-
-                            viewSelectedHeaderId = null;
-
-                            goToViewPrStatus('DRAFT', { reload: true });
-
-                        } else {
-
-                            goToViewPrStatus('CANCELLED', { reload: true });
-
                         }
+
+                        goToViewPrStatus('CANCELLED', { reload: true });
 
                         syncViewPrToUrl();
 
@@ -3956,13 +3968,14 @@
 
         function rowMatchesViewStatusFilter(row, statusFilter) {
 
+            const f = String(statusFilter || '').toUpperCase();
+
+            // Draft cancels are hidden from Draft/other tabs, but still belong on Cancelled.
             if (isHiddenCancelledDraft(row)) {
 
-                return false;
+                return f === 'CANCELLED';
 
             }
-
-            const f = String(statusFilter || '').toUpperCase();
 
             if (f === 'DRAFT') {
 
@@ -3983,6 +3996,20 @@
         }
 
         function getViewStatusFilterCounts() {
+
+            if (viewPrServerStatusCounts && typeof viewPrServerStatusCounts === 'object') {
+
+                const counts = {};
+
+                VIEW_STATUS_FILTER_OPTIONS.forEach((s) => {
+
+                    counts[s] = Number(viewPrServerStatusCounts[s] || 0);
+
+                });
+
+                return counts;
+
+            }
 
             const rows = viewPurchaseRequests || [];
 
@@ -4020,7 +4047,8 @@
 
             });
 
-            let rows = (viewPurchaseRequests || []).filter((row) => !isHiddenCancelledDraft(row));
+            // Server already scopes by view_status; keep a light client filter for search / safety.
+            let rows = viewPurchaseRequests || [];
 
             if (filters.size) {
 
@@ -4136,15 +4164,9 @@
 
             syncViewPrApprovedOnlyToolbarActions();
 
-            renderFilteredViewPurchaseRequests();
-
             syncViewStatusToUrl();
 
-            if (viewSelectedHeaderId != null) {
-
-                refreshSelectedViewPurchaseRequestDetail(true);
-
-            }
+            loadViewPurchaseRequests(true, { bustCache: true });
 
         }
 
@@ -7528,6 +7550,8 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     at: Date.now(),
 
+                    viewStatus: getActiveViewStatusFilter(),
+
                     payload,
 
                 }));
@@ -7545,6 +7569,12 @@ function buildViewPurchaseRequestDetailHtml(header) {
             const totalRaw = pg.total;
 
             const totalNum = Number(totalRaw);
+
+            if (payload.statusCounts && typeof payload.statusCounts === 'object') {
+
+                viewPrServerStatusCounts = payload.statusCounts;
+
+            }
 
             viewPurchaseRequests = rows;
 
@@ -7864,7 +7894,15 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 const payload = cached?.payload;
 
-                if (!payload || !payload.success || !Array.isArray(payload.data) || ageMs > VIEW_PR_LIST_CACHE_TTL_MS) {
+                const cachedStatus = String(cached?.viewStatus || '').toUpperCase();
+
+                if (
+                    !payload
+                    || !payload.success
+                    || !Array.isArray(payload.data)
+                    || ageMs > VIEW_PR_LIST_CACHE_TTL_MS
+                    || (cachedStatus && cachedStatus !== getActiveViewStatusFilter())
+                ) {
 
                     sessionStorage.removeItem(VIEW_PR_LIST_CACHE_KEY);
 
@@ -7916,7 +7954,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             const startedAt = performance.now();
 
-            const url = `/api/admin/procurement/purchase-requests?offset=${offset}&limit=${VIEW_PR_LIST_PAGE_SIZE}&fast=1&include_qty=0`;
+            const url = buildViewPrListQuery(offset);
 
             return fetch(url)
 
@@ -7927,6 +7965,12 @@ function buildViewPurchaseRequestDetailHtml(header) {
                     if (!payload.success) {
 
                         throw new Error(payload.error || 'Failed to load more');
+
+                    }
+
+                    if (payload.statusCounts && typeof payload.statusCounts === 'object') {
+
+                        viewPrServerStatusCounts = payload.statusCounts;
 
                     }
 
@@ -8064,7 +8108,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             const cacheBust = loadOpts.bustCache ? '&no_cache=1' : '';
 
-            const url = `/api/admin/procurement/purchase-requests?offset=0&limit=${VIEW_PR_LIST_PAGE_SIZE}&fast=1&include_qty=0${cacheBust}`;
+            const url = `${buildViewPrListQuery(0)}${cacheBust}`;
 
             return fetch(url)
 

@@ -154,11 +154,11 @@ def document_status_for_view_pr_udf(current_doc_status: Any, next_udf_status: st
 
 
 def is_hidden_cancelled_draft(doc_status: Any, udf_status: Any) -> bool:
-    """True when a cancelled draft must stay out of every View e-PR panel.
+    """True for draft-origin cancellations (hide from Draft / non-Cancelled tabs).
 
-    The row stays in PH_PQ. A draft cancel is UDF_STATUS CANCELLED while
-    document STATUS is DRAFT or CANCELLED. Pending and Approved cancellations
-    keep document STATUS (usually SUBMITTED) and remain on the Cancelled panel.
+    A draft cancel is UDF_STATUS CANCELLED while document STATUS is DRAFT or
+    CANCELLED. Those rows still belong on the Cancelled tab. Pending and Approved
+    cancellations keep document STATUS (usually SUBMITTED).
     """
     doc = _decode_status(doc_status).upper()
     udf = str(udf_status or "").strip().upper()
@@ -167,13 +167,23 @@ def is_hidden_cancelled_draft(doc_status: Any, udf_status: Any) -> bool:
     return udf == "CANCELLED" and doc in {"DRAFT", "CANCELLED"}
 
 
+def normalize_view_pr_tab_status(value: Any) -> str:
+    """Normalize a View e-PR tab key (DRAFT/AWAITING/PENDING/APPROVED/CANCELLED)."""
+    text = str(value or "").strip().upper()
+    if text in {"AWAITING_APPROVAL", "AWAITING APPROVAL"}:
+        return "AWAITING"
+    if text in {"DRAFT", "AWAITING", "PENDING", "APPROVED", "CANCELLED"}:
+        return text
+    return ""
+
+
 def hidden_cancelled_draft_list_predicate(
     status_col: str,
     udf_col: str,
     *,
     status_is_numeric: bool,
 ) -> tuple[str, list[Any]]:
-    """SQL predicate that omits cancelled drafts from a PH_PQ list."""
+    """SQL predicate that omits cancelled drafts from mixed (non-Cancelled) lists."""
     if status_is_numeric:
         status_expr = f"COALESCE(H.{status_col}, -1) IN (?, ?)"
         status_params: list[Any] = [
@@ -185,6 +195,219 @@ def hidden_cancelled_draft_list_predicate(
         status_params = ["DRAFT", "CANCELLED"]
     udf_expr = f"UPPER(TRIM(COALESCE(H.{udf_col}, ''))) = ?"
     return f"NOT ({status_expr} AND {udf_expr})", [*status_params, "CANCELLED"]
+
+
+def _view_pr_tab_where_sql(
+    view_status: str,
+    *,
+    status_col: str,
+    udf_col: str,
+    status_is_numeric: bool,
+) -> tuple[str, list[Any]]:
+    """WHERE clause (without leading WHERE) for one View e-PR tab."""
+    tab = normalize_view_pr_tab_status(view_status)
+    udf_text = f"UPPER(TRIM(COALESCE(H.{udf_col}, '')))"
+    if tab == "DRAFT":
+        if status_is_numeric:
+            status_expr = f"COALESCE(H.{status_col}, -1) = ?"
+            status_params: list[Any] = [_encode_status("DRAFT", True)]
+        else:
+            status_expr = f"UPPER(TRIM(COALESCE(H.{status_col}, ''))) = ?"
+            status_params = ["DRAFT"]
+        # Active drafts only — cancelled drafts belong on Cancelled.
+        return (
+            f"{status_expr} AND ({udf_text} = '' OR {udf_text} = 'DRAFT')",
+            status_params,
+        )
+    if tab == "CANCELLED":
+        return f"{udf_text} = ?", ["CANCELLED"]
+    if tab in {"AWAITING", "PENDING", "APPROVED"}:
+        return f"{udf_text} = ?", [tab]
+    return "1 = 0", []
+
+
+def list_view_pr_headers_for_status(
+    view_status: str,
+    *,
+    offset: int = 0,
+    limit: int = 50,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Paginated View e-PR headers from local PH_PQ for one status tab."""
+    tab = normalize_view_pr_tab_status(view_status)
+    safe_offset = max(0, int(offset or 0))
+    safe_limit = max(1, min(int(limit or 50), 50))
+    empty_page = {
+        "offset": safe_offset,
+        "limit": safe_limit,
+        "count": 0,
+        "total": 0,
+        "hasMore": False,
+        "viewStatus": tab or str(view_status or "").strip().upper(),
+    }
+    if not tab:
+        return [], empty_page
+
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        header_cols = _get_table_columns(cur, "PH_PQ")
+        key_col = _pick_existing(header_cols, "DOCKEY", "PQKEY", "ID")
+        docno_col = _pick_existing(header_cols, "DOCNO", "REQUESTNO", "PRNO")
+        docdate_col = _pick_existing(header_cols, "DOCDATE", "REQUESTDATE")
+        postdate_col = _pick_existing(header_cols, "POSTDATE", "REQUIREDDATE")
+        code_col = _pick_existing(header_cols, "CODE", "REQUESTERID")
+        company_col = _pick_existing(header_cols, "COMPANYNAME")
+        project_col = _pick_existing(header_cols, "PROJECT")
+        currency_col = _pick_existing(header_cols, "CURRENCYCODE", "CURRENCY")
+        desc_col = _pick_existing(header_cols, "DESCRIPTION")
+        status_col = _pick_existing(header_cols, "STATUS")
+        docamt_col = _pick_existing(header_cols, "DOCAMT", "TOTALAMT", "TOTAL_AMOUNT")
+        businessunit_col = _pick_existing(header_cols, "BUSINESSUNIT", "DEPARTMENTID")
+        area_col = _pick_existing(header_cols, "AREA")
+        udf_status_col = _pick_existing(header_cols, "UDF_STATUS")
+        udf_reason_col = _pick_existing(header_cols, "UDF_REASON")
+        transferable_col = _pick_existing(header_cols, "TRANSFERABLE")
+        if not key_col or not status_col or not udf_status_col:
+            return [], empty_page
+
+        status_is_numeric = _column_is_numeric(cur, "PH_PQ", status_col)
+        where_sql, where_params = _view_pr_tab_where_sql(
+            tab,
+            status_col=status_col,
+            udf_col=udf_status_col,
+            status_is_numeric=status_is_numeric,
+        )
+        order_col = docdate_col or key_col
+        order_sql = f"H.{order_col} DESC"
+        if key_col.upper() != (order_col or "").upper():
+            order_sql = f"{order_sql}, H.{key_col} DESC"
+
+        cur.execute(f"SELECT COUNT(*) FROM PH_PQ H WHERE {where_sql}", tuple(where_params))
+        total = int((cur.fetchone() or [0])[0] or 0)
+
+        def _col(alias: str, col: str | None) -> str:
+            return f"H.{col} AS {alias}" if col else f"NULL AS {alias}"
+
+        select_cols = [
+            f"H.{key_col} AS DOCKEY",
+            _col("DOCNO", docno_col),
+            _col("DOCDATE", docdate_col),
+            _col("POSTDATE", postdate_col),
+            _col("CODE", code_col),
+            _col("COMPANYNAME", company_col),
+            _col("BUSINESSUNIT", businessunit_col),
+            _col("AREA", area_col),
+            _col("PROJECT", project_col),
+            _col("CURRENCYCODE", currency_col),
+            _col("DOCAMT", docamt_col),
+            _col("STATUS", status_col),
+            _col("UDF_STATUS", udf_status_col),
+            _col("UDF_REASON", udf_reason_col),
+            _col("TRANSFERABLE", transferable_col),
+            _col("DESCRIPTION", desc_col),
+        ]
+        cur.execute(
+            f"SELECT FIRST ? SKIP ? {', '.join(select_cols)} "
+            f"FROM PH_PQ H WHERE {where_sql} ORDER BY {order_sql}",
+            (safe_limit, safe_offset, *where_params),
+        )
+        rows = cur.fetchall() or []
+
+        def _num(value: Any) -> float:
+            try:
+                return float(value or 0)
+            except Exception:
+                return 0.0
+
+        def _iso(value: Any) -> Any:
+            if value is None:
+                return None
+            if hasattr(value, "isoformat"):
+                try:
+                    return value.isoformat()
+                except Exception:
+                    return _clean_text(value)
+            return value
+
+        records: list[dict[str, Any]] = []
+        for row in rows:
+            if not row:
+                continue
+            try:
+                row_id = int(row[0])
+            except Exception:
+                continue
+            status_text = _decode_status(row[11])
+            udf_text = str(row[12] or "").strip().upper()
+            if udf_text in {"AWAITING_APPROVAL", "AWAITING APPROVAL"}:
+                udf_text = "AWAITING"
+            records.append(
+                {
+                    "id": row_id,
+                    "requestNumber": _clean_text(row[1]),
+                    "requestDate": _iso(row[2]),
+                    "requiredDate": _iso(row[3]),
+                    "requesterId": _clean_text(row[4]),
+                    "departmentId": _clean_text(row[6] or row[7]),
+                    "costCenter": _clean_text(row[6]),
+                    "project": _clean_text(row[8]) or "----",
+                    "supplierId": _normalize_supplier_id_for_header(row[4]),
+                    "supplierName": _clean_text(row[5]),
+                    "supplierEmail": "",
+                    "currency": _clean_text(row[9]),
+                    "description": _clean_text(row[15]),
+                    "udfReason": _clean_text(row[13]),
+                    "deliveryLocation": "",
+                    "totalAmount": _num(row[10]),
+                    "status": status_text,
+                    "udfStatus": udf_text,
+                    "transferable": bool(row[14] if row[14] is not None else True),
+                    "totalQty": 0.0,
+                    "transferredQty": 0.0,
+                    "balanceQty": 0.0,
+                    "details": None,
+                }
+            )
+
+        page = {
+            "offset": safe_offset,
+            "limit": safe_limit,
+            "count": len(records),
+            "total": total,
+            "hasMore": (safe_offset + len(records)) < total,
+            "viewStatus": tab,
+        }
+        return records, page
+    finally:
+        con.close()
+
+
+def map_view_pr_status_counts() -> dict[str, int]:
+    """Tab badge counts from local PH_PQ (View e-PR source of truth)."""
+    counts = {key: 0 for key in ("DRAFT", "AWAITING", "PENDING", "APPROVED", "CANCELLED")}
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        header_cols = _get_table_columns(cur, "PH_PQ")
+        status_col = _pick_existing(header_cols, "STATUS")
+        udf_col = _pick_existing(header_cols, "UDF_STATUS")
+        if not status_col or not udf_col:
+            return counts
+        status_is_numeric = _column_is_numeric(cur, "PH_PQ", status_col)
+        for tab in counts:
+            where_sql, where_params = _view_pr_tab_where_sql(
+                tab,
+                status_col=status_col,
+                udf_col=udf_col,
+                status_is_numeric=status_is_numeric,
+            )
+            cur.execute(f"SELECT COUNT(*) FROM PH_PQ H WHERE {where_sql}", tuple(where_params))
+            counts[tab] = int((cur.fetchone() or [0])[0] or 0)
+        return counts
+    except Exception:
+        return counts
+    finally:
+        con.close()
 
 
 def _normalize_stock_qty_uom(value: Any) -> str:

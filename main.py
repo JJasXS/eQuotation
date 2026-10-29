@@ -49,7 +49,10 @@ from utils.procurement_stock_card_queries import (
 from utils.procurement_purchase_request import (
     PurchaseRequestValidationError,
     create_purchase_request,
+    list_view_pr_headers_for_status,
+    map_view_pr_status_counts,
     normalize_purchase_request_status_input,
+    normalize_view_pr_tab_status,
     parse_line_qty_sq_su,
     peek_purchase_request_status_by_request_number,
     preview_purchase_request_number,
@@ -6489,6 +6492,12 @@ def api_admin_list_purchase_requests():
     raw_debug_suppliers = request.args.get('debug_suppliers')
     raw_include_total = request.args.get('include_total')
     raw_no_cache = request.args.get('no_cache')
+    raw_view_status = (
+        request.args.get('view_status')
+        or request.args.get('udf_status')
+        or ''
+    ).strip()
+    view_status = normalize_view_pr_tab_status(raw_view_status)
     include_total_upstream = str(raw_include_total or '').strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
     no_cache = str(raw_no_cache or '').strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
     debug_suppliers = str(raw_debug_suppliers or '').strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
@@ -6507,6 +6516,46 @@ def api_admin_list_purchase_requests():
     offset = max(0, offset)
     # SQL API pagination typically expects smaller pages; keep this conservative.
     limit = max(1, min(limit, 50))
+
+    # View e-PR tabs filter by local PH_PQ.UDF_STATUS (source of truth). Without this,
+    # the Cancelled tab only sees cancelled rows that happen to fall in the newest page.
+    if view_status:
+        try:
+            records, page = list_view_pr_headers_for_status(
+                view_status,
+                offset=offset,
+                limit=limit,
+            )
+            try:
+                status_counts = map_view_pr_status_counts()
+            except Exception as count_exc:
+                print(f"[PROCUREMENT LIST PR] status counts warning: {count_exc}", flush=True)
+                status_counts = {}
+            total_ms = round((time.perf_counter() - started_total) * 1000, 1)
+            print(
+                f"[PROCUREMENT LIST PR PERF] view_status={view_status} total_ms={total_ms} "
+                f"rows={len(records)} offset={offset} limit={limit} total={page.get('total')}",
+                flush=True,
+            )
+            return jsonify({
+                'success': True,
+                'data': records,
+                'count': len(records),
+                'pagination': page,
+                'statusCounts': status_counts,
+                'perf': {
+                    'totalMs': total_ms,
+                    'viewStatus': view_status,
+                    'rowCount': len(records),
+                    'source': 'local_ph_pq',
+                },
+            })
+        except Exception as view_status_exc:
+            print(f"[PROCUREMENT LIST PR] view_status={view_status} error: {view_status_exc}", flush=True)
+            return jsonify({
+                'success': False,
+                'error': f'Failed to list {view_status} purchase requests: {view_status_exc}',
+            }), 500
 
     def _fetch_pr_balance_qty_map(request_ids):
         if not request_ids:

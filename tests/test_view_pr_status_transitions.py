@@ -22,10 +22,11 @@ def _panels(doc_status: str, udf_status: str) -> set[str]:
     """Mirror View e-PR panel filters in precurement_app.js."""
     doc = str(doc_status or "").strip().upper()
     udf = str(udf_status or "").strip().upper()
+    # Draft cancels are excluded from Draft/other tabs but still show on Cancelled.
     if is_hidden_cancelled_draft(doc, udf):
-        return set()
+        return {"CANCELLED"}
     hits = set()
-    if doc == "DRAFT":
+    if doc == "DRAFT" and (not udf or udf == "DRAFT"):
         hits.add("DRAFT")
     if udf == "AWAITING" and doc == "SUBMITTED":
         hits.add("AWAITING")
@@ -65,11 +66,11 @@ def test_required_transitions_land_in_one_panel():
 
     draft_cancel = _apply("DRAFT", "", "CANCELLED")
     assert draft_cancel == ("CANCELLED", "CANCELLED")
-    assert _panels(*draft_cancel) == set()
+    assert _panels(*draft_cancel) == {"CANCELLED"}
     assert is_hidden_cancelled_draft(*draft_cancel) is True
 
 
-def test_cancelled_draft_stays_in_database_and_out_of_list():
+def test_cancelled_draft_stays_in_database_and_out_of_mixed_list():
     sql, params = hidden_cancelled_draft_list_predicate(
         "STATUS",
         "UDF_STATUS",
@@ -83,7 +84,7 @@ def test_cancelled_draft_stays_in_database_and_out_of_list():
     assert is_hidden_cancelled_draft("CANCELLED", "PENDING") is False
     assert is_hidden_cancelled_draft("DRAFT", "CANCELLED") is True
     assert is_hidden_cancelled_draft(0, "CANCELLED") is True
-    assert _panels("DRAFT", "CANCELLED") == set()
+    assert _panels("DRAFT", "CANCELLED") == {"CANCELLED"}
     assert _panels("SUBMITTED", "APPROVED") == {"APPROVED"}
 
 
@@ -204,4 +205,6 @@ def test_frontend_guards_pending_cancel_and_draft_label():
     assert "targetUdfStatus: 'AWAITING'" in text
     assert "targetUdfStatus: 'CANCELLED'" in text
     assert "function isHiddenCancelledDraft" in text
-    assert "goToViewPrStatus('DRAFT', { reload: true })" in text
+    assert "function buildViewPrListQuery(" in text
+    assert "view_status=" in text
+    assert "goToViewPrStatus('CANCELLED', { reload: true })" in text
