@@ -2832,6 +2832,18 @@ async function loadAdminQuotationForEdit(dockey) {
         writeQuotationCustomerField('quotation-area', quotation.AREA || '');
         const docCurrency = String(quotation.CURRENCYCODE || '').trim();
         writeQuotationCustomerField('quotation-currency', docCurrency || '—');
+        const dept = String(quotation.DEPARTMENT || quotation.UDF_DEPARTMENT || '').trim();
+        const deptRow = document.getElementById('quotation-department-row');
+        const deptEl = document.getElementById('quotation-department');
+        if (deptRow && deptEl) {
+            if (dept) {
+                deptEl.textContent = dept;
+                deptRow.style.display = '';
+            } else {
+                deptEl.textContent = '';
+                deptRow.style.display = 'none';
+            }
+        }
 
         quotationCustomerScalars = {
             companyname: String(quotation.COMPANYNAME || '').trim(),

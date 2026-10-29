@@ -516,44 +516,53 @@ body.create-quotation-page .quotation-mini-item-codes:empty::before {
 }
 
 /* Plain HTML table for quotation lines (orderQuotation.css must not break tbody/tr/td) */
-body.create-quotation-page:not(.update-quotation-page) #quotation-form table.quotation-lines-table {
+body.create-quotation-page #quotation-form table.quotation-lines-table,
+body.update-quotation-page #update-quotation-form table.quotation-lines-table {
     width: 100%;
     border-collapse: collapse;
     margin-bottom: 10px;
     border: 1px solid #8fa8b8;
 }
 
-body.create-quotation-page:not(.update-quotation-page) #quotation-form table.quotation-lines-table th,
-body.create-quotation-page:not(.update-quotation-page) #quotation-form table.quotation-lines-table td {
+body.create-quotation-page #quotation-form table.quotation-lines-table th,
+body.create-quotation-page #quotation-form table.quotation-lines-table td,
+body.update-quotation-page #update-quotation-form table.quotation-lines-table th,
+body.update-quotation-page #update-quotation-form table.quotation-lines-table td {
     border: 1px solid #8fa8b8;
     padding: 3px 6px;
     vertical-align: middle;
     line-height: 1.2;
 }
 
-body.create-quotation-page:not(.update-quotation-page) #quotation-line-items {
+body.create-quotation-page #quotation-line-items {
     display: table-row-group !important;
     flex-direction: unset !important;
     gap: 0 !important;
     margin-bottom: 0 !important;
 }
 
-body.create-quotation-page:not(.update-quotation-page) #quotation-form table.quotation-lines-table tr {
+body.create-quotation-page #quotation-form table.quotation-lines-table tr,
+body.update-quotation-page #update-quotation-form table.quotation-lines-table tr {
     display: table-row !important;
 }
 
-body.create-quotation-page:not(.update-quotation-page) #quotation-form table.quotation-lines-table th,
-body.create-quotation-page:not(.update-quotation-page) #quotation-form table.quotation-lines-table td {
+body.create-quotation-page #quotation-form table.quotation-lines-table th,
+body.create-quotation-page #quotation-form table.quotation-lines-table td,
+body.update-quotation-page #update-quotation-form table.quotation-lines-table th,
+body.update-quotation-page #update-quotation-form table.quotation-lines-table td {
     display: table-cell !important;
 }
 
-body.create-quotation-page:not(.update-quotation-page) #quotation-form table.quotation-lines-table td.item-source,
-body.create-quotation-page:not(.update-quotation-page) #quotation-form table.quotation-lines-table td.cq-remove-cell {
+body.create-quotation-page #quotation-form table.quotation-lines-table td.item-source,
+body.create-quotation-page #quotation-form table.quotation-lines-table td.cq-remove-cell,
+body.update-quotation-page #update-quotation-form table.quotation-lines-table td.item-source,
+body.update-quotation-page #update-quotation-form table.quotation-lines-table td.cq-remove-cell {
     cursor: pointer;
     user-select: none;
 }
 
-body.create-quotation-page #quotation-form .item-remove {
+body.create-quotation-page #quotation-form .item-remove,
+body.update-quotation-page #update-quotation-form .item-remove {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -571,17 +580,20 @@ body.create-quotation-page #quotation-form .item-remove {
     pointer-events: auto;
 }
 
-body.create-quotation-page #quotation-form .item-remove:hover {
+body.create-quotation-page #quotation-form .item-remove:hover,
+body.update-quotation-page #update-quotation-form .item-remove:hover {
     background: #fde8e8;
     color: #b42318;
 }
 
-body.create-quotation-page #quotation-form .item-remove svg {
+body.create-quotation-page #quotation-form .item-remove svg,
+body.update-quotation-page #update-quotation-form .item-remove svg {
     display: block;
     pointer-events: none;
 }
 
-body.create-quotation-page:not(.update-quotation-page) #quotation-form table.quotation-lines-table td[contenteditable="true"]:focus {
+body.create-quotation-page #quotation-form table.quotation-lines-table td[contenteditable="true"]:focus,
+body.update-quotation-page #update-quotation-form table.quotation-lines-table td[contenteditable="true"]:focus {
     outline: 1px dotted #666;
     outline-offset: -1px;
 }
@@ -645,7 +657,8 @@ body.create-quotation-page .create-quotation-section--lines .total-row span:last
     font-weight: 700;
 }
 
-body.create-quotation-page #quotation-form .form-actions {
+body.create-quotation-page #quotation-form .form-actions,
+body.update-quotation-page #update-quotation-form .form-actions {
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
@@ -670,7 +683,9 @@ body.create-quotation-page .create-quotation-lines-header .quotation-mini-item-c
 }
 
 body.create-quotation-page #quotation-form .form-actions .btn-primary,
-body.create-quotation-page #quotation-form .form-actions .btn-secondary {
+body.create-quotation-page #quotation-form .form-actions .btn-secondary,
+body.update-quotation-page #update-quotation-form .form-actions .btn-primary,
+body.update-quotation-page #update-quotation-form .form-actions .btn-secondary {
     padding: 10px 18px;
     font-size: 14px;
     font-weight: 600;
