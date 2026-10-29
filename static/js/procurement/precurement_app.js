@@ -6582,7 +6582,8 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 const udf = savedUdf;
 
-                const canEditDraft = prStatus === 'DRAFT' && udf !== 'CANCELLED';
+                // Edit only for true drafts (doc status DRAFT + UDF draft/empty). Pending/Awaiting/Approved keep status DRAFT on the doc.
+                const canEditDraft = prStatus === 'DRAFT' && (!udf || udf === 'DRAFT');
 
                 const isSelected = viewSelectedHeaderId != null && Number(viewSelectedHeaderId) === headerId;
 
@@ -8354,7 +8355,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             }
 
-            if (prStatus !== 'DRAFT') {
+            if (prStatus !== 'DRAFT' || (udf && udf !== 'DRAFT')) {
 
                 alert('Only draft purchase requests can be edited.');
 
