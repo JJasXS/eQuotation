@@ -9,61 +9,118 @@
     overflow: hidden;
 }
 
-/* Filter toolbar (classes used by adminViewQuotations.js — icy palette) */
+/* Filter card (Image 1) — icy palette */
+.avq-filters-card,
 .avq-filter-bar {
     display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    gap: 16px 24px;
-    padding: 12px 14px !important;
+    flex-direction: column;
+    gap: 14px;
+    padding: 14px 16px 16px !important;
+    background: #fff;
+    border: 1px solid var(--ice-border-soft, #d5e6f0);
+    border-radius: 10px;
+    box-shadow: 0 1px 2px rgba(26, 77, 110, 0.04);
+    box-sizing: border-box;
 }
 
-.avq-filter-group {
+.avq-filters-card__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.avq-filters-card__title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--ice-heading, #1a4d6e);
+    letter-spacing: -0.01em;
+}
+
+.avq-filters-card__head-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+}
+
+.avq-filters-clear-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    padding: 6px 12px;
+    border: 1px solid var(--ice-border, #b8d4e8);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--ice-heading, #1a4d6e);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.2;
+    cursor: pointer;
+}
+
+.avq-filters-clear-btn:hover {
+    background: var(--ice-accent-soft, #dbeafe);
+    border-color: var(--ice-accent, #3b8fc4);
+}
+
+.avq-filters-clear-btn__icon {
+    width: 15px;
+    height: 15px;
+    display: block;
+    flex: 0 0 auto;
+}
+
+.avq-filters-card__fields {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px 16px;
+    align-items: end;
+}
+
+.avq-filter-field {
     display: flex;
     flex-direction: column;
     gap: 6px;
     min-width: 0;
+    margin: 0;
 }
 
-.avq-filter-group-label {
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
+.avq-filter-field__label {
+    font-size: 12px;
+    font-weight: 650;
     color: var(--ice-text-muted, #5a7a94);
-}
-
-.avq-filter-group-fields {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px 10px;
-}
-
-.quotation-filter-label {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    color: var(--ice-text-muted, #5a7a94);
-    font-size: 13px;
-    white-space: nowrap;
+    letter-spacing: 0.01em;
 }
 
 .quotation-filter-input,
 .quotation-company-select {
-    padding: 8px 10px;
+    width: 100%;
+    min-height: 38px;
+    padding: 8px 12px;
     border-radius: 8px;
     border: 1px solid var(--ice-border-soft, #c5dce9);
-    background: var(--ice-surface-input, #f0f9ff);
+    background: #fff;
     color: var(--ice-text, #1e3a52);
     font-size: 13px;
+    box-sizing: border-box;
+}
+
+.quotation-filter-input:focus,
+.quotation-company-select:focus {
+    outline: none;
+    border-color: var(--ice-accent, #3b8fc4);
+    box-shadow: 0 0 0 3px rgba(59, 143, 196, 0.15);
 }
 
 .quotation-company-select {
-    min-width: 220px;
-    max-width: 280px;
+    min-width: 0;
+    max-width: none;
 }
 
+/* Legacy filter button classes (kept for icy-theme overrides / cached shells) */
 .quotation-filter-btn {
     padding: 8px 12px;
     border-radius: 6px;
@@ -78,18 +135,10 @@
     border: none;
 }
 
-.quotation-filter-btn--primary:hover {
-    background: var(--ice-accent-hover, #2d74a3);
-}
-
 .quotation-filter-btn--secondary {
     background: var(--ice-surface, #f7fbff);
     color: var(--ice-accent-hover, #2d74a3);
     border: 1px solid var(--ice-border, #b8d4e8);
-}
-
-.quotation-filter-btn--secondary:hover {
-    background: var(--ice-accent-soft, #dbeafe);
 }
 
 .quotation-filter-btn--ghost {
@@ -100,11 +149,6 @@
     text-underline-offset: 2px;
     padding: 8px 6px;
     font-weight: 500;
-}
-
-.quotation-filter-btn--ghost:hover {
-    color: var(--ice-accent-hover, #2d74a3);
-    background: transparent;
 }
 
 .quotation-bulk-select-label {
@@ -118,10 +162,15 @@
 }
 
 .quotation-bulk-selected-count {
-    margin-left: auto;
+    margin-left: 0;
     font-size: 14px;
     color: var(--ice-text-muted, #5a7a94);
     font-weight: 500;
+}
+
+.active-tab-controls .btn-bulk-review-pending,
+.active-tab-controls .btn-delete-active {
+    margin-left: auto;
 }
 
 .quotation-list-empty {
@@ -151,12 +200,12 @@
 }
 
 .quotation-list-col--chk {
-    width: 48px;
+    width: 40px;
 }
 
 .quotation-list-col--doc {
     /* Wide enough for DRAFT-00005 / typical QT codes without ellipsis */
-    width: 120px;
+    width: 118px;
 }
 
 .quotation-list-col--date {
@@ -174,7 +223,7 @@
 }
 
 .quotation-list-col--amount {
-    width: 108px;
+    width: 116px;
 }
 
 .quotation-list-col--actions {
@@ -195,9 +244,14 @@
 }
 
 .quotation-list-th--chk {
-    width: 48px;
-    padding-left: 4px;
-    padding-right: 4px;
+    width: 40px;
+    padding-left: 2px;
+    padding-right: 2px;
+}
+
+.quotation-list-th--doc {
+    padding-left: 0;
+    padding-right: 6px;
 }
 
 tr.quotation-card {
@@ -226,11 +280,11 @@ tr.quotation-card td {
 }
 
 .quotation-card__cell--chk {
-    width: 48px;
+    width: 40px;
     text-align: center;
     vertical-align: middle;
-    padding-left: 4px;
-    padding-right: 4px;
+    padding-left: 2px;
+    padding-right: 2px;
 }
 
 .quotation-card__chk-cell-inner {
@@ -278,6 +332,8 @@ tr.quotation-card td {
     min-width: 0;
     text-align: center;
     vertical-align: middle;
+    padding-left: 0;
+    padding-right: 6px;
 }
 
 .quotation-card__cell--date {
@@ -336,6 +392,11 @@ tr.quotation-card td {
 .quotation-card__cell--amount {
     text-align: center;
     vertical-align: middle;
+    padding-right: 14px;
+}
+
+.quotation-list-th--amount {
+    padding-right: 14px;
 }
 
 .quotation-card__cell--actions {
@@ -490,29 +551,95 @@ body.admin-quotations-view-page #quotation-content {
 }
 
 .quotation-page-header {
-    background: var(--ice-surface, #f7fbff);
-    border: 1px solid var(--ice-border, #b8d4e8);
-    border-radius: 10px;
-    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 12px;
     margin-bottom: 10px;
     flex-shrink: 0;
-    box-shadow: 0 1px 3px rgba(26, 77, 110, 0.06);
-}
-
-.quotation-page-header--compact .avq-status-tabs.eq-line-tabs {
-    margin: 0;
-    padding: 0 6px;
+    background: transparent;
     border: none;
-    border-bottom: 1px solid var(--ice-border, #b8d4e8);
-    background: var(--ice-surface-alt, #eef6fc);
+    border-radius: 0;
+    overflow: visible;
+    box-shadow: none;
 }
 
-.quotation-page-header--compact .avq-status-tabs .eq-line-tab {
-    flex: 0 1 auto;
-    padding: 10px 18px;
+/* Status menu (Image 2) — white card + badge counts + underline under label */
+.quotation-page-header--compact .avq-status-tabs.eq-line-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 0 28px;
+    margin: 0;
+    padding: 0 16px;
+    border: 1px solid var(--ice-border-soft, #d5e6f0);
+    border-radius: 10px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(26, 77, 110, 0.04);
+}
+
+.quotation-page-header--compact .avq-status-tabs .eq-line-tab.avq-status-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 14px 0;
+    border: none !important;
+    border-bottom: none !important;
+    border-radius: 0;
+    background: transparent !important;
+    box-shadow: none !important;
+    color: #7a90a4;
     font-size: 14px;
     font-weight: 500;
     line-height: 1.3;
+}
+
+.quotation-page-header--compact .avq-status-tabs .eq-line-tab.avq-status-tab:hover {
+    color: var(--ice-heading, #1a4d6e);
+    background: transparent !important;
+}
+
+.quotation-page-header--compact .avq-status-tabs .eq-line-tab.avq-status-tab.is-active {
+    color: var(--ice-heading, #1a4d6e);
+    font-weight: 650;
+    background: transparent !important;
+}
+
+.avq-status-tab__label {
+    position: relative;
+    display: inline-block;
+}
+
+.avq-status-tab.is-active .avq-status-tab__label::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -14px;
+    height: 2.5px;
+    border-radius: 2px 2px 0 0;
+    background: var(--ice-heading, #1a4d6e);
+}
+
+.avq-status-tab__badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.5rem;
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: #eef4f8;
+    color: #7a90a4;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.avq-status-tab.is-active .avq-status-tab__badge {
+    color: var(--ice-heading, #1a4d6e);
+    background: #e8f1f7;
 }
 
 .quotation-page-header-controls {
@@ -521,8 +648,6 @@ body.admin-quotations-view-page #quotation-content {
     gap: 6px;
     align-items: center;
     padding: 6px 10px;
-    border-bottom: 1px solid var(--ice-border, #b8d4e8);
-    background: linear-gradient(180deg, var(--ice-surface, #f7fbff) 0%, var(--ice-surface-alt, #eef6fc) 100%);
 }
 
 /* Legacy class names if cached shell still renders approval-tab */
@@ -669,6 +794,23 @@ body.admin-quotations-view-page #quotation-tab-content {
     box-shadow: 0 1px 4px rgba(26, 77, 110, 0.06);
 }
 
+/* Quotation detail panel (reference layout, icy colors) */
+.quotation-detail-pane.avq-detail-dark {
+    --avq-dd-bg: var(--ice-surface, #f7fbff);
+    --avq-dd-surface: var(--ice-surface-alt, #eef6fc);
+    --avq-dd-text: var(--ice-heading, #1a4d6e);
+    --avq-dd-muted: var(--ice-text-muted, #5a7a94);
+    --avq-dd-border: var(--ice-border-soft, #c5dce9);
+    --avq-dd-pending: #e67e22;
+    --avq-dd-draft: #6b7c93;
+    --avq-dd-reviewed: #2f9e6a;
+    --avq-dd-cancelled: #c45a5a;
+    background: var(--avq-dd-bg);
+    border-color: var(--ice-border, #b8d4e8);
+    color: var(--avq-dd-text);
+    box-shadow: 0 1px 4px rgba(26, 77, 110, 0.06);
+}
+
 #quotation-detail-pane-body {
     flex: 1;
     min-height: 0;
@@ -683,10 +825,250 @@ body.admin-quotations-view-page #quotation-tab-content {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    gap: 12px;
 }
 
 .quotation-detail-pane-top {
     flex-shrink: 0;
+}
+
+.avq-detail-doc__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 12px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--ice-border-soft, #c5dce9);
+}
+
+.avq-detail-doc__identity {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.avq-detail-doc__eyebrow {
+    margin: 0 0 6px;
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--avq-dd-muted, #5a7a94);
+}
+
+.avq-detail-doc__title-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.avq-detail-doc__company {
+    font-size: 14px;
+    font-weight: 600;
+    color: #3d5a78;
+    line-height: 1.35;
+    word-break: break-word;
+}
+
+.avq-detail-doc__code {
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--avq-dd-muted, #5a7a94);
+    line-height: 1.35;
+}
+
+.avq-detail-doc__aside {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    flex: 0 0 auto;
+    text-align: right;
+}
+
+.avq-detail-doc__total-label {
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--avq-dd-muted, #5a7a94);
+}
+
+.avq-detail-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px 4px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 650;
+    line-height: 1.2;
+    color: #9a6b1f;
+    background: #fbf3e0;
+    border: 1px solid #e6d3a4;
+    white-space: nowrap;
+}
+
+.avq-detail-status__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #e0b34d;
+    flex: 0 0 auto;
+}
+
+.avq-detail-status--drafts {
+    color: #4a657c;
+    background: #eef4f8;
+    border-color: #c5dce9;
+}
+.avq-detail-status--drafts .avq-detail-status__dot { background: #7a90a4; }
+
+.avq-detail-status--pending {
+    color: #9a6b1f;
+    background: #fbf3e0;
+    border-color: #e6d3a4;
+}
+.avq-detail-status--pending .avq-detail-status__dot { background: #e0b34d; }
+
+.avq-detail-status--reviewed {
+    color: #1f6b45;
+    background: #e8f6ee;
+    border-color: #b7dfc8;
+}
+.avq-detail-status--reviewed .avq-detail-status__dot { background: #2f9e6a; }
+
+.avq-detail-status--cancelled {
+    color: #8a3a3a;
+    background: #f8eaea;
+    border-color: #e3bdbd;
+}
+.avq-detail-status--cancelled .avq-detail-status__dot { background: #c45a5a; }
+
+.avq-detail-doc__meta.quotation-detail-meta,
+.quotation-detail-pane.avq-detail-dark .quotation-detail-meta {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px 16px;
+    background: var(--avq-dd-surface, #eef6fc);
+    border: 1px solid var(--avq-dd-border, #c5dce9);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 0;
+}
+
+.avq-detail-meta__cell {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.avq-detail-meta__label {
+    font-size: 10px;
+    font-weight: 650;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--avq-dd-muted, #5a7a94);
+}
+
+.avq-detail-meta__value {
+    font-size: 13px;
+    font-weight: 650;
+    color: var(--avq-dd-text, #1a4d6e);
+    line-height: 1.35;
+    word-break: break-word;
+}
+
+.quotation-detail-pane.avq-detail-dark .quotation-detail-items {
+    display: flex;
+    flex-direction: column;
+    background: #fff;
+    border: 1px solid var(--ice-border-soft, #d5e6f0);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.quotation-detail-pane.avq-detail-dark .quotation-items-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    border-top: none;
+}
+
+.avq-detail-items-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex: 0 0 auto;
+    margin-top: 0;
+    padding: 14px 16px;
+    background: #fff;
+    border: none;
+    border-top: 1px solid var(--ice-border-soft, #d5e6f0);
+    border-radius: 0;
+}
+
+.avq-detail-items-footer__label {
+    font-size: 12px;
+    font-weight: 650;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--avq-dd-muted, #5a7a94);
+}
+
+.avq-detail-items-footer__value {
+    font-size: 20px;
+    font-weight: 750;
+    color: var(--avq-dd-text, #1a4d6e);
+    font-variant-numeric: tabular-nums;
+}
+
+.avq-detail-item__code {
+    font-weight: 650;
+    color: var(--avq-dd-text, #1a4d6e);
+    line-height: 1.3;
+}
+
+.avq-detail-item__desc {
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--avq-dd-muted, #5a7a94);
+    line-height: 1.35;
+}
+
+.avq-detail-item__empty {
+    color: var(--avq-dd-muted, #5a7a94);
+}
+
+.quotation-detail-pane.avq-detail-dark .avq-detail-items-table thead th {
+    color: var(--avq-dd-muted, #5a7a94) !important;
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--ice-border-soft, #d5e6f0) !important;
+    background: #f3f6f9 !important;
+    padding: 10px 12px;
+}
+
+.quotation-detail-pane.avq-detail-dark .avq-detail-items-table tbody td {
+    color: var(--avq-dd-muted, #5a7a94) !important;
+    border-top-color: var(--ice-border-soft, #d5e6f0) !important;
+    background: #fff;
+    padding: 12px;
+}
+
+.quotation-detail-pane.avq-detail-dark .avq-detail-items-table tbody td.avq-detail-item__cell {
+    color: inherit !important;
+}
+
+.quotation-detail-pane.avq-detail-dark .avq-detail-item__subtotal {
+    font-weight: 700;
+    color: var(--avq-dd-text, #1a4d6e) !important;
 }
 
 tr.quotation-card.is-selected {
@@ -739,11 +1121,15 @@ tr.quotation-card.is-selected .quotation-card__amount {
 }
 
 .quotation-detail-title {
-    font-size: 20px;
-    font-weight: 700;
+    font-size: 22px;
+    font-weight: 750;
     letter-spacing: -0.02em;
     color: var(--ice-heading, #1a4d6e);
-    line-height: 1.25;
+    line-height: 1.2;
+}
+
+.quotation-detail-pane.avq-detail-dark .quotation-detail-title {
+    color: var(--avq-dd-text, #1a4d6e);
 }
 
 .quotation-detail-sub {
@@ -754,14 +1140,15 @@ tr.quotation-card.is-selected .quotation-card__amount {
 }
 
 .quotation-detail-amount {
-    background: var(--ice-accent, #3b8fc4);
-    color: #fff;
-    font-weight: 700;
-    border-radius: 10px;
-    padding: 8px 14px;
-    font-size: 15px;
+    background: transparent;
+    color: var(--avq-dd-text, #1a4d6e);
+    font-weight: 750;
+    border-radius: 0;
+    padding: 0;
+    font-size: 22px;
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
+    line-height: 1.15;
 }
 
 .quotation-detail-meta {
@@ -785,8 +1172,9 @@ tr.quotation-card.is-selected .quotation-card__amount {
 .quotation-detail-actions {
     display: flex;
     flex-wrap: wrap;
+    justify-content: flex-end;
     gap: 8px;
-    margin-bottom: 14px;
+    margin: 2px 0 0;
 }
 
 .quotation-detail-items {
@@ -823,7 +1211,7 @@ tr.quotation-card.is-selected .quotation-card__amount {
     font-weight: 600;
     cursor: pointer;
     white-space: nowrap;
-    transition: filter 0.12s ease, transform 0.08s ease;
+    transition: filter 0.12s ease, transform 0.08s ease, background 0.12s ease, border-color 0.12s ease;
 }
 
 .qt-btn:hover,
@@ -843,6 +1231,20 @@ tr.quotation-card.is-selected .quotation-card__amount {
 .quotation-detail-actions .toggle-cancelled-btn { background: #a65c5c; }
 
 .qt-btn--muted { background: #4b6e9e; }
+
+.quotation-detail-pane.avq-detail-dark .quotation-detail-loading,
+.quotation-detail-pane.avq-detail-dark .quotation-detail-empty {
+    color: var(--avq-dd-muted, #5a7a94);
+}
+
+.quotation-detail-pane.avq-detail-dark .quotation-detail-error {
+    color: #a61f1f;
+}
+
+.quotation-detail-pane.avq-detail-dark #quotation-detail-pane-body > .quotation-detail-empty,
+.quotation-detail-pane.avq-detail-dark .quotation-detail-empty {
+    color: var(--avq-dd-muted, #5a7a94);
+}
 
 .quotation-bulk-checkbox,
 .quotation-row-checkbox {
@@ -890,6 +1292,14 @@ tr.quotation-card.is-selected .quotation-card__amount {
 
     .quotation-page-header-controls {
         padding: 10px;
+    }
+
+    .avq-filters-card__fields {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .avq-filter-field--company {
+        grid-column: 1 / -1;
     }
 }
 
@@ -1099,8 +1509,8 @@ body.customer-my-quotations-page .quotation-card__doc-value {
     max-width: 100%;
 }
 
-body.customer-my-quotations-page .quotation-detail-meta {
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+body.customer-my-quotations-page .quotation-detail-pane.avq-detail-dark .quotation-detail-meta {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 body.customer-my-quotations-page .quotation-detail-actions .edit-button {
@@ -1136,7 +1546,7 @@ body.customer-my-quotations-page .quotation-detail-actions .edit-button {
 .avq-filters-open-bar,
 .avq-filters-edge-tab,
 .avq-filters-backdrop,
-.avq-filters-drawer-head {
+.avq-filters-close-btn {
     display: none;
 }
 
@@ -1215,7 +1625,8 @@ body.customer-my-quotations-page .quotation-detail-actions .edit-button {
     }
 
     body.admin-quotations-view-page .quotation-page-header-controls.avq-filter-bar,
-    body.admin-quotations-view-page #avq-filter-drawer.avq-filter-bar {
+    body.admin-quotations-view-page #avq-filter-drawer.avq-filter-bar,
+    body.admin-quotations-view-page #avq-filter-drawer.avq-filters-card {
         position: fixed !important;
         top: 0 !important;
         right: 0 !important;
@@ -1229,7 +1640,7 @@ body.customer-my-quotations-page .quotation-detail-actions .edit-button {
         z-index: 2461 !important;
         border-radius: 14px 0 0 14px !important;
         box-shadow: -8px 0 28px rgba(20, 40, 60, 0.22) !important;
-        background: var(--ice-surface, #f7fbff) !important;
+        background: #fff !important;
         border: 1px solid var(--ice-border, #b8d4e8) !important;
         border-right: none !important;
         transform: translateX(105%);
@@ -1245,7 +1656,8 @@ body.customer-my-quotations-page .quotation-detail-actions .edit-button {
         box-sizing: border-box !important;
     }
 
-    body.admin-quotations-view-page.avq-filters-drawer-open #avq-filter-drawer.avq-filter-bar {
+    body.admin-quotations-view-page.avq-filters-drawer-open #avq-filter-drawer.avq-filter-bar,
+    body.admin-quotations-view-page.avq-filters-drawer-open #avq-filter-drawer.avq-filters-card {
         transform: translateX(0);
     }
 
@@ -1253,24 +1665,17 @@ body.customer-my-quotations-page .quotation-detail-actions .edit-button {
         overflow: hidden !important;
     }
 
-    body.admin-quotations-view-page .avq-filters-drawer-head {
-        display: flex !important;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
+    body.admin-quotations-view-page .avq-filters-card__head {
         flex: 0 0 auto;
         margin: 0 0 4px;
         padding: 0 0 10px;
         border-bottom: 1px solid var(--ice-border, #b8d4e8);
     }
 
-    body.admin-quotations-view-page .avq-filters-drawer-title {
-        font-size: 15px;
-        font-weight: 650;
-        color: var(--ice-heading, #1a4d6e);
-    }
-
     body.admin-quotations-view-page .avq-filters-close-btn {
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
         border: 1px solid var(--ice-border, #b8d4e8);
         background: #fff;
         color: var(--ice-heading, #1a4d6e);
@@ -1281,45 +1686,29 @@ body.customer-my-quotations-page .quotation-detail-actions .edit-button {
         line-height: 1;
         cursor: pointer;
         flex: 0 0 auto;
+        padding: 0;
     }
 
-    body.admin-quotations-view-page .avq-filter-group {
-        width: 100%;
-    }
-
-    /* Stack filter fields cleanly inside the drawer */
-    body.admin-quotations-view-page .avq-filter-group--dates .avq-filter-group-fields,
-    body.admin-quotations-view-page .avq-filter-group--company .avq-filter-group-fields {
+    body.admin-quotations-view-page .avq-filters-card__fields {
         display: flex !important;
         flex-direction: column !important;
         align-items: stretch !important;
-        gap: 8px !important;
+        gap: 12px !important;
+        grid-template-columns: none !important;
     }
 
-    body.admin-quotations-view-page .avq-filter-group--dates .quotation-filter-label {
-        display: flex;
-        flex-direction: column;
-        align-items: stretch;
-        gap: 4px;
-        white-space: normal;
-        min-width: 0;
-        width: 100%;
-    }
-
-    body.admin-quotations-view-page .avq-filter-group--dates .quotation-filter-input,
-    body.admin-quotations-view-page .quotation-company-select,
-    body.admin-quotations-view-page .avq-filter-group--dates .quotation-filter-btn,
-    body.admin-quotations-view-page .avq-filter-group--company .quotation-filter-btn {
+    body.admin-quotations-view-page .avq-filter-field,
+    body.admin-quotations-view-page .quotation-filter-input,
+    body.admin-quotations-view-page .quotation-company-select {
         width: 100% !important;
         min-width: 0 !important;
         max-width: none !important;
         box-sizing: border-box;
-        min-height: 40px;
     }
 
-    body.admin-quotations-view-page .avq-filter-group--dates #quotation-date-apply,
-    body.admin-quotations-view-page .avq-filter-group--dates #quotation-date-clear {
-        grid-column: auto;
+    body.admin-quotations-view-page .quotation-filter-input,
+    body.admin-quotations-view-page .quotation-company-select {
+        min-height: 40px;
     }
 
     body.admin-quotations-view-page .avq-status-tabs.eq-line-tabs {
@@ -1328,8 +1717,8 @@ body.customer-my-quotations-page .quotation-detail-actions .edit-button {
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
         scrollbar-width: none;
-        gap: 0;
-        padding: 0 8px;
+        gap: 0 18px;
+        padding: 0 12px;
         margin: 0;
     }
 
@@ -1337,11 +1726,12 @@ body.customer-my-quotations-page .quotation-detail-actions .edit-button {
         display: none;
     }
 
-    body.admin-quotations-view-page .avq-status-tabs .eq-line-tab {
+    body.admin-quotations-view-page .avq-status-tabs .eq-line-tab.avq-status-tab {
         flex: 0 0 auto;
-        padding: 10px 14px;
+        padding: 10px 0 8px;
         font-size: 12px;
         white-space: nowrap;
+        gap: 6px;
     }
 
     /* Phone list: QT code, Date, Department, Amount only */
@@ -1562,6 +1952,10 @@ body.customer-my-quotations-page .quotation-detail-actions .edit-button {
         flex: 1 1 50% !important;
     }
 
+    body.admin-quotations-view-page #quotation-detail-pane.avq-detail-dark {
+        padding: 10px 12px !important;
+    }
+
     body.avq-detail-drawer-open #quotation-detail-pane.quotation-detail-pane {
         display: flex !important;
         transform: none !important;
@@ -1592,39 +1986,45 @@ body.customer-my-quotations-page .quotation-detail-actions .edit-button {
         flex: 0 0 auto;
     }
 
-    body.admin-quotations-view-page .quotation-detail-head {
-        gap: 8px;
-        margin-bottom: 6px;
+    body.admin-quotations-view-page .avq-detail-doc__header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+        margin-bottom: 10px;
+    }
+
+    body.admin-quotations-view-page .avq-detail-doc__aside {
+        align-items: flex-start;
+        text-align: left;
+    }
+
+    body.admin-quotations-view-page .quotation-detail-actions {
+        justify-content: flex-start;
     }
 
     body.admin-quotations-view-page .quotation-detail-title {
-        font-size: 14px;
-    }
-
-    body.admin-quotations-view-page .quotation-detail-sub {
-        font-size: 12px;
+        font-size: 18px;
     }
 
     body.admin-quotations-view-page .quotation-detail-amount {
-        font-size: 12px;
-        padding: 5px 10px;
+        font-size: 18px;
     }
 
     body.admin-quotations-view-page .quotation-detail-meta {
         grid-template-columns: 1fr 1fr;
-        gap: 4px 10px;
-        padding: 8px 10px;
-        margin-bottom: 8px;
+        gap: 8px 10px;
+        padding: 10px 12px;
+        margin-bottom: 0;
         font-size: 11px;
     }
 
-    body.admin-quotations-view-page .quotation-detail-actions {
+    body.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .quotation-detail-actions {
         position: sticky;
         top: 0;
         z-index: 1;
         background: var(--ice-surface, #f7fbff);
         padding-bottom: 6px;
-        margin-bottom: 6px;
+        margin-bottom: 0;
         gap: 6px;
     }
 
