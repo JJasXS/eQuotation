@@ -2623,11 +2623,13 @@ def _line_bool_flag(detail: dict[str, Any], *keys: str) -> bool | None:
 
 
 def _line_udf_explicitly_rejected(detail: dict[str, Any]) -> bool:
+    """True only when UDF_PQAPPROVED is explicitly false (user unchecked the line).
+
+    Do not treat Firebird TRANSFERABLE=0 default as a rejection — that blocked
+    Approved award lines from becoming transferable for PO.
+    """
     approved = _line_bool_flag(detail, "udfPqApproved", "udf_pqapproved", "UDF_PQAPPROVED")
-    if approved is False:
-        return True
-    transferable = _line_bool_flag(detail, "transferable", "TRANSFERABLE")
-    return transferable is False
+    return approved is False
 
 
 def _line_udf_explicitly_approved(detail: dict[str, Any]) -> bool:
@@ -2682,10 +2684,8 @@ def apply_transferable_flags_for_approved_pr(
 
     awarded_ids = _awarded_detail_ids_from_gate(gate)
     restrict_to_awards = bool(awarded_ids)
-    has_explicit_selection = any(
-        _line_udf_explicitly_approved(d) or _line_udf_explicitly_rejected(d)
-        for d in details
-        if isinstance(d, dict)
+    has_explicit_approve = any(
+        _line_udf_explicitly_approved(d) for d in details if isinstance(d, dict)
     )
 
     for detail in details:
@@ -2706,20 +2706,22 @@ def apply_transferable_flags_for_approved_pr(
         if remaining <= 0:
             detail["transferable"] = False
             continue
+        # Only an explicit UDF_PQAPPROVED=false reject blocks transfer. Bare TRANSFERABLE=0
+        # (common Firebird default) must not keep awarded Approved lines unselectable.
         if _line_udf_explicitly_rejected(detail):
             detail["transferable"] = False
             detail["udfPqApproved"] = False
             continue
         if restrict_to_awards:
             transferable = detail_id in awarded_ids
-        elif has_explicit_selection:
+        elif has_explicit_approve:
             transferable = _line_udf_explicitly_approved(detail)
         else:
             transferable = True
         detail["transferable"] = transferable
         if transferable:
             detail["udfPqApproved"] = True
-        elif has_explicit_selection:
+        elif has_explicit_approve:
             detail["udfPqApproved"] = False
 
 

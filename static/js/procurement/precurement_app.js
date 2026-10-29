@@ -294,7 +294,8 @@
 
         let viewApprovalSaving = false;
 
-        const VIEW_STATUS_FILTER_OPTIONS = ['DRAFT', 'AWAITING', 'PENDING', 'APPROVED', 'CANCELLED'];
+        // Awaiting Approval tab removed — AWAITING rows are shown under Pending.
+        const VIEW_STATUS_FILTER_OPTIONS = ['DRAFT', 'PENDING', 'APPROVED', 'CANCELLED'];
 
         const VIEW_PR_TAB_LABELS = {
 
@@ -2272,7 +2273,9 @@
 
                 const raw = new URLSearchParams(window.location.search || '').get('status');
 
-                const s = String(raw || '').trim().toUpperCase();
+                let s = String(raw || '').trim().toUpperCase();
+
+                if (s === 'AWAITING') s = 'PENDING';
 
                 return VIEW_STATUS_FILTER_OPTIONS.includes(s) ? s : null;
 
@@ -2300,7 +2303,9 @@
 
                 ).trim();
 
-                const status = String(params.get('status') || '').trim().toUpperCase();
+                let status = String(params.get('status') || '').trim().toUpperCase();
+
+                if (status === 'AWAITING') status = 'PENDING';
 
                 return {
 
@@ -3716,13 +3721,14 @@
 
             const s = normalizeUdfStatus((header && (header._originalUdfStatus || header.udfStatus)) || '');
 
-            // Pending is RFQ/bidding view-only; line select + transfer qty only on Approved (Awaiting keeps select for staging).
-            return s === 'AWAITING' || s === 'APPROVED';
+            // Line select + transfer qty only on Approved (Pending/Awaiting are bidding view-only).
+            return s === 'APPROVED';
 
         }
 
         function isPendingPurchaseRequestReadOnly(header) {
 
+            // Bidding in progress: view-only. Legacy AWAITING still allows Pending status update.
             return normalizeUdfStatus((header && (header._originalUdfStatus || header.udfStatus)) || '') === 'PENDING';
 
         }
@@ -3983,7 +3989,16 @@
 
             }
 
-            return rowSavedUdfStatus(row) === f;
+            const udf = rowSavedUdfStatus(row);
+
+            // Pending tab also lists legacy AWAITING rows (Awaiting Approval tab removed).
+            if (f === 'PENDING') {
+
+                return udf === 'PENDING' || udf === 'AWAITING';
+
+            }
+
+            return udf === f;
 
         }
 
@@ -4851,6 +4866,17 @@
             const maxTransfer = getDetailMaxTransferQuantity(detail);
 
             detail.transferQty = clampTransferQuantity(rawValue, maxTransfer);
+
+            // Adjusting qty on Approved selects the line for PO transfer.
+            if (detail.transferQty > 0) {
+
+                detail.transferable = true;
+
+                detail.udfPqApproved = true;
+
+            }
+
+            updateViewApprovalButtonState();
 
             renderFilteredViewPurchaseRequests();
 
@@ -5759,13 +5785,15 @@ if (viewHeaderStatusPendingChanges.size > 0) {
 
             if (doc === 'DRAFT' || saved === 'DRAFT') {
 
-                const current = (picked === 'AWAITING' || picked === 'CANCELLED') ? picked : '';
+                const current = (picked === 'PENDING' || picked === 'AWAITING' || picked === 'CANCELLED')
+                    ? (picked === 'AWAITING' ? 'PENDING' : picked)
+                    : '';
 
                 return [
 
                     viewPrUdfOption('', 'Draft', current),
 
-                    viewPrUdfOption('AWAITING', 'Awaiting Approval', current),
+                    viewPrUdfOption('PENDING', 'Pending', current),
 
                     viewPrUdfOption('CANCELLED', 'Cancelled', current),
 
@@ -5908,11 +5936,13 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 const rowSelected = isDetailChecked(detail);
 
-                const qtyControlHtml = (!canEditLines || savedUdfDisplay === 'CANCELLED' || pendingReadOnly)
+                const qtyEditable = canEditLines && savedUdfDisplay === 'APPROVED' && !!detail.id && getDetailMaxTransferQuantity(detail) > 0;
 
-                    ? `<span>${formatStockCardNumber(getDetailTransferQuantity(detail))}</span>`
+                const qtyControlHtml = qtyEditable
 
-                    : `<input type="number" class="view-pr-transfer-qty-input view-pr-transfer-qty-input--inline" min="0" max="${escapeHtml(String(getDetailMaxTransferQuantity(detail)))}" step="0.01" value="${escapeHtml(String(getDetailTransferQuantity(detail)))}" ${isDetailChecked(detail) && detail.id ? '' : 'disabled'} title="${escapeHtml(isDetailChecked(detail) ? `Enter transfer quantity up to ${formatStockCardNumber(getDetailMaxTransferQuantity(detail))}; total quantity is ${formatStockCardNumber(detail.quantity || 0)}.` : 'Tick approval first before setting transfer quantity.')}" onchange="onTransferQuantityChange(${headerId}, ${Number(detail.id || 0)}, this.value)" />`;
+                    ? `<input type="number" class="view-pr-transfer-qty-input view-pr-transfer-qty-input--inline" min="0" max="${escapeHtml(String(getDetailMaxTransferQuantity(detail)))}" step="0.01" value="${escapeHtml(String(getDetailTransferQuantity(detail)))}" title="${escapeHtml(`Enter transfer quantity up to ${formatStockCardNumber(getDetailMaxTransferQuantity(detail))}; total quantity is ${formatStockCardNumber(detail.quantity || 0)}.`)}" onchange="onTransferQuantityChange(${headerId}, ${Number(detail.id || 0)}, this.value)" />`
+
+                    : `<span>${formatStockCardNumber(getDetailTransferQuantity(detail))}</span>`;
 
                 return `
 
@@ -6048,7 +6078,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                         title="${escapeHtml(transferTitle)}"
 
-                    >${isTransferring ? 'Transferring...' : (canTransfer ? 'Transfer to Purchase Order' : 'Awaiting Approval')}</button>
+                    >${isTransferring ? 'Transferring...' : (canTransfer ? 'Transfer to Purchase Order' : 'Enter transfer qty')}</button>
 
                 </div>`}
 
@@ -6820,13 +6850,41 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             }
 
+            const savedUdf = normalizeUdfStatus(record._originalUdfStatus || record.udfStatus);
+
             record.details.forEach((detail) => {
+
+                // Approved: default remaining lines selected with full remaining qty for PO transfer.
+                if (savedUdf === 'APPROVED' && getDetailMaxTransferQuantity(detail) > 0 && !isDetailChecked(detail)) {
+
+                    const rejected = Object.prototype.hasOwnProperty.call(detail, 'udfPqApproved')
+
+                        && detail.udfPqApproved != null
+
+                        && String(detail.udfPqApproved).trim() !== ''
+
+                        && !toApprovalBool(detail.udfPqApproved);
+
+                    if (!rejected) {
+
+                        detail.transferable = true;
+
+                        detail.udfPqApproved = true;
+
+                    }
+
+                }
 
                 detail._originalApproved = isDetailChecked(detail);
 
                 detail.transferQty = detail._originalApproved
 
-                    ? clampTransferQuantity(detail.remainingQty, getDetailMaxTransferQuantity(detail))
+                    ? clampTransferQuantity(
+                        detail.transferQty != null && Number(detail.transferQty) > 0
+                            ? detail.transferQty
+                            : detail.remainingQty,
+                        getDetailMaxTransferQuantity(detail)
+                    )
 
                     : 0;
 
@@ -12632,7 +12690,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     initPurchaseRequestForm();
 
-                    goToViewPrStatus('AWAITING');
+                    goToViewPrStatus('PENDING');
 
                     if (isSubmitFromEdit) {
 
@@ -12746,7 +12804,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     initPurchaseRequestForm();
 
-                    goToViewPrStatus('AWAITING');
+                    goToViewPrStatus('PENDING');
 
                     try {
 
