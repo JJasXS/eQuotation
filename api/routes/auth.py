@@ -472,7 +472,7 @@ def lookup_email_identity(
             "staff_locations": staff_locations,
             "access_tier": access_tier,
             "user_type_hint": user_type_hint,
-            "is_full_management_admin": bool(staff_udf.get("management")),
+            "is_full_management_admin": bool(staff_udf.get("isadmin")),
         }
     except HTTPException:
         raise

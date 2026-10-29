@@ -98,10 +98,11 @@ from utils.procurement_bidding import (
     validate_transfer_against_line_awards,
 )
 from utils.role_permissions import (
+    ACCESS_TIER_DIRECTOR,
     ACCESS_TIER_FULL_ADMIN,
+    ACCESS_TIER_HOD,
     ACCESS_TIER_NO_ROLE,
     ACCESS_TIER_PURCH_MGMT,
-    ACCESS_TIER_PURCH_STAFF,
     ACCESS_TIER_SALES_MGMT,
     ACCESS_TIER_SALES_STAFF,
     ACCESS_TIER_SUPPLIER,
@@ -113,6 +114,7 @@ from utils.role_permissions import (
     can_access_view_quotation_customer_ui,
     can_patch_pr_workflow_status,
     can_update_pr_approvals_and_header_status,
+    hide_pr_awaiting_tab,
     infer_access_tier_from_session,
     is_full_management_admin,
     location_in_scope,
@@ -560,7 +562,7 @@ def require_page_access(
 def _redirect_purchasing_roles_from_sales_analytics_pages():
     """Purchasing roles use procurement; block analytics/sales-only admin pages."""
     tier = session.get('access_tier')
-    if tier in (ACCESS_TIER_PURCH_MGMT, ACCESS_TIER_PURCH_STAFF):
+    if tier in (ACCESS_TIER_PURCH_MGMT, ACCESS_TIER_HOD, ACCESS_TIER_DIRECTOR):
         return redirect(f'{PROCUREMENT_UI_PATH}?tab=view')
     return None
 
@@ -3113,8 +3115,8 @@ def api_verify_otp():
                     'success': False,
                     'error': (
                         'No role is assigned for this account. '
-                        'Ask an administrator to set one of UDF_MANAGEMENT, UDF_SMANAGEMENT, UDF_PMANAGEMENT, '
-                        'UDF_SSTAFF, UDF_SUSER, or UDF_PUSER on SY_USER.'
+                        'Ask an administrator to set one of UDF_ISADMIN, UDF_ISHOD, UDF_ISPURMNG, '
+                        'UDF_ISDIRECTOR, UDF_SMANAGEMENT, UDF_SSTAFF, or UDF_SUSER on SY_USER.'
                     ),
                 }), 403
             customer_code = identity.get('customer_code')
@@ -3125,7 +3127,7 @@ def api_verify_otp():
             elif access_tier in (ACCESS_TIER_FULL_ADMIN, ACCESS_TIER_SALES_MGMT):
                 user_type = 'admin'
                 redirect_url = '/admin'
-            elif access_tier in (ACCESS_TIER_PURCH_MGMT, ACCESS_TIER_PURCH_STAFF):
+            elif access_tier in (ACCESS_TIER_PURCH_MGMT, ACCESS_TIER_HOD, ACCESS_TIER_DIRECTOR):
                 user_type = 'admin'
                 redirect_url = f'{PROCUREMENT_UI_PATH}?tab=view'
             else:
@@ -3377,7 +3379,7 @@ def admin_delete_quotations():
 
 @app.route('/admin/pricing-priority-rules')
 def admin_pricing_priority_rules():
-    """Pricing priority rules (UDF_MANAGEMENT full admin only)."""
+    """Pricing priority rules (UDF_ISADMIN full admin only)."""
     return render_protected_template(
         'pricingPriorityRules.html',
         require_admin=True,
@@ -6662,6 +6664,11 @@ def api_admin_list_purchase_requests():
     offset = max(0, offset)
     # SQL API pagination typically expects smaller pages; keep this conservative.
     limit = max(1, min(limit, 50))
+
+    if not can_access_purchase_menu(session):
+        return jsonify({'success': False, 'error': 'Purchase access required'}), 403
+    if view_status == 'AWAITING' and hide_pr_awaiting_tab(session):
+        return jsonify({'success': False, 'error': 'Awaiting Approval is not available for this role'}), 403
 
     # View e-PR tabs filter by local PH_PQ.UDF_STATUS (source of truth). Without this,
     # the Cancelled tab only sees cancelled rows that happen to fall in the newest page.

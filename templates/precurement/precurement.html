@@ -46,7 +46,7 @@
     <script src="/static/js/eq_core.js?v=20261029_csrf1"></script>
 </head>
 
-<body class="equotation-icy-theme procurement-warm-ui{% if perm_hide_pr_transfer | default(false) %} procurement-hide-transfer{% endif %}{% if perm_hide_pr_approval_edits | default(false) %} procurement-hide-pr-approval-edits{% endif %}">
+<body class="equotation-icy-theme procurement-warm-ui{% if perm_hide_pr_transfer | default(false) %} procurement-hide-transfer{% endif %}{% if perm_hide_pr_approval_edits | default(false) %} procurement-hide-pr-approval-edits{% endif %}{% if perm_hide_pr_awaiting_tab | default(false) %} procurement-hide-pr-awaiting{% endif %}">
 
     <div class="container procurement-warm-container">
 
@@ -304,10 +304,12 @@
                                                     <span class="avq-status-tab__label">Draft</span>
                                                     <span class="avq-status-tab__badge" data-pr-tab-count="DRAFT">0</span>
                                                 </button>
+                                                {% if not (perm_hide_pr_awaiting_tab | default(false)) %}
                                                 <button type="button" role="tab" class="eq-line-tab avq-status-tab view-pr-filter-tab" data-status="AWAITING" aria-selected="false" onclick="toggleViewStatusFilter('AWAITING')">
                                                     <span class="avq-status-tab__label">Awaiting Approval</span>
                                                     <span class="avq-status-tab__badge" data-pr-tab-count="AWAITING">0</span>
                                                 </button>
+                                                {% endif %}
                                                 <button type="button" role="tab" class="eq-line-tab avq-status-tab view-pr-filter-tab is-active" data-status="PENDING" aria-selected="true" onclick="toggleViewStatusFilter('PENDING')">
                                                     <span class="avq-status-tab__label">Pending</span>
                                                     <span class="avq-status-tab__badge" data-pr-tab-count="PENDING">0</span>
