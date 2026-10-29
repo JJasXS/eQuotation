@@ -1302,6 +1302,14 @@ def list_bids_for_bidding_view(request_dockey: int) -> tuple[list[dict[str, Any]
     source_dockey = int(ctx.get("biddingSourceDockey") or request_dockey)
     detail_set = {int(x) for x in (ctx.get("prDetailIds") or []) if int(x) > 0}
     awarded_code = _clean_text(ctx.get("awardedSupplierCode")).upper()
+    # Line awards are source of truth for mixed-supplier Save Item (header supplier stays empty).
+    awarded_codes = {
+        _clean_text(row.get("supplierCode")).upper()
+        for row in (get_line_awards_for_request(int(request_dockey)) or [])
+        if isinstance(row, dict) and _clean_text(row.get("supplierCode"))
+    }
+    if awarded_code:
+        awarded_codes.add(awarded_code)
 
     raw_bids = list_bids_for_request(source_dockey)
     # Split child PRs move awarded lines off the RFQ parent; merge maps so item labels resolve.
@@ -1334,7 +1342,7 @@ def list_bids_for_bidding_view(request_dockey: int) -> tuple[list[dict[str, Any]
                 "onPrLineCount": len(on_pr_lines),
                 "onPrTotalAmount": float(_money(_as_decimal(on_pr_total, "0"))),
                 "isAwardedOnThisPr": bool(
-                    awarded_code and supplier_code.upper() == awarded_code
+                    supplier_code and supplier_code.upper() in awarded_codes
                 ),
             }
         )
@@ -1972,18 +1980,16 @@ def _sync_line_awards_sql_api_background(
 
 
 def _promote_pr_udf_approved_after_awards(cur: Any, dockeys: set[int] | list[int]) -> list[dict[str, Any]]:
-    """Set PH_PQ.UDF_STATUS to APPROVED for awarded PRs (View e-PR transition rules).
+    """Force PH_PQ.UDF_STATUS to APPROVED after Save Item Awards.
 
-    Reuses header-status writers so PENDING → APPROVED stays legal and AWAITING → APPROVED
-    still fails. Idempotent when already APPROVED.
+    Awards completion is authoritative: Pending/Awaiting/stuck Approved all become APPROVED.
+    Cancelled PRs cannot award (blocked earlier). Document STATUS stays SUBMITTED.
     """
     ids = sorted({int(d) for d in (dockeys or []) if int(d or 0) > 0})
     if not ids:
         return []
 
-    from fastapi import HTTPException
-
-    from api.routes.purchase_requests import _apply_purchase_request_header_status
+    from api.routes.purchase_requests import _write_view_pr_header_status
     from utils.procurement_purchase_request import _column_is_numeric
 
     header_cols = _get_table_columns(cur, "PH_PQ")
@@ -1996,21 +2002,36 @@ def _promote_pr_udf_approved_after_awards(cur: Any, dockeys: set[int] | list[int
 
     applied: list[dict[str, Any]] = []
     for dockey in ids:
-        try:
-            result = _apply_purchase_request_header_status(
-                cur,
-                {"requestId": dockey, "udfStatus": "APPROVED"},
-                key_col=key_col,
-                udf_status_col=udf_status_col,
-                status_col=status_col or "",
-                status_is_numeric=status_is_numeric,
+        if status_col:
+            cur.execute(
+                f"SELECT FIRST 1 {udf_status_col}, {status_col} FROM PH_PQ WHERE {key_col} = ?",
+                (dockey,),
             )
-        except HTTPException as exc:
-            detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail or exc)
-            raise BiddingValidationError(detail) from exc
-        if result is None:
-            continue
-        _rowcount, change = result
+        else:
+            cur.execute(
+                f"SELECT FIRST 1 {udf_status_col} FROM PH_PQ WHERE {key_col} = ?",
+                (dockey,),
+            )
+        row = cur.fetchone()
+        if not row:
+            raise BiddingValidationError(f"Purchase request {dockey} not found")
+        previous = normalize_pr_udf_status(row[0])
+        if previous == "CANCELLED":
+            raise BiddingValidationError(
+                f"Cannot approve awards for cancelled purchase request {dockey}"
+            )
+        previous_doc = row[1] if status_col and len(row) > 1 else None
+        _rowcount, change = _write_view_pr_header_status(
+            cur,
+            dockey,
+            previous=previous,
+            status_value="APPROVED",
+            previous_doc=previous_doc,
+            udf_status_col=udf_status_col,
+            status_col=status_col or "",
+            status_is_numeric=status_is_numeric,
+            key_col=key_col,
+        )
         if isinstance(change, dict):
             applied.append(change)
     return applied

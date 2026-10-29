@@ -1320,8 +1320,8 @@
                 : '';
 
             const awardsLockNote = isLineAwardsLocked()
-                ? '<div class="compare-note compare-note--locked">Item awards are locked because they were already saved (or this PR is <strong>Cancelled</strong>). Pick winners and use <strong>Save Item</strong> before the first award save.</div>'
-                : '<div class="compare-note">Tick line checkboxes in Submitted bids, then click Save Item Awards. You can choose Item A from Supplier 1 and Item B from Supplier 2.</div>';
+                ? '<div class="compare-note compare-note--locked">Awards saved — this PR is <strong>Approved</strong> with awarded prices. Use View e-PR → Approved to transfer to PO. Save Item stays locked.</div>'
+                : '<div class="compare-note">Pending RFQ: tick line winners in Submitted bids, then <strong>Save Item</strong>. That writes awarded prices and moves the PR to <strong>Approved</strong>.</div>';
 
             const linesHeader = isSplitChild ? 'RFQ lines' : 'Lines';
 
@@ -1606,37 +1606,45 @@
 
             const supplierCount = Number(body?.data?.supplierCount || 0);
 
-            const udfStatus = String(body?.data?.udfStatus || '').trim().toUpperCase();
-
-            const approvedNote = udfStatus === 'APPROVED'
-                ? ' PR moved to Approved (left Pending).'
-                : '';
+            const udfStatus = normalizePrUdfStatus(
+                body?.gate?.prUdfStatusLocal
+                || body?.gate?.prUdfStatus
+                || body?.data?.udfStatus
+                || 'APPROVED'
+            );
 
             const supplierNote = supplierCount > 1
                 ? ` ${supplierCount} suppliers stored on line items (one PR).`
                 : '';
 
-            msg(
-                body.message
-                || `Item awards saved (${savedCount} item(s)).${supplierNote}${approvedNote} Transfer PR→PO groups by awarded supplier per line.`
-            );
-
-            if (body.gate) {
-                lineAwardsLocked = !!body.gate.lineAwardsLocked;
-                if (activePr) {
-                    activePr.udfStatus = String(
-                        body.gate.prUdfStatus
-                        || body.gate.prUdfStatusLocal
-                        || body?.data?.udfStatus
-                        || activePr.udfStatus
-                        || ''
-                    ).trim();
+            // Keep list/cache/status tabs aligned with Save Item → Approved.
+            if (activePr) {
+                activePr.udfStatus = udfStatus || 'APPROVED';
+            }
+            const prId = Number(activePr?.id || 0);
+            if (prId > 0) {
+                const cached = requestsCache.find((row) => Number(row.id) === prId);
+                if (cached) {
+                    cached.udfStatus = udfStatus || 'APPROVED';
                 }
             }
+            if (body.gate) {
+                lineAwardsLocked = !!body.gate.lineAwardsLocked;
+            } else {
+                lineAwardsLocked = true;
+            }
 
+            msg(
+                body.message
+                || `Item awards saved (${savedCount} item(s)).${supplierNote} Moved to Approved with awarded prices.`
+            );
+
+            // Show the PR on the Approved tab (same DOCNO; bidding + View e-PR both use UDF APPROVED).
+            setPrStatusFilter('APPROVED');
             await loadBidsForActivePr({ force: true });
-
             applyLineAwardsLockState();
+            setSelectionUi();
+            syncBiddingPrToUrl();
 
         }
 

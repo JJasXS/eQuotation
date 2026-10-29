@@ -86,7 +86,8 @@ def test_promote_already_approved_is_idempotent(monkeypatch):
     assert applied[0]["previousUdfStatus"] == "APPROVED"
 
 
-def test_promote_rejects_awaiting_to_approved(monkeypatch):
+def test_promote_forces_awaiting_to_approved_after_awards(monkeypatch):
+    """Save Item Awards is authoritative — even Awaiting becomes Approved."""
     from utils import procurement_bidding as bidding
     from utils import procurement_purchase_request as ppr
 
@@ -98,8 +99,28 @@ def test_promote_rejects_awaiting_to_approved(monkeypatch):
     )
     monkeypatch.setattr(ppr, "_column_is_numeric", lambda _cur, table, column: True)
 
-    with pytest.raises(BiddingValidationError, match="Invalid UDF_STATUS transition"):
-        _promote_pr_udf_approved_after_awards(cur, [77])
+    applied = _promote_pr_udf_approved_after_awards(cur, [77])
+    updates = [item for item in cur.statements if "UPDATE PH_PQ" in item[0]]
+    assert len(updates) == 1
+    assert updates[0][1] == ("APPROVED", 77)
+    assert applied[0]["previousUdfStatus"] == "AWAITING"
+    assert applied[0]["udfStatus"] == "APPROVED"
+
+
+def test_promote_rejects_cancelled(monkeypatch):
+    from utils import procurement_bidding as bidding
+    from utils import procurement_purchase_request as ppr
+
+    cur = _Cursor({88: ("CANCELLED", 1)})
+    monkeypatch.setattr(
+        bidding,
+        "_get_table_columns",
+        lambda _cur, table: {"DOCKEY", "UDF_STATUS", "STATUS"},
+    )
+    monkeypatch.setattr(ppr, "_column_is_numeric", lambda _cur, table, column: True)
+
+    with pytest.raises(BiddingValidationError, match="cancelled"):
+        _promote_pr_udf_approved_after_awards(cur, [88])
 
 
 def test_promote_empty_dockeys_noop():
