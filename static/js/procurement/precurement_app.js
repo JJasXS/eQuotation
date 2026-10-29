@@ -4472,7 +4472,7 @@
 
                 if (!suppliers.length) {
 
-                    alert('Select at least one supplier before moving to Pending (Awaiting RFQ).');
+                    alert('Select at least one supplier before moving to Pending.');
 
                     return false;
 
@@ -5748,19 +5748,14 @@ if (viewHeaderStatusPendingChanges.size > 0) {
 
             if (saved === 'AWAITING') {
 
-                const hidden = picked === 'AWAITING'
-
-                    ? '<option value="AWAITING" selected hidden></option>'
-
-                    : '';
+                // Default the control to Pending so Update can move Awaiting → Pending in one click.
+                const effectivePicked = picked === 'CANCELLED' ? 'CANCELLED' : 'PENDING';
 
                 return [
 
-                    hidden,
+                    viewPrUdfOption('PENDING', 'Pending', effectivePicked),
 
-                    viewPrUdfOption('PENDING', 'Pending (Awaiting RFQ)', picked),
-
-                    viewPrUdfOption('CANCELLED', 'Cancelled', picked),
+                    viewPrUdfOption('CANCELLED', 'Cancelled', effectivePicked),
 
                 ].join('');
 
@@ -5862,11 +5857,16 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             const selectUdfRaw = normalizeUdfStatus(getHeaderPendingUdfStatus(header) || savedUdfDisplay);
 
-            const selectUdf = (savedUdfDisplay === 'AWAITING' && !['AWAITING', 'PENDING', 'CANCELLED'].includes(selectUdfRaw))
+            // On Awaiting, pre-select Pending (not Cancelled) unless user already queued Cancelled.
+            const selectUdf = (savedUdfDisplay === 'AWAITING' && selectUdfRaw !== 'CANCELLED')
 
-                ? 'AWAITING'
+                ? 'PENDING'
 
-                : selectUdfRaw;
+                : ((savedUdfDisplay === 'AWAITING' && !['AWAITING', 'PENDING', 'CANCELLED'].includes(selectUdfRaw))
+
+                    ? 'AWAITING'
+
+                    : selectUdfRaw);
 
             const hideApprovalEdits = document.body.classList.contains('procurement-hide-pr-approval-edits');
 
