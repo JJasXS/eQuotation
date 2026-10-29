@@ -19,12 +19,14 @@ from utils.role_permissions import (
 )
 
 
-def test_legacy_management_flags_are_ignored():
+def test_legacy_five_udfs_are_ignored():
     flags = staff_udf_from_sy_user_row(
         {
             "UDF_MANAGEMENT": "T",
             "UDF_PMANAGEMENT": "T",
             "UDF_PUSER": "T",
+            "UDF_SMANAGEMENT": "T",
+            "UDF_SUSER": "T",
         }
     )
     assert not any(flags.values())
@@ -38,6 +40,13 @@ def test_legacy_management_flags_are_ignored():
         )
         == ACCESS_TIER_NO_ROLE
     )
+
+
+def test_ispurmgr_column_alias_maps():
+    flags = staff_udf_from_sy_user_row({"UDF_ISPURMGR": "T"})
+    assert flags.get("ispurmng") is True
+    flags2 = staff_udf_from_sy_user_row({"UDF_ISPURMNG": "T"})
+    assert flags2.get("ispurmng") is True
 
 
 def test_new_role_flags_map_and_priority():
@@ -100,6 +109,15 @@ def test_any_of_four_can_see_view_pr():
     ):
         assert can_see_view_pr({"access_tier": tier}) is True
         assert can_access_purchase_menu({"access_tier": tier}) is True
+
+
+def test_sales_tier_still_sees_purchase_when_role_flags_set():
+    session = {
+        "access_tier": ACCESS_TIER_SALES_MGMT,
+        "staff_udf": {"isadmin": True},
+    }
+    assert can_see_view_pr(session) is True
+    assert can_access_purchase_menu(session) is True
 
 
 def test_hod_hides_transfer_and_approval_edits():

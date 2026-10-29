@@ -27,6 +27,27 @@ def _ui_path() -> str:
     return _deps.get("procurement_ui_path") or "/admin/procurement"
 
 
+def _purchase_home_href() -> str:
+    if can_access_admin_dashboard(session):
+        return "/admin"
+    return "/create-quotation"
+
+
+def _render_purchase_access_denied(page_title: str = "Purchase"):
+    ctx = {
+        "user_type": session.get("user_type", ""),
+        "user_email": session.get("user_email", ""),
+        "page_header_title": page_title,
+        "access_denied_message": (
+            "Your account does not have a Purchase role "
+            "(Admin, HOD, Purchasing Manager, or Director)."
+        ),
+        "home_href": _purchase_home_href(),
+    }
+    ctx.update(template_permission_context(session))
+    return render_template("access_denied.html", **ctx), 403
+
+
 @procurement_bp.route("/admin/procurement")
 def admin_procurement_module():
     require_page_access = _deps["require_page_access"]
@@ -34,7 +55,7 @@ def admin_procurement_module():
     if page_error:
         return page_error
     if not can_access_purchase_menu(session):
-        return redirect("/admin" if can_access_admin_dashboard(session) else "/create-quotation")
+        return _render_purchase_access_denied("Purchase")
     ctx = {"user_type": session.get("user_type", ""), "user_email": session.get("user_email", "")}
     ctx.update(template_permission_context(session))
     return render_template("precurement/precurement.html", **ctx)
@@ -47,7 +68,7 @@ def admin_procurement_legacy_typo_redirect():
     if page_error:
         return page_error
     if not can_access_purchase_menu(session):
-        return redirect("/admin" if can_access_admin_dashboard(session) else "/create-quotation")
+        return _render_purchase_access_denied("Purchase")
     tab = request.args.get("tab") or "report"
     return redirect(f'{_ui_path()}?tab={quote(str(tab), safe="")}', code=308)
 
@@ -60,7 +81,7 @@ def admin_procurement_bidding_page():
     if page_error:
         return page_error
     if not can_access_purchase_menu(session) and not can_access_admin_dashboard(session):
-        return redirect("/create-quotation")
+        return _render_purchase_access_denied("Purchase > Supplier Bidding")
     return render_protected_template(
         "adminBidding.html",
         require_admin=False,

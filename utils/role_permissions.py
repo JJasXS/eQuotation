@@ -3,19 +3,19 @@ Role and UI permissions derived from SY_USER UDF_* flags (not SY_USER.CODE).
 
 Canonical access tier (session['access_tier']) after login:
   - full_admin            UDF_ISADMIN
-  - sales_management      UDF_SMANAGEMENT
-  - purchasing_management UDF_ISPURMNG
+  - purchasing_management UDF_ISPURMGR (alias UDF_ISPURMNG)
   - hod                   UDF_ISHOD
   - director              UDF_ISDIRECTOR (gate only; tab/action rules TBD)
-  - sales_staff           UDF_SSTAFF or UDF_SUSER
+  - sales_staff           UDF_SSTAFF
   - customer              AR customer / branch email match (quotation customer UI)
   - supplier              supplier email match
   - no_role               SY_USER row exists but no recognized role UDF is true
 
 Purchase / View e-PR requires at least one of:
-  UDF_ISADMIN | UDF_ISHOD | UDF_ISPURMNG | UDF_ISDIRECTOR
+  UDF_ISADMIN | UDF_ISHOD | UDF_ISPURMGR/UDF_ISPURMNG | UDF_ISDIRECTOR
 
-Legacy UDF_MANAGEMENT / UDF_PMANAGEMENT / UDF_PUSER are ignored (not mapped).
+Ignored (not mapped — no access effect):
+  UDF_MANAGEMENT, UDF_PMANAGEMENT, UDF_PUSER, UDF_SMANAGEMENT, UDF_SUSER.
 
 Legacy sessions without access_tier infer from user_type for backward compatibility.
 """
@@ -23,15 +23,15 @@ from __future__ import annotations
 
 import os
 
-# SY_USER column -> canonical flag name (lowercase)
+# SY_USER column -> canonical flag name (lowercase).
+# ACC-UAMAT uses UDF_ISPURMGR; docs/UI may still say UDF_ISPURMNG — map both.
 SY_USER_UDF_COLUMN_TO_FLAG = {
     'UDF_ISADMIN': 'isadmin',
     'UDF_ISHOD': 'ishod',
+    'UDF_ISPURMGR': 'ispurmng',
     'UDF_ISPURMNG': 'ispurmng',
     'UDF_ISDIRECTOR': 'isdirector',
-    'UDF_SMANAGEMENT': 'smanagement',
     'UDF_SSTAFF': 'sstaff',
-    'UDF_SUSER': 'suser',
 }
 
 # Non-boolean location scope column (ST_LOCATION codes; comma / semicolon / pipe separated).
@@ -61,9 +61,7 @@ _ROLE_UDF_FLAGS = (
     'ishod',
     'ispurmng',
     'isdirector',
-    'smanagement',
     'sstaff',
-    'suser',
 )
 
 
@@ -79,7 +77,7 @@ def _truthy(val) -> bool:
 
 
 def staff_udf_from_sy_user_row(row: dict | None) -> dict:
-    """Build {'isadmin': bool, 'smanagement': bool, ...} from a SY_USER row dict (any casing)."""
+    """Build {'isadmin': bool, 'ishod': bool, ...} from a SY_USER row dict (any casing)."""
     if not isinstance(row, dict):
         return {}
     norm = {}
@@ -90,7 +88,8 @@ def staff_udf_from_sy_user_row(row: dict | None) -> dict:
         norm[key.upper()] = v
     out = {}
     for col, flag in SY_USER_UDF_COLUMN_TO_FLAG.items():
-        out[flag] = _truthy(norm.get(col))
+        # Multiple columns may map to one flag (e.g. ISPURMGR / ISPURMNG) — OR them.
+        out[flag] = bool(out.get(flag)) or _truthy(norm.get(col))
     return out
 
 
@@ -180,29 +179,42 @@ def compute_access_tier(
     """
     Pick a single primary tier.
 
-    Purchase Role Selection priority: ISADMIN > ISPURMNG > ISHOD > ISDIRECTOR.
-    Sales flags interleave after ISADMIN: SMANAGEMENT, then purchase flags, then SSTAFF/SUSER.
+    Priority: ISADMIN > ISPURMGR > ISHOD > ISDIRECTOR > SSTAFF.
     """
     if is_supplier:
         return ACCESS_TIER_SUPPLIER
     udf = staff_udf or {}
     if udf.get('isadmin'):
         return ACCESS_TIER_FULL_ADMIN
-    if udf.get('smanagement'):
-        return ACCESS_TIER_SALES_MGMT
     if udf.get('ispurmng'):
         return ACCESS_TIER_PURCH_MGMT
     if udf.get('ishod'):
         return ACCESS_TIER_HOD
     if udf.get('isdirector'):
         return ACCESS_TIER_DIRECTOR
-    if udf.get('sstaff') or udf.get('suser'):
+    if udf.get('sstaff'):
         return ACCESS_TIER_SALES_STAFF
     if is_customer:
         return ACCESS_TIER_CUSTOMER
     if sy_user_row_present:
         return ACCESS_TIER_NO_ROLE
     return ACCESS_TIER_CUSTOMER
+
+
+def _staff_udf_from_session(session) -> dict:
+    raw = session.get('staff_udf') if session is not None else None
+    return raw if isinstance(raw, dict) else {}
+
+
+def staff_has_view_pr_role_flag(staff_udf: dict | None) -> bool:
+    """True when any Purchase Role Selection flag is set on SY_USER."""
+    udf = staff_udf or {}
+    return bool(
+        udf.get('isadmin')
+        or udf.get('ishod')
+        or udf.get('ispurmng')
+        or udf.get('isdirector')
+    )
 
 
 def infer_access_tier_from_session(session) -> str:
@@ -229,11 +241,13 @@ def is_full_management_admin(session) -> bool:
 
 
 def can_see_view_pr(session) -> bool:
-    """View e-PR / Purchase menu: ISADMIN | ISHOD | ISPURMNG | ISDIRECTOR."""
+    """View e-PR / Purchase menu: ISADMIN | ISHOD | ISPURMGR | ISDIRECTOR."""
     t = infer_access_tier_from_session(session)
-    if t == ACCESS_TIER_NO_ROLE:
-        return False
-    return t in _VIEW_PR_TIERS
+    if t in _VIEW_PR_TIERS:
+        return True
+    # Also honor session staff_udf so a sales_* primary tier cannot hide Purchase
+    # when any of the four Role Selection flags is true.
+    return staff_has_view_pr_role_flag(_staff_udf_from_session(session))
 
 
 def can_update_pr_approvals_and_header_status(session) -> bool:

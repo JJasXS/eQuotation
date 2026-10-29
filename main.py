@@ -3115,8 +3115,8 @@ def api_verify_otp():
                     'success': False,
                     'error': (
                         'No role is assigned for this account. '
-                        'Ask an administrator to set one of UDF_ISADMIN, UDF_ISHOD, UDF_ISPURMNG, '
-                        'UDF_ISDIRECTOR, UDF_SMANAGEMENT, UDF_SSTAFF, or UDF_SUSER on SY_USER.'
+                        'Ask an administrator to set one of UDF_ISADMIN, UDF_ISHOD, UDF_ISPURMGR, '
+                        'UDF_ISDIRECTOR, or UDF_SSTAFF on SY_USER.'
                     ),
                 }), 403
             customer_code = identity.get('customer_code')
@@ -3135,7 +3135,11 @@ def api_verify_otp():
                     'success': False,
                     'error': 'Unrecognized access profile for this account. Contact an administrator.',
                 }), 403
-            print(f"[AUTH] SY_USER-only path: {email} tier={access_tier} user_type={user_type}")
+            print(
+                f"[AUTH] SY_USER-only path: {email} tier={access_tier} "
+                f"user_type={user_type} staff_udf={staff_udf}",
+                flush=True,
+            )
         else:
             return jsonify({
                 'success': False,
@@ -6666,7 +6670,7 @@ def api_admin_list_purchase_requests():
     limit = max(1, min(limit, 50))
 
     if not can_access_purchase_menu(session):
-        return jsonify({'success': False, 'error': 'Purchase access required'}), 403
+        return jsonify({'success': False, 'error': 'You have no access to this page'}), 403
     if view_status == 'AWAITING' and hide_pr_awaiting_tab(session):
         return jsonify({'success': False, 'error': 'Awaiting Approval is not available for this role'}), 403
 

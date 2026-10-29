@@ -38,10 +38,9 @@ def main() -> None:
             "UDF_LOCATION",
             "UDF_ISADMIN",
             "UDF_ISHOD",
+            "UDF_ISPURMGR",
             "UDF_ISPURMNG",
             "UDF_ISDIRECTOR",
-            "UDF_SMANAGEMENT",
-            "UDF_SUSER",
             "UDF_SSTAFF",
             "UDF_USER",
         )
