@@ -6256,9 +6256,29 @@ body.procurement-warm-ui .pr-view-left-search {
 
 body.procurement-warm-ui .pr-view-left-search-top {
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     justify-content: space-between;
-    gap: 8px;
+    gap: 10px;
+}
+
+body.procurement-warm-ui .pr-view-left-search-fields {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+    flex: 0 1 220px;
+    min-width: 140px;
+    max-width: 260px;
+    margin-left: auto;
+}
+
+body.procurement-warm-ui .pr-view-left-search-fields .pr-view-left-search-label {
+    width: 100%;
+    text-align: right;
+}
+
+body.procurement-warm-ui .pr-view-left-search-fields .pr-view-left-search-input {
+    width: 100%;
 }
 
 body.procurement-warm-ui .pr-view-left-bulk-actions {
@@ -6285,38 +6305,44 @@ body.procurement-warm-ui .pr-view-left-bulk-bar .pr-view-left-bulk-transfer {
     margin: 0;
 }
 
-/* Awaiting / Approved bulk submenu lives under Search PR */
+/* Select-all + to Pending on the left; Search PR on the right */
 body.procurement-warm-ui .pr-view-left-bulk-bar.view-pr-bulk-pending-bar {
-    display: flex;
+    display: inline-flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px 10px;
+    gap: 8px;
     margin: 0;
-    padding: 8px 10px;
-    min-height: 0;
-    border: 1px solid var(--ice-border-soft, #d5e6f0);
-    border-radius: 8px;
-    background: var(--ice-surface-alt, #eef6fc);
+    padding: 0;
+    min-height: 34px;
+    border: none;
+    border-radius: 0;
+    background: transparent;
     box-shadow: none;
+    flex: 0 1 auto;
+    max-width: 48%;
+}
+
+body.procurement-warm-ui .pr-view-left-bulk-bar.view-pr-bulk-pending-bar[hidden] {
+    display: none !important;
 }
 
 body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-bulk-selection-count {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 1.5rem;
-    padding: 2px 8px;
-    border-radius: 999px;
-    background: #e8f1f7;
-    color: var(--ice-heading, #1a4d6e);
-    font-size: 11px;
-    font-weight: 650;
-    line-height: 1.35;
+    display: none;
 }
 
 body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-bulk-pending-bar__actions {
-    margin-left: auto;
+    margin-left: 0;
     flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-to-pending-btn {
+    min-height: 30px;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 700;
 }
 
 body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-bulk-btn {
