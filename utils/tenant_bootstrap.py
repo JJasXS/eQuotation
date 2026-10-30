@@ -13,7 +13,8 @@ Optional env (defaults match ProAccScanner ``appsettings.json``):
 Skip fetch: TENANT_BOOTSTRAP_SKIP=1
 
 Dynamo / JSON sections (case-insensitive names, Dynamo ``M`` / ``S`` / ``N`` unwrapped):
-  ``database``: dbHost, dbPath (required for DB). Optional: dbUser, dbPassword.
+  ``database``: dbHost, dbPath (required for DB). Optional: dbUser, dbPassword,
+    ``dbPasswordSecretRef`` (Secrets Manager plaintext or JSON with ``password`` / ``dbPassword`` / …).
   ``sqlApi``: Inline keys and/or ``sqlApiCredentialsSecretRef`` (JSON in Secrets Manager with
     accessKey/secretKey or SQL_API_* style). Also ``sqlApiHost``, ``sqlApiRegion``, ``sqlApiService``.
   ``openai``: Prefer ``openaiApiKeySecretRef`` (or ``openaiCredentialsSecretRef``). When the secret is JSON,
@@ -221,6 +222,31 @@ def _apply_smtp_password_secret(secret_text: str) -> str | None:
             pw = _first_scalar_in_dict(
                 parsed,
                 ["smtpAppPassword", "smtpPassword", "smtpPass", "appPassword", "password", "SMTP_PASSWORD"],
+            )
+            return pw.strip() if pw else None
+    except json.JSONDecodeError:
+        pass
+    return text
+
+
+def _apply_db_password_secret(secret_text: str) -> str | None:
+    """Return Firebird DB password from plaintext or JSON secret."""
+    text = (secret_text or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            pw = _first_scalar_in_dict(
+                parsed,
+                [
+                    "dbPassword",
+                    "firebirdPassword",
+                    "password",
+                    "DB_PASSWORD",
+                    "secret",
+                    "value",
+                ],
             )
             return pw.strip() if pw else None
     except json.JSONDecodeError:
@@ -573,10 +599,49 @@ def apply_tenant_env_overrides() -> bool:
 
     db_user = _get_scalar_map(db, "dbUser")
     db_password = _get_scalar_map(db, "dbPassword")
+    db_pwd_ref = (
+        _get_scalar_map(db, "dbPasswordSecretRef")
+        or _get_scalar_map(db, "databasePasswordSecretRef")
+        or _get_scalar_map(db, "firebirdPasswordSecretRef")
+    )
     if db_user:
         os.environ["DB_USER"] = db_user.strip()
     if db_password:
         os.environ["DB_PASSWORD"] = db_password.strip()
+    if db_pwd_ref and not _truthy_env("TENANT_BOOTSTRAP_SKIP_SECRETS"):
+        try:
+            raw_db_pw = _fetch_secret_string(
+                db_pwd_ref, _secrets_manager_region()
+            )
+            resolved_pw = _apply_db_password_secret(raw_db_pw)
+            if resolved_pw:
+                os.environ["DB_PASSWORD"] = resolved_pw
+            else:
+                raise RuntimeError(
+                    f"Firebird password secret {db_pwd_ref!r} is empty or has no password field."
+                )
+        except NoCredentialsError as exc:
+            if (os.getenv("DB_PASSWORD") or "").strip():
+                print(
+                    f"[tenant_bootstrap] No AWS credentials; skipping DB secret {db_pwd_ref!r} — "
+                    "using DB_PASSWORD already in environment.",
+                    flush=True,
+                )
+            else:
+                raise RuntimeError(
+                    _sm_error_message(secret_ref=db_pwd_ref, tenant_code=code, exc=exc)
+                ) from exc
+        except Exception as exc:
+            if isinstance(exc, RuntimeError) and "Firebird password secret" in str(exc):
+                raise
+            raise RuntimeError(
+                _sm_error_message(secret_ref=db_pwd_ref, tenant_code=code, exc=exc)
+            ) from exc
+    elif db_pwd_ref and _truthy_env("TENANT_BOOTSTRAP_SKIP_SECRETS"):
+        print(
+            f"[tenant_bootstrap] Skipping dbPasswordSecretRef {db_pwd_ref!r} (TENANT_BOOTSTRAP_SKIP_SECRETS).",
+            flush=True,
+        )
 
     sql_region: str | None = None
     oi_region: str | None = None
