@@ -3734,6 +3734,34 @@
 
         }
 
+        function isProcurementHodRole() {
+            return document.body.classList.contains('procurement-role-hod');
+        }
+
+        function isProcurementApprovalEditsHidden() {
+            return document.body.classList.contains('procurement-hide-pr-approval-edits');
+        }
+
+        /** HOD owns Awaiting → Pending header updates (line approvals stay locked). */
+        function canHodEditAwaitingHeaderStatus(headerOrUdf) {
+            if (!isProcurementHodRole()) {
+                return false;
+            }
+            if (typeof headerOrUdf === 'string') {
+                return normalizeUdfStatus(headerOrUdf) === 'AWAITING';
+            }
+            return normalizeUdfStatus(
+                (headerOrUdf && (headerOrUdf._originalUdfStatus || headerOrUdf.udfStatus)) || ''
+            ) === 'AWAITING';
+        }
+
+        function canEditViewPrHeaderStatus(header) {
+            if (!isProcurementApprovalEditsHidden()) {
+                return true;
+            }
+            return canHodEditAwaitingHeaderStatus(header);
+        }
+
         function isCancelledPurchaseRequest(header) {
 
             return normalizeUdfStatus((header && (header._originalUdfStatus || header.udfStatus)) || '') === 'CANCELLED';
@@ -3910,7 +3938,7 @@
 
             if (!btn) return;
 
-            const hideAppr = document.body.classList.contains('procurement-hide-pr-approval-edits');
+            const hideAppr = isProcurementApprovalEditsHidden() && !isProcurementHodRole();
 
             const hasChanges = viewApprovalPendingChanges.size > 0 || viewHeaderStatusPendingChanges.size > 0;
 
@@ -3922,7 +3950,9 @@
 
             btn.textContent = saving ? 'Saving...' : 'Update';
 
-            btn.title = 'Save pending approval status and line selections.';
+            btn.title = isProcurementHodRole()
+                ? 'Save Awaiting Approval status (e.g. move to Pending).'
+                : 'Save pending approval status and line selections.';
 
         }
 
@@ -4280,7 +4310,9 @@
 
             }
 
-            const hide = document.body.classList.contains('procurement-hide-pr-approval-edits');
+            // HOD may bulk Mark selected Pending on Awaiting; other hide-approval roles cannot.
+            const hide = isProcurementApprovalEditsHidden()
+                && !(isProcurementHodRole() && viewStatusFilters.has('AWAITING'));
 
             if (!isViewPendingBulkSelectMode() || hide) {
 
@@ -4356,7 +4388,10 @@
 
         function onViewPrBulkCardCheckboxChange(event, headerId) {
 
-            if (document.body.classList.contains('procurement-hide-pr-approval-edits')) {
+            if (
+                isProcurementApprovalEditsHidden()
+                && !(isProcurementHodRole() && viewStatusFilters.has('AWAITING'))
+            ) {
 
                 if (event && event.target) {
 
@@ -4604,7 +4639,10 @@
 
         function viewPrBulkQueueApproveSelected() {
 
-            if (document.body.classList.contains('procurement-hide-pr-approval-edits')) {
+            if (
+                isProcurementApprovalEditsHidden()
+                && !(isProcurementHodRole() && getViewListBulkTargetUdfStatus() === 'PENDING')
+            ) {
 
                 return;
 
@@ -5328,13 +5366,20 @@
 
         async function saveViewDetailApprovals() {
 
-            if (document.body.classList.contains('procurement-hide-pr-approval-edits')) {
+            const selectedHeader = viewPurchaseRequests.find(
+                (row) => Number(row.id || 0) === Number(viewSelectedHeaderId)
+            );
+            if (isProcurementApprovalEditsHidden() && !canEditViewPrHeaderStatus(selectedHeader)) {
 
                 return;
 
             }
+            // HOD: header status only — drop any queued line approval edits.
+            if (isProcurementHodRole() && isProcurementApprovalEditsHidden()) {
+                viewApprovalPendingChanges.clear();
+            }
 
-            if (viewApprovalSaving || isCancelledPurchaseRequest(viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(viewSelectedHeaderId)))) {
+            if (viewApprovalSaving || isCancelledPurchaseRequest(selectedHeader)) {
 
                 return;
 
@@ -6000,7 +6045,8 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     : selectUdfRaw);
 
-            const hideApprovalEdits = document.body.classList.contains('procurement-hide-pr-approval-edits');
+            const hideApprovalEdits = isProcurementApprovalEditsHidden();
+            const canEditAwaitingStatus = canEditViewPrHeaderStatus(header) && savedUdfDisplay === 'AWAITING';
 
             const canEditLines = !hideApprovalEdits && !pendingReadOnly && savedUdfDisplay !== 'CANCELLED' && canEditPrLineSelection(header);
 
@@ -6291,7 +6337,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     </div>
 
-                    ${hideApprovalEdits || savedUdfDisplay === 'CANCELLED' || pendingReadOnly || savedUdfDisplay === 'APPROVED' ? '' : `
+                    ${(!canEditAwaitingStatus && (hideApprovalEdits || savedUdfDisplay === 'CANCELLED' || pendingReadOnly || savedUdfDisplay === 'APPROVED')) ? '' : `
                     <div class="view-pr-detail-lines-footer">
 
                         <div class="view-pr-detail-status-actions">
@@ -6681,7 +6727,11 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 const selectionCardHtml = buildViewPrSelectionBadgeHtml(cardSelectedCount, cardLineCount);
 
-                const bulkMode = isViewPendingBulkSelectMode() && !document.body.classList.contains('procurement-hide-pr-approval-edits');
+                const bulkMode = isViewPendingBulkSelectMode()
+                    && (
+                        !isProcurementApprovalEditsHidden()
+                        || (isProcurementHodRole() && viewStatusFilters.has('AWAITING'))
+                    );
 
                 const bulkSlot = bulkMode
 

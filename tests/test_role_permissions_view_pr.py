@@ -9,6 +9,7 @@ from utils.role_permissions import (
     ACCESS_TIER_SALES_MGMT,
     ACCESS_TIER_SALES_STAFF,
     can_access_purchase_menu,
+    can_apply_pr_header_udf_change,
     can_see_view_pr,
     compute_access_tier,
     hide_pr_awaiting_tab,
@@ -127,8 +128,17 @@ def test_hod_hides_transfer_and_approval_edits():
     assert hide_pr_awaiting_tab(session) is False
 
 
+def test_hod_can_move_awaiting_to_pending():
+    session = {"access_tier": ACCESS_TIER_HOD}
+    assert can_apply_pr_header_udf_change(session, "AWAITING", "PENDING") is True
+    assert can_apply_pr_header_udf_change(session, "AWAITING", "CANCELLED") is True
+    assert can_apply_pr_header_udf_change(session, "PENDING", "APPROVED") is False
+    assert can_apply_pr_header_udf_change(session, "AWAITING", "APPROVED") is False
+
+
 def test_purch_mng_hides_awaiting_tab_only():
     session = {"access_tier": ACCESS_TIER_PURCH_MGMT}
     assert hide_pr_awaiting_tab(session) is True
     assert hide_pr_transfer_for_pstaff(session) is False
     assert hide_pr_approval_edits_for_pstaff(session) is False
+    assert can_apply_pr_header_udf_change(session, "PENDING", "APPROVED") is True

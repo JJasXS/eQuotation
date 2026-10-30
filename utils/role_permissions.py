@@ -256,6 +256,26 @@ def can_update_pr_approvals_and_header_status(session) -> bool:
     return t in (ACCESS_TIER_FULL_ADMIN, ACCESS_TIER_PURCH_MGMT)
 
 
+def can_apply_pr_header_udf_change(session, previous_status: str, target_status: str) -> bool:
+    """
+    Who may change PH_PQ.UDF_STATUS.
+
+    - Full admin / purchasing manager: any transition the product allows.
+    - HOD: Awaiting Approval → Pending (or Cancelled) only.
+    """
+    if can_update_pr_approvals_and_header_status(session):
+        return True
+    if infer_access_tier_from_session(session) != ACCESS_TIER_HOD:
+        return False
+    prev = str(previous_status or '').strip().upper().replace(' ', '_')
+    tgt = str(target_status or '').strip().upper().replace(' ', '_')
+    if prev in ('AWAITING_APPROVAL', 'AWAITING APPROVAL'):
+        prev = 'AWAITING'
+    if tgt in ('AWAITING_APPROVAL', 'AWAITING APPROVAL'):
+        tgt = 'AWAITING'
+    return prev == 'AWAITING' and tgt in ('PENDING', 'CANCELLED')
+
+
 def can_patch_pr_workflow_status(session, current_status: str, target_status: str) -> bool:
     """
     PATCH /purchase-requests/<no>/status: who may request a transition to target_status from current_status.

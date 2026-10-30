@@ -112,6 +112,7 @@ from utils.role_permissions import (
     can_access_pending_approvals_admin,
     can_access_purchase_menu,
     can_access_view_quotation_customer_ui,
+    can_apply_pr_header_udf_change,
     can_patch_pr_workflow_status,
     can_update_pr_approvals_and_header_status,
     hide_pr_awaiting_tab,
@@ -10071,8 +10072,6 @@ def _apply_header_status_changes_local(changes: list) -> dict:
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_purchase_request_header_status_update():
     """Update UDF_STATUS for purchase request headers (local-first + sync RFQ invites)."""
-    if not can_update_pr_approvals_and_header_status(session):
-        return jsonify({'success': False, 'error': 'Insufficient permissions to update PR header status'}), 403
     payload = request.get_json(silent=True) or {}
     actor = (session.get('user_email') or session.get('user_name') or 'admin').strip()
 
@@ -10095,6 +10094,11 @@ def api_admin_purchase_request_header_status_update():
             previous = normalize_pr_udf_status(get_pr_udf_status_local(request_id))
             previous_by_id[request_id] = previous
             status_value = str(raw.get('udfStatus') or '').strip().upper()
+            if not can_apply_pr_header_udf_change(session, previous, status_value):
+                return jsonify({
+                    'success': False,
+                    'error': 'Insufficient permissions to update this PR header status',
+                }), 403
             if status_value == 'PENDING' and previous == 'AWAITING':
                 suppliers = _list_selected_suppliers(request_id, enrich=False)
                 if not suppliers:

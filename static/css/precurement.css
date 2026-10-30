@@ -452,11 +452,12 @@ body.procurement-hide-transfer .view-pr-transfer-ratio-total {
     display: none !important;
 }
 
-/* PSTAFF: cannot change PR header UDF_STATUS or line UDF_PQAPPROVED (server also returns 403). */
-body.procurement-hide-pr-approval-edits #view-pr-update-btn {
+/* Read-only approval edits: lock line checkboxes. Non-HOD also lose header Update UI.
+   HOD keeps Awaiting status Update (Awaiting → Pending) while line approvals stay locked. */
+body.procurement-hide-pr-approval-edits:not(.procurement-role-hod) #view-pr-update-btn {
     display: none !important;
 }
-body.procurement-hide-pr-approval-edits .view-pr-udf-status {
+body.procurement-hide-pr-approval-edits:not(.procurement-role-hod) .view-pr-udf-status {
     pointer-events: none;
     opacity: 0.55;
 }
