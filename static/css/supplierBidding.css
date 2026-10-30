@@ -54,7 +54,7 @@ body.supplier-bidding-page .main-content {
 
 .supplier-bidding-split {
     display: grid;
-    grid-template-columns: minmax(300px, 35%) 1fr;
+    grid-template-columns: minmax(260px, 28%) minmax(0, 1fr);
     gap: 0;
     flex: 1;
     min-height: 0;
@@ -1420,6 +1420,8 @@ body.supplier-bidding-page .tab-content.active {
     min-height: 0;
     display: flex;
     flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
     overflow: auto;
     -webkit-overflow-scrolling: touch;
     padding: 0;
@@ -1680,14 +1682,28 @@ body.supplier-bidding-page .tab-content.active {
     cursor: not-allowed;
 }
 
+/* Height follows rows; width fills the pane so no empty strip beside the table. */
 #bidding-workbench .sb-workbench-body .bid-lines-table {
     margin: 0;
-    flex: 1 0 auto;
+    flex: 0 0 auto;
+    height: auto;
+    align-self: stretch;
+    width: 100%;
+    max-width: 100%;
     background: var(--ice-surface, #f7fbff);
 }
 
+#bidding-workbench .sb-workbench-body .bid-lines-table tbody,
+#bidding-workbench .sb-workbench-body .bid-lines-table thead,
+#bidding-workbench .sb-workbench-body .bid-lines-table tr {
+    height: auto;
+}
+
 .bid-lines-total-bar {
-    flex-shrink: 0;
+    flex: 0 0 auto;
+    align-self: stretch;
+    width: 100%;
+    box-sizing: border-box;
     display: flex;
     align-items: baseline;
     justify-content: flex-end;
@@ -1725,62 +1741,89 @@ body.supplier-bidding-page .tab-content.active {
 }
 
 .bid-lines-table {
-    width: max-content;
+    width: 100%;
     max-width: 100%;
+    height: auto;
     border-collapse: collapse;
     table-layout: fixed;
     font-size: 13px;
     background: var(--ice-surface, #f7fbff);
 }
 
-/* Fixed column widths — avoid full-pane stretch ("dragged" look) */
+/* Proportional cols — Item capped; editable Bid/Price/Lead/Remarks get usable space. */
 .bid-col--item {
-    width: 200px;
+    width: 16%;
 }
 
 .bid-col--date {
-    width: 92px;
+    width: 9%;
 }
 
 .bid-col--req-qty,
 .bid-col--su-qty {
-    width: 74px;
+    width: 7%;
 }
 
 .bid-col--bid-qty {
-    width: 88px;
+    width: 10%;
 }
 
 .bid-col--price {
-    width: 108px;
+    width: 12%;
 }
 
 .bid-col--amount {
-    width: 88px;
+    width: 9%;
 }
 
 .bid-col--lead {
-    width: 64px;
+    width: 10%;
 }
 
 .bid-col--remarks {
-    width: 220px;
+    width: 20%;
 }
 
 .bid-lines-table--edit .bid-col--item {
-    width: 190px;
+    width: 16%;
+}
+
+.bid-lines-table--edit .bid-col--lead {
+    width: 10%;
 }
 
 .bid-lines-table--edit .bid-col--remarks {
-    width: 240px;
+    width: 20%;
 }
 
+/* Readonly has no Amount column — redistribute that share. */
 .bid-lines-table--readonly .bid-col--item {
-    width: 210px;
+    width: 18%;
+}
+
+.bid-lines-table--readonly .bid-col--date {
+    width: 10%;
+}
+
+.bid-lines-table--readonly .bid-col--req-qty,
+.bid-lines-table--readonly .bid-col--su-qty {
+    width: 8%;
+}
+
+.bid-lines-table--readonly .bid-col--bid-qty {
+    width: 11%;
+}
+
+.bid-lines-table--readonly .bid-col--price {
+    width: 13%;
+}
+
+.bid-lines-table--readonly .bid-col--lead {
+    width: 10%;
 }
 
 .bid-lines-table--readonly .bid-col--remarks {
-    width: 200px;
+    width: 22%;
 }
 
 #bidding-workbench .bid-lines-table th,
@@ -1817,13 +1860,15 @@ body.supplier-bidding-page .tab-content.active {
 
 #bidding-workbench .bid-lines-table td.bid-cell--remarks,
 #bidding-workbench .bid-lines-table th.bid-th--remarks {
-    padding-right: 12px;
+    padding-right: 8px;
+    box-sizing: border-box;
 }
 
 #bidding-workbench .bid-cell--item {
     white-space: normal;
+    overflow-wrap: anywhere;
     word-break: break-word;
-    line-height: 1.4;
+    line-height: 1.35;
     font-weight: 500;
     color: var(--ice-heading, #1a4d6e);
 }
@@ -1853,7 +1898,9 @@ body.supplier-bidding-page .tab-content.active {
 #bidding-workbench .bid-th--remarks {
     text-align: left;
     white-space: normal;
-    line-height: 1.4;
+    line-height: 1.35;
+    overflow: hidden;
+    word-break: break-word;
 }
 
 #bidding-workbench .bid-th--remarks {
@@ -1904,19 +1951,30 @@ body.supplier-bidding-page .tab-content.active {
 #bidding-workbench input.bid-unit-price,
 #bidding-workbench input.bid-lead-days {
     font-variant-numeric: tabular-nums;
+    min-width: 0;
+    box-sizing: border-box;
 }
 
 #bidding-workbench input.bid-unit-price {
     font-size: 13px;
     text-align: right;
+    padding-left: 6px;
+    padding-right: 6px;
 }
 
 #bidding-workbench input.bid-qty {
     text-align: right;
+    padding-left: 6px;
+    padding-right: 6px;
 }
 
 #bidding-workbench input.bid-lead-days {
     text-align: center;
+    padding-left: 4px;
+    padding-right: 4px;
+}
+
+#bidding-workbench .bid-lines-table td.bid-cell--num {
     padding-left: 6px;
     padding-right: 6px;
 }
@@ -1924,10 +1982,11 @@ body.supplier-bidding-page .tab-content.active {
 #bidding-workbench input.bid-remarks,
 #bidding-workbench textarea.bid-remarks {
     text-align: left;
-    min-height: 36px;
-    max-height: 88px;
+    min-height: 32px;
+    max-height: 72px;
     resize: vertical;
-    line-height: 1.35;
+    line-height: 1.3;
+    padding: 6px 8px;
 }
 
 #bidding-workbench input[type='number'],
