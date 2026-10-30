@@ -6256,29 +6256,34 @@ body.procurement-warm-ui .pr-view-left-search {
 
 body.procurement-warm-ui .pr-view-left-search-top {
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     justify-content: space-between;
     gap: 10px;
+    min-height: 36px;
 }
 
 body.procurement-warm-ui .pr-view-left-search-fields {
     display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 4px;
-    flex: 0 1 220px;
-    min-width: 140px;
-    max-width: 260px;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: none;
     margin-left: auto;
+    justify-content: flex-end;
 }
 
 body.procurement-warm-ui .pr-view-left-search-fields .pr-view-left-search-label {
-    width: 100%;
+    width: auto;
+    flex: 0 0 auto;
     text-align: right;
+    white-space: nowrap;
 }
 
 body.procurement-warm-ui .pr-view-left-search-fields .pr-view-left-search-input {
-    width: 100%;
+    width: min(180px, 42vw);
+    flex: 0 1 180px;
 }
 
 body.procurement-warm-ui .pr-view-left-bulk-actions {
@@ -6305,21 +6310,21 @@ body.procurement-warm-ui .pr-view-left-bulk-bar .pr-view-left-bulk-transfer {
     margin: 0;
 }
 
-/* Select-all + to Pending on the left; Search PR on the right */
+/* Open inline controls in search-top: checkbox + to Pending (no box) */
 body.procurement-warm-ui .pr-view-left-bulk-bar.view-pr-bulk-pending-bar {
     display: inline-flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
     gap: 8px;
     margin: 0;
     padding: 0;
-    min-height: 34px;
+    min-height: 0;
     border: none;
     border-radius: 0;
     background: transparent;
     box-shadow: none;
-    flex: 0 1 auto;
-    max-width: 48%;
+    flex: 0 0 auto;
+    max-width: none;
 }
 
 body.procurement-warm-ui .pr-view-left-bulk-bar.view-pr-bulk-pending-bar[hidden] {
@@ -6335,36 +6340,59 @@ body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-bulk-pending-bar__actio
     flex: 0 0 auto;
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
 }
 
 body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-to-pending-btn {
-    min-height: 30px;
-    padding: 5px 12px;
-    font-size: 12px;
+    display: inline;
+    margin: 0;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    min-height: 0;
+    font-size: 13px;
     font-weight: 700;
+    line-height: 1.2;
+    color: var(--ice-heading, #1a4d6e);
+    cursor: pointer;
+    white-space: nowrap;
 }
 
-body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-bulk-btn {
-    min-height: 30px;
-    padding: 5px 10px;
-    font-size: 11px;
-    line-height: 1.2;
-    border-radius: 8px;
+body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-to-pending-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-to-pending-btn:not(:disabled):hover {
+    color: var(--ice-accent, #3b8fc4);
+    text-decoration: underline;
+}
+
+body.procurement-warm-ui .pr-view-left-bulk-bar .pr-view-left-bulk-transfer {
+    display: inline;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    min-height: 0;
+    font-size: 12px;
+    font-weight: 650;
+    color: var(--ice-heading, #1a4d6e);
+    cursor: pointer;
     white-space: nowrap;
 }
 
 body.procurement-warm-ui .pr-view-left-bulk-select {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 0;
     margin: 0;
     cursor: pointer;
     user-select: none;
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--ice-heading, #1a4d6e);
-    white-space: nowrap;
+    line-height: 1;
 }
 
 body.procurement-warm-ui .pr-view-left-bulk-select[hidden] {
@@ -6372,8 +6400,8 @@ body.procurement-warm-ui .pr-view-left-bulk-select[hidden] {
 }
 
 body.procurement-warm-ui .pr-view-left-bulk-select input[type="checkbox"] {
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     accent-color: var(--ice-accent, #3b8fc4);
     cursor: pointer;
     margin: 0;
@@ -6388,11 +6416,12 @@ body.procurement-warm-ui .pr-view-left-search-label {
 }
 
 body.procurement-warm-ui .pr-view-left-search-input {
-    width: 100%;
+    width: min(180px, 42vw);
     box-sizing: border-box;
     border-radius: 8px;
-    padding: 9px 11px;
+    padding: 7px 10px;
     font-size: 13px;
+    line-height: 1.2;
     border: 1px solid #dccfb8;
     background: #fffef9;
     color: #2a241b;

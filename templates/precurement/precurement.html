@@ -351,12 +351,11 @@
                                                                 aria-label="Select all purchase requests"
                                                                 onchange="onViewPrListBulkSelectAllChange(this)"
                                                             />
-                                                            <span>Select all</span>
                                                         </label>
-                                                        <div class="view-pr-bulk-pending-bar__actions" id="view-pr-list-bulk-actions">
+                                                        <span class="view-pr-bulk-pending-bar__actions" id="view-pr-list-bulk-actions">
                                                             <button
                                                                 type="button"
-                                                                class="view-pr-refresh-btn view-pr-bulk-transfer-toggle pr-view-left-bulk-transfer view-pr-bulk-btn view-pr-bulk-btn--primary"
+                                                                class="view-pr-bulk-transfer-toggle pr-view-left-bulk-transfer"
                                                                 id="view-bulk-transfer-toggle"
                                                                 onclick="onBulkTransferToolbarClick()"
                                                                 aria-pressed="false"
@@ -365,13 +364,13 @@
                                                             >Bulk Transfer to PO</button>
                                                             <button
                                                                 type="button"
-                                                                class="view-pr-to-pending-btn view-pr-refresh-btn view-pr-bulk-btn view-pr-bulk-btn--primary"
+                                                                class="view-pr-to-pending-btn"
                                                                 id="view-pr-bulk-approve-btn"
                                                                 onclick="viewPrBulkQueueApproveSelected()"
                                                                 disabled
                                                                 title="Change selected PRs to Pending"
                                                             >to Pending</button>
-                                                        </div>
+                                                        </span>
                                                         <span id="view-pr-bulk-selection-count" class="view-pr-bulk-selection-count" hidden aria-live="polite">0 selected</span>
                                                     </div>
 
