@@ -6703,7 +6703,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 const editButtonHtml = canEditDraft
 
-                    ? `<button type="button" class="edit-button view-pr-edit-inline-btn" onclick="openPurchaseRequestEdit(${headerId});" title="Edit draft purchase request">Edit</button>`
+                    ? `<button type="button" class="edit-button view-pr-edit-inline-btn" onclick="openPurchaseRequestEdit(${headerId});" title="Edit draft purchase request"><svg class="view-pr-edit-inline-btn__icon" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" focusable="false"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82z"/></svg><span>Edit</span></button>`
 
                     : '';
 
@@ -6761,11 +6761,11 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 cardParts.push(`
 
-            <div class="pr-view-pr-row${isSelected ? ' is-selected' : ''}" data-header-id="${headerId}" style="--pr-card-accent: ${borderColor}; --pr-card-badge: ${badgeColor};" role="button" tabindex="0" onclick="onViewPrCardActivate(event, ${headerId})" onkeydown="onViewPrCardKeydown(event, ${headerId})">
+            <div class="pr-view-pr-row${isSelected ? ' is-selected' : ''}${canEditDraft ? ' pr-view-pr-row--draft' : ''}" data-header-id="${headerId}" style="--pr-card-accent: ${borderColor}; --pr-card-badge: ${badgeColor};" role="button" tabindex="0" onclick="onViewPrCardActivate(event, ${headerId})" onkeydown="onViewPrCardKeydown(event, ${headerId})">
 
                 <span class="pr-view-pr-row__code">${bulkSlot}${escapeHtml(header.requestNumber || '-')}</span>
 
-                <span class="pr-view-pr-row__date">${formatPrDate(header.requestDate || '-')}</span>
+                <span class="pr-view-pr-row__date">${escapeHtml(formatPrDate(header.requestDate || '-'))}</span>
 
                 <span class="pr-view-pr-row__selected">
 
@@ -6773,11 +6773,11 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     ${selectionCardHtml}
 
-                    ${editButtonHtml}
-
                 </span>
 
-                <span class="pr-view-pr-row__amount"><span class="pr-view-amount-pill" style="background: ${badgeColor};">RM ${formatMoney(header.totalAmount || 0)}</span></span>
+                <span class="pr-view-pr-row__actions">${editButtonHtml}</span>
+
+                <span class="pr-view-pr-row__amount"><span class="pr-view-amount-pill">RM ${formatMoney(header.totalAmount || 0)}</span></span>
 
             </div>
 
@@ -7802,6 +7802,8 @@ function buildViewPurchaseRequestDetailHtml(header) {
                 <span class="view-pr-skel-bar view-pr-skel-bar--date"></span>
 
                 <span class="view-pr-skel-bar view-pr-skel-bar--pill"></span>
+
+                <span class="view-pr-skel-bar view-pr-skel-bar--action"></span>
 
                 <span class="view-pr-skel-bar view-pr-skel-bar--amt"></span>
 
