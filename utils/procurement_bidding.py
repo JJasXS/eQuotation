@@ -525,7 +525,7 @@ def _fetch_bid_amount_stats_by_bid_ids(bid_ids: list[int]) -> dict[int, dict[str
         for bid_id in ids:
             cur.execute(
                 """
-                SELECT BID_AMOUNT
+                SELECT BID_QTY, BID_UNITPRICE, BID_AMOUNT
                 FROM PR_BID_DTL
                 WHERE BID_ID = ?
                 """,
@@ -534,10 +534,17 @@ def _fetch_bid_amount_stats_by_bid_ids(bid_ids: list[int]) -> dict[int, dict[str
             rows = cur.fetchall() or []
             if not rows:
                 continue
-            total = sum(_as_decimal(row[0], "0") for row in rows)
+            priced_rows = [
+                row
+                for row in rows
+                if row is not None
+                and _as_decimal(row[0], "0") > 0
+                and _as_decimal(row[1], "0") > 0
+            ]
+            total = sum(_as_decimal(row[2], "0") for row in priced_rows)
             out[int(bid_id)] = {
                 "bidTotalAmount": float(_money(total)),
-                "bidLineCount": len(rows),
+                "bidLineCount": len(priced_rows),
             }
         return out
     finally:
@@ -682,7 +689,40 @@ def list_invited_suppliers_for_request(request_dockey: int) -> list[dict[str, An
         con.close()
 
 
+BID_LINE_INCOMPLETE_MSG = (
+    "Please enter Bid Qty and Unit Price, or provide Remarks if you cannot supply this item."
+)
+
+
+def is_priced_bid_line(line: dict[str, Any] | None) -> bool:
+    """True when a bid line is a valid priced quotation (qty > 0 and unit price > 0)."""
+    if not isinstance(line, dict):
+        return False
+    qty = _as_decimal(line.get("quantity", line.get("qty", "0")), "0")
+    price = _as_decimal(line.get("unitPrice", line.get("unitprice", "0")), "0")
+    return qty > 0 and price > 0
+
+
+def _sum_priced_bid_amounts(lines: list[Any]) -> Decimal:
+    """Sum amounts for priced quotation lines only; remarks-only / unquoted lines are excluded."""
+    total = Decimal("0")
+    for ln in lines:
+        if not isinstance(ln, dict) or not is_priced_bid_line(ln):
+            continue
+        total += _as_decimal(ln.get("amount"), "0")
+    return _money(total)
+
+
 def _normalize_bid_lines(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Normalize supplier bid lines.
+
+    Each item must be either:
+    - Option A: Bid Qty > 0 and Unit Price > 0 (remarks optional), or
+    - Option B: nonempty Remarks (unquoted; qty/price/amount cleared to 0).
+
+    Completely empty or incomplete numeric fields without Remarks are rejected.
+    Prefill qty alone is not a valid quotation.
+    """
     normalized: list[dict[str, Any]] = []
     for row in lines:
         if not isinstance(row, dict):
@@ -698,13 +738,28 @@ def _normalize_bid_lines(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
         except Exception as exc:
             raise BiddingValidationError("each bid line requires a valid detailId") from exc
 
+        remarks = _clean_text(row.get("remarks"))
         bid_qty = _money(_as_decimal(row.get("quantity", row.get("qty", "0")), "0"))
         bid_price = _money(_as_decimal(row.get("unitPrice", row.get("unitprice", "0")), "0"))
         bid_tax = _money(_as_decimal(row.get("tax", row.get("taxamt", "0")), "0"))
-        if bid_qty <= 0:
-            raise BiddingValidationError(f"bid quantity must be > 0 for detail {source_dtl}")
+        lead_days = int(_as_decimal(row.get("leadDays"), "0"))
+
         if bid_price < 0:
             raise BiddingValidationError(f"bid unitPrice must be >= 0 for detail {source_dtl}")
+        if bid_qty < 0:
+            raise BiddingValidationError(f"bid quantity must be >= 0 for detail {source_dtl}")
+
+        is_quoted = bid_qty > 0 and bid_price > 0
+        if is_quoted:
+            amount = _money((bid_qty * bid_price) + bid_tax)
+        elif remarks:
+            # Unquoted / unable to supply — keep remarks; never persist misleading prices.
+            bid_qty = _money(Decimal("0"))
+            bid_price = _money(Decimal("0"))
+            bid_tax = _money(Decimal("0"))
+            amount = _money(Decimal("0"))
+        else:
+            raise BiddingValidationError(BID_LINE_INCOMPLETE_MSG)
 
         normalized.append(
             {
@@ -714,9 +769,10 @@ def _normalize_bid_lines(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "quantity": bid_qty,
                 "unitPrice": bid_price,
                 "taxAmt": bid_tax,
-                "amount": _money((bid_qty * bid_price) + bid_tax),
-                "leadDays": int(_as_decimal(row.get("leadDays"), "0")),
-                "remarks": _clean_text(row.get("remarks")),
+                "amount": amount,
+                "leadDays": lead_days,
+                "remarks": remarks,
+                "isQuoted": bool(is_quoted),
             }
         )
 
@@ -1086,20 +1142,25 @@ def _bid_hdr_row_to_lines(cur: Any, bid_id: int) -> list[dict[str, Any]]:
         (bid_id,),
     )
     lines = cur.fetchall() or []
-    return [
-        {
-            "detailId": int(row[0]),
-            "itemCode": _clean_text(row[1]),
-            "description": _clean_text(row[2]),
-            "quantity": float(_as_decimal(row[3], "0")),
-            "unitPrice": float(_as_decimal(row[4], "0")),
-            "tax": float(_as_decimal(row[5], "0")),
-            "amount": float(_as_decimal(row[6], "0")),
-            "leadDays": int(_as_decimal(row[7], "0")),
-            "remarks": _clean_text(row[8]),
-        }
-        for row in lines
-    ]
+    result: list[dict[str, Any]] = []
+    for row in lines:
+        qty = float(_as_decimal(row[3], "0"))
+        price = float(_as_decimal(row[4], "0"))
+        result.append(
+            {
+                "detailId": int(row[0]),
+                "itemCode": _clean_text(row[1]),
+                "description": _clean_text(row[2]),
+                "quantity": qty,
+                "unitPrice": price,
+                "tax": float(_as_decimal(row[5], "0")),
+                "amount": float(_as_decimal(row[6], "0")),
+                "leadDays": int(_as_decimal(row[7], "0")),
+                "remarks": _clean_text(row[8]),
+                "isQuoted": qty > 0 and price > 0,
+            }
+        )
+    return result
 
 
 def _bid_hdr_row_to_dict(bid: tuple, lines: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1330,17 +1391,19 @@ def list_bids_for_bidding_view(request_dockey: int) -> tuple[list[dict[str, Any]
             for ln in all_lines
             if isinstance(ln, dict) and int(ln.get("detailId") or 0) in detail_set
         ]
-        comparison_total = sum(float(_as_decimal(ln.get("amount"), "0")) for ln in all_lines if isinstance(ln, dict))
-        on_pr_total = sum(float(_as_decimal(ln.get("amount"), "0")) for ln in on_pr_lines)
+        priced_all = [ln for ln in all_lines if isinstance(ln, dict) and is_priced_bid_line(ln)]
+        priced_on_pr = [ln for ln in on_pr_lines if is_priced_bid_line(ln)]
+        comparison_total = _sum_priced_bid_amounts(all_lines)
+        on_pr_total = _sum_priced_bid_amounts(on_pr_lines)
         supplier_code = _clean_text(bid.get("supplierCode"))
         display_bids.append(
             {
                 **bid,
                 "lines": on_pr_lines,
-                "comparisonLineCount": len(all_lines),
-                "comparisonTotalAmount": float(_money(_as_decimal(comparison_total, "0"))),
-                "onPrLineCount": len(on_pr_lines),
-                "onPrTotalAmount": float(_money(_as_decimal(on_pr_total, "0"))),
+                "comparisonLineCount": len(priced_all),
+                "comparisonTotalAmount": float(comparison_total),
+                "onPrLineCount": len(priced_on_pr),
+                "onPrTotalAmount": float(on_pr_total),
                 "isAwardedOnThisPr": bool(
                     supplier_code and supplier_code.upper() in awarded_codes
                 ),
@@ -2106,16 +2169,26 @@ def save_line_awards(
         dtl_placeholders = ", ".join(["?"] * len(bid_ids))
         cur.execute(
             f"""
-            SELECT BID_ID, SOURCE_DTLKEY
+            SELECT BID_ID, SOURCE_DTLKEY, BID_QTY, BID_UNITPRICE
             FROM PR_BID_DTL
             WHERE BID_ID IN ({dtl_placeholders})
             """,
             tuple(bid_ids),
         )
+        dtl_rows = cur.fetchall() or []
         valid_pairs = {
             (int(row[1]), int(row[0]))
-            for row in (cur.fetchall() or [])
+            for row in dtl_rows
             if row and row[0] is not None and row[1] is not None
+        }
+        priced_pairs = {
+            (int(row[1]), int(row[0]))
+            for row in dtl_rows
+            if row
+            and row[0] is not None
+            and row[1] is not None
+            and _as_decimal(row[2], "0") > 0
+            and _as_decimal(row[3], "0") > 0
         }
 
         for detail_id, bid_id in normalized:
@@ -2126,6 +2199,10 @@ def save_line_awards(
                 raise BiddingValidationError(f"bid {bid_id} does not belong to request {request_dockey}")
             if (detail_id, bid_id) not in valid_pairs:
                 raise BiddingValidationError(f"detail {detail_id} is not present in bid {bid_id}")
+            if (detail_id, bid_id) not in priced_pairs:
+                raise BiddingValidationError(
+                    f"detail {detail_id} in bid {bid_id} is not a priced quotation and cannot be awarded"
+                )
 
         cur.execute("DELETE FROM PR_BID_LINE_AWARD WHERE REQUEST_DOCKEY = ?", (request_dockey,))
         saved = 0

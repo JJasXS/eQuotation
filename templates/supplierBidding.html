@@ -976,7 +976,12 @@
 
         function bidTotalAmount(myBid) {
             if (!myBid || !Array.isArray(myBid.lines)) return 0;
-            return myBid.lines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
+            return myBid.lines.reduce((sum, line) => {
+                const qty = Number(line.quantity || 0);
+                const price = Number(line.unitPrice || 0);
+                if (!(qty > 0 && price > 0)) return sum;
+                return sum + Number(line.amount || 0);
+            }, 0);
         }
 
         function renderBidSummaryPanel(myBid, inviteClosed, inviteMeta) {
@@ -1254,17 +1259,43 @@
             showWorkbench(true);
         }
 
+        const BID_LINE_INCOMPLETE_MSG =
+            'Please enter Bid Qty and Unit Price, or provide Remarks if you cannot supply this item.';
+
+        function isValidBidQuotation(qty, price) {
+            return Number(qty) > 0 && Number(price) > 0;
+        }
+
         function collectBidLines() {
             const bodyRows = Array.from(document.querySelectorAll('#bid-lines-body tr[data-detail-id]'));
             return bodyRows.map((row) => {
+                const qtyRaw = String((row.querySelector('.bid-qty') || {}).value || '').trim();
+                const priceRaw = String((row.querySelector('.bid-unit-price') || {}).value || '').trim();
+                const qty = Number(qtyRaw || 0);
+                const price = Number(priceRaw || 0);
+                const remarks = String((row.querySelector('.bid-remarks') || {}).value || '').trim();
+                const quoted = isValidBidQuotation(qty, price);
                 return {
                     detailId: Number(row.dataset.detailId),
-                    quantity: Number((row.querySelector('.bid-qty') || {}).value || 0),
-                    unitPrice: Number((row.querySelector('.bid-unit-price') || {}).value || 0),
+                    // Prefill qty alone is not a quotation; clear incomplete numerics when remarks-only.
+                    quantity: quoted ? qty : 0,
+                    unitPrice: quoted ? price : 0,
                     leadDays: Number((row.querySelector('.bid-lead-days') || {}).value || 0),
-                    remarks: String((row.querySelector('.bid-remarks') || {}).value || '').trim(),
+                    remarks,
+                    _quoted: quoted,
+                    _hasRemarks: !!remarks,
                 };
             }).filter((line) => line.detailId > 0);
+        }
+
+        function validateBidLinesForSubmit(lines) {
+            for (let i = 0; i < lines.length; i += 1) {
+                const line = lines[i];
+                if (!line._quoted && !line._hasRemarks) {
+                    return { ok: false, index: i, message: BID_LINE_INCOMPLETE_MSG };
+                }
+            }
+            return { ok: true };
         }
 
         async function submitBid() {
@@ -1281,10 +1312,23 @@
                 showBidMessage('No bid lines to submit.', true);
                 return;
             }
+            const validation = validateBidLinesForSubmit(lines);
+            if (!validation.ok) {
+                showBidMessage(validation.message || BID_LINE_INCOMPLETE_MSG, true);
+                return;
+            }
 
             const btn = document.getElementById('submit-bid-btn');
             if (btn) btn.disabled = true;
             clearBidMessage();
+
+            const payloadLines = lines.map(({ detailId, quantity, unitPrice, leadDays, remarks }) => ({
+                detailId,
+                quantity,
+                unitPrice,
+                leadDays,
+                remarks,
+            }));
 
             try {
                 const res = await fetch('/api/procurement/bidding/submit', {
@@ -1293,7 +1337,7 @@
                     body: JSON.stringify({
                         requestId: activeInvite.requestId,
                         requestNumber: activeInvite.requestNo,
-                        bidLines: lines,
+                        bidLines: payloadLines,
                     }),
                 });
                 const body = await res.json();

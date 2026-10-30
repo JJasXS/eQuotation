@@ -11017,6 +11017,14 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
         function showPurchaseRequestMessage(message, kind) {
 
+            if (kind === 'error') {
+
+                showPurchaseRequestErrorModal(message);
+
+                return;
+
+            }
+
             const el = document.getElementById('pr-form-message');
 
             if (!el) return;
@@ -11026,6 +11034,88 @@ function buildViewPurchaseRequestDetailHtml(header) {
             el.className = `pr-form-message ${kind || 'info'}`;
 
             el.textContent = message;
+
+        }
+
+        let prErrorModalEscapeHandler = null;
+
+        function closePurchaseRequestErrorModal() {
+
+            const modal = document.getElementById('pr-error-modal');
+
+            if (modal) {
+
+                modal.style.display = 'none';
+
+                modal.setAttribute('aria-hidden', 'true');
+
+            }
+
+            if (prErrorModalEscapeHandler) {
+
+                document.removeEventListener('keydown', prErrorModalEscapeHandler);
+
+                prErrorModalEscapeHandler = null;
+
+            }
+
+        }
+
+        /**
+
+         * In-app error dialog (replaces inline error banner on Create e-PR submit).
+
+         * @param {string} message - Validation or submit error text
+
+         * @param {string} [title] - Optional heading (default Attention)
+
+         */
+
+        function showPurchaseRequestErrorModal(message, title) {
+
+            const modal = document.getElementById('pr-error-modal');
+
+            const titleEl = document.getElementById('pr-error-modal-title');
+
+            const bodyEl = document.getElementById('pr-error-modal-body');
+
+            const okBtn = document.getElementById('pr-error-modal-ok');
+
+            if (!modal || !titleEl || !bodyEl) return;
+
+            titleEl.textContent = title || 'Attention';
+
+            bodyEl.textContent = message || 'Something went wrong.';
+
+            modal.style.display = '';
+
+            modal.setAttribute('aria-hidden', 'false');
+
+            if (prErrorModalEscapeHandler) {
+
+                document.removeEventListener('keydown', prErrorModalEscapeHandler);
+
+            }
+
+            prErrorModalEscapeHandler = (e) => {
+
+                if (e.key === 'Escape') {
+
+                    e.preventDefault();
+
+                    closePurchaseRequestErrorModal();
+
+                }
+
+            };
+
+            document.addEventListener('keydown', prErrorModalEscapeHandler);
+
+            if (okBtn) {
+
+                setTimeout(() => okBtn.focus(), 0);
+
+            }
 
         }
 
@@ -12673,6 +12763,20 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             const isSubmit = String(payload.status || '').toUpperCase() === 'SUBMITTED';
 
+            if (isSubmit) {
+
+                const suppliers = Array.isArray(payload.suppliers) ? payload.suppliers : [];
+
+                const hasSupplier = suppliers.some((s) => String((s && s.code) || '').trim());
+
+                if (!hasSupplier) {
+
+                    return 'Select at least one supplier to invite for bidding when submitting';
+
+                }
+
+            }
+
             for (let i = 0; i < payload.lineItems.length; i += 1) {
 
                 const item = payload.lineItems[i];
@@ -12762,6 +12866,26 @@ function buildViewPurchaseRequestDetailHtml(header) {
                 }
 
                 const isSubmitFromEdit = String(status || '').toUpperCase() === 'SUBMITTED';
+
+                if (isSubmitFromEdit) {
+
+                    const hasSupplier = selectedSuppliers.some((s) => String((s && s.code) || '').trim());
+
+                    if (!hasSupplier) {
+
+                        showPurchaseRequestMessage(
+
+                            'Select at least one supplier to invite for bidding when submitting',
+
+                            'error'
+
+                        );
+
+                        return;
+
+                    }
+
+                }
 
                 for (let i = 0; i < editLineItems.length; i += 1) {
 

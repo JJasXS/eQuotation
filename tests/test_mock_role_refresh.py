@@ -75,3 +75,19 @@ def test_refresh_skips_supplier_session():
         assert refresh_staff_session_roles(session) is False
 
     _run_with_env(_check, APP='dev')
+
+
+def test_refresh_skips_customer_portal_session():
+    """Customer tab login must not be overwritten by SY_USER admin flags in APP=dev."""
+    def _check():
+        session = {
+            'user_email': 'customer@example.com',
+            'user_type': 'user',
+            'access_tier': 'customer',
+            'customer_code': '300-Y0001',
+        }
+        assert refresh_staff_session_roles(session) is False
+        assert session['access_tier'] == 'customer'
+        assert session['user_type'] == 'user'
+
+    _run_with_env(_check, APP='dev')
