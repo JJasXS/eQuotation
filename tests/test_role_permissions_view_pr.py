@@ -1,4 +1,4 @@
-"""Purchase / View e-PR gates use UDF_ISADMIN / ISHOD / ISPURMNG / ISDIRECTOR only."""
+"""Purchase / View e-PR gates use UDF_ISADMIN / ISPURHOD / ISPURMNG / ISDIRECTOR only."""
 from utils.role_permissions import (
     ACCESS_TIER_CUSTOMER,
     ACCESS_TIER_DIRECTOR,
@@ -50,12 +50,29 @@ def test_ispurmgr_column_alias_maps():
     assert flags2.get("ispurmng") is True
 
 
+def test_ispurhod_maps_and_other_dept_hods_ignored():
+    flags = staff_udf_from_sy_user_row({"UDF_ISPURHOD": "T"})
+    assert flags.get("ispurhod") is True
+    other = staff_udf_from_sy_user_row(
+        {
+            "UDF_ISSALESHOD": "T",
+            "UDF_ISPRDHOD": "T",
+            "UDF_ISSTRHOD": "T",
+            "UDF_ISQAHOD": "T",
+            "UDF_ISFINHOD": "T",
+            "UDF_ISHOD": "T",
+        }
+    )
+    assert other.get("ispurhod") is not True
+    assert staff_has_any_mapped_role_udf(other) is False
+
+
 def test_new_role_flags_map_and_priority():
     assert (
         compute_access_tier(
             is_supplier=False,
             is_customer=False,
-            staff_udf={"isadmin": True, "ispurmng": True, "ishod": True},
+            staff_udf={"isadmin": True, "ispurmng": True, "ispurhod": True},
             sy_user_row_present=True,
         )
         == ACCESS_TIER_FULL_ADMIN
@@ -64,7 +81,7 @@ def test_new_role_flags_map_and_priority():
         compute_access_tier(
             is_supplier=False,
             is_customer=False,
-            staff_udf={"ispurmng": True, "ishod": True},
+            staff_udf={"ispurmng": True, "ispurhod": True},
             sy_user_row_present=True,
         )
         == ACCESS_TIER_PURCH_MGMT
@@ -73,7 +90,7 @@ def test_new_role_flags_map_and_priority():
         compute_access_tier(
             is_supplier=False,
             is_customer=False,
-            staff_udf={"ishod": True},
+            staff_udf={"ispurhod": True},
             sy_user_row_present=True,
         )
         == ACCESS_TIER_HOD
@@ -125,7 +142,7 @@ def test_customer_portal_never_sees_purchase_even_with_staff_udf():
     session = {
         "access_tier": ACCESS_TIER_CUSTOMER,
         "login_mode": "customer",
-        "staff_udf": {"isadmin": True, "ispurmng": True, "ishod": True},
+        "staff_udf": {"isadmin": True, "ispurmng": True, "ispurhod": True},
         "user_type": "user",
     }
     assert can_see_view_pr(session) is False

@@ -3182,7 +3182,7 @@ def api_verify_otp():
                     'success': False,
                     'error': (
                         'No role is assigned for this account. '
-                        'Ask an administrator to set one of UDF_ISADMIN, UDF_ISHOD, UDF_ISPURMGR, '
+                        'Ask an administrator to set one of UDF_ISADMIN, UDF_ISPURHOD, UDF_ISPURMGR, '
                         'UDF_ISDIRECTOR, or UDF_SSTAFF on SY_USER.'
                     ),
                 }), 403

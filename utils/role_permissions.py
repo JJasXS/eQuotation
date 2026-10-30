@@ -4,7 +4,7 @@ Role and UI permissions derived from SY_USER UDF_* flags (not SY_USER.CODE).
 Canonical access tier (session['access_tier']) after login:
   - full_admin            UDF_ISADMIN
   - purchasing_management UDF_ISPURMGR (alias UDF_ISPURMNG)
-  - hod                   UDF_ISHOD
+  - hod                   UDF_ISPURHOD (purchase HOD only; not ISSALESHOD / other dept HODs)
   - director              UDF_ISDIRECTOR (gate only; tab/action rules TBD)
   - sales_staff           UDF_SSTAFF
   - customer              AR customer / branch email match (quotation customer UI)
@@ -12,10 +12,11 @@ Canonical access tier (session['access_tier']) after login:
   - no_role               SY_USER row exists but no recognized role UDF is true
 
 Purchase / View e-PR requires at least one of:
-  UDF_ISADMIN | UDF_ISHOD | UDF_ISPURMGR/UDF_ISPURMNG | UDF_ISDIRECTOR
+  UDF_ISADMIN | UDF_ISPURHOD | UDF_ISPURMGR/UDF_ISPURMNG | UDF_ISDIRECTOR
 
 Ignored (not mapped — no access effect):
-  UDF_MANAGEMENT, UDF_PMANAGEMENT, UDF_PUSER, UDF_SMANAGEMENT, UDF_SUSER.
+  UDF_MANAGEMENT, UDF_PMANAGEMENT, UDF_PUSER, UDF_SMANAGEMENT, UDF_SUSER,
+  UDF_ISSALESHOD and other non-purchase department HOD/MGR/USER flags.
 
 Legacy sessions without access_tier infer from user_type for backward compatibility.
 """
@@ -27,7 +28,7 @@ import os
 # ACC-UAMAT uses UDF_ISPURMGR; docs/UI may still say UDF_ISPURMNG — map both.
 SY_USER_UDF_COLUMN_TO_FLAG = {
     'UDF_ISADMIN': 'isadmin',
-    'UDF_ISHOD': 'ishod',
+    'UDF_ISPURHOD': 'ispurhod',
     'UDF_ISPURMGR': 'ispurmng',
     'UDF_ISPURMNG': 'ispurmng',
     'UDF_ISDIRECTOR': 'isdirector',
@@ -58,7 +59,7 @@ _VIEW_PR_TIERS = (
 
 _ROLE_UDF_FLAGS = (
     'isadmin',
-    'ishod',
+    'ispurhod',
     'ispurmng',
     'isdirector',
     'sstaff',
@@ -77,7 +78,7 @@ def _truthy(val) -> bool:
 
 
 def staff_udf_from_sy_user_row(row: dict | None) -> dict:
-    """Build {'isadmin': bool, 'ishod': bool, ...} from a SY_USER row dict (any casing)."""
+    """Build {'isadmin': bool, 'ispurhod': bool, ...} from a SY_USER row dict (any casing)."""
     if not isinstance(row, dict):
         return {}
     norm = {}
@@ -179,7 +180,7 @@ def compute_access_tier(
     """
     Pick a single primary tier.
 
-    Priority: ISADMIN > ISPURMGR > ISHOD > ISDIRECTOR > SSTAFF.
+    Priority: ISADMIN > ISPURMGR > ISPURHOD > ISDIRECTOR > SSTAFF.
     """
     if is_supplier:
         return ACCESS_TIER_SUPPLIER
@@ -188,7 +189,7 @@ def compute_access_tier(
         return ACCESS_TIER_FULL_ADMIN
     if udf.get('ispurmng'):
         return ACCESS_TIER_PURCH_MGMT
-    if udf.get('ishod'):
+    if udf.get('ispurhod'):
         return ACCESS_TIER_HOD
     if udf.get('isdirector'):
         return ACCESS_TIER_DIRECTOR
@@ -211,7 +212,7 @@ def staff_has_view_pr_role_flag(staff_udf: dict | None) -> bool:
     udf = staff_udf or {}
     return bool(
         udf.get('isadmin')
-        or udf.get('ishod')
+        or udf.get('ispurhod')
         or udf.get('ispurmng')
         or udf.get('isdirector')
     )
@@ -250,7 +251,7 @@ def _is_portal_only_session(session) -> bool:
 
 
 def can_see_view_pr(session) -> bool:
-    """View e-PR / Purchase menu: ISADMIN | ISHOD | ISPURMGR | ISDIRECTOR."""
+    """View e-PR / Purchase menu: ISADMIN | ISPURHOD | ISPURMGR | ISDIRECTOR."""
     if _is_portal_only_session(session):
         return False
     t = infer_access_tier_from_session(session)

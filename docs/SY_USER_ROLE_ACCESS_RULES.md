@@ -5,7 +5,7 @@
 
 ## Principle
 
-**ISADMIN / ISHOD / ISPURMGR / ISDIRECTOR all see the Purchase area** (menu, Create e-PR, View e-PR, etc.).
+**ISADMIN / ISPURHOD / ISPURMGR / ISDIRECTOR all see the Purchase area** (menu, Create e-PR, View e-PR, etc.).
 
 Limits are **only inside View e-PR status tabs** (which tabs show, and what you can do on that tab) — not whether Purchase itself is visible.
 
@@ -18,7 +18,7 @@ Limits are **only inside View e-PR status tabs** (which tabs show, and what you 
 
 ```text
 can_see_purchase =
-  ISADMIN OR ISHOD OR ISPURMGR OR ISDIRECTOR
+  ISADMIN OR ISPURHOD OR ISPURMGR OR ISDIRECTOR
 ```
 
 ---
@@ -28,7 +28,7 @@ can_see_purchase =
 | Column | Role |
 |--------|------|
 | `UDF_ISADMIN` | System admin — full access |
-| `UDF_ISHOD` | HOD — Awaiting-focused; Pending/Approved view-only |
+| `UDF_ISPURHOD` | Purchase HOD — Awaiting-focused; Pending/Approved view-only (not `ISSALESHOD` / other dept HODs) |
 | `UDF_ISPURMGR` | Purchasing manager — Pending/Approved full; no Awaiting tab (alias: `UDF_ISPURMNG`) |
 | `UDF_ISDIRECTOR` | Director — sees Purchase; status-tab rules **TBD** (no extra hides yet) |
 | `UDF_SSTAFF` | Sales staff only (quotations; **no** Purchase) |
@@ -66,7 +66,7 @@ Truthy: `1`, `Y`, `YES`, `T`, `TRUE`, `ON`, `-1`.
 
 1. `UDF_ISADMIN` → `full_admin`
 2. `UDF_ISPURMGR` → `purchasing_management`
-3. `UDF_ISHOD` → `hod`
+3. `UDF_ISPURHOD` → `hod`
 4. `UDF_ISDIRECTOR` → `director`
 5. `UDF_SSTAFF` → `sales_staff`
 
@@ -88,3 +88,4 @@ Any of the four purchase flags → Purchase visible; priority only picks which t
 |------|------|
 | 2026-10-29 | Four Role Selection flags; legacy five UDFs ignored. |
 | 2026-10-29 | Clarify: all four see Purchase; only View e-PR status tabs/actions are limited. |
+| 2026-10-30 | Purchase HOD uses `UDF_ISPURHOD` (not generic `UDF_ISHOD`); other dept HODs ignored. |
