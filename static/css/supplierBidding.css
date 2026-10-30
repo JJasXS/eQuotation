@@ -54,7 +54,7 @@ body.supplier-bidding-page .main-content {
 
 .supplier-bidding-split {
     display: grid;
-    grid-template-columns: minmax(260px, 28%) minmax(0, 1fr);
+    grid-template-columns: minmax(300px, 33%) minmax(0, 1fr);
     gap: 0;
     flex: 1;
     min-height: 0;
