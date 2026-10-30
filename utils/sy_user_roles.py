@@ -11,6 +11,7 @@ import time
 from utils.app_mode import is_dev_app
 from utils.db_utils import get_db_connection
 from utils.role_permissions import (
+    ACCESS_TIER_CUSTOMER,
     compute_access_tier,
     staff_locations_from_sy_user_row,
     staff_udf_from_sy_user_row,
@@ -63,13 +64,21 @@ def refresh_staff_session_roles(session, *, min_interval_sec: float = _DEFAULT_M
     Re-load SY_USER Role Selection flags into ``session``.
 
     Returns True when access_tier / staff_udf / locations / user_type changed.
-    No-op when APP is not dev, supplier sessions, or throttle window.
+    No-op when APP is not dev, supplier/customer portal sessions, or throttle window.
+
+    Customer Portal logins (access_tier=customer) must stay customer even when the
+    same email also exists on SY_USER — otherwise APP=dev refresh upgrades them to
+    admin and /create-quotation redirects into the admin procurement UI.
     """
     if not mock_role_refresh_enabled():
         return False
     if session is None or not session.get('user_email'):
         return False
-    if (session.get('user_type') or '').strip().lower() == 'supplier':
+    user_type = (session.get('user_type') or '').strip().lower()
+    if user_type == 'supplier':
+        return False
+    access_tier = str(session.get('access_tier') or '').strip().lower()
+    if access_tier == ACCESS_TIER_CUSTOMER:
         return False
 
     now = time.monotonic()
