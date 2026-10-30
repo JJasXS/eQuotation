@@ -12,6 +12,7 @@ from utils.app_mode import is_dev_app
 from utils.db_utils import get_db_connection
 from utils.role_permissions import (
     ACCESS_TIER_CUSTOMER,
+    ACCESS_TIER_SUPPLIER,
     compute_access_tier,
     staff_locations_from_sy_user_row,
     staff_udf_from_sy_user_row,
@@ -64,21 +65,25 @@ def refresh_staff_session_roles(session, *, min_interval_sec: float = _DEFAULT_M
     Re-load SY_USER Role Selection flags into ``session``.
 
     Returns True when access_tier / staff_udf / locations / user_type changed.
-    No-op when APP is not dev, supplier/customer portal sessions, or throttle window.
+    No-op when APP is not dev, customer/supplier portal sessions, or throttle window.
 
-    Customer Portal logins (access_tier=customer) must stay customer even when the
-    same email also exists on SY_USER — otherwise APP=dev refresh upgrades them to
-    admin and /create-quotation redirects into the admin procurement UI.
+    Customer / supplier logins must never be elevated via SY_USER even when the
+    same email exists as a staff row (common on shared inboxes / test data).
     """
     if not mock_role_refresh_enabled():
         return False
     if session is None or not session.get('user_email'):
         return False
-    user_type = (session.get('user_type') or '').strip().lower()
-    if user_type == 'supplier':
+
+    login_mode = str(session.get('login_mode') or '').strip().lower()
+    user_type_now = str(session.get('user_type') or '').strip().lower()
+    tier_now = str(session.get('access_tier') or '').strip()
+    if login_mode in ('customer', 'supplier'):
         return False
-    access_tier = str(session.get('access_tier') or '').strip().lower()
-    if access_tier == ACCESS_TIER_CUSTOMER:
+    if user_type_now == 'supplier' or tier_now in (ACCESS_TIER_SUPPLIER, ACCESS_TIER_CUSTOMER):
+        return False
+    # Staff refresh only for admin-tab sessions (or legacy staff without login_mode).
+    if login_mode and login_mode != 'admin':
         return False
 
     now = time.monotonic()

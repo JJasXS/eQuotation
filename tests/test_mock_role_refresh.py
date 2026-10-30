@@ -84,10 +84,13 @@ def test_refresh_skips_customer_portal_session():
             'user_email': 'customer@example.com',
             'user_type': 'user',
             'access_tier': 'customer',
+            'login_mode': 'customer',
             'customer_code': '300-Y0001',
+            'staff_udf': {},
         }
         assert refresh_staff_session_roles(session) is False
         assert session['access_tier'] == 'customer'
         assert session['user_type'] == 'user'
+        assert session['staff_udf'] == {}
 
     _run_with_env(_check, APP='dev')

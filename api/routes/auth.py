@@ -404,19 +404,25 @@ def lookup_email_identity(
         is_user = bool(user)
         is_supplier = bool(supplier) and not is_admin_sy
 
-        staff_any = staff_has_any_mapped_role_udf(staff_udf)
-        if is_supplier:
+        # Portal tabs stay portal-only. Staff roles only apply on the admin tab.
+        if mode == "customer":
+            access_tier = ACCESS_TIER_CUSTOMER
+            staff_udf = {}
+            staff_locations = []
+        elif mode == "supplier":
+            access_tier = ACCESS_TIER_SUPPLIER
+            staff_udf = {}
+            staff_locations = []
+        elif is_supplier:
             access_tier = ACCESS_TIER_SUPPLIER
         elif is_user:
-            if staff_any and is_admin_sy:
-                access_tier = compute_access_tier(
-                    is_supplier=False,
-                    is_customer=True,
-                    staff_udf=staff_udf,
-                    sy_user_row_present=True,
-                )
-            else:
-                access_tier = ACCESS_TIER_CUSTOMER
+            # Admin-tab path that also matched AR_CUSTOMER — still staff-driven.
+            access_tier = compute_access_tier(
+                is_supplier=False,
+                is_customer=not staff_has_any_mapped_role_udf(staff_udf),
+                staff_udf=staff_udf,
+                sy_user_row_present=is_admin_sy,
+            )
         else:
             access_tier = compute_access_tier(
                 is_supplier=False,
