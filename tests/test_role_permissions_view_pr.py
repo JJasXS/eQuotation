@@ -121,6 +121,28 @@ def test_sales_tier_still_sees_purchase_when_role_flags_set():
     assert can_access_purchase_menu(session) is True
 
 
+def test_customer_portal_never_sees_purchase_even_with_staff_udf():
+    session = {
+        "access_tier": ACCESS_TIER_CUSTOMER,
+        "login_mode": "customer",
+        "staff_udf": {"isadmin": True, "ispurmng": True, "ishod": True},
+        "user_type": "user",
+    }
+    assert can_see_view_pr(session) is False
+    assert can_access_purchase_menu(session) is False
+
+
+def test_customer_login_mode_blocks_purchase_even_if_tier_polluted():
+    session = {
+        "access_tier": ACCESS_TIER_FULL_ADMIN,
+        "login_mode": "customer",
+        "staff_udf": {"isadmin": True},
+        "user_type": "admin",
+    }
+    assert can_see_view_pr(session) is False
+    assert can_access_purchase_menu(session) is False
+
+
 def test_hod_hides_transfer_and_approval_edits():
     session = {"access_tier": ACCESS_TIER_HOD}
     assert hide_pr_transfer_for_pstaff(session) is True

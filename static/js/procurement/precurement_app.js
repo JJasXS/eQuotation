@@ -4332,7 +4332,7 @@
 
             if (hint) {
 
-                hint.hidden = false;
+                hint.hidden = true;
 
                 hint.textContent = n === 0 ? '0 selected' : `${n} selected`;
 
@@ -4350,17 +4350,23 @@
 
                     approveBtn.textContent = n === 0 ? 'Approve selected' : `Approve selected (${n})`;
 
+                    approveBtn.title = 'Approve selected purchase requests';
+
                     approveBtn.hidden = false;
 
                 } else if (targetUdf === 'PENDING') {
 
-                    approveBtn.textContent = n === 0 ? 'Mark selected Pending' : `Mark selected Pending (${n})`;
+                    approveBtn.textContent = 'to Pending';
+
+                    approveBtn.title = n === 0
+                        ? 'Select PRs, then change status to Pending'
+                        : `Change ${n} selected PR(s) to Pending`;
 
                     approveBtn.hidden = false;
 
                 } else {
 
-                    approveBtn.textContent = 'Update selected';
+                    approveBtn.textContent = 'to Pending';
 
                     approveBtn.hidden = true;
 
@@ -4463,7 +4469,9 @@
 
             }
 
-            const hide = document.body.classList.contains('procurement-hide-pr-approval-edits');
+            // HOD can select-all on Awaiting (→ Pending); other hide-approval roles cannot.
+            const hide = isProcurementApprovalEditsHidden()
+                && !(isProcurementHodRole() && viewStatusFilters.has('AWAITING'));
 
             const active = isViewPendingBulkSelectMode() && !hide;
 

@@ -98,6 +98,7 @@ from utils.procurement_bidding import (
     validate_transfer_against_line_awards,
 )
 from utils.role_permissions import (
+    ACCESS_TIER_CUSTOMER,
     ACCESS_TIER_DIRECTOR,
     ACCESS_TIER_FULL_ADMIN,
     ACCESS_TIER_HOD,
@@ -3143,6 +3144,18 @@ def api_verify_otp():
             staff_locations = []
         user_type_hint = str(identity.get('user_type_hint') or 'user').strip()
 
+        # Customer / supplier tabs are portal-only: never inherit SY_USER staff roles.
+        if login_mode == 'customer':
+            access_tier = ACCESS_TIER_CUSTOMER
+            staff_udf = {}
+            staff_locations = []
+            user_type_hint = 'user'
+        elif login_mode == 'supplier':
+            access_tier = ACCESS_TIER_SUPPLIER
+            staff_udf = {}
+            staff_locations = []
+            user_type_hint = 'supplier'
+
         if identity.get('is_supplier'):
             user_type = 'supplier'
             redirect_url = '/supplier/bidding'
@@ -3150,16 +3163,21 @@ def api_verify_otp():
             print(f"[AUTH] Supplier user detected: {email} -> Supplier: {customer_code}")
         elif identity.get('is_user') or identity.get('is_customer'):
             customer_code = identity.get('customer_code')
-            user_type = user_type_hint if user_type_hint in ('admin', 'user') else 'user'
-            if access_tier == ACCESS_TIER_SALES_STAFF:
+            # Customer-tab login stays a customer even if email also exists in SY_USER.
+            if login_mode == 'customer':
                 user_type = 'user'
-            if user_type == 'admin' and access_tier in (ACCESS_TIER_FULL_ADMIN, ACCESS_TIER_SALES_MGMT):
-                redirect_url = '/admin'
-            elif user_type == 'admin':
-                redirect_url = f'{PROCUREMENT_UI_PATH}?tab=view'
-            else:
                 redirect_url = '/create-quotation'
-            print(f"[AUTH] Customer path: {email} tier={access_tier} user_type={user_type}")
+            else:
+                user_type = user_type_hint if user_type_hint in ('admin', 'user') else 'user'
+                if access_tier == ACCESS_TIER_SALES_STAFF:
+                    user_type = 'user'
+                if user_type == 'admin' and access_tier in (ACCESS_TIER_FULL_ADMIN, ACCESS_TIER_SALES_MGMT):
+                    redirect_url = '/admin'
+                elif user_type == 'admin':
+                    redirect_url = f'{PROCUREMENT_UI_PATH}?tab=view'
+                else:
+                    redirect_url = '/create-quotation'
+            print(f"[AUTH] Customer path: {email} tier={access_tier} user_type={user_type} login_mode={login_mode}")
         elif identity.get('is_admin'):
             if access_tier == ACCESS_TIER_NO_ROLE:
                 return jsonify({
@@ -3200,6 +3218,7 @@ def api_verify_otp():
         # OTP is valid - rotate session to prevent fixation, then bind identity
         session.clear()
         session['user_email'] = email
+        session['login_mode'] = login_mode
         session['access_tier'] = access_tier or ('supplier' if user_type == 'supplier' else 'customer')
         session['staff_udf'] = staff_udf
         session['staff_locations'] = staff_locations
@@ -3292,17 +3311,20 @@ def api_guide_capture_login():
 
     if role == 'supplier':
         session['user_type'] = 'supplier'
+        session['login_mode'] = 'supplier'
         session['access_tier'] = ACCESS_TIER_SUPPLIER
         session['customer_code'] = (data.get('supplier_code') or 'GUIDE-SUP').strip()
         session['supplier_code'] = session['customer_code']
         redirect_url = '/supplier/bidding'
     elif role == 'customer':
         session['user_type'] = 'user'
-        session['access_tier'] = 'customer'
+        session['login_mode'] = 'customer'
+        session['access_tier'] = ACCESS_TIER_CUSTOMER
         session['customer_code'] = (data.get('customer_code') or 'GUIDE-CUST').strip()
         redirect_url = '/create-quotation'
     else:
         session['user_type'] = 'admin'
+        session['login_mode'] = 'admin'
         session['access_tier'] = ACCESS_TIER_FULL_ADMIN
         session['customer_code'] = None
         redirect_url = '/admin'

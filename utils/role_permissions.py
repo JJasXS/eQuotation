@@ -240,9 +240,22 @@ def is_full_management_admin(session) -> bool:
     return infer_access_tier_from_session(session) == ACCESS_TIER_FULL_ADMIN
 
 
+def _is_portal_only_session(session) -> bool:
+    """Customer / supplier portal sessions never inherit staff Purchase/admin rights."""
+    login_mode = str(session.get('login_mode') or '').strip().lower() if session is not None else ''
+    if login_mode in ('customer', 'supplier'):
+        return True
+    t = infer_access_tier_from_session(session)
+    return t in (ACCESS_TIER_CUSTOMER, ACCESS_TIER_SUPPLIER)
+
+
 def can_see_view_pr(session) -> bool:
     """View e-PR / Purchase menu: ISADMIN | ISHOD | ISPURMGR | ISDIRECTOR."""
+    if _is_portal_only_session(session):
+        return False
     t = infer_access_tier_from_session(session)
+    if t == ACCESS_TIER_NO_ROLE:
+        return False
     if t in _VIEW_PR_TIERS:
         return True
     # Also honor session staff_udf so a sales_* primary tier cannot hide Purchase
@@ -325,6 +338,8 @@ def hide_pr_approval_edits_for_pstaff(session) -> bool:
 
 def can_access_admin_dashboard(session) -> bool:
     """Main /admin dashboard: full admin + sales management + HOD (admin area)."""
+    if _is_portal_only_session(session):
+        return False
     t = infer_access_tier_from_session(session)
     if t == ACCESS_TIER_NO_ROLE:
         return False
@@ -337,6 +352,8 @@ def can_access_purchase_menu(session) -> bool:
 
 
 def can_access_pricing_priority_rules(session) -> bool:
+    if _is_portal_only_session(session):
+        return False
     return infer_access_tier_from_session(session) == ACCESS_TIER_FULL_ADMIN
 
 
@@ -387,6 +404,8 @@ def can_access_view_quotation_customer_ui(session) -> bool:
 
 def can_access_admin_view_quotations(session) -> bool:
     """Admin list all quotations."""
+    if _is_portal_only_session(session):
+        return False
     t = infer_access_tier_from_session(session)
     if t == ACCESS_TIER_NO_ROLE:
         return False
@@ -394,6 +413,8 @@ def can_access_admin_view_quotations(session) -> bool:
 
 
 def can_access_pending_approvals_admin(session) -> bool:
+    if _is_portal_only_session(session):
+        return False
     t = infer_access_tier_from_session(session)
     if t == ACCESS_TIER_NO_ROLE:
         return False
@@ -425,6 +446,8 @@ def approval_po_base_url() -> str:
 
 def can_access_approval_po_menu(session) -> bool:
     """ApprovalPO links (View PO / Create PO): admin dashboard + purchasing roles."""
+    if _is_portal_only_session(session):
+        return False
     t = infer_access_tier_from_session(session)
     if t == ACCESS_TIER_NO_ROLE:
         return False

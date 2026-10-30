@@ -6374,6 +6374,7 @@ body.procurement-warm-ui .pr-view-left-search-top {
     align-items: center;
     justify-content: space-between;
     gap: 10px;
+    min-height: 36px;
 }
 
 body.procurement-warm-ui .pr-view-left-title {
@@ -6388,9 +6389,10 @@ body.procurement-warm-ui .pr-view-left-title {
 
 body.procurement-warm-ui .pr-view-left-search-field {
     position: relative;
-    flex: 1 1 auto;
+    flex: 0 1 180px;
+    width: min(180px, 42vw);
     min-width: 0;
-    max-width: 16rem;
+    margin-left: auto;
 }
 
 body.procurement-warm-ui .pr-view-left-search-icon {
@@ -6427,60 +6429,89 @@ body.procurement-warm-ui .pr-view-left-bulk-bar .pr-view-left-bulk-transfer {
     margin: 0;
 }
 
-/* Awaiting / Approved bulk submenu lives under Search PR */
+/* Open inline controls in search-top: checkbox + to Pending (no box) */
 body.procurement-warm-ui .pr-view-left-bulk-bar.view-pr-bulk-pending-bar {
-    display: flex;
-    flex-wrap: wrap;
+    display: inline-flex;
+    flex-wrap: nowrap;
     align-items: center;
-    gap: 8px 10px;
+    gap: 8px;
     margin: 0;
-    padding: 8px 10px;
+    padding: 0;
     min-height: 0;
-    border: 1px solid var(--ice-border-soft, #d5e6f0);
-    border-radius: 8px;
-    background: var(--ice-surface-alt, #eef6fc);
+    border: none;
+    border-radius: 0;
+    background: transparent;
     box-shadow: none;
+    flex: 0 0 auto;
+    max-width: none;
+}
+
+body.procurement-warm-ui .pr-view-left-bulk-bar.view-pr-bulk-pending-bar[hidden] {
+    display: none !important;
 }
 
 body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-bulk-selection-count {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 1.5rem;
-    padding: 2px 8px;
-    border-radius: 999px;
-    background: #e8f1f7;
-    color: var(--ice-heading, #1a4d6e);
-    font-size: 11px;
-    font-weight: 650;
-    line-height: 1.35;
+    display: none;
 }
 
 body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-bulk-pending-bar__actions {
-    margin-left: auto;
+    margin-left: 0;
     flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
 }
 
-body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-bulk-btn {
-    min-height: 30px;
-    padding: 5px 10px;
-    font-size: 11px;
+body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-to-pending-btn {
+    display: inline;
+    margin: 0;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    min-height: 0;
+    font-size: 13px;
+    font-weight: 700;
     line-height: 1.2;
-    border-radius: 8px;
+    color: var(--ice-heading, #1a4d6e);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-to-pending-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-to-pending-btn:not(:disabled):hover {
+    color: var(--ice-accent, #3b8fc4);
+    text-decoration: underline;
+}
+
+body.procurement-warm-ui .pr-view-left-bulk-bar .pr-view-left-bulk-transfer {
+    display: inline;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    min-height: 0;
+    font-size: 12px;
+    font-weight: 650;
+    color: var(--ice-heading, #1a4d6e);
+    cursor: pointer;
     white-space: nowrap;
 }
 
 body.procurement-warm-ui .pr-view-left-bulk-select {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 0;
     margin: 0;
     cursor: pointer;
     user-select: none;
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--ice-heading, #1a4d6e);
-    white-space: nowrap;
+    line-height: 1;
 }
 
 body.procurement-warm-ui .pr-view-left-bulk-select[hidden] {
@@ -6488,8 +6519,8 @@ body.procurement-warm-ui .pr-view-left-bulk-select[hidden] {
 }
 
 body.procurement-warm-ui .pr-view-left-bulk-select input[type="checkbox"] {
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     accent-color: var(--ice-accent, #3b8fc4);
     cursor: pointer;
     margin: 0;
@@ -6509,6 +6540,7 @@ body.procurement-warm-ui .pr-view-left-search-input {
     border-radius: 999px;
     padding: 8px 12px 8px 32px;
     font-size: 13px;
+    line-height: 1.2;
     border: 1px solid #cfd9e6;
     background: #fff;
     color: #1e293b;
