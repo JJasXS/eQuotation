@@ -23,7 +23,7 @@
     <link rel="stylesheet" href="/static/css/adminViewQuotations.css?v=20260430">
 
     <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20261029_pr_menubar_pad">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=20261030_hod_awaiting">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=20261030_pr_error_modal">
     <style id="pr-report-phone-layout">
     @media (max-width: 900px) {
       body.procurement-warm-ui .procurement-module-tabs.eq-line-tabs {
@@ -1039,6 +1039,16 @@
 
     </div>
 
+    <div id="pr-error-modal" class="pr-error-modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="pr-error-modal-title" aria-hidden="true">
+        <div class="pr-error-modal__backdrop" onclick="closePurchaseRequestErrorModal()"></div>
+        <div class="pr-error-modal__dialog">
+            <div class="pr-error-modal__icon" aria-hidden="true">!</div>
+            <h2 id="pr-error-modal-title" class="pr-error-modal__title">Attention</h2>
+            <p id="pr-error-modal-body" class="pr-error-modal__body"></p>
+            <button type="button" class="pr-error-modal__ok" id="pr-error-modal-ok" onclick="closePurchaseRequestErrorModal()">OK</button>
+        </div>
+    </div>
+
     <div id="pr-confirm-modal" class="pr-confirm-modal" hidden role="dialog" aria-modal="true" aria-labelledby="pr-confirm-modal-title">
         <div class="pr-confirm-modal__backdrop" onclick="resolveProcurementConfirmModal(false)"></div>
         <div class="pr-confirm-modal__dialog">
@@ -1059,7 +1069,7 @@
     <script src="/static/js/procurement/procurement_stock_card.js?v=20260813_extract"></script>
     <script src="/static/js/procurement/procurement_view_pr.js?v=20260813_extract"></script>
     <script src="/static/js/procurement/procurement_create_pr.js?v=20260813_extract"></script>
-    <script src="/static/js/procurement/precurement_app.js?v=20261030_hod_awaiting"></script>
+    <script src="/static/js/procurement/precurement_app.js?v=20261030_pr_error_modal"></script>
 
     <script src="/static/js/hamburger_menu.js"></script>
 

@@ -2514,6 +2514,95 @@ body.procurement-warm-ui .pr-line-items-table .pr-stock-uom-readonly {
     box-shadow: 0 0 0 3px rgba(110, 163, 226, 0.45);
 }
 
+/* Error / validation modal after PR submit (replaces inline error banner) */
+.pr-error-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1400;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+.pr-error-modal__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(6, 10, 18, 0.62);
+    backdrop-filter: blur(3px);
+}
+
+.pr-error-modal__dialog {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 420px;
+    border-radius: 14px;
+    padding: 28px 26px 22px;
+    text-align: center;
+    background: linear-gradient(165deg, #1e2838 0%, #151c2a 100%);
+    border: 1px solid #2f3d52;
+    box-shadow:
+        0 22px 50px rgba(0, 0, 0, 0.45),
+        0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+}
+
+.pr-error-modal__icon {
+    width: 52px;
+    height: 52px;
+    margin: 0 auto 14px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 26px;
+    font-weight: 700;
+    color: #2a1408;
+    background: linear-gradient(145deg, #f0b45a 0%, #e08a2e 100%);
+    box-shadow: 0 6px 18px rgba(224, 138, 46, 0.35);
+}
+
+.pr-error-modal__title {
+    margin: 0 0 10px;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #e8f0fb;
+    letter-spacing: 0.02em;
+}
+
+.pr-error-modal__body {
+    margin: 0 0 22px;
+    font-size: 0.95rem;
+    line-height: 1.5;
+    color: #a8b8d0;
+}
+
+.pr-error-modal__ok {
+    width: 100%;
+    max-width: 220px;
+    margin: 0 auto;
+    display: block;
+    padding: 11px 20px;
+    border: none;
+    border-radius: 10px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    color: #0f1720;
+    background: linear-gradient(180deg, #e2ecf8 0%, #c5d4e8 100%);
+    box-shadow: 0 2px 0 rgba(255, 255, 255, 0.12) inset;
+}
+
+.pr-error-modal__ok:hover {
+    filter: brightness(1.06);
+}
+
+.pr-error-modal__ok:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(110, 163, 226, 0.45);
+}
+
 .view-pr-actions {
     display: flex;
     justify-content: flex-end;
@@ -5330,6 +5419,31 @@ body.procurement-warm-ui .pr-success-modal__pr-number {
 }
 
 body.procurement-warm-ui .pr-success-modal__ok {
+    color: #2a241b;
+    background: linear-gradient(180deg, #f0e4d4 0%, #dccfb8 100%);
+}
+
+body.procurement-warm-ui .pr-error-modal__backdrop {
+    background: rgba(45, 36, 22, 0.55);
+}
+
+body.procurement-warm-ui .pr-error-modal__dialog {
+    background: linear-gradient(165deg, #fffef9 0%, #f5ebe0 100%);
+    border-color: #dccfb8;
+    box-shadow:
+        0 22px 48px rgba(80, 60, 30, 0.18),
+        0 0 0 1px rgba(255, 255, 255, 0.6) inset;
+}
+
+body.procurement-warm-ui .pr-error-modal__title {
+    color: #3d3224;
+}
+
+body.procurement-warm-ui .pr-error-modal__body {
+    color: #5c4f3d;
+}
+
+body.procurement-warm-ui .pr-error-modal__ok {
     color: #2a241b;
     background: linear-gradient(180deg, #f0e4d4 0%, #dccfb8 100%);
 }
