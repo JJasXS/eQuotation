@@ -136,7 +136,7 @@ Manual / code-level verification (no automated suite run against live Firebird i
 - Set `FLASK_ENV=production` (or `EQ_REQUIRE_SECURE_COOKIES=1`) so cookies are Secure.
 - For local HTTP, keep Secure cookies off via `SESSION_COOKIE_SECURE=0` or non-production `FLASK_ENV`.
 - Restart required for `a2wsgi` / middleware / OTP changes.
-- Do **not** enable `MOCK=true` in production (`debug_otp` in JSON).
+- Do **not** set `APP=dev` in live production (`debug_otp` in JSON; use `APP=prod`).
 
 ---
 

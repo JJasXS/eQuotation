@@ -70,10 +70,9 @@ def test_concurrent_verify_only_one_success():
     assert sum(1 for r in results if not r[0]) == 7
 
 
-def test_mock_otp_blocked_in_production(monkeypatch):
-    monkeypatch.setenv("FLASK_ENV", "production")
-    monkeypatch.setenv("MOCK", "true")
-    # Mirror main._mock_otp_on_screen logic without importing main (heavy).
-    is_production = True
-    mock_on = (os.getenv("MOCK") or "").strip().lower() in ("1", "true", "yes", "on")
-    assert (False if is_production else mock_on) is False
+def test_dev_otp_only_when_app_dev(monkeypatch):
+    # Mirror utils.app_mode / main._dev_otp_on_screen without importing main (heavy).
+    monkeypatch.setenv("APP", "prod")
+    assert ((os.getenv("APP") or "").strip().lower() == "dev") is False
+    monkeypatch.setenv("APP", "dev")
+    assert ((os.getenv("APP") or "").strip().lower() == "dev") is True

@@ -9,6 +9,13 @@
 
 Limits are **only inside View e-PR status tabs** (which tabs show, and what you can do on that tab) — not whether Purchase itself is visible.
 
+### When roles / OTP are applied (`APP`)
+
+| Phase | `APP` | Behaviour |
+|-------|-------|-----------|
+| **Production (live)** | `prod` (default if unset) | Roles loaded **once at OTP login**. Changing SY_USER needs **log out → log in**. OTP is **emailed** (not shown on the page). |
+| **Developer testing** | `dev` | Roles **re-read from SY_USER** on each request. OTP is **shown on the login page** and **not emailed**. |
+
 ```text
 can_see_purchase =
   ISADMIN OR ISHOD OR ISPURMGR OR ISDIRECTOR

@@ -1461,6 +1461,28 @@ if _trust_proxy in ('1', 'true', 'yes', 'on'):
 
 
 @app.before_request
+def _eq_dev_refresh_sy_user_roles():
+    """APP=dev only: re-read SY_USER Role Selection into session on each page/API hit.
+
+    APP=prod: roles stay frozen from OTP login (this hook no-ops).
+    """
+    path = str(request.path or '')
+    if path.startswith('/static') or path.startswith('/favicon'):
+        return None
+    if 'user_email' not in session:
+        return None
+    try:
+        from utils.sy_user_roles import mock_role_refresh_enabled, refresh_staff_session_roles
+
+        if not mock_role_refresh_enabled():
+            return None
+        refresh_staff_session_roles(session)
+    except Exception as exc:
+        print(f'[DEV ROLE] before_request refresh error: {exc}', flush=True)
+    return None
+
+
+@app.before_request
 def _eq_csrf_guard():
     """CSRF token + Origin/Referer checks for cookie-authenticated mutations."""
     from utils.csrf_protect import validate_csrf_request
@@ -2841,11 +2863,23 @@ def api_lookup_postcode():
         print(f"[ERROR] lookup_postcode failed: {e}")
         return jsonify({'success': False, 'error': 'Failed to lookup postcode'}), 500
 
-def _mock_otp_on_screen() -> bool:
-    """MOCK=true shows the login OTP on the page. Blocked in production."""
-    if _is_production:
-        return False
-    return (os.getenv("MOCK") or "").strip().lower() in ("1", "true", "yes", "on")
+def _dev_otp_on_screen() -> bool:
+    """APP=dev: show OTP on the login page and skip SMTP. APP=prod: email only."""
+    from utils.app_mode import is_dev_app
+
+    return is_dev_app()
+
+
+try:
+    from utils.app_mode import app_mode as _eq_app_mode
+
+    print(
+        f"[APP] mode={_eq_app_mode()} "
+        f"(dev: on-page OTP + live role refresh; prod: email OTP + roles at login)",
+        flush=True,
+    )
+except Exception as _app_mode_err:
+    print(f"[APP] mode unresolved: {_app_mode_err}", flush=True)
 
 
 def _login_otp_storage_key(email: str, login_mode: str) -> str:
@@ -2958,8 +2992,29 @@ def api_send_otp():
 
         # Store OTP temporarily (keyed by email + login tab)
         _otp_store.put_otp(otp_key, otp, expiry=expiry, last_sent=now, attempts=0)
-        
-        # Send OTP via email
+
+        expires_at_unix = int(expiry.timestamp())
+
+        # APP=dev: never SMTP — show OTP on the login page to avoid spam while testing.
+        if _dev_otp_on_screen():
+            print(
+                f"[DEV OTP] skipped email for {email!r} mode={login_mode}; "
+                "code returned as debug_otp for on-page entry",
+                flush=True,
+            )
+            return jsonify({
+                'success': True,
+                'email_sent': False,
+                'mock_otp': True,
+                'debug_otp': otp,
+                'message': 'DEV mode: use the OTP shown on this page (email not sent).',
+                'expiry': OTP_EXPIRY_SECONDS,
+                'expires_at_unix': expires_at_unix,
+                'otp_lifetime_seconds': OTP_EXPIRY_SECONDS,
+                'resend_cooldown_seconds': OTP_RESEND_COOLDOWN_SECONDS,
+            }), 200
+
+        # APP=prod: send OTP via email (no on-page code).
         subject = "Your Login OTP Code"
         body = f"""
         <html>
@@ -2976,7 +3031,6 @@ def api_send_otp():
             </body>
         </html>
         """
-        # Send synchronously so API success matches real SMTP outcome (async used to hide failures).
         import utils.email_utils as _eu_otp
         has_smtp = bool((_eu_otp.SMTP_EMAIL or "").strip() and (_eu_otp.SMTP_PASSWORD or "").strip())
         if not has_smtp:
@@ -3005,8 +3059,7 @@ def api_send_otp():
                 ),
             }), 502
 
-        expires_at_unix = int(expiry.timestamp())
-        response_payload = {
+        return jsonify({
             'success': True,
             'email_sent': bool(has_smtp and mail_ok),
             'message': (
@@ -3014,19 +3067,14 @@ def api_send_otp():
                 if has_smtp and mail_ok
                 else (
                     'OTP generated but email is not configured (missing SMTP_EMAIL/SMTP_PASSWORD). '
-                    'Check server console or enable debug for the code.'
+                    'Check server console.'
                 )
             ),
             'expiry': OTP_EXPIRY_SECONDS,
             'expires_at_unix': expires_at_unix,
             'otp_lifetime_seconds': OTP_EXPIRY_SECONDS,
             'resend_cooldown_seconds': OTP_RESEND_COOLDOWN_SECONDS,
-        }
-
-        if _mock_otp_on_screen():
-            response_payload['debug_otp'] = otp
-
-        return jsonify(response_payload), 200
+        }), 200
     
     except Exception as e:
         print(f"[DEBUG OTP] send_otp error for {email}: {e}", flush=True)

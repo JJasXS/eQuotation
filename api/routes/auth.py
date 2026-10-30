@@ -20,9 +20,9 @@ from utils.role_permissions import (  # noqa: E402
     compute_access_tier,
     staff_has_any_mapped_role_udf,
     staff_locations_from_sy_user_row,
-    staff_udf_from_sy_user_row,
     user_type_for_session,
 )
+from utils.sy_user_roles import fetch_sy_user_profile_with_udfs  # noqa: E402
 
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "../../.env"))
@@ -112,35 +112,8 @@ def _connect_db():
 
 
 def _fetch_sy_user_profile_with_udfs(cur, normalized_email: str):
-    """
-    Return (row_dict, staff_udf) for SY_USER row matching email, including all UDF_* columns if present.
-    row_dict is None when no SY_USER row.
-    """
-    cur.execute(
-        """
-        SELECT TRIM(RDB$FIELD_NAME)
-        FROM RDB$RELATION_FIELDS
-        WHERE RDB$RELATION_NAME = 'SY_USER' AND RDB$FIELD_NAME STARTING WITH 'UDF_'
-        """,
-    )
-    udf_cols = [str(r[0]).strip() for r in (cur.fetchall() or []) if r and r[0]]
-
-    base_cols = ["CODE", "NAME", "EMAIL", "ISACTIVE"]
-    select_cols = base_cols + [c for c in udf_cols if c.upper() not in {x.upper() for x in base_cols}]
-    col_sql = ", ".join(select_cols)
-    cur.execute(
-        f"""
-        SELECT {col_sql}
-        FROM SY_USER
-        WHERE UPPER(TRIM(EMAIL)) = UPPER(TRIM(?))
-        """,
-        [normalized_email],
-    )
-    row = cur.fetchone()
-    if not row:
-        return None, {}
-    row_dict = {select_cols[i]: row[i] for i in range(len(select_cols))}
-    return row_dict, staff_udf_from_sy_user_row(row_dict)
+    """Return (row_dict, staff_udf) for SY_USER — shared helper."""
+    return fetch_sy_user_profile_with_udfs(cur, normalized_email)
 
 
 def _table_has_column(cur, table_name: str, column_name: str) -> bool:
