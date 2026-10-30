@@ -6300,10 +6300,10 @@ body.procurement-warm-ui .pr-view-left-pane {
     height: 100%;
     max-height: none;
     align-self: stretch;
-    background: linear-gradient(180deg, #fdf8f0 0%, #faf5eb 100%);
-    border: 1px solid #e2cfab;
+    background: #fff;
+    border: 1px solid #dbe3ee;
     border-radius: 12px;
-    box-shadow: 0 2px 12px rgba(74, 54, 28, 0.06);
+    box-shadow: 0 2px 12px rgba(30, 58, 95, 0.06);
     overflow: hidden;
 }
 
@@ -6349,8 +6349,8 @@ body.procurement-warm-ui #panel-view .view-pr-detail-panel-empty--hero {
 body.procurement-warm-ui .pr-view-left-sticky-header {
     flex-shrink: 0;
     padding: 12px 12px 10px;
-    background: rgba(253, 248, 240, 0.97);
-    border-bottom: 1px solid #e8dcc4;
+    background: rgba(255, 255, 255, 0.97);
+    border-bottom: 1px solid #e8eef5;
     backdrop-filter: blur(6px);
 }
 
@@ -6377,28 +6377,32 @@ body.procurement-warm-ui .pr-view-left-search-top {
     min-height: 36px;
 }
 
-body.procurement-warm-ui .pr-view-left-search-fields {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 8px;
-    flex: 1 1 auto;
-    min-width: 0;
-    max-width: none;
-    margin-left: auto;
-    justify-content: flex-end;
-}
-
-body.procurement-warm-ui .pr-view-left-search-fields .pr-view-left-search-label {
-    width: auto;
+body.procurement-warm-ui .pr-view-left-title {
+    margin: 0;
     flex: 0 0 auto;
-    text-align: right;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #1e3a5f;
+    letter-spacing: 0.01em;
     white-space: nowrap;
 }
 
-body.procurement-warm-ui .pr-view-left-search-fields .pr-view-left-search-input {
-    width: min(180px, 42vw);
+body.procurement-warm-ui .pr-view-left-search-field {
+    position: relative;
     flex: 0 1 180px;
+    width: min(180px, 42vw);
+    min-width: 0;
+    margin-left: auto;
+}
+
+body.procurement-warm-ui .pr-view-left-search-icon {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: inline-flex;
+    color: #7a8da6;
+    pointer-events: none;
 }
 
 body.procurement-warm-ui .pr-view-left-bulk-actions {
@@ -6531,15 +6535,15 @@ body.procurement-warm-ui .pr-view-left-search-label {
 }
 
 body.procurement-warm-ui .pr-view-left-search-input {
-    width: min(180px, 42vw);
+    width: 100%;
     box-sizing: border-box;
-    border-radius: 8px;
-    padding: 7px 10px;
+    border-radius: 999px;
+    padding: 8px 12px 8px 32px;
     font-size: 13px;
     line-height: 1.2;
-    border: 1px solid #dccfb8;
-    background: #fffef9;
-    color: #2a241b;
+    border: 1px solid #cfd9e6;
+    background: #fff;
+    color: #1e293b;
 }
 
 body.procurement-warm-ui .pr-view-left-search-input:focus {
@@ -6594,19 +6598,20 @@ body.procurement-warm-ui #panel-view .view-pr-list > .pr-view-empty--cards {
 body.procurement-warm-ui .pr-view-pr-row {
     box-sizing: border-box;
     display: grid;
-    /* Give PR code a bit more room than date / badge / amount */
-    grid-template-columns: minmax(7.25rem, 1.4fr) minmax(4.5rem, 0.9fr) minmax(4.25rem, 0.85fr) minmax(4.25rem, 0.85fr);
+    /* PR code | date | SELECTED | Edit | fixed amount */
+    grid-template-columns: minmax(6.5rem, 1.15fr) minmax(5.5rem, 0.85fr) auto auto 6rem;
     align-items: center;
+    column-gap: 0;
     align-self: stretch;
     height: auto;
     width: 100%;
     margin: 0;
-    padding: 8px 0;
+    padding: 10px 10px 10px 8px;
     text-align: left;
-    background: #fffef9;
+    background: #fff;
     border: none;
-    border-bottom: 1px solid #e4d8c4;
-    border-left: 3px solid var(--pr-card-accent, #b0892f);
+    border-bottom: 1px solid #e8eef5;
+    border-left: 3px solid transparent;
     border-radius: 0;
     box-shadow: none;
     cursor: pointer;
@@ -6615,12 +6620,12 @@ body.procurement-warm-ui .pr-view-pr-row {
 }
 
 body.procurement-warm-ui .pr-view-pr-row:hover {
-    background: #faf6ee;
+    background: #f7fafc;
 }
 
 body.procurement-warm-ui .pr-view-pr-row.is-selected {
     background: #e8f1fc;
-    border-left-color: var(--pr-card-accent, #4b6e9e);
+    border-left-color: #3b82f6;
 }
 
 body.procurement-warm-ui .pr-view-pr-row:focus-visible {
@@ -6631,63 +6636,81 @@ body.procurement-warm-ui .pr-view-pr-row:focus-visible {
 body.procurement-warm-ui .pr-view-pr-row__code,
 body.procurement-warm-ui .pr-view-pr-row__date,
 body.procurement-warm-ui .pr-view-pr-row__selected,
-body.procurement-warm-ui .pr-view-pr-row__approval,
+body.procurement-warm-ui .pr-view-pr-row__actions,
 body.procurement-warm-ui .pr-view-pr-row__amount {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    min-width: 0;
+    padding: 0 10px;
+    box-sizing: border-box;
+}
+
+body.procurement-warm-ui .pr-view-pr-row__date,
+body.procurement-warm-ui .pr-view-pr-row__selected,
+body.procurement-warm-ui .pr-view-pr-row__actions,
+body.procurement-warm-ui .pr-view-pr-row__amount {
+    border-left: 1px solid #e5eaf0;
 }
 
 body.procurement-warm-ui .pr-view-pr-row__code {
-    order: 1;
-    grid-column: 1;
     display: flex;
     align-items: center;
     gap: 8px;
-    min-width: 0;
-    padding: 0 10px;
-    font-size: 14px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
     font-weight: 700;
-    color: #1e293b;
+    color: #1e3a5f;
     line-height: 1.25;
 }
 
 body.procurement-warm-ui .pr-view-pr-row__date {
-    order: 2;
-    grid-column: 2;
-    min-width: 0;
-    padding: 0 10px;
-    border-left: 1px solid #eadfce;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: 12px;
     color: #64748b;
-    white-space: nowrap;
+    line-height: 1.25;
 }
 
 body.procurement-warm-ui .pr-view-pr-row__selected,
 body.procurement-warm-ui .pr-view-pr-row__approval {
-    order: 3;
-    grid-column: 3;
-    min-width: 0;
     display: flex;
     flex-wrap: nowrap;
     align-items: center;
+    justify-content: center;
     gap: 6px;
-    padding: 0 10px;
-    border-left: 1px solid #eadfce;
+}
+
+body.procurement-warm-ui .pr-view-pr-row__actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    min-width: 4.25rem;
+}
+
+body.procurement-warm-ui .pr-view-pr-row__actions:empty {
+    min-width: 0;
+    padding: 0;
+    border-left: none;
+    overflow: hidden;
 }
 
 body.procurement-warm-ui .pr-view-pr-row__amount {
-    order: 4;
-    grid-column: 4;
-    min-width: 0;
-    justify-self: end;
-    padding: 0 12px 0 10px;
-    border-left: 1px solid #eadfce;
+    width: 6rem;
+    min-width: 6rem;
+    max-width: 6rem;
+    justify-self: stretch;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    overflow: hidden;
 }
 
 body.procurement-warm-ui .pr-view-pr-row__bulk {
     display: flex;
     align-items: center;
+    flex-shrink: 0;
 }
 
 body.procurement-warm-ui .pr-view-pr-row__bulk-label {
@@ -6705,9 +6728,16 @@ body.procurement-warm-ui .pr-view-pr-row__bulk input[type="checkbox"] {
 }
 
 body.procurement-warm-ui .pr-view-pr-row .pr-view-amount-pill {
-    padding: 4px 8px;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    padding: 5px 8px;
     font-size: 11px;
-    border-radius: 6px;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    border-radius: 8px;
+    background: #3b82f6;
+    color: #fff;
 }
 
 body.procurement-warm-ui .pr-view-pr-card {
@@ -7246,9 +7276,31 @@ body.procurement-warm-ui #panel-view .pr-status-pill {
 }
 
 body.procurement-warm-ui #panel-view .view-pr-edit-inline-btn {
-    min-width: 38px;
-    padding: 4px 8px !important;
-    font-size: 10px !important;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-width: 3.5rem;
+    min-height: 28px;
+    padding: 4px 10px !important;
+    font-size: 11px !important;
+    font-weight: 600;
+    line-height: 1;
+    color: #2563eb !important;
+    background: #fff !important;
+    border: 1px solid #93c5fd !important;
+    border-radius: 8px !important;
+    box-shadow: none;
+    cursor: pointer;
+}
+
+body.procurement-warm-ui #panel-view .view-pr-edit-inline-btn:hover {
+    background: #eff6ff !important;
+    border-color: #60a5fa !important;
+}
+
+body.procurement-warm-ui #panel-view .view-pr-edit-inline-btn__icon {
+    flex: 0 0 auto;
 }
 
 body.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-table {
@@ -8025,29 +8077,30 @@ body.procurement-warm-ui .pr-view-pr-card__selection {
     display: inline-flex;
     align-items: center;
     margin-top: 0;
-    padding: 2px 8px;
+    padding: 4px 10px;
     border-radius: 999px;
     font-size: 10px;
-    font-weight: 800;
-    letter-spacing: 0.04em;
+    font-weight: 700;
+    letter-spacing: 0.03em;
     text-transform: uppercase;
-    color: #6b5b3e;
-    background: #f3ebd8;
-    border: 1px solid #e0d2b4;
+    color: #1e40af;
+    background: #dbeafe;
+    border: 1px solid #bfdbfe;
+    white-space: nowrap;
 }
 
 body.procurement-warm-ui .pr-view-pr-row__selection.is-partial,
 body.procurement-warm-ui .pr-view-pr-card__selection.is-partial {
-    color: #3d5a80;
-    background: #e7eef8;
-    border-color: #b7c9e0;
+    color: #1e40af;
+    background: #dbeafe;
+    border-color: #93c5fd;
 }
 
 body.procurement-warm-ui .pr-view-pr-row__selection.is-all,
 body.procurement-warm-ui .pr-view-pr-card__selection.is-all {
-    color: #1f5c40;
-    background: #e5f4ec;
-    border-color: #b7dcc8;
+    color: #1e40af;
+    background: #bfdbfe;
+    border-color: #93c5fd;
 }
 
 
@@ -8534,11 +8587,12 @@ body.procurement-warm-ui .pr-view-pr-card__selection.is-all {
     background-size: 200% 100%;
     animation: view-pr-skel-shimmer 1.2s ease-in-out infinite;
 }
-.view-pr-skel-bar--code { width: 42%; height: 14px; }
-.view-pr-skel-bar--amt { width: 22%; height: 14px; margin-left: auto; }
-.view-pr-skel-bar--date { width: 72px; }
+.view-pr-skel-bar--code { width: 78%; max-width: 7.5rem; height: 14px; }
+.view-pr-skel-bar--amt { width: 100%; height: 24px; border-radius: 8px; }
+.view-pr-skel-bar--date { width: 72%; max-width: 5.5rem; height: 12px; }
 .pr-view-pr-row .view-pr-skel-bar--date { margin-top: 0; }
-.view-pr-skel-bar--pill { width: 64px; height: 22px; border-radius: 999px; }
+.view-pr-skel-bar--pill { width: 72px; height: 22px; border-radius: 999px; }
+.view-pr-skel-bar--action { width: 3.5rem; height: 28px; border-radius: 8px; }
 @keyframes view-pr-skel-shimmer {
     0% { background-position: 100% 0; }
     100% { background-position: -100% 0; }

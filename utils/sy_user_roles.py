@@ -6,6 +6,7 @@ APP=dev: re-read SY_USER into the session so Role Selection edits show on refres
 """
 from __future__ import annotations
 
+import os
 import time
 
 from utils.app_mode import is_dev_app
@@ -71,6 +72,10 @@ def refresh_staff_session_roles(session, *, min_interval_sec: float = _DEFAULT_M
     same email exists as a staff row (common on shared inboxes / test data).
     """
     if not mock_role_refresh_enabled():
+        return False
+    # Local test-auth launcher pins roles in-process; do not overwrite from SY_USER
+    # (that downgrade to no_role causes /login ↔ /admin redirect loops).
+    if str(os.environ.get('EQ_LOCAL_TEST_AUTH') or '').strip() == '1':
         return False
     if session is None or not session.get('user_email'):
         return False
