@@ -503,7 +503,8 @@
                     : 'Save selected line awards and move this PR to Approved';
             }
             document.querySelectorAll('.line-award-checkbox').forEach((cb) => {
-                cb.disabled = locked;
+                const unquoted = String(cb.dataset.isQuoted || '') !== '1';
+                cb.disabled = locked || unquoted;
             });
         }
 
@@ -1267,23 +1268,36 @@
 
                 const onPrLines = Array.isArray(bid.lines) ? bid.lines : [];
 
+                const pricedOnPr = onPrLines.filter((line) => {
+                    if (!line) return false;
+                    if (line.isQuoted === true) return true;
+                    if (line.isQuoted === false) return false;
+                    const qty = Number(line.quantity || 0);
+                    const price = Number(line.unitPrice || 0);
+                    return qty > 0 && price > 0;
+                });
+
                 const totalAmount = Number(
 
                     bid.comparisonTotalAmount != null
 
                         ? bid.comparisonTotalAmount
 
-                        : onPrLines.reduce((sum, line) => sum + Number(line.amount || 0), 0)
+                        : pricedOnPr.reduce((sum, line) => sum + Number(line.amount || 0), 0)
 
                 );
 
                 const lineCount = Number(
 
-                    bid.comparisonLineCount != null ? bid.comparisonLineCount : onPrLines.length
+                    bid.comparisonLineCount != null
+                        ? bid.comparisonLineCount
+                        : pricedOnPr.length
 
                 );
 
-                const onPrLineCount = Number(bid.onPrLineCount != null ? bid.onPrLineCount : onPrLines.length);
+                const onPrLineCount = Number(
+                    bid.onPrLineCount != null ? bid.onPrLineCount : pricedOnPr.length
+                );
 
                 const supplierCode = String(bid.supplierCode || '').trim();
 
@@ -1402,7 +1416,14 @@
 
                 const onPrLines = Array.isArray(bid.lines) ? bid.lines : [];
 
-                const rows = onPrLines.map((line) => `
+                const rows = onPrLines.map((line) => {
+                    const qty = Number(line.quantity || 0);
+                    const price = Number(line.unitPrice || 0);
+                    const isQuoted = line.isQuoted === true
+                        || (line.isQuoted !== false && qty > 0 && price > 0);
+                    const checked = Number(currentBidLineAwards.get(Number(line.detailId || 0)) || 0)
+                        === Number(bid.bidId || 0);
+                    return `
 
                     <tr>
 
@@ -1416,7 +1437,13 @@
 
                                    data-bid-id="${Number(bid.bidId || 0)}"
 
-                                   ${Number(currentBidLineAwards.get(Number(line.detailId || 0)) || 0) === Number(bid.bidId || 0) ? 'checked' : ''}
+                                   data-is-quoted="${isQuoted ? '1' : '0'}"
+
+                                   ${checked && isQuoted ? 'checked' : ''}
+
+                                   ${isQuoted && !isLineAwardsLocked() ? '' : 'disabled'}
+
+                                   title="${isQuoted ? '' : 'Remarks-only / unquoted line cannot be awarded'}"
 
                                    onchange="onLineAwardToggle(this)" />
 
@@ -1424,11 +1451,11 @@
 
                         <td class="bid-td-item" title="${esc(formatBidLineItem(line))}">${esc(formatBidLineItem(line))}</td>
 
-                        <td class="bid-td-num">${Number(line.quantity || 0).toFixed(2)}</td>
+                        <td class="bid-td-num">${isQuoted ? qty.toFixed(2) : '—'}</td>
 
-                        <td class="bid-td-num">${Number(line.unitPrice || 0).toFixed(2)}</td>
+                        <td class="bid-td-num">${isQuoted ? price.toFixed(2) : '—'}</td>
 
-                        <td class="bid-td-num">${Number(line.amount || 0).toFixed(2)}</td>
+                        <td class="bid-td-num">${isQuoted ? Number(line.amount || 0).toFixed(2) : '—'}</td>
 
                         <td class="bid-td-num">${Number(line.leadDays || 0)}</td>
 
@@ -1436,7 +1463,8 @@
 
                     </tr>
 
-                `).join('');
+                `;
+                }).join('');
 
                 const emptyLinesMsg = isSplitChild
                     ? 'No lines on this PR — see full RFQ totals in comparison'
