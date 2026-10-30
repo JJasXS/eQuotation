@@ -91,3 +91,17 @@ def test_refresh_skips_customer_portal_session():
         assert session['user_type'] == 'user'
 
     _run_with_env(_check, APP='dev')
+
+
+def test_refresh_skips_local_test_auth():
+    """EQ_LOCAL_TEST_AUTH pins session roles; SY_USER refresh must not wipe them."""
+    def _check():
+        session = {
+            'user_email': 'looiyonghang@gmail.com',
+            'user_type': 'admin',
+            'access_tier': 'full_admin',
+        }
+        assert refresh_staff_session_roles(session) is False
+        assert session['access_tier'] == 'full_admin'
+
+    _run_with_env(_check, APP='dev', EQ_LOCAL_TEST_AUTH='1')

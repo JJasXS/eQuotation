@@ -546,6 +546,8 @@ def require_page_access(
         return redirect('/login')
 
     if infer_access_tier_from_session(session) == ACCESS_TIER_NO_ROLE:
+        # Clear so /login can render instead of bouncing back into a protected page.
+        session.clear()
         return redirect('/login')
 
     user_type = session.get('user_type')
@@ -3363,7 +3365,9 @@ def create_quotation_page():
             return redirect('/supplier/bidding')
         if can_access_purchase_menu(session):
             return redirect(f'{PROCUREMENT_UI_PATH}?tab=view')
-        return redirect('/create-quotation')
+        # Never redirect to self — that causes ERR_TOO_MANY_REDIRECTS.
+        session.clear()
+        return redirect('/login')
     dockey = request.args.get('dockey', '')
     draft_dockey = request.args.get('draftDockey', '')
     response = make_response(render_protected_template(
