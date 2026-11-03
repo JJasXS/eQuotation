@@ -67,11 +67,11 @@ Source: live `SY_USER` UDF columns. Truthy values: `1`, `Y`, `YES`, `T`, `TRUE`,
 | `UDF_APPROVEDO` | Delivery order |
 | `UDF_APPROVEIV` | Invoice |
 | `UDF_APPROVECN` | Credit note |
-| `UDF_APPROVEPQ` | Purchase quotation |
-| `UDF_APPROVEPO` | Purchase order |
-| `UDF_APPROVEGR` | Goods received |
-| `UDF_APPROVEPI` | Purchase invoice |
-| `UDF_APPROVEPR` | Purchase request / e-PR |
+| `UDF_APPROVEPQ` | Purchase Requisition (e-PR approve) |
+| `UDF_APPROVEPO` | Purchase order / Transfer to PO |
+| `UDF_APPROVEGR` | Goods received (no eQuotation screen yet) |
+| `UDF_APPROVEPI` | Purchase invoice (no eQuotation screen yet) |
+| `UDF_APPROVEPR` | Purchase Returned (no eQuotation screen yet) |
 | `UDF_APPROVEST` | Stock transfer |
 | `UDF_APPROVESA` | Stock adjustment |
 | `UDF_APPROVESI` | Stock issue |

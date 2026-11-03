@@ -40,7 +40,7 @@ def _render_purchase_access_denied(page_title: str = "Purchase"):
         "page_header_title": page_title,
         "access_denied_message": (
             "Your account does not have a Purchase role "
-            "(Admin, HOD, Purchasing Manager, or Director)."
+            "(Admin, HOD, Purchasing Manager, Purchase User, or Director)."
         ),
         "home_href": _purchase_home_href(),
     }

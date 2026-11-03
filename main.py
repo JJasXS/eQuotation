@@ -115,6 +115,7 @@ from utils.role_permissions import (
     can_access_view_quotation_customer_ui,
     can_apply_pr_header_udf_change,
     can_patch_pr_workflow_status,
+    can_transfer_pr_to_po,
     can_update_pr_approvals_and_header_status,
     hide_pr_awaiting_tab,
     infer_access_tier_from_session,
@@ -9018,6 +9019,8 @@ def api_admin_purchase_request_transfer_candidates():
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_bulk_transfer_purchase_requests_to_po():
     """Consolidate selected lines from multiple APPROVED PRs into one PO per supplier/currency."""
+    if not can_transfer_pr_to_po(session):
+        return jsonify({'success': False, 'error': 'Transfer to PO requires UDF_APPROVEPO'}), 403
     payload = request.get_json(silent=True) or {}
     lines = payload.get('lines') if isinstance(payload.get('lines'), list) else []
     transfer_date = payload.get('transferDate')
@@ -9314,6 +9317,8 @@ def api_admin_bulk_transfer_purchase_requests_to_po():
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_transfer_purchase_request_to_po():
     """Transfer approved purchase request detail quantities into PH_PO/PH_PODTL and ST_XTRANS."""
+    if not can_transfer_pr_to_po(session):
+        return jsonify({'success': False, 'error': 'Transfer to PO requires UDF_APPROVEPO'}), 403
     payload = request.get_json(silent=True) or {}
     raw_request_id = str(payload.get('requestId') or '').strip()
     request_no = str(payload.get('requestNumber') or '').strip()
