@@ -258,11 +258,22 @@ def can_transfer_pr_to_po(session) -> bool:
 
 
 def infer_access_tier_from_session(session) -> str:
-    """Used when older sessions have no access_tier key."""
-    explicit = session.get('access_tier')
+    """
+    Resolve access tier from SY_USER is* flags first, then session access_tier,
+    then legacy user_type.
+    """
+    udf = _staff_udf_from_session(session)
+    if staff_has_any_mapped_role_udf(udf):
+        return compute_access_tier(
+            is_supplier=False,
+            is_customer=False,
+            staff_udf=udf,
+            sy_user_row_present=True,
+        )
+    explicit = session.get('access_tier') if session is not None else None
     if explicit:
         return str(explicit).strip()
-    ut = (session.get('user_type') or '').strip().lower()
+    ut = (session.get('user_type') or '').strip().lower() if session is not None else ''
     if ut == 'supplier':
         return ACCESS_TIER_SUPPLIER
     if ut == 'admin':
@@ -280,11 +291,21 @@ def is_full_management_admin(session) -> bool:
     return infer_access_tier_from_session(session) == ACCESS_TIER_FULL_ADMIN
 
 
-def _is_portal_only_session(session) -> bool:
-    """Customer / supplier portal sessions never inherit staff Purchase/admin rights."""
-    login_mode = str(session.get('login_mode') or '').strip().lower() if session is not None else ''
-    if login_mode in ('customer', 'supplier'):
+def session_is_staff_admin(session) -> bool:
+    """
+    Staff admin for page/API gates (replaces user_type == 'admin').
+
+    Driven by is* role flags / access tier — not login_mode.
+    """
+    if _staff_udf_from_session(session).get('isadmin'):
         return True
+    return user_type_for_session(infer_access_tier_from_session(session)) == 'admin'
+
+
+def _is_portal_only_session(session) -> bool:
+    """Pure customer/supplier portal: no staff is* role flags."""
+    if staff_has_any_mapped_role_udf(_staff_udf_from_session(session)):
+        return False
     t = infer_access_tier_from_session(session)
     return t in (ACCESS_TIER_CUSTOMER, ACCESS_TIER_SUPPLIER)
 

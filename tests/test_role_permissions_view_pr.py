@@ -18,6 +18,7 @@ from utils.role_permissions import (
     hide_pr_awaiting_tab,
     hide_pr_approval_edits_for_pstaff,
     hide_pr_transfer_for_pstaff,
+    session_is_staff_admin,
     staff_has_any_mapped_role_udf,
     staff_udf_from_sy_user_row,
 )
@@ -164,23 +165,25 @@ def test_sales_tier_still_sees_purchase_when_role_flags_set():
     assert can_access_purchase_menu(session) is True
 
 
-def test_customer_portal_never_sees_purchase_even_with_staff_udf():
+def test_staff_is_roles_win_over_customer_login_mode():
+    """is* flags drive access; customer login_mode no longer strips admin/purchase."""
     session = {
         "access_tier": ACCESS_TIER_CUSTOMER,
         "login_mode": "customer",
         "staff_udf": {"isadmin": True, "ispurmng": True, "ispurhod": True},
         "user_type": "user",
     }
-    assert can_see_view_pr(session) is False
-    assert can_access_purchase_menu(session) is False
+    assert can_see_view_pr(session) is True
+    assert can_access_purchase_menu(session) is True
+    assert session_is_staff_admin(session) is True
 
 
-def test_customer_login_mode_blocks_purchase_even_if_tier_polluted():
+def test_pure_customer_portal_without_staff_roles_blocked():
     session = {
-        "access_tier": ACCESS_TIER_FULL_ADMIN,
+        "access_tier": ACCESS_TIER_CUSTOMER,
         "login_mode": "customer",
-        "staff_udf": {"isadmin": True},
-        "user_type": "admin",
+        "staff_udf": {},
+        "user_type": "user",
     }
     assert can_see_view_pr(session) is False
     assert can_access_purchase_menu(session) is False

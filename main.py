@@ -104,6 +104,7 @@ from utils.role_permissions import (
     ACCESS_TIER_HOD,
     ACCESS_TIER_NO_ROLE,
     ACCESS_TIER_PURCH_MGMT,
+    ACCESS_TIER_PURCH_USER,
     ACCESS_TIER_SALES_MGMT,
     ACCESS_TIER_SALES_STAFF,
     ACCESS_TIER_SUPPLIER,
@@ -121,8 +122,11 @@ from utils.role_permissions import (
     infer_access_tier_from_session,
     is_full_management_admin,
     location_in_scope,
+    session_is_staff_admin,
     session_location_scope,
+    staff_has_any_mapped_role_udf,
     template_permission_context,
+    user_type_for_session,
 )
 from utils.sql_query_helpers import (
     fetch_stock_item_prices_for_chat,
@@ -382,7 +386,7 @@ def require_api_auth(admin_only=False, unauth_message='Not authenticated', forbi
     """Return a Flask error response tuple when auth/role checks fail; otherwise return None."""
     if 'user_email' not in session:
         return jsonify({'success': False, 'error': unauth_message}), 401
-    if admin_only and session.get('user_type') != 'admin':
+    if admin_only and not session_is_staff_admin(session):
         return jsonify({'success': False, 'error': forbidden_message}), 403
     return None
 
@@ -550,14 +554,13 @@ def require_page_access(
     if infer_access_tier_from_session(session) == ACCESS_TIER_NO_ROLE:
         return redirect('/login')
 
-    user_type = session.get('user_type')
     if require_full_management_admin:
         if not is_full_management_admin(session):
             return redirect('/admin')
         return None
-    if require_admin and user_type != 'admin':
+    if require_admin and not session_is_staff_admin(session):
         return redirect('/create-quotation')
-    if block_admin and user_type == 'admin':
+    if block_admin and session_is_staff_admin(session):
         return redirect(admin_redirect)
     return None
 
@@ -3143,69 +3146,73 @@ def api_verify_otp():
             staff_locations = []
         user_type_hint = str(identity.get('user_type_hint') or 'user').strip()
 
-        # Customer / supplier tabs are portal-only: never inherit SY_USER staff roles.
-        if login_mode == 'customer':
+        # Portal tabs stay portal-only when this email has no SY_USER is* roles.
+        # If isAdmin / purch / sales flags exist, keep them — roles win over login_mode.
+        has_staff_roles = staff_has_any_mapped_role_udf(staff_udf)
+        if login_mode == 'customer' and not has_staff_roles:
             access_tier = ACCESS_TIER_CUSTOMER
             staff_udf = {}
             staff_locations = []
             user_type_hint = 'user'
-        elif login_mode == 'supplier':
+        elif login_mode == 'supplier' and not has_staff_roles:
             access_tier = ACCESS_TIER_SUPPLIER
             staff_udf = {}
             staff_locations = []
             user_type_hint = 'supplier'
 
-        if identity.get('is_supplier'):
+        if identity.get('is_supplier') and not has_staff_roles:
             user_type = 'supplier'
             redirect_url = '/supplier/bidding'
             customer_code = identity.get('supplier_code')
             print(f"[AUTH] Supplier user detected: {email} -> Supplier: {customer_code}")
-        elif identity.get('is_user') or identity.get('is_customer'):
+        elif identity.get('is_user') or identity.get('is_customer') or identity.get('is_admin') or has_staff_roles:
             customer_code = identity.get('customer_code')
-            # Customer-tab login stays a customer even if email also exists in SY_USER.
-            if login_mode == 'customer':
+            if login_mode == 'customer' and not has_staff_roles:
                 user_type = 'user'
                 redirect_url = '/create-quotation'
             else:
-                user_type = user_type_hint if user_type_hint in ('admin', 'user') else 'user'
+                if has_staff_roles:
+                    access_tier = infer_access_tier_from_session({
+                        'staff_udf': staff_udf,
+                        'access_tier': access_tier,
+                    })
+                user_type = user_type_for_session(access_tier)
+                if user_type_hint in ('admin', 'user') and not has_staff_roles:
+                    user_type = user_type_hint
+                if access_tier == ACCESS_TIER_NO_ROLE:
+                    return jsonify({
+                        'success': False,
+                        'error': (
+                            'No role is assigned for this account. '
+                            'Ask an administrator to set one of UDF_ISADMIN, UDF_ISPURHOD, UDF_ISPURMGR, '
+                            'UDF_ISDIRECTOR, or UDF_SSTAFF on SY_USER.'
+                        ),
+                    }), 403
                 if access_tier == ACCESS_TIER_SALES_STAFF:
                     user_type = 'user'
-                if user_type == 'admin' and access_tier in (ACCESS_TIER_FULL_ADMIN, ACCESS_TIER_SALES_MGMT):
-                    redirect_url = '/admin'
-                elif user_type == 'admin':
-                    redirect_url = f'{PROCUREMENT_UI_PATH}?tab=view'
-                else:
                     redirect_url = '/create-quotation'
-            print(f"[AUTH] Customer path: {email} tier={access_tier} user_type={user_type} login_mode={login_mode}")
-        elif identity.get('is_admin'):
-            if access_tier == ACCESS_TIER_NO_ROLE:
-                return jsonify({
-                    'success': False,
-                    'error': (
-                        'No role is assigned for this account. '
-                        'Ask an administrator to set one of UDF_ISADMIN, UDF_ISPURHOD, UDF_ISPURMGR, '
-                        'UDF_ISDIRECTOR, or UDF_SSTAFF on SY_USER.'
-                    ),
-                }), 403
-            customer_code = identity.get('customer_code')
-            user_type = user_type_hint if user_type_hint in ('admin', 'user') else 'admin'
-            if access_tier == ACCESS_TIER_SALES_STAFF:
-                user_type = 'user'
-                redirect_url = '/create-quotation'
-            elif access_tier in (ACCESS_TIER_FULL_ADMIN, ACCESS_TIER_SALES_MGMT):
-                user_type = 'admin'
-                redirect_url = '/admin'
-            elif access_tier in (ACCESS_TIER_PURCH_MGMT, ACCESS_TIER_HOD, ACCESS_TIER_DIRECTOR):
-                user_type = 'admin'
-                redirect_url = f'{PROCUREMENT_UI_PATH}?tab=view'
-            else:
-                return jsonify({
-                    'success': False,
-                    'error': 'Unrecognized access profile for this account. Contact an administrator.',
-                }), 403
+                elif access_tier in (ACCESS_TIER_FULL_ADMIN, ACCESS_TIER_SALES_MGMT):
+                    user_type = 'admin'
+                    redirect_url = '/admin'
+                elif access_tier in (
+                    ACCESS_TIER_PURCH_MGMT,
+                    ACCESS_TIER_HOD,
+                    ACCESS_TIER_DIRECTOR,
+                    ACCESS_TIER_PURCH_USER,
+                ):
+                    user_type = 'admin'
+                    redirect_url = f'{PROCUREMENT_UI_PATH}?tab=view'
+                elif access_tier == ACCESS_TIER_CUSTOMER:
+                    user_type = 'user'
+                    redirect_url = '/create-quotation'
+                else:
+                    return jsonify({
+                        'success': False,
+                        'error': 'Unrecognized access profile for this account. Contact an administrator.',
+                    }), 403
             print(
-                f"[AUTH] SY_USER-only path: {email} tier={access_tier} "
-                f"user_type={user_type} staff_udf={staff_udf}",
+                f"[AUTH] Staff/customer path: {email} tier={access_tier} "
+                f"user_type={user_type} login_mode={login_mode} staff_udf={staff_udf}",
                 flush=True,
             )
         else:
@@ -10437,7 +10444,7 @@ def api_get_draft_quotation_details():
             con.close()
             return jsonify({'success': False, 'error': 'Draft not found'}), 404
         draft_owner = (str(hdr[11]) if len(hdr) > 11 and hdr[11] is not None else '').strip()
-        if user_type != 'admin':
+        if not session_is_staff_admin(session):
             if not customer_code:
                 cur.close()
                 con.close()
@@ -10654,7 +10661,7 @@ def api_get_quotation_details():
     except (TypeError, ValueError):
         return jsonify({'success': False, 'error': 'Invalid dockey parameter'}), 400
 
-    user_type = (session.get('user_type') or '').strip().lower()
+    is_staff_admin = session_is_staff_admin(session)
     session_customer_code = (session.get('customer_code') or '').strip()
     requested_customer_code = (request.args.get('customer_code') or '').strip()
 
@@ -10664,7 +10671,7 @@ def api_get_quotation_details():
     except Exception:
         resolved_customer_code = ''
 
-    if user_type == 'admin':
+    if is_staff_admin:
         customer_code = (requested_customer_code or session_customer_code or resolved_customer_code).strip()
     else:
         # Session viewer code (email → AR_CUSTOMERBRANCH). Access to the document is decided by CODE or shared COMPANYNAME.
@@ -10691,7 +10698,7 @@ def api_get_quotation_details():
             qt_code = str(acl_row[0] or '').strip()
             qt_company = str(acl_row[1] or '').strip() if len(acl_row) > 1 else ''
 
-            if user_type != 'admin':
+            if not is_staff_admin:
                 if not customer_code:
                     return jsonify({'success': False, 'error': 'Customer code not found in session'}), 400
                 if not _quotation_visible_to_customer_session(qt_code, qt_company):
