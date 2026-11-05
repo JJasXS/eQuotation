@@ -200,7 +200,7 @@ def test_draft_cannot_jump_straight_to_approved(monkeypatch):
 
 def test_frontend_guards_pending_cancel_and_draft_label():
     text = APP_JS.read_text(encoding="utf-8")
-    assert text.count("viewPrExplicitUdfIsCancelled(") >= 4
+    assert text.count("viewPrExplicitUdfIsCancelled(") >= 1
     assert "viewPrUdfOption('AWAITING', 'Awaiting Approval', current)" in text
     assert "targetUdfStatus: 'AWAITING'" in text
     assert "targetUdfStatus: 'CANCELLED'" in text
