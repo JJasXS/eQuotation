@@ -75,15 +75,15 @@ def refresh_staff_session_roles(session, *, min_interval_sec: float = _DEFAULT_M
     if session is None or not session.get('user_email'):
         return False
 
-    login_mode = str(session.get('login_mode') or '').strip().lower()
     user_type_now = str(session.get('user_type') or '').strip().lower()
-    tier_now = str(session.get('access_tier') or '').strip()
-    if login_mode in ('customer', 'supplier'):
+    if user_type_now == 'supplier':
         return False
-    if user_type_now == 'supplier' or tier_now in (ACCESS_TIER_SUPPLIER, ACCESS_TIER_CUSTOMER):
-        return False
-    # Staff refresh only for admin-tab sessions (or legacy staff without login_mode).
-    if login_mode and login_mode != 'admin':
+    # Refresh whenever the session already carries staff_udf / admin identity.
+    # is* roles win over login_mode (customer tab + SY_USER isAdmin is allowed).
+    existing_udf = session.get('staff_udf') if isinstance(session.get('staff_udf'), dict) else {}
+    if user_type_now not in ('admin',) and not existing_udf.get('isadmin') and not any(
+        existing_udf.get(k) for k in ('ispurhod', 'ispurmng', 'ispuruser', 'isdirector', 'sstaff')
+    ):
         return False
 
     now = time.monotonic()

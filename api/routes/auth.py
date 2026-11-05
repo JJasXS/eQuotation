@@ -379,57 +379,54 @@ def lookup_email_identity(
         staff_locations: list = []
         sy_user_profile = None
 
-        if mode == "admin":
-            try:
-                sy_user_profile, staff_udf = _fetch_sy_user_profile_with_udfs(cur, normalized_email)
-            except Exception as exc:
-                print(f"[AUTH] SY_USER profile read failed: {exc}", flush=True)
-                sy_user_profile, staff_udf = None, {}
-            if sy_user_profile:
-                staff_locations = staff_locations_from_sy_user_row(sy_user_profile)
-                admin = {
-                    "code": sy_user_profile.get("CODE"),
-                    "name": sy_user_profile.get("NAME"),
-                    "email": sy_user_profile.get("EMAIL"),
-                    "isactive": sy_user_profile.get("ISACTIVE"),
-                    "staff_udf": staff_udf,
-                    "staff_locations": staff_locations,
-                }
-        elif mode == "supplier":
+        # Always resolve SY_USER so any staff email can authenticate from any login tab.
+        try:
+            sy_user_profile, staff_udf = _fetch_sy_user_profile_with_udfs(cur, normalized_email)
+        except Exception as exc:
+            print(f"[AUTH] SY_USER profile read failed: {exc}", flush=True)
+            sy_user_profile, staff_udf = None, {}
+        if sy_user_profile:
+            staff_locations = staff_locations_from_sy_user_row(sy_user_profile)
+            admin = {
+                "code": sy_user_profile.get("CODE"),
+                "name": sy_user_profile.get("NAME"),
+                "email": sy_user_profile.get("EMAIL"),
+                "isactive": sy_user_profile.get("ISACTIVE"),
+                "staff_udf": staff_udf,
+                "staff_locations": staff_locations,
+            }
+
+        if mode == "supplier":
             supplier, supplier_code = _lookup_supplier_by_email(cur, normalized_email)
-        else:
+        elif mode == "customer":
+            user, customer_code = _lookup_customer_by_email(cur, normalized_email)
+        elif mode == "admin" and not sy_user_profile:
+            # Admin tab: also try customer directory so shared emails still resolve.
             user, customer_code = _lookup_customer_by_email(cur, normalized_email)
 
         is_admin_sy = bool(admin)
         is_user = bool(user)
         is_supplier = bool(supplier) and not is_admin_sy
+        has_staff_roles = staff_has_any_mapped_role_udf(staff_udf)
 
-        # Portal tabs stay portal-only. Staff roles only apply on the admin tab.
-        if mode == "customer":
-            access_tier = ACCESS_TIER_CUSTOMER
-            staff_udf = {}
-            staff_locations = []
-        elif mode == "supplier":
-            access_tier = ACCESS_TIER_SUPPLIER
-            staff_udf = {}
-            staff_locations = []
-        elif is_supplier:
-            access_tier = ACCESS_TIER_SUPPLIER
-        elif is_user:
-            # Admin-tab path that also matched AR_CUSTOMER — still staff-driven.
-            access_tier = compute_access_tier(
-                is_supplier=False,
-                is_customer=not staff_has_any_mapped_role_udf(staff_udf),
-                staff_udf=staff_udf,
-                sy_user_row_present=is_admin_sy,
-            )
-        else:
+        # is* roles win. Pure portal emails (no SY_USER / no role flags) stay portal-only.
+        if is_admin_sy or has_staff_roles:
             access_tier = compute_access_tier(
                 is_supplier=False,
                 is_customer=False,
-                staff_udf=staff_udf if is_admin_sy else {},
-                sy_user_row_present=is_admin_sy,
+                staff_udf=staff_udf,
+                sy_user_row_present=True,
             )
+        elif mode == "customer" or is_user:
+            access_tier = ACCESS_TIER_CUSTOMER
+            staff_udf = {}
+            staff_locations = []
+        elif mode == "supplier" or is_supplier:
+            access_tier = ACCESS_TIER_SUPPLIER
+            staff_udf = {}
+            staff_locations = []
+        else:
+            access_tier = ACCESS_TIER_CUSTOMER
 
         user_type_hint = user_type_for_session(access_tier)
 

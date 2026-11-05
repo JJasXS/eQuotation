@@ -2966,8 +2966,8 @@ def api_send_otp():
 
         if not (is_admin or is_user or is_customer or is_supplier):
             print(
-                f"[DEBUG OTP] rejected (email not in directory for login_mode={login_mode!r}): {email!r}. "
-                "Customer tab: AR_CUSTOMER email/UDF; Admin: SY_USER; Supplier: supplier email.",
+                f"[DEBUG OTP] rejected (email not in SY_USER / AR_CUSTOMER / supplier for "
+                f"login_mode={login_mode!r}): {email!r}.",
                 flush=True,
             )
             return jsonify({
@@ -3171,23 +3171,16 @@ def api_verify_otp():
                 user_type = 'user'
                 redirect_url = '/create-quotation'
             else:
-                if has_staff_roles:
+                if has_staff_roles or identity.get('is_admin'):
                     access_tier = infer_access_tier_from_session({
                         'staff_udf': staff_udf,
                         'access_tier': access_tier,
                     })
                 user_type = user_type_for_session(access_tier)
-                if user_type_hint in ('admin', 'user') and not has_staff_roles:
+                if user_type_hint in ('admin', 'user') and not has_staff_roles and not identity.get('is_admin'):
                     user_type = user_type_hint
-                if access_tier == ACCESS_TIER_NO_ROLE:
-                    return jsonify({
-                        'success': False,
-                        'error': (
-                            'No role is assigned for this account. '
-                            'Ask an administrator to set one of UDF_ISADMIN, UDF_ISPURHOD, UDF_ISPURMGR, '
-                            'UDF_ISDIRECTOR, or UDF_SSTAFF on SY_USER.'
-                        ),
-                    }), 403
+                # Any SY_USER email may log in. Role flags decide landing page;
+                # no is* flags → customer quotation UI (not a hard block).
                 if access_tier == ACCESS_TIER_SALES_STAFF:
                     user_type = 'user'
                     redirect_url = '/create-quotation'
@@ -3202,7 +3195,9 @@ def api_verify_otp():
                 ):
                     user_type = 'admin'
                     redirect_url = f'{PROCUREMENT_UI_PATH}?tab=view'
-                elif access_tier == ACCESS_TIER_CUSTOMER:
+                elif access_tier in (ACCESS_TIER_CUSTOMER, ACCESS_TIER_NO_ROLE) or identity.get('is_admin'):
+                    if access_tier == ACCESS_TIER_NO_ROLE:
+                        access_tier = ACCESS_TIER_CUSTOMER
                     user_type = 'user'
                     redirect_url = '/create-quotation'
                 else:
