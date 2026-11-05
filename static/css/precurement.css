@@ -6371,8 +6371,9 @@ body.procurement-warm-ui .pr-view-left-search {
 body.procurement-warm-ui .pr-view-left-search-top {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 10px;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 8px 10px;
     min-height: 36px;
 }
 
@@ -6388,9 +6389,9 @@ body.procurement-warm-ui .pr-view-left-title {
 
 body.procurement-warm-ui .pr-view-left-search-field {
     position: relative;
-    flex: 0 1 180px;
-    width: min(180px, 42vw);
-    min-width: 0;
+    flex: 1 1 140px;
+    width: min(160px, 100%);
+    min-width: 120px;
     margin-left: auto;
 }
 
@@ -6428,7 +6429,7 @@ body.procurement-warm-ui .pr-view-left-bulk-bar .pr-view-left-bulk-transfer {
     margin: 0;
 }
 
-/* Open inline controls in search-top: checkbox + to Pending (no box) */
+/* Select-all + action buttons stay on one row (15.6in left pane); search may wrap */
 body.procurement-warm-ui .pr-view-left-bulk-bar.view-pr-bulk-pending-bar {
     display: inline-flex;
     flex-wrap: nowrap;
@@ -6436,13 +6437,14 @@ body.procurement-warm-ui .pr-view-left-bulk-bar.view-pr-bulk-pending-bar {
     gap: 8px;
     margin: 0;
     padding: 0;
-    min-height: 0;
+    min-height: 34px;
     border: none;
     border-radius: 0;
     background: transparent;
     box-shadow: none;
-    flex: 0 0 auto;
-    max-width: none;
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
 }
 
 body.procurement-warm-ui .pr-view-left-bulk-bar.view-pr-bulk-pending-bar[hidden] {
@@ -6455,61 +6457,79 @@ body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-bulk-selection-count {
 
 body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-bulk-pending-bar__actions {
     margin-left: 0;
-    flex: 0 0 auto;
+    flex: 0 1 auto;
     display: inline-flex;
+    flex-wrap: nowrap;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
+    min-width: 0;
+}
+
+body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-bulk-pending-bar__actions[hidden] {
+    display: none !important;
 }
 
 body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-to-pending-btn {
-    display: inline;
-    margin: 0;
-    padding: 0;
-    border: none;
-    border-radius: 0;
-    background: transparent;
-    box-shadow: none;
-    min-height: 0;
-    font-size: 13px;
-    font-weight: 700;
-    line-height: 1.2;
-    color: var(--ice-heading, #1a4d6e);
-    cursor: pointer;
-    white-space: nowrap;
-}
-
-body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-to-pending-btn:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-}
-
-body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-to-pending-btn:not(:disabled):hover {
-    color: var(--ice-accent, #3b8fc4);
-    text-decoration: underline;
-}
-
-body.procurement-warm-ui .pr-view-left-bulk-bar .pr-view-left-bulk-transfer {
-    display: inline;
-    margin: 0;
-    padding: 0;
-    border: none;
-    background: transparent;
-    box-shadow: none;
-    min-height: 0;
+    min-height: 30px;
+    padding: 5px 12px;
     font-size: 12px;
-    font-weight: 650;
-    color: var(--ice-heading, #1a4d6e);
-    cursor: pointer;
+    font-weight: 700;
+}
+
+body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-bulk-btn {
+    flex: 0 1 auto;
+    max-width: 100%;
+    min-height: 30px;
+    padding: 5px 10px;
+    font-size: 11px;
+    line-height: 1.2;
+    border-radius: 8px;
     white-space: nowrap;
+}
+
+/* Laptop / 15.6in: keep Select all + Bulk Transfer inline; move search under when tight */
+@media (max-width: 1600px) {
+    body.procurement-warm-ui .pr-view-left-search-field {
+        flex: 1 1 100%;
+        width: 100%;
+        max-width: none;
+        margin-left: 0;
+        order: 3;
+    }
+
+    body.procurement-warm-ui .pr-view-left-bulk-bar.view-pr-bulk-pending-bar {
+        flex: 1 1 auto;
+        order: 2;
+    }
+
+    body.procurement-warm-ui .pr-view-left-title {
+        order: 1;
+    }
+
+    body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-bulk-btn {
+        padding: 5px 8px;
+        font-size: 10.5px;
+    }
+}
+
+/* 85bd158 set display:inline on these; force [hidden] to win on wrong tabs */
+body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-to-pending-btn[hidden],
+body.procurement-warm-ui .pr-view-left-bulk-bar .pr-view-left-bulk-transfer[hidden],
+body.procurement-warm-ui .pr-view-left-bulk-bar .view-pr-bulk-transfer-toggle[hidden] {
+    display: none !important;
 }
 
 body.procurement-warm-ui .pr-view-left-bulk-select {
     display: inline-flex;
     align-items: center;
-    gap: 0;
+    gap: 6px;
     margin: 0;
     cursor: pointer;
     user-select: none;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--ice-heading, #1a4d6e);
+    white-space: nowrap;
     line-height: 1;
 }
 
@@ -6518,8 +6538,8 @@ body.procurement-warm-ui .pr-view-left-bulk-select[hidden] {
 }
 
 body.procurement-warm-ui .pr-view-left-bulk-select input[type="checkbox"] {
-    width: 16px;
-    height: 16px;
+    width: 18px;
+    height: 18px;
     accent-color: var(--ice-accent, #3b8fc4);
     cursor: pointer;
     margin: 0;

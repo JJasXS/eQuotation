@@ -316,6 +316,8 @@
 
         let viewBulkSelectedHeaderIds = new Set();
 
+        let viewPrBulkToPendingBusy = false;
+
         function getActiveViewStatusFilter() {
 
             if (viewStatusFilters instanceof Set && viewStatusFilters.size === 1) {
@@ -3738,6 +3740,28 @@
             return document.body.classList.contains('procurement-hide-pr-approval-edits');
         }
 
+        function isProcurementTransferHidden() {
+            return document.body.classList.contains('procurement-hide-transfer');
+        }
+
+        /**
+         * List bulk select / toolbar by tab:
+         * - AWAITING: Select All + to Pending need UDF_APPROVEPQ (or admin)
+         * - APPROVED: Select All + Bulk Transfer need UDF_APPROVEPO (or admin)
+         */
+        function canUseViewPrListBulkSelect() {
+            if (!(viewStatusFilters instanceof Set) || viewStatusFilters.size !== 1) {
+                return false;
+            }
+            if (viewStatusFilters.has('AWAITING')) {
+                return !isProcurementApprovalEditsHidden();
+            }
+            if (viewStatusFilters.has('APPROVED')) {
+                return !isProcurementTransferHidden();
+            }
+            return false;
+        }
+
         /** Header status edits need UDF_APPROVEPQ (or admin) — same gate as line approvals. */
         function canEditViewPrHeaderStatus(_header) {
             return !isProcurementApprovalEditsHidden();
@@ -4185,6 +4209,10 @@
 
             try { syncViewStatusFilterTabClasses(); } catch (e) { /* ignore */ }
 
+            try { syncViewPrApprovedOnlyToolbarActions(); } catch (e) { /* ignore */ }
+
+            try { syncViewPendingBulkBar(); } catch (e) { /* ignore */ }
+
             try { syncViewStatusToUrl(); } catch (e) { /* ignore */ }
 
             if (opts.reload !== false) {
@@ -4216,6 +4244,9 @@
             syncViewStatusFilterTabClasses();
 
             syncViewPrApprovedOnlyToolbarActions();
+
+            // Hide/show to Pending vs Bulk Transfer immediately — do not wait for list reload.
+            syncViewPendingBulkBar();
 
             syncViewStatusToUrl();
 
@@ -4289,10 +4320,10 @@
 
             }
 
-            // Bulk Mark Pending needs UDF_APPROVEPQ (or admin).
-            const hide = isProcurementApprovalEditsHidden();
+            try { syncViewPrApprovedOnlyToolbarActions(); } catch (e) { /* ignore */ }
 
-            if (!isViewPendingBulkSelectMode() || hide) {
+            // Awaiting → APPROVEPQ; Approved → APPROVEPO (see canUseViewPrListBulkSelect).
+            if (!canUseViewPrListBulkSelect()) {
 
                 bar.hidden = true;
 
@@ -4320,31 +4351,28 @@
 
             if (approveBtn) {
 
-                approveBtn.disabled = n === 0;
+                approveBtn.disabled = n === 0 || viewPrBulkToPendingBusy;
 
                 const targetUdf = getViewListBulkTargetUdfStatus();
 
-                if (targetUdf === 'APPROVED') {
+                // to Pending is Awaiting-only. Never flash it on Approved/other tabs.
+                if (targetUdf === 'PENDING') {
 
-                    approveBtn.textContent = n === 0 ? 'Approve selected' : `Approve selected (${n})`;
+                    approveBtn.textContent = viewPrBulkToPendingBusy ? 'Updating…' : 'to Pending';
 
-                    approveBtn.title = 'Approve selected purchase requests';
-
-                    approveBtn.hidden = false;
-
-                } else if (targetUdf === 'PENDING') {
-
-                    approveBtn.textContent = 'to Pending';
-
-                    approveBtn.title = n === 0
-                        ? 'Select PRs, then change status to Pending'
-                        : `Change ${n} selected PR(s) to Pending`;
+                    approveBtn.title = viewPrBulkToPendingBusy
+                        ? 'Updating selected PRs to Pending'
+                        : (n === 0
+                            ? 'Select PRs, then change status to Pending'
+                            : `Change ${n} selected PR(s) to Pending`);
 
                     approveBtn.hidden = false;
 
                 } else {
 
                     approveBtn.textContent = 'to Pending';
+
+                    approveBtn.title = 'Change selected PRs to Pending';
 
                     approveBtn.hidden = true;
 
@@ -4353,6 +4381,12 @@
             }
 
             const transferToggle = document.getElementById('view-bulk-transfer-toggle');
+
+            if (transferToggle && isViewApprovedTabActive()) {
+
+                transferToggle.disabled = n === 0 && viewSelectedHeaderId == null;
+
+            }
 
             const actions = bar.querySelector('.view-pr-bulk-pending-bar__actions');
 
@@ -4372,7 +4406,7 @@
 
         function onViewPrBulkCardCheckboxChange(event, headerId) {
 
-            if (isProcurementApprovalEditsHidden()) {
+            if (!canUseViewPrListBulkSelect()) {
 
                 if (event && event.target) {
 
@@ -4444,10 +4478,8 @@
 
             }
 
-            // Select-all for bulk approve needs UDF_APPROVEPQ (or admin).
-            const hide = isProcurementApprovalEditsHidden();
-
-            const active = isViewPendingBulkSelectMode() && !hide;
+            // Awaiting → APPROVEPQ; Approved → APPROVEPO.
+            const active = canUseViewPrListBulkSelect();
 
             wrap.hidden = !active;
 
@@ -4481,7 +4513,7 @@
 
         function viewPrBulkSelectAllPending() {
 
-            if (!isViewPendingBulkSelectMode()) {
+            if (!canUseViewPrListBulkSelect()) {
 
                 return;
 
@@ -4515,7 +4547,9 @@
 
         }
 
-        function queueHeaderUdfPendingFromSaved(requestId, value) {
+        function queueHeaderUdfPendingFromSaved(requestId, value, options) {
+
+            const opts = options && typeof options === 'object' ? options : {};
 
             const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(requestId));
 
@@ -4560,7 +4594,9 @@
 
             }
 
-            if (saved === 'AWAITING' && normalizedTarget === 'PENDING') {
+            // Single-PR path keeps FE supplier check. Bulk to Pending skips it — Create e-PR
+            // already required suppliers; backend still enforces PR_SELECTED_SUPPLIER.
+            if (!opts.skipSupplierCheck && saved === 'AWAITING' && normalizedTarget === 'PENDING') {
 
                 const suppliers = Array.isArray(header._suppliers) ? header._suppliers : [];
 
@@ -4619,56 +4655,46 @@
 
         }
 
-        function viewPrBulkQueueApproveSelected() {
+        async function viewPrBulkQueueApproveSelected() {
 
-            if (isProcurementApprovalEditsHidden()) {
-
+            // to Pending is Awaiting-only and needs UDF_APPROVEPQ (or admin).
+            if (!canUseViewPrListBulkSelect() || isProcurementApprovalEditsHidden()) {
                 return;
-
             }
-
-            if (!isViewPendingBulkSelectMode() || viewBulkSelectedHeaderIds.size === 0) {
-
+            if (viewPrBulkToPendingBusy || viewBulkSelectedHeaderIds.size === 0) {
                 return;
-
             }
-
             const targetUdf = getViewListBulkTargetUdfStatus();
-
-            if (!targetUdf) {
-
+            if (targetUdf !== 'PENDING') {
                 return;
-
             }
 
-            let any = false;
+            viewPrBulkToPendingBusy = true;
+            syncViewPendingBulkBar();
 
-            for (const hid of viewBulkSelectedHeaderIds) {
-
-                if (queueHeaderUdfPendingFromSaved(hid, targetUdf)) {
-
-                    any = true;
-
+            try {
+                let any = false;
+                for (const hid of viewBulkSelectedHeaderIds) {
+                    // Skip FE supplier re-check; Create e-PR already required suppliers.
+                    // Backend header-status still enforces PR_SELECTED_SUPPLIER / invites.
+                    if (queueHeaderUdfPendingFromSaved(hid, targetUdf, { skipSupplierCheck: true })) {
+                        any = true;
+                    }
                 }
-
-            }
-
-            if (any) {
+                if (!any) {
+                    return;
+                }
 
                 updateViewApprovalButtonState();
-
                 renderFilteredViewPurchaseRequests();
-
                 if (typeof saveViewDetailApprovals === 'function') {
-
-                    Promise.resolve(saveViewDetailApprovals()).catch((err) => {
-
-                        console.warn('[VIEW PR] bulk approve save failed', err);
-
-                    });
-
+                    await saveViewDetailApprovals();
                 }
-
+            } catch (err) {
+                console.warn('[VIEW PR] bulk approve save failed', err);
+            } finally {
+                viewPrBulkToPendingBusy = false;
+                syncViewPendingBulkBar();
             }
 
         }
@@ -6702,8 +6728,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 const selectionCardHtml = buildViewPrSelectionBadgeHtml(cardSelectedCount, cardLineCount);
 
-                const bulkMode = isViewPendingBulkSelectMode()
-                    && !isProcurementApprovalEditsHidden();
+                const bulkMode = canUseViewPrListBulkSelect();
 
                 const bulkSlot = bulkMode
 
