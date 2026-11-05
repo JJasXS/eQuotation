@@ -438,7 +438,7 @@ body {
     cursor: pointer;
 }
 
-/* PSTAFF (purchase_staff): hide PR → PO transfer UI (role from utils/role_permissions.py) */
+/* No UDF_APPROVEPO: hide PR → PO transfer UI (utils/role_permissions.py) */
 body.procurement-hide-transfer .view-pr-detail-actions {
     display: none !important;
 }
@@ -452,12 +452,11 @@ body.procurement-hide-transfer .view-pr-transfer-ratio-total {
     display: none !important;
 }
 
-/* Read-only approval edits: lock line checkboxes. Non-HOD also lose header Update UI.
-   HOD keeps Awaiting status Update (Awaiting → Pending) while line approvals stay locked. */
-body.procurement-hide-pr-approval-edits:not(.procurement-role-hod) #view-pr-update-btn {
+/* No UDF_APPROVEPQ: hide header Update / lock status + line approval checkboxes. */
+body.procurement-hide-pr-approval-edits #view-pr-update-btn {
     display: none !important;
 }
-body.procurement-hide-pr-approval-edits:not(.procurement-role-hod) .view-pr-udf-status {
+body.procurement-hide-pr-approval-edits .view-pr-udf-status {
     pointer-events: none;
     opacity: 0.55;
 }

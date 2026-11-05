@@ -1,13 +1,30 @@
 # SY_USER role access rules
 
 **Status:** Wired for Purchase / View e-PR.  
-**Date:** 2026-10-29  
+**Date:** 2026-11-03  
 
 ## Principle
 
-**ISADMIN / ISHOD / ISPURMGR / ISDIRECTOR all see the Purchase area** (menu, Create e-PR, View e-PR, etc.).
+**Roles = visibility.** Any of these open Purchase (menu, Create e-PR, View e-PR, all status tabs):
 
-Limits are **only inside View e-PR status tabs** (which tabs show, and what you can do on that tab) — not whether Purchase itself is visible.
+| Column | Tier |
+|--------|------|
+| `UDF_ISADMIN` | `full_admin` |
+| `UDF_ISPURHOD` | `hod` |
+| `UDF_ISPURMGR` (alias `UDF_ISPURMNG`) | `purchasing_management` |
+| `UDF_ISPURUSER` | `purchase_user` |
+| `UDF_ISDIRECTOR` | `director` |
+
+**Approval UDFs = actions** (inside Purchase). Role alone does **not** grant approve / transfer.
+
+| Column | Action |
+|--------|--------|
+| `UDF_APPROVEPQ` | Approve Purchase Requisition (Awaiting→Pending, line approvals) |
+| `UDF_APPROVEPO` | Transfer to PO / PO approval |
+| `UDF_APPROVEPR` | Returned (no screen yet — unused) |
+| `UDF_APPROVEGR` / `UDF_APPROVEPI` | Unused (no GR / PI screens yet) |
+
+`UDF_ISADMIN` bypasses approval UDFs (full actions).
 
 ### When roles / OTP are applied (`APP`)
 
@@ -18,67 +35,57 @@ Limits are **only inside View e-PR status tabs** (which tabs show, and what you 
 
 ```text
 can_see_purchase =
-  ISADMIN OR ISHOD OR ISPURMGR OR ISDIRECTOR
+  ISADMIN OR ISPURHOD OR ISPURMGR OR ISPURUSER OR ISDIRECTOR
+
+can_approve_requisition = ISADMIN OR APPROVEPQ
+can_transfer_to_po      = ISADMIN OR APPROVEPO
 ```
 
 ---
 
 ## Source fields on `SY_USER`
 
-| Column | Role |
-|--------|------|
-| `UDF_ISADMIN` | System admin — full access |
-| `UDF_ISHOD` | HOD — Awaiting-focused; Pending/Approved view-only |
-| `UDF_ISPURMGR` | Purchasing manager — Pending/Approved full; no Awaiting tab (alias: `UDF_ISPURMNG`) |
-| `UDF_ISDIRECTOR` | Director — sees Purchase; status-tab rules **TBD** (no extra hides yet) |
-| `UDF_SSTAFF` | Sales staff only (quotations; **no** Purchase) |
-
 Truthy: `1`, `Y`, `YES`, `T`, `TRUE`, `ON`, `-1`.
 
-**Ignored (no access effect):** `UDF_MANAGEMENT`, `UDF_PMANAGEMENT`, `UDF_PUSER`, `UDF_SMANAGEMENT`, `UDF_SUSER`.
+**Ignored for Purchase visibility:** other dept roles (sales/prod/store/QA/finance/tech), plus legacy `UDF_MANAGEMENT`, `UDF_PMANAGEMENT`, `UDF_PUSER`, `UDF_SMANAGEMENT`, `UDF_SUSER`.
+
+`UDF_SSTAFF` = sales staff only (quotations; **no** Purchase).
 
 ---
 
-## View e-PR status tab limits
+## View e-PR
 
-| Status tab | Admin | HOD | Purch Mgr | Director |
-|------------|-------|-----|-----------|----------|
-| Draft | Full | See / limited* | Full | TBD (all tabs shown for now) |
-| Awaiting Approval | Full | **Primary** — can move → Pending | **Hidden** | TBD |
-| Pending | Full | **View only** (no transfer / line approve) | **Full** | TBD |
-| Approved | Full | View only (no transfer) | Full | TBD |
-| Cancelled | Full | View | Per purch rules | TBD |
+| Status tab | All purchase roles |
+|------------|--------------------|
+| Draft / Awaiting / Pending / Approved / Cancelled | **Visible** (no role-based tab hide) |
 
-\*HOD on Draft: treat as view/limited unless product says otherwise.
-
-### Actions (same idea — only inside those tabs)
-
-| Action | Admin | HOD | Purch Mgr | Director |
-|--------|-------|-----|-----------|----------|
-| See Purchase menu | Yes | Yes | Yes | Yes |
-| See Awaiting tab | Yes | Yes | **No** | Yes (until TBD) |
-| Awaiting → Pending | Yes | **Yes** | N/A | TBD |
-| Line approvals / transfer on Pending | Yes | **No** | Yes | TBD (allowed until defined) |
+| Action | Who |
+|--------|-----|
+| See Purchase menu | Any purchase role |
+| Draft → Submit / Cancel draft | Any purchase role |
+| Awaiting → Pending / line approve | `UDF_APPROVEPQ` or admin |
+| Transfer to PO | `UDF_APPROVEPO` or admin |
 
 ---
 
-## Priority when multiple flags are set
+## Priority when multiple role flags are set
 
 1. `UDF_ISADMIN` → `full_admin`
 2. `UDF_ISPURMGR` → `purchasing_management`
-3. `UDF_ISHOD` → `hod`
+3. `UDF_ISPURHOD` → `hod`
 4. `UDF_ISDIRECTOR` → `director`
-5. `UDF_SSTAFF` → `sales_staff`
+5. `UDF_ISPURUSER` → `purchase_user`
+6. `UDF_SSTAFF` → `sales_staff`
 
-Any of the four purchase flags → Purchase visible; priority only picks which tab/action rules apply.
+Any purchase role → Purchase visible; approval UDFs gate actions.
 
 ---
 
 ## Code (`utils/role_permissions.py`)
 
-- Gate: `can_see_view_pr` / `can_access_purchase_menu`
-- Tab: `hide_pr_awaiting_tab` (Purch Mgr only)
-- Actions: `hide_pr_transfer_for_pstaff`, `hide_pr_approval_edits_for_pstaff` (HOD)
+- Visibility: `can_see_view_pr` / `can_access_purchase_menu`
+- Actions: `can_approve_purchase_requisition` (`APPROVEPQ`), `can_transfer_pr_to_po` (`APPROVEPO`)
+- UI hides: `hide_pr_awaiting_tab` always false; transfer/approval edits hide when approval UDF missing
 
 ---
 
@@ -88,3 +95,5 @@ Any of the four purchase flags → Purchase visible; priority only picks which t
 |------|------|
 | 2026-10-29 | Four Role Selection flags; legacy five UDFs ignored. |
 | 2026-10-29 | Clarify: all four see Purchase; only View e-PR status tabs/actions are limited. |
+| 2026-10-30 | Purchase HOD uses `UDF_ISPURHOD` (not generic `UDF_ISHOD`); other dept HODs ignored. |
+| 2026-11-03 | Roles = visibility only (incl. `ISPURUSER`); actions gated by `APPROVEPQ` / `APPROVEPO`; no role-based Awaiting tab hide. |

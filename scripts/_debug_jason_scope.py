@@ -37,7 +37,7 @@ def main() -> None:
             "EMAIL",
             "UDF_LOCATION",
             "UDF_ISADMIN",
-            "UDF_ISHOD",
+            "UDF_ISPURHOD",
             "UDF_ISPURMGR",
             "UDF_ISPURMNG",
             "UDF_ISDIRECTOR",

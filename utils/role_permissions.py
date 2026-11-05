@@ -1,21 +1,29 @@
 """
 Role and UI permissions derived from SY_USER UDF_* flags (not SY_USER.CODE).
 
+Roles = visibility (who can open Purchase / see all e-PR tabs).
+Approval UDFs = actions (who can approve requisition / transfer to PO).
+
 Canonical access tier (session['access_tier']) after login:
   - full_admin            UDF_ISADMIN
   - purchasing_management UDF_ISPURMGR (alias UDF_ISPURMNG)
-  - hod                   UDF_ISHOD
-  - director              UDF_ISDIRECTOR (gate only; tab/action rules TBD)
+  - hod                   UDF_ISPURHOD (purchase HOD only; not ISSALESHOD / other dept HODs)
+  - director              UDF_ISDIRECTOR
+  - purchase_user         UDF_ISPURUSER
   - sales_staff           UDF_SSTAFF
   - customer              AR customer / branch email match (quotation customer UI)
   - supplier              supplier email match
   - no_role               SY_USER row exists but no recognized role UDF is true
 
-Purchase / View e-PR requires at least one of:
-  UDF_ISADMIN | UDF_ISHOD | UDF_ISPURMGR/UDF_ISPURMNG | UDF_ISDIRECTOR
+Purchase / View e-PR (see all tabs) requires at least one of:
+  UDF_ISADMIN | UDF_ISPURHOD | UDF_ISPURMGR/UDF_ISPURMNG | UDF_ISPURUSER | UDF_ISDIRECTOR
 
-Ignored (not mapped — no access effect):
-  UDF_MANAGEMENT, UDF_PMANAGEMENT, UDF_PUSER, UDF_SMANAGEMENT, UDF_SUSER.
+Actions:
+  - Awaiting→Pending / line approve e-PR: UDF_ISADMIN | UDF_APPROVEPQ
+  - Transfer to PO: UDF_ISADMIN | UDF_APPROVEPO
+
+Ignored for Purchase visibility: other dept roles (sales/prod/store/QA/finance/tech).
+UDF_APPROVEGR / PI / PR (Returned) are not used (no screens yet).
 
 Legacy sessions without access_tier infer from user_type for backward compatibility.
 """
@@ -27,11 +35,15 @@ import os
 # ACC-UAMAT uses UDF_ISPURMGR; docs/UI may still say UDF_ISPURMNG — map both.
 SY_USER_UDF_COLUMN_TO_FLAG = {
     'UDF_ISADMIN': 'isadmin',
-    'UDF_ISHOD': 'ishod',
+    'UDF_ISPURHOD': 'ispurhod',
     'UDF_ISPURMGR': 'ispurmng',
     'UDF_ISPURMNG': 'ispurmng',
+    'UDF_ISPURUSER': 'ispuruser',
     'UDF_ISDIRECTOR': 'isdirector',
     'UDF_SSTAFF': 'sstaff',
+    # Approval permissions (actions, not menu visibility)
+    'UDF_APPROVEPQ': 'approve_pq',  # Approve Purchase Requisition (e-PR)
+    'UDF_APPROVEPO': 'approve_po',  # Approve Purchase Order / Transfer to PO
 }
 
 # Non-boolean location scope column (ST_LOCATION codes; comma / semicolon / pipe separated).
@@ -42,6 +54,7 @@ ACCESS_TIER_SALES_MGMT = 'sales_management'
 ACCESS_TIER_PURCH_MGMT = 'purchasing_management'
 ACCESS_TIER_HOD = 'hod'
 ACCESS_TIER_DIRECTOR = 'director'
+ACCESS_TIER_PURCH_USER = 'purchase_user'
 ACCESS_TIER_SALES_STAFF = 'sales_staff'
 # Kept for older sessions / tests; no longer assigned from SY_USER login.
 ACCESS_TIER_PURCH_STAFF = 'purchase_staff'
@@ -54,12 +67,14 @@ _VIEW_PR_TIERS = (
     ACCESS_TIER_PURCH_MGMT,
     ACCESS_TIER_HOD,
     ACCESS_TIER_DIRECTOR,
+    ACCESS_TIER_PURCH_USER,
 )
 
 _ROLE_UDF_FLAGS = (
     'isadmin',
-    'ishod',
+    'ispurhod',
     'ispurmng',
+    'ispuruser',
     'isdirector',
     'sstaff',
 )
@@ -77,7 +92,7 @@ def _truthy(val) -> bool:
 
 
 def staff_udf_from_sy_user_row(row: dict | None) -> dict:
-    """Build {'isadmin': bool, 'ishod': bool, ...} from a SY_USER row dict (any casing)."""
+    """Build {'isadmin': bool, 'ispurhod': bool, ...} from a SY_USER row dict (any casing)."""
     if not isinstance(row, dict):
         return {}
     norm = {}
@@ -179,7 +194,7 @@ def compute_access_tier(
     """
     Pick a single primary tier.
 
-    Priority: ISADMIN > ISPURMGR > ISHOD > ISDIRECTOR > SSTAFF.
+    Priority: ISADMIN > ISPURMGR > ISPURHOD > ISDIRECTOR > ISPURUSER > SSTAFF.
     """
     if is_supplier:
         return ACCESS_TIER_SUPPLIER
@@ -188,10 +203,12 @@ def compute_access_tier(
         return ACCESS_TIER_FULL_ADMIN
     if udf.get('ispurmng'):
         return ACCESS_TIER_PURCH_MGMT
-    if udf.get('ishod'):
+    if udf.get('ispurhod'):
         return ACCESS_TIER_HOD
     if udf.get('isdirector'):
         return ACCESS_TIER_DIRECTOR
+    if udf.get('ispuruser'):
+        return ACCESS_TIER_PURCH_USER
     if udf.get('sstaff'):
         return ACCESS_TIER_SALES_STAFF
     if is_customer:
@@ -207,14 +224,37 @@ def _staff_udf_from_session(session) -> dict:
 
 
 def staff_has_view_pr_role_flag(staff_udf: dict | None) -> bool:
-    """True when any Purchase Role Selection flag is set on SY_USER."""
+    """True when any Purchase role flag is set on SY_USER (visibility only)."""
     udf = staff_udf or {}
     return bool(
         udf.get('isadmin')
-        or udf.get('ishod')
+        or udf.get('ispurhod')
         or udf.get('ispurmng')
+        or udf.get('ispuruser')
         or udf.get('isdirector')
     )
+
+
+def can_approve_purchase_requisition(session) -> bool:
+    """UDF_APPROVEPQ (or admin): Awaiting→Pending and e-PR line approvals."""
+    if _is_portal_only_session(session):
+        return False
+    if not can_access_purchase_menu(session):
+        return False
+    if infer_access_tier_from_session(session) == ACCESS_TIER_FULL_ADMIN:
+        return True
+    return bool(_staff_udf_from_session(session).get('approve_pq'))
+
+
+def can_transfer_pr_to_po(session) -> bool:
+    """UDF_APPROVEPO (or admin): Transfer approved e-PR lines to PO."""
+    if _is_portal_only_session(session):
+        return False
+    if not can_access_purchase_menu(session):
+        return False
+    if infer_access_tier_from_session(session) == ACCESS_TIER_FULL_ADMIN:
+        return True
+    return bool(_staff_udf_from_session(session).get('approve_po'))
 
 
 def infer_access_tier_from_session(session) -> str:
@@ -250,7 +290,7 @@ def _is_portal_only_session(session) -> bool:
 
 
 def can_see_view_pr(session) -> bool:
-    """View e-PR / Purchase menu: ISADMIN | ISHOD | ISPURMGR | ISDIRECTOR."""
+    """View e-PR / Purchase menu: ISADMIN | ISPURHOD | ISPURMGR | ISPURUSER | ISDIRECTOR."""
     if _is_portal_only_session(session):
         return False
     t = infer_access_tier_from_session(session)
@@ -258,27 +298,24 @@ def can_see_view_pr(session) -> bool:
         return False
     if t in _VIEW_PR_TIERS:
         return True
-    # Also honor session staff_udf so a sales_* primary tier cannot hide Purchase
-    # when any of the four Role Selection flags is true.
+    # Honor staff_udf so a sales_* primary tier cannot hide Purchase when a
+    # purchase role flag is also true.
     return staff_has_view_pr_role_flag(_staff_udf_from_session(session))
 
 
 def can_update_pr_approvals_and_header_status(session) -> bool:
-    """PH_PQ UDF_STATUS + PH_PQDTL UDF_PQAPPROVED: full admin or purchasing manager (not HOD)."""
-    t = infer_access_tier_from_session(session)
-    return t in (ACCESS_TIER_FULL_ADMIN, ACCESS_TIER_PURCH_MGMT)
+    """PH_PQ UDF_STATUS + PH_PQDTL UDF_PQAPPROVED: needs UDF_APPROVEPQ (or admin)."""
+    return can_approve_purchase_requisition(session)
 
 
 def can_apply_pr_header_udf_change(session, previous_status: str, target_status: str) -> bool:
     """
     Who may change PH_PQ.UDF_STATUS.
 
-    - Full admin / purchasing manager: any transition the product allows.
-    - HOD: Awaiting Approval → Pending (or Cancelled) only.
+    - Draft submit / draft cancel: any purchase-menu role.
+    - Awaiting → Pending / Cancelled, and other approval transitions: UDF_APPROVEPQ or admin.
     """
-    if can_update_pr_approvals_and_header_status(session):
-        return True
-    if infer_access_tier_from_session(session) != ACCESS_TIER_HOD:
+    if not can_access_purchase_menu(session):
         return False
     prev = str(previous_status or '').strip().upper().replace(' ', '_')
     tgt = str(target_status or '').strip().upper().replace(' ', '_')
@@ -286,18 +323,20 @@ def can_apply_pr_header_udf_change(session, previous_status: str, target_status:
         prev = 'AWAITING'
     if tgt in ('AWAITING_APPROVAL', 'AWAITING APPROVAL'):
         tgt = 'AWAITING'
-    return prev == 'AWAITING' and tgt in ('PENDING', 'CANCELLED')
+    if prev == 'DRAFT' and tgt in ('SUBMITTED', 'AWAITING', 'CANCELLED'):
+        return True
+    if prev == tgt:
+        return True
+    return can_approve_purchase_requisition(session)
 
 
 def can_patch_pr_workflow_status(session, current_status: str, target_status: str) -> bool:
     """
-    PATCH /purchase-requests/<no>/status: who may request a transition to target_status from current_status.
+    PATCH /purchase-requests/<no>/status: who may request a transition.
 
-    - APPROVED / REJECTED: purchasing management or full admin only.
-    - SUBMITTED from DRAFT: any purchase-menu role.
-    - CANCELLED from DRAFT: any purchase-menu role.
-    - CANCELLED from SUBMITTED (or other non-draft): purchasing management or full admin only.
-    - HOD: AWAITING → PENDING (and draft submit/cancel); not APPROVED/REJECTED or non-draft cancel.
+    - DRAFT → SUBMITTED / CANCELLED: any purchase-menu role.
+    - AWAITING → PENDING: UDF_APPROVEPQ or admin.
+    - APPROVED / REJECTED / non-draft cancel: UDF_APPROVEPQ or admin.
     - No-op (target equals current): any purchase-menu role.
     """
     if not can_access_purchase_menu(session):
@@ -308,32 +347,22 @@ def can_patch_pr_workflow_status(session, current_status: str, target_status: st
         return False
     if tgt == cur:
         return True
-    tier = infer_access_tier_from_session(session)
-    if tier == ACCESS_TIER_HOD:
-        if tgt == "PENDING" and cur in ("AWAITING", "AWAITING APPROVAL", "SUBMITTED"):
-            return True
-        if tgt == "SUBMITTED" and cur == "DRAFT":
-            return True
-        if tgt == "CANCELLED" and cur == "DRAFT":
-            return True
-        return False
-    if tgt in ("APPROVED", "REJECTED"):
-        return can_update_pr_approvals_and_header_status(session)
     if tgt == "SUBMITTED" and cur == "DRAFT":
         return True
+    if tgt == "CANCELLED" and cur == "DRAFT":
+        return True
+    if tgt == "PENDING" and cur in ("AWAITING", "AWAITING APPROVAL", "SUBMITTED"):
+        return can_approve_purchase_requisition(session)
+    if tgt in ("APPROVED", "REJECTED"):
+        return can_approve_purchase_requisition(session)
     if tgt == "CANCELLED":
-        if cur == "DRAFT":
-            return True
-        return can_update_pr_approvals_and_header_status(session)
+        return can_approve_purchase_requisition(session)
     return False
 
 
 def hide_pr_approval_edits_for_pstaff(session) -> bool:
-    """HOD (and legacy purchase_staff sessions): read-only PR approval checkboxes in View PR."""
-    return infer_access_tier_from_session(session) in (
-        ACCESS_TIER_HOD,
-        ACCESS_TIER_PURCH_STAFF,
-    )
+    """Hide e-PR approval checkboxes when the user lacks UDF_APPROVEPQ."""
+    return not can_approve_purchase_requisition(session)
 
 
 def can_access_admin_dashboard(session) -> bool:
@@ -367,6 +396,7 @@ def can_access_create_quotation(session) -> bool:
     if t in (
         ACCESS_TIER_PURCH_MGMT,
         ACCESS_TIER_PURCH_STAFF,
+        ACCESS_TIER_PURCH_USER,
         ACCESS_TIER_HOD,
         ACCESS_TIER_DIRECTOR,
     ):
@@ -427,16 +457,13 @@ def hide_quotation_status_actions(session) -> bool:
 
 
 def hide_pr_transfer_for_pstaff(session) -> bool:
-    """Hide Transfer to PO for HOD (and legacy purchase_staff sessions)."""
-    return infer_access_tier_from_session(session) in (
-        ACCESS_TIER_HOD,
-        ACCESS_TIER_PURCH_STAFF,
-    )
+    """Hide Transfer to PO when the user lacks UDF_APPROVEPO."""
+    return not can_transfer_pr_to_po(session)
 
 
 def hide_pr_awaiting_tab(session) -> bool:
-    """Purchasing manager: hide Awaiting Approval status tab (HOD owns that queue)."""
-    return infer_access_tier_from_session(session) == ACCESS_TIER_PURCH_MGMT
+    """All purchase roles see Awaiting Approval; do not hide by role."""
+    return False
 
 
 def approval_po_base_url() -> str:
@@ -457,6 +484,7 @@ def can_access_approval_po_menu(session) -> bool:
         ACCESS_TIER_PURCH_MGMT,
         ACCESS_TIER_HOD,
         ACCESS_TIER_DIRECTOR,
+        ACCESS_TIER_PURCH_USER,
     )
 
 
@@ -475,8 +503,11 @@ def template_permission_context(session) -> dict:
         'perm_purchasing_management': tier == ACCESS_TIER_PURCH_MGMT,
         'perm_hod': tier == ACCESS_TIER_HOD,
         'perm_director': tier == ACCESS_TIER_DIRECTOR,
+        'perm_purchase_user': tier == ACCESS_TIER_PURCH_USER,
         'perm_sales_staff': tier == ACCESS_TIER_SALES_STAFF,
         'perm_purchase_staff': tier == ACCESS_TIER_PURCH_STAFF,
+        'perm_approve_pq': can_approve_purchase_requisition(session),
+        'perm_approve_po': can_transfer_pr_to_po(session),
         'perm_customer': tier == ACCESS_TIER_CUSTOMER,
         'perm_supplier': tier == ACCESS_TIER_SUPPLIER,
         'perm_no_role': tier == ACCESS_TIER_NO_ROLE,
@@ -515,6 +546,7 @@ def user_type_for_session(access_tier: str) -> str:
         ACCESS_TIER_PURCH_MGMT,
         ACCESS_TIER_HOD,
         ACCESS_TIER_DIRECTOR,
+        ACCESS_TIER_PURCH_USER,
         ACCESS_TIER_PURCH_STAFF,
     ):
         return 'admin'
