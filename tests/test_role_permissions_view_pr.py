@@ -43,7 +43,7 @@ def test_legacy_five_udfs_are_ignored():
             staff_udf=flags,
             sy_user_row_present=True,
         )
-        == ACCESS_TIER_NO_ROLE
+        == ACCESS_TIER_FULL_ADMIN
     )
 
 

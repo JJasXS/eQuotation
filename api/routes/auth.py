@@ -409,7 +409,8 @@ def lookup_email_identity(
         is_supplier = bool(supplier) and not is_admin_sy
         has_staff_roles = staff_has_any_mapped_role_udf(staff_udf)
 
-        # is* roles win. Pure portal emails (no SY_USER / no role flags) stay portal-only.
+        # Every SY_USER email is staff (admin side). is* flags refine the tier.
+        # Pure portal emails (AR/supplier only) stay portal-only.
         if is_admin_sy or has_staff_roles:
             access_tier = compute_access_tier(
                 is_supplier=False,

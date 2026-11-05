@@ -213,8 +213,9 @@ def compute_access_tier(
         return ACCESS_TIER_SALES_STAFF
     if is_customer:
         return ACCESS_TIER_CUSTOMER
+    # Any SY_USER row without an is* flag still lands on the admin side.
     if sy_user_row_present:
-        return ACCESS_TIER_NO_ROLE
+        return ACCESS_TIER_FULL_ADMIN
     return ACCESS_TIER_CUSTOMER
 
 

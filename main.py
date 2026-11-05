@@ -3146,68 +3146,58 @@ def api_verify_otp():
             staff_locations = []
         user_type_hint = str(identity.get('user_type_hint') or 'user').strip()
 
-        # Portal tabs stay portal-only when this email has no SY_USER is* roles.
-        # If isAdmin / purch / sales flags exist, keep them — roles win over login_mode.
+        # Portal tabs stay portal-only only when the email is NOT in SY_USER.
+        # Every SY_USER email goes to the admin side; is* flags refine the landing page.
+        is_sy_user = bool(identity.get('is_admin'))
         has_staff_roles = staff_has_any_mapped_role_udf(staff_udf)
-        if login_mode == 'customer' and not has_staff_roles:
+        if login_mode == 'customer' and not is_sy_user and not has_staff_roles:
             access_tier = ACCESS_TIER_CUSTOMER
             staff_udf = {}
             staff_locations = []
             user_type_hint = 'user'
-        elif login_mode == 'supplier' and not has_staff_roles:
+        elif login_mode == 'supplier' and not is_sy_user and not has_staff_roles:
             access_tier = ACCESS_TIER_SUPPLIER
             staff_udf = {}
             staff_locations = []
             user_type_hint = 'supplier'
 
-        if identity.get('is_supplier') and not has_staff_roles:
+        if identity.get('is_supplier') and not is_sy_user and not has_staff_roles:
             user_type = 'supplier'
             redirect_url = '/supplier/bidding'
             customer_code = identity.get('supplier_code')
             print(f"[AUTH] Supplier user detected: {email} -> Supplier: {customer_code}")
-        elif identity.get('is_user') or identity.get('is_customer') or identity.get('is_admin') or has_staff_roles:
+        elif is_sy_user or has_staff_roles:
             customer_code = identity.get('customer_code')
-            if login_mode == 'customer' and not has_staff_roles:
-                user_type = 'user'
-                redirect_url = '/create-quotation'
+            access_tier = infer_access_tier_from_session({
+                'staff_udf': staff_udf,
+                'access_tier': access_tier or ACCESS_TIER_FULL_ADMIN,
+            })
+            if access_tier in (ACCESS_TIER_CUSTOMER, ACCESS_TIER_NO_ROLE, ACCESS_TIER_SUPPLIER, ''):
+                access_tier = ACCESS_TIER_FULL_ADMIN
+            user_type = 'admin'
+            if access_tier in (
+                ACCESS_TIER_PURCH_MGMT,
+                ACCESS_TIER_HOD,
+                ACCESS_TIER_DIRECTOR,
+                ACCESS_TIER_PURCH_USER,
+            ):
+                redirect_url = f'{PROCUREMENT_UI_PATH}?tab=view'
             else:
-                if has_staff_roles or identity.get('is_admin'):
-                    access_tier = infer_access_tier_from_session({
-                        'staff_udf': staff_udf,
-                        'access_tier': access_tier,
-                    })
-                user_type = user_type_for_session(access_tier)
-                if user_type_hint in ('admin', 'user') and not has_staff_roles and not identity.get('is_admin'):
-                    user_type = user_type_hint
-                # Any SY_USER email may log in. Role flags decide landing page;
-                # no is* flags → customer quotation UI (not a hard block).
-                if access_tier == ACCESS_TIER_SALES_STAFF:
-                    user_type = 'user'
-                    redirect_url = '/create-quotation'
-                elif access_tier in (ACCESS_TIER_FULL_ADMIN, ACCESS_TIER_SALES_MGMT):
-                    user_type = 'admin'
-                    redirect_url = '/admin'
-                elif access_tier in (
-                    ACCESS_TIER_PURCH_MGMT,
-                    ACCESS_TIER_HOD,
-                    ACCESS_TIER_DIRECTOR,
-                    ACCESS_TIER_PURCH_USER,
-                ):
-                    user_type = 'admin'
-                    redirect_url = f'{PROCUREMENT_UI_PATH}?tab=view'
-                elif access_tier in (ACCESS_TIER_CUSTOMER, ACCESS_TIER_NO_ROLE) or identity.get('is_admin'):
-                    if access_tier == ACCESS_TIER_NO_ROLE:
-                        access_tier = ACCESS_TIER_CUSTOMER
-                    user_type = 'user'
-                    redirect_url = '/create-quotation'
-                else:
-                    return jsonify({
-                        'success': False,
-                        'error': 'Unrecognized access profile for this account. Contact an administrator.',
-                    }), 403
+                # full_admin / sales_mgmt / sales_staff / default SY_USER → admin module
+                redirect_url = '/admin'
             print(
-                f"[AUTH] Staff/customer path: {email} tier={access_tier} "
+                f"[AUTH] SY_USER path: {email} tier={access_tier} "
                 f"user_type={user_type} login_mode={login_mode} staff_udf={staff_udf}",
+                flush=True,
+            )
+        elif identity.get('is_user') or identity.get('is_customer'):
+            customer_code = identity.get('customer_code')
+            user_type = 'user'
+            access_tier = ACCESS_TIER_CUSTOMER
+            redirect_url = '/create-quotation'
+            print(
+                f"[AUTH] Customer path: {email} tier={access_tier} "
+                f"user_type={user_type} login_mode={login_mode}",
                 flush=True,
             )
         else:
