@@ -6268,6 +6268,8 @@ function buildViewPurchaseRequestDetailHtml(header) {
                         <span class="view-pr-line-bulk-bar__hint">${escapeHtml(lineBulkHint)}</span>
                     </div>` : ''}
 
+                    <div class="view-pr-detail-table-scroll">
+
                     <table class="view-pr-detail-table">
 
                         <colgroup>
@@ -6329,6 +6331,8 @@ function buildViewPurchaseRequestDetailHtml(header) {
                         </tbody>
 
                     </table>
+
+                    </div>
 
                     <div class="view-pr-detail-total-row" aria-label="Purchase request total amount">
 

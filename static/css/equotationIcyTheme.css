@@ -1044,7 +1044,8 @@ body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .vie
 
 body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table {
     border: 1px solid var(--ice-border) !important;
-    border-collapse: collapse !important;
+    border-collapse: separate !important;
+    border-spacing: 0;
 }
 
 body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table thead th {
@@ -1068,6 +1069,11 @@ body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .vie
 body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table td {
     vertical-align: middle !important;
     text-align: center !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table thead th.col-item-name,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table td.col-item-name {
+    text-align: left !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-sqty,
