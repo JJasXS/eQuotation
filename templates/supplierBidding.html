@@ -23,7 +23,7 @@
                         <button type="button" role="tab" class="eq-line-tab is-active" data-sb-filter="OPEN" aria-selected="true" title="Open rounds / in progress">Open</button>
                         <button type="button" role="tab" class="eq-line-tab" data-sb-filter="SUBMITTED" aria-selected="false" title="Bid submitted, awaiting admin decision">Submitted</button>
                         <button type="button" role="tab" class="eq-line-tab" data-sb-filter="ACCEPTED" aria-selected="false" title="Admin decision: bid accepted or not selected">Accepted</button>
-                        <button type="button" role="tab" class="eq-line-tab" data-sb-filter="CLOSED" aria-selected="false" title="Past invitations with no bid outcome">History</button>
+                        <button type="button" role="tab" class="eq-line-tab" data-sb-filter="CANCELLED" aria-selected="false" title="Invited purchase requests that were cancelled">Cancelled</button>
                     </nav>
                     <div class="sb-page-toolbar-actions">
                         <button class="sb-icon-btn" type="button" onclick="loadInvitations()" aria-label="Reload invitations" title="Reload">
@@ -138,12 +138,31 @@
         let invitationsAllRows = [];
         let currentInviteFilter = 'OPEN';
         let searchQuery = '';
-        const SB_INVITE_TAB_KEYS = ['OPEN', 'SUBMITTED', 'ACCEPTED', 'CLOSED'];
+        const SB_INVITE_TAB_KEYS = ['OPEN', 'SUBMITTED', 'ACCEPTED', 'CANCELLED'];
 
         function inviteTabFromParam(raw) {
             let key = String(raw || '').trim().toUpperCase();
             if (key === 'REJECTED') key = 'ACCEPTED';
+            // Legacy History tab (?tab=closed|history) maps to Cancelled.
+            if (key === 'CLOSED' || key === 'HISTORY') key = 'CANCELLED';
             return SB_INVITE_TAB_KEYS.includes(key) ? key : 'OPEN';
+        }
+
+        function isPrCancelled(rowOrBody) {
+            if (!rowOrBody) return false;
+            if (rowOrBody.prCancelled === true || rowOrBody.prCancelled === 1) return true;
+            const udf = String(
+                rowOrBody.requestUdfStatus != null
+                    ? rowOrBody.requestUdfStatus
+                    : (rowOrBody.udfStatus != null ? rowOrBody.udfStatus : '')
+            ).toUpperCase();
+            return udf === 'CANCELLED' || udf === 'INACTIVE';
+        }
+
+        function isInviteReadOnlyMeta(meta) {
+            if (!meta) return false;
+            if (isPrCancelled(meta)) return true;
+            return String(meta.inviteStatus || '').toUpperCase() === 'CLOSED';
         }
 
         function inviteTabToParam(tab) {
@@ -188,8 +207,7 @@
             if (!meta) return;
             const rid = Number(meta.requestDockey || 0);
             if (!rid) return;
-            const closed = String(meta.inviteStatus || '').toUpperCase() === 'CLOSED';
-            openInvite(rid, meta.requestNumber || '', closed);
+            openInvite(rid, meta.requestNumber || '', isInviteReadOnlyMeta(meta));
         }
 
         function onSupplierBiddingPopState() {
@@ -214,8 +232,7 @@
             if (tabForInvite !== currentInviteFilter) {
                 setInvitationFilter(tabForInvite, { updateUrl: true, replace: true });
             }
-            const closed = String(meta.inviteStatus || '').toUpperCase() === 'CLOSED';
-            await openInvite(state.requestId, meta.requestNumber || '', closed, {
+            await openInvite(state.requestId, meta.requestNumber || '', isInviteReadOnlyMeta(meta), {
                 updateUrl: true,
                 replace: true,
             });
@@ -258,7 +275,7 @@
                     const btn = e.target.closest('button.eq-line-tab[data-sb-filter]');
                     if (!btn) return;
                     const f = (btn.getAttribute('data-sb-filter') || 'OPEN').toUpperCase();
-                    if (f === 'OPEN' || f === 'SUBMITTED' || f === 'ACCEPTED' || f === 'CLOSED') {
+                    if (f === 'OPEN' || f === 'SUBMITTED' || f === 'ACCEPTED' || f === 'CANCELLED') {
                         setInvitationFilter(f);
                     }
                 });
@@ -467,12 +484,15 @@
             if (normalized === 'AWARDED' || normalized === 'APPROVED' || normalized === 'ACCEPTED' || normalized.startsWith('APPROV')) {
                 return 'status-accepted';
             }
-            if (normalized === 'CLOSED') return 'status-closed';
+            if (normalized === 'CLOSED' || normalized === 'CANCELLED' || normalized === 'INACTIVE') {
+                return 'status-closed';
+            }
             return 'status-responded';
         }
 
-        /** One of OPEN | SUBMITTED | ACCEPTED | CLOSED for sidebar filters (rejected bids use ACCEPTED). */
+        /** One of OPEN | SUBMITTED | ACCEPTED | CANCELLED for sidebar filters. */
         function getInvitationFilterKey(row) {
+            if (isPrCancelled(row)) return 'CANCELLED';
             const inv = String(row && row.inviteStatus != null ? row.inviteStatus : '').toUpperCase();
             const bid = String(row && row.bidStatus != null ? row.bidStatus : '').toUpperCase();
             if (
@@ -485,7 +505,8 @@
             ) {
                 return 'ACCEPTED';
             }
-            if (inv === 'CLOSED') return 'CLOSED';
+            // Closed invite without cancel → Accepted / not selected (replaces old History bucket).
+            if (inv === 'CLOSED') return 'ACCEPTED';
             if (bid === 'SUBMITTED' || inv === 'RESPONDED') return 'SUBMITTED';
             return 'OPEN';
         }
@@ -503,8 +524,11 @@
             ) {
                 return 'ACCEPTED';
             }
+            if (normalized === 'CANCELLED' || normalized === 'INACTIVE') {
+                return 'CANCELLED';
+            }
             if (normalized === 'CLOSED') {
-                return 'HISTORY';
+                return 'CLOSED';
             }
             if (normalized === 'SUBMITTED' || normalized === 'RESPONDED') {
                 return 'SUBMITTED';
@@ -579,7 +603,7 @@
                 OPEN: 'Open',
                 SUBMITTED: 'Submitted',
                 ACCEPTED: 'Accepted / not selected',
-                CLOSED: 'History',
+                CANCELLED: 'Cancelled',
             };
             return map[String(key || '').toUpperCase()] || String(key || '');
         }
@@ -640,7 +664,7 @@
         }
 
         function renderInviteCard(row, activeRid) {
-            const inviteClosed = String(row.inviteStatus || '').toUpperCase() === 'CLOSED';
+            const readOnly = isInviteReadOnlyMeta(row);
             const rdoc = Number(row.requestDockey);
             const sel = activeRid != null && rdoc === activeRid;
             const prLabel = escapeHtml(row.requestNumber || 'PR-' + row.requestDockey);
@@ -653,7 +677,7 @@
                 '" data-request-id="' +
                 rdoc +
                 '" data-invite-closed="' +
-                (inviteClosed ? '1' : '0') +
+                (readOnly ? '1' : '0') +
                 '" tabindex="0" onclick="sbOpenInviteRow(this)">' +
                 '<td class="sb-invite-row__pr" title="' + prLabel + '">' + prLabel +
                 '<span class="sb-invite-row__ref">#' + escapeHtml(String(rdoc)) + '</span></td>' +
@@ -791,13 +815,21 @@
                 .filter((r) => inviteMatchesSearch(r, q));
             if (!rows.length) {
                 list.classList.remove('sb-list--loading');
-                const emptyMsg = q
-                    ? 'No invitations match your search in <strong>' +
-                      escapeHtml(filterKey) +
-                      '</strong>.'
-                    : 'No invitations match <strong>' +
-                      escapeHtml(filterKey) +
-                      '</strong>. Try another status filter.';
+                const label = inviteFilterLabel(filterKey);
+                let emptyMsg;
+                if (q) {
+                    emptyMsg =
+                        'No invitations match your search in <strong>' +
+                        escapeHtml(label) +
+                        '</strong>.';
+                } else if (filterKey === 'CANCELLED') {
+                    emptyMsg = 'No cancelled purchase requests for your invitations.';
+                } else {
+                    emptyMsg =
+                        'No invitations match <strong>' +
+                        escapeHtml(label) +
+                        '</strong>. Try another status filter.';
+                }
                 list.innerHTML = renderInvitesEmpty(emptyMsg);
                 clearWorkbenchIfHiddenByFilter();
                 return;
@@ -987,12 +1019,19 @@
         function renderBidSummaryPanel(myBid, inviteClosed, inviteMeta) {
             const panel = document.getElementById('bid-summary-panel');
             if (!panel) return;
+            const cancelled = isPrCancelled(inviteMeta);
 
             if (!myBid) {
+                if (cancelled) {
+                    panel.hidden = false;
+                    panel.innerHTML =
+                        '<p class="bid-summary-empty">This purchase request was <strong>cancelled</strong>. Bidding is closed (read-only).</p>';
+                    return;
+                }
                 if (inviteClosed) {
                     panel.hidden = false;
                     panel.innerHTML =
-                        '<p class="bid-summary-empty">This invitation is in <strong>history</strong> (bidding ended). No bid was submitted for this purchase request.</p>';
+                        '<p class="bid-summary-empty">This invitation is closed (bidding ended). No bid was submitted for this purchase request.</p>';
                     return;
                 }
                 panel.hidden = true;
@@ -1120,8 +1159,15 @@
             activeInvite = { requestId: rid, requestNo: String(body.requestNumber || requestNo || '') };
 
             const mb = body.myBid;
-            const inviteMeta = findInviteMeta(rid);
-            let readOnly = !!inviteClosed || !!mb;
+            const inviteMeta = findInviteMeta(rid) || {};
+            if (body.udfStatus && !inviteMeta.requestUdfStatus) {
+                inviteMeta.requestUdfStatus = body.udfStatus;
+            }
+            if (body.prCancelled) {
+                inviteMeta.prCancelled = true;
+            }
+            const prCancelled = isPrCancelled(body) || isPrCancelled(inviteMeta);
+            let readOnly = !!inviteClosed || !!mb || prCancelled;
             workbenchReadOnly = readOnly;
 
             document.getElementById('active-request-title').textContent = 'Bid for ' + (body.requestNumber || ('PR-' + body.requestId));
@@ -1130,14 +1176,16 @@
             const bidLog = Array.isArray(body.bidLog) ? body.bidLog : [];
             const useBidLog = readOnly && bidLog.length > 0;
             let readHint = 'Fill in your quote and submit to admin for review.';
-            if (readOnly && stUpper === 'REJECTED') {
+            if (readOnly && prCancelled) {
+                readHint = 'This purchase request was cancelled (read-only).';
+            } else if (readOnly && stUpper === 'REJECTED') {
                 readHint = 'Your full submitted bid is below (read-only). Admin decision note is shown above.';
             } else if (readOnly && (useBidLog || body.hasPartialLineAwards)) {
                 readHint = 'Row colours show admin line decisions for your submitted bid.';
             } else if (readOnly && stUpper === 'APPROVED') {
                 readHint = 'Your accepted bid is below (read-only).';
             } else if (readOnly && inviteClosed && !mb) {
-                readHint = 'This invitation is in history (bidding ended) with no submitted bid.';
+                readHint = 'This invitation is closed (bidding ended) with no submitted bid.';
             } else if (readOnly) {
                 readHint = 'Your submitted pricing is below (read-only).';
             }
@@ -1300,7 +1348,15 @@
 
         async function submitBid() {
             if (workbenchReadOnly) {
-                showBidMessage('This bid is read-only.', true);
+                const cancelled =
+                    isPrCancelled(activeRequest) ||
+                    isPrCancelled(findInviteMeta(activeInvite && activeInvite.requestId));
+                showBidMessage(
+                    cancelled
+                        ? 'This purchase request was cancelled; bidding is not allowed.'
+                        : 'This bid is read-only.',
+                    true
+                );
                 return;
             }
             if (!activeInvite || !activeRequest) {

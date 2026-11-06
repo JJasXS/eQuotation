@@ -94,7 +94,7 @@ from utils.procurement_bidding import (
     reject_bid,
     save_line_awards,
     submit_supplier_bid,
-    supplier_has_active_bid_invitation,
+    supplier_has_bid_invitation,
     validate_transfer_against_line_awards,
 )
 from utils.role_permissions import (
@@ -8373,9 +8373,11 @@ def api_supplier_bidding_request_details():
 
         bidding_ctx = resolve_bidding_context(request_dockey_int)
         source_dockey_int = int(bidding_ctx.get('biddingSourceDockey') or request_dockey_int)
-        invite_ok = supplier_has_active_bid_invitation(request_dockey_int, supplier_session_code)
+        # Allow any invite status (incl. CLOSED) so Cancelled / closed rounds stay readable;
+        # submit_supplier_bid still blocks CLOSED and cancelled PRs.
+        invite_ok = supplier_has_bid_invitation(request_dockey_int, supplier_session_code)
         if not invite_ok and source_dockey_int != request_dockey_int:
-            invite_ok = supplier_has_active_bid_invitation(source_dockey_int, supplier_session_code)
+            invite_ok = supplier_has_bid_invitation(source_dockey_int, supplier_session_code)
         if not request_dockey_int or not invite_ok:
             return jsonify({'success': False, 'error': 'Forbidden'}), 403
 
@@ -8466,6 +8468,7 @@ def api_supplier_bidding_request_details():
         has_partial_line_awards = False
         awarded_detail_ids: list[int] = []
         bid_log: list[dict] = []
+        request_udf_status = ''
         if request_dockey_int:
             my_bid = get_supplier_bid_snapshot(request_dockey_int, supplier_session_code)
             bid_log = build_supplier_bid_log(request_dockey_int, supplier_session_code)
@@ -8477,6 +8480,9 @@ def api_supplier_bidding_request_details():
             has_line_awards = bool(award_state.get('hasLineAwards'))
             has_partial_line_awards = bool(award_state.get('hasPartialLineAwards'))
             awarded_detail_ids = list(award_state.get('awardedDetailIds') or [])
+            request_udf_status = normalize_pr_udf_status(
+                get_pr_udf_status_local(request_dockey_int)
+            )
 
         return jsonify({
             'success': True,
@@ -8487,6 +8493,8 @@ def api_supplier_bidding_request_details():
             'count': len(details),
             'requiredDeliveryDate': format_display_date(required_for_pr),
             'documentDate': pq_meta.get('documentDate'),
+            'udfStatus': request_udf_status,
+            'prCancelled': request_udf_status == 'CANCELLED',
             'myBid': my_bid,
             'bidLog': bid_log,
             'hasLineAwards': has_line_awards,

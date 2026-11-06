@@ -484,6 +484,33 @@ def _fetch_pr_delivery_dates_by_dockey(dockeys: list[int]) -> dict[int, str | No
         con.close()
 
 
+def supplier_has_bid_invitation(request_dockey: int, supplier_code: str) -> bool:
+    """True if PR_BID_INVITE has any invitation (any status) for this supplier and PR dockey."""
+    code = _clean_text(supplier_code)
+    if not code or not request_dockey:
+        return False
+    ensure_bidding_schema()
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        if not _table_exists(cur, "PR_BID_INVITE"):
+            return False
+        cur.execute(
+            """
+            SELECT FIRST 1 1
+            FROM PR_BID_INVITE
+            WHERE REQUEST_DOCKEY = ?
+              AND SUPPLIER_CODE = ?
+            """,
+            (int(request_dockey), code),
+        )
+        return cur.fetchone() is not None
+    except Exception:
+        return False
+    finally:
+        con.close()
+
+
 def supplier_has_active_bid_invitation(request_dockey: int, supplier_code: str) -> bool:
     """True if PR_BID_INVITE has an open (non-closed) invitation for this supplier and PR dockey."""
     code = _clean_text(supplier_code)
@@ -619,6 +646,14 @@ def list_supplier_invitations(supplier_code: str) -> list[dict[str, Any]]:
                 facts = _fetch_pr_card_facts([int(r["requestDockey"]) for r in result])
             except Exception as exc:
                 print(f"[SUPPLIER BIDDING INVITES] card facts fetch error: {exc}", flush=True)
+        udf_by_dockey: dict[int, str] = {}
+        if result:
+            try:
+                udf_by_dockey = map_pr_udf_status_local(
+                    [int(r["requestDockey"]) for r in result]
+                )
+            except Exception as exc:
+                print(f"[SUPPLIER BIDDING INVITES] udf status fetch error: {exc}", flush=True)
         for r in result:
             dk = int(r.get("requestDockey") or 0)
             extra = facts.get(dk) or {}
@@ -628,6 +663,9 @@ def list_supplier_invitations(supplier_code: str) -> list[dict[str, Any]]:
             r["docDate"] = extra.get("docDate")
             r["lineCount"] = int(extra.get("lineCount") or 0)
             r["firstItem"] = extra.get("firstItem") or ""
+            # PH_PQ.UDF_STATUS (CANCELLED / APPROVED / …); INACTIVE normalizes to CANCELLED.
+            r["requestUdfStatus"] = udf_by_dockey.get(dk) or ""
+            r["prCancelled"] = normalize_pr_udf_status(r["requestUdfStatus"]) == "CANCELLED"
         return result
     finally:
         con.close()
@@ -817,6 +855,10 @@ def submit_supplier_bid(
         invite_status = _clean_text(invite_row[1]).upper() or "OPEN"
         if invite_status == "CLOSED":
             raise BiddingValidationError("bidding invitation is already closed")
+
+        pr_udf = normalize_pr_udf_status(get_pr_udf_status_local(int(request_dockey)))
+        if pr_udf == "CANCELLED":
+            raise BiddingValidationError("cannot bid on a cancelled purchase request")
 
         # Prefer invite/local name; never block bid submit on SQL API supplier GET.
         invite_name = _clean_text(invite_row[2] if len(invite_row) > 2 else "")
