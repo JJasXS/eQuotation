@@ -110,6 +110,8 @@ from utils.role_permissions import (
     can_access_admin_dashboard,
     can_access_admin_view_quotations,
     can_access_create_quotation,
+    can_edit_own_draft_quotations,
+    can_open_create_quotation_page,
     can_access_pending_approvals_admin,
     can_access_purchase_menu,
     can_access_view_quotation_customer_ui,
@@ -3379,11 +3381,13 @@ def create_order_page():
 
 @app.route('/create-quotation')
 def create_quotation_page():
-    """Create quotation (customers + sales-capable staff + full admin; not supplier / purchasing-only)."""
+    """Create quotation (customers + sales-capable staff; admin edit deep-links for View Quotation)."""
     page_error = require_page_access()
     if page_error:
         return page_error
-    if not can_access_create_quotation(session):
+    dockey = request.args.get('dockey', '')
+    draft_dockey = request.args.get('draftDockey', '')
+    if not can_open_create_quotation_page(session, dockey=dockey, draft_dockey=draft_dockey):
         if session.get('user_type') == 'supplier':
             return redirect('/supplier/bidding')
         if can_access_purchase_menu(session):
@@ -3391,8 +3395,6 @@ def create_quotation_page():
         # Never redirect to self — that causes ERR_TOO_MANY_REDIRECTS.
         session.clear()
         return redirect('/login')
-    dockey = request.args.get('dockey', '')
-    draft_dockey = request.args.get('draftDockey', '')
     response = make_response(render_protected_template(
         'createQuotation.html',
         dockey=dockey,
@@ -3424,6 +3426,8 @@ def view_quotation_page():
         customer_my_quotations_only=True,
         page_header_subtitle='Welcome: ' + (session.get('user_email') or '—'),
         perm_hide_quotation_status_actions=True,
+        # This route is the customer View Quotation UI — Draft Edit must be available.
+        perm_edit_own_draft_quotations=True,
     )
 
 @app.route('/admin/view-quotations')
@@ -10356,8 +10360,8 @@ def api_create_quotation():
 @app.route('/api/save_draft_quotation', methods=['POST'])
 @api_login_required(unauth_message='Session expired. Please log in again.')
 def api_save_draft_quotation():
-    """Save quotation draft into SL_QTDRAFT/SL_QTDTLDRAFT."""
-    if not can_access_create_quotation(session):
+    """Save quotation draft into SL_QTDRAFT/SL_QTDTLDRAFT (customers only)."""
+    if not can_edit_own_draft_quotations(session):
         return jsonify({'success': False, 'error': 'Forbidden'}), 403
     customer_code = get_current_customer_code(resolve_missing=False)
     data = request.get_json() or {}
