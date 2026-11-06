@@ -604,13 +604,22 @@ function hideQuotationStatusActionsFromPage() {
     );
 }
 
-/** Edit button visibility: customers may edit Drafts tab only; staff use full workflow. */
+/** Customer View Quotation (mine list) may edit own Drafts. Admin all-list never. */
+function canEditOwnDraftQuotations() {
+    return isCustomerMyQuotationsPage();
+}
+
+/**
+ * Edit button visibility:
+ * - Drafts on Customer View Quotation only.
+ * - Admin/Staff all-quotations list: never (Drafts + Pending view-only).
+ */
 function canShowQuotationEdit(filterTab) {
     const tab = (filterTab || '').trim().toLowerCase();
-    if (isCustomerMyQuotationsPage()) {
-        return tab === 'drafts';
+    if (tab !== 'drafts') {
+        return false;
     }
-    return !hideQuotationStatusActionsFromPage();
+    return isCustomerMyQuotationsPage();
 }
 
 /** List/detail workflow buttons (Reviewed, Cancel, Restore, bulk) — not on customer View Quotation. */
@@ -630,7 +639,7 @@ function showQuotationListCreatorColumn() {
 function showQuotationListActionsColumn(filterTab) {
     const tab = (filterTab || getActiveQuotationTab()).trim().toLowerCase();
     if (isCustomerMyQuotationsPage()) {
-        return tab === 'drafts';
+        return tab === 'drafts' && canEditOwnDraftQuotations();
     }
     return false;
 }
@@ -1237,13 +1246,13 @@ async function renderQuotationDetail(currentList, options = {}) {
         return;
     }
 
-    const filterTab = selected._filterTab || 'reviewed';
+    const filterTab = (selected._filterTab || activeTab || 'reviewed').toLowerCase();
     const isPending = filterTab === 'pending';
     const isCancelled = filterTab === 'cancelled';
     const isReviewed = filterTab === 'reviewed';
-    const isDrafts = filterTab === 'drafts';
+    const isDrafts = filterTab === 'drafts' || activeTab === 'drafts';
     const detailActionsHtml =
-        `${canShowQuotationEdit(filterTab) && isDrafts ? `<button type="button" class="edit-button" data-dockey="${selected.DOCKEY}" data-filter-tab="${escapeHtml(filterTab)}" data-draft-source="${selected._sourceSlQtDraft ? 'slqtdraft' : 'slqt'}" onclick="editQuotationFromBtn(this)">Edit</button>` : ''}`
+        `${canShowQuotationEdit('drafts') && isDrafts ? `<button type="button" class="edit-button" data-dockey="${selected.DOCKEY}" data-filter-tab="drafts" data-draft-source="${selected._sourceSlQtDraft ? 'slqtdraft' : 'slqt'}" onclick="editQuotationFromBtn(this)">Edit</button>` : ''}`
         + `${canShowQuotationEdit(filterTab) && isPending && canShowQuotationWorkflowActions(filterTab) ? `<button type="button" class="edit-button" data-dockey="${selected.DOCKEY}" data-filter-tab="${escapeHtml(filterTab)}" data-draft-source="slqt" onclick="editQuotationFromBtn(this)">Edit</button>` : ''}`
         + `${isPending && canShowQuotationWorkflowActions(filterTab) ? `<button class="activate-btn" onclick="activateQuotation(${selected.DOCKEY})">Reviewed</button>` : ''}`
         + `${isReviewed && canShowQuotationWorkflowActions(filterTab) ? `<button class="toggle-cancelled-btn" onclick="toggleCancelledStatus(${selected.DOCKEY}, false)">Cancel</button>` : ''}`
@@ -1330,20 +1339,23 @@ function editQuotation(dockey, options = {}) {
     if (!canShowQuotationEdit(filterTab)) {
         return;
     }
-    const id = encodeURIComponent(dockey);
+    if (dockey == null || String(dockey).trim() === '') {
+        return;
+    }
+    const id = encodeURIComponent(String(dockey).trim());
     const source = (options.source || '').toLowerCase();
     const row = findQuotationRowInCaches(dockey, filterTab);
     const isSlQtDraft = source === 'slqtdraft' || (row && row._sourceSlQtDraft);
-    if (isSlQtDraft) {
-        // SL_QTDRAFT edits use the create-quotation draft loader (same as customer Drafts).
-        window.location.href = `/create-quotation?draftDockey=${id}`;
+    // Only customers may navigate to draft editors; Admin/Staff have no Edit on Drafts/Pending.
+    if (filterTab !== 'drafts' && !isSlQtDraft) {
         return;
     }
-    if (isCustomerMyQuotationsPage()) {
-        window.location.href = `/create-quotation?dockey=${id}`;
+    if (!canEditOwnDraftQuotations() || !isCustomerMyQuotationsPage()) {
         return;
     }
-    window.location.href = `/admin/update-quotation?dockey=${id}`;
+    window.location.href = isSlQtDraft
+        ? `/create-quotation?draftDockey=${id}`
+        : `/create-quotation?dockey=${id}`;
 }
 
 // Reviewed tab: batch cancel (CANCELLED status — same as /api/admin/delete_quotations)

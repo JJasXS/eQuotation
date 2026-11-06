@@ -432,6 +432,30 @@ def can_access_create_quotation(session) -> bool:
     )
 
 
+def can_edit_own_draft_quotations(session) -> bool:
+    """Only customers may edit/save SL_QTDRAFT (and their own posted draft) via create-quotation."""
+    if infer_access_tier_from_session(session) == ACCESS_TIER_CUSTOMER:
+        return True
+    # Customer-tab login is always treated as customer for draft edit/save.
+    return str((session or {}).get('login_mode') or '').strip().lower() == 'customer'
+
+
+def can_open_create_quotation_page(session, *, dockey='', draft_dockey='') -> bool:
+    """
+    Page gate for /create-quotation.
+
+    Blank create: customers + sales roles (can_access_create_quotation).
+    Edit deep-links (?dockey= / ?draftDockey=): customers only — Admin/Staff
+    View Quotation Drafts is read-only.
+    """
+    if not can_access_create_quotation(session):
+        return False
+    editing = bool(str(dockey or '').strip() or str(draft_dockey or '').strip())
+    if editing:
+        return can_edit_own_draft_quotations(session)
+    return True
+
+
 def can_access_view_quotation_customer_ui(session) -> bool:
     """Customer /view-quotation + SSTAFF + sales + full admin."""
     t = infer_access_tier_from_session(session)
@@ -538,6 +562,7 @@ def template_permission_context(session) -> dict:
         'perm_view_pr': can_see_view_pr(session),
         'perm_pricing_priority': can_access_pricing_priority_rules(session),
         'perm_create_quotation': can_access_create_quotation(session),
+        'perm_edit_own_draft_quotations': can_edit_own_draft_quotations(session),
         'perm_view_quotation_ui': can_access_view_quotation_customer_ui(session),
         'perm_admin_view_quotations': can_access_admin_view_quotations(session),
         'perm_pending_approvals_admin': can_access_pending_approvals_admin(session),

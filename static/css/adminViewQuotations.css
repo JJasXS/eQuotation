@@ -1453,9 +1453,22 @@ tr.quotation-card.is-selected .quotation-card__amount {
     display: flex;
     flex-direction: row;
     flex-wrap: wrap;
-    justify-content: flex-end;
+    justify-content: center;
     align-items: center;
     gap: 6px;
+    width: 100%;
+}
+
+.quotation-list-th--actions,
+.quotation-card__cell--actions {
+    text-align: center;
+    vertical-align: middle;
+}
+
+.quotation-list-table .quotation-list-cell-center--actions {
+    display: flex;
+    justify-content: center;
+    align-items: center;
     width: 100%;
 }
 
@@ -1515,6 +1528,16 @@ body.customer-my-quotations-page .quotation-detail-pane.avq-detail-dark .quotati
 
 body.customer-my-quotations-page .quotation-detail-actions .edit-button {
     min-width: 7rem;
+}
+
+body.customer-my-quotations-page .quotation-list-th--actions,
+body.customer-my-quotations-page .quotation-card__cell--actions {
+    text-align: center;
+}
+
+body.customer-my-quotations-page .quotation-list-table .quotation-card__side-actions,
+body.customer-my-quotations-page .quotation-list-cell-center--actions .quotation-card__button-col {
+    justify-content: center;
 }
 
 @media (max-width: 900px) {
