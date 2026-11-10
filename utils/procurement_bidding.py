@@ -1241,38 +1241,6 @@ def _parse_split_from_docno(description: Any) -> str:
     return ""
 
 
-def _infer_split_parent_from_bid_lines(
-    cur: Any,
-    child_dockey: int,
-    child_detail_ids: list[int],
-) -> tuple[int, str]:
-    """When split metadata was stripped from DESCRIPTION, infer parent via bid SOURCE_DTLKEY overlap."""
-    detail_ids = [int(x) for x in child_detail_ids if int(x) > 0]
-    if child_dockey <= 0 or not detail_ids or not _table_exists(cur, "PR_BID_HDR"):
-        return 0, ""
-    if not _table_exists(cur, "PR_BID_DTL"):
-        return 0, ""
-    placeholders = ", ".join(["?"] * len(detail_ids))
-    cur.execute(
-        f"""
-        SELECT FIRST 1 H.REQUEST_DOCKEY, H.REQUEST_NO
-        FROM PR_BID_HDR H
-        INNER JOIN PR_BID_DTL D ON D.BID_ID = H.BID_ID
-        WHERE H.REQUEST_DOCKEY <> ?
-          AND D.SOURCE_DTLKEY IN ({placeholders})
-        ORDER BY H.REQUEST_DOCKEY ASC
-        """,
-        tuple([int(child_dockey), *detail_ids]),
-    )
-    row = cur.fetchone()
-    if not row or row[0] is None:
-        return 0, ""
-    try:
-        return int(row[0]), _clean_text(row[1] if len(row) > 1 else "")
-    except (TypeError, ValueError):
-        return 0, ""
-
-
 def _ph_pq_dockey_by_docno(cur: Any, docno: str) -> int:
     docno_clean = _clean_text(docno)
     if not docno_clean:
@@ -1371,21 +1339,15 @@ def resolve_bidding_context(request_dockey: int) -> dict[str, Any]:
             code_idx = 2 + (1 if docref_col else 0)
             descr_idx = code_idx + (1 if code_col else 0)
             ctx["awardedSupplierCode"] = _clean_text(row[code_idx] if len(row) > code_idx else "")
+            # Only explicit split metadata (DOCREF1, then legacy DESCRIPTION) may
+            # establish parentage. Never infer from SOURCE_DTLKEY overlap alone —
+            # Firebird reuses DTLKEYs after orphan RFQ parents are deleted.
             split_from = ""
             if docref_col and len(row) > 2:
                 split_from = _parse_split_from_docno(row[2])
             if not split_from and desc_col and len(row) > descr_idx:
                 split_from = _parse_split_from_docno(row[descr_idx])
-            if not split_from:
-                parent_key, parent_docno = _infer_split_parent_from_bid_lines(
-                    cur, dockey, ctx["prDetailIds"]
-                )
-                if parent_key > 0 and parent_key != dockey:
-                    ctx["isSplitChild"] = True
-                    ctx["splitFromDocno"] = parent_docno or _clean_text(parent_key)
-                    ctx["splitFromDockey"] = parent_key
-                    ctx["biddingSourceDockey"] = parent_key
-            elif split_from:
+            if split_from:
                 parent_key = _ph_pq_dockey_by_docno(cur, split_from)
                 if parent_key > 0 and parent_key != dockey:
                     ctx["isSplitChild"] = True
