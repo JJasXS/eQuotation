@@ -406,23 +406,36 @@ def lookup_email_identity(
 
         is_admin_sy = bool(admin)
         is_user = bool(user)
-        is_supplier = bool(supplier) and not is_admin_sy
+        # Supplier/customer tabs must keep portal identity even when the email is also SY_USER.
+        if mode == "supplier":
+            is_supplier = bool(supplier)
+        elif mode == "customer":
+            is_supplier = False
+        else:
+            is_supplier = bool(supplier) and not is_admin_sy
         has_staff_roles = staff_has_any_mapped_role_udf(staff_udf)
 
-        # Every SY_USER email is staff (admin side). is* flags refine the tier.
-        # Pure portal emails (AR/supplier only) stay portal-only.
-        if is_admin_sy or has_staff_roles:
+        # Login tab wins for portal modes. Admin tab uses SY_USER is* mapping.
+        if mode == "customer":
+            access_tier = ACCESS_TIER_CUSTOMER
+            staff_udf = {}
+            staff_locations = []
+        elif mode == "supplier":
+            access_tier = ACCESS_TIER_SUPPLIER
+            staff_udf = {}
+            staff_locations = []
+        elif is_admin_sy or has_staff_roles:
             access_tier = compute_access_tier(
                 is_supplier=False,
                 is_customer=False,
                 staff_udf=staff_udf,
                 sy_user_row_present=True,
             )
-        elif mode == "customer" or is_user:
+        elif is_user:
             access_tier = ACCESS_TIER_CUSTOMER
             staff_udf = {}
             staff_locations = []
-        elif mode == "supplier" or is_supplier:
+        elif is_supplier:
             access_tier = ACCESS_TIER_SUPPLIER
             staff_udf = {}
             staff_locations = []

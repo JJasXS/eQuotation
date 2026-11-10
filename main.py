@@ -3150,25 +3150,40 @@ def api_verify_otp():
             staff_locations = []
         user_type_hint = str(identity.get('user_type_hint') or 'user').strip()
 
-        # Portal tabs stay portal-only only when the email is NOT in SY_USER.
-        # Every SY_USER email goes to the admin side; is* flags refine the landing page.
+        # Login tab wins: Customer/Supplier portals never inherit SY_USER staff roles.
+        # Admin tab keeps origin/main is* mapping for landing page / permissions.
         is_sy_user = bool(identity.get('is_admin'))
         has_staff_roles = staff_has_any_mapped_role_udf(staff_udf)
-        if login_mode == 'customer' and not is_sy_user and not has_staff_roles:
+
+        if login_mode == 'customer':
+            if not (identity.get('is_user') or identity.get('is_customer')):
+                return jsonify({
+                    'success': False,
+                    'error': 'Email not found in customer records, please contact administrator',
+                }), 401
             access_tier = ACCESS_TIER_CUSTOMER
             staff_udf = {}
             staff_locations = []
-            user_type_hint = 'user'
-        elif login_mode == 'supplier' and not is_sy_user and not has_staff_roles:
+            user_type = 'user'
+            customer_code = identity.get('customer_code')
+            redirect_url = '/create-quotation'
+            print(
+                f"[AUTH] Customer path: {email} tier={access_tier} "
+                f"user_type={user_type} login_mode={login_mode}",
+                flush=True,
+            )
+        elif login_mode == 'supplier':
+            if not identity.get('is_supplier'):
+                return jsonify({
+                    'success': False,
+                    'error': 'Email not found in supplier records, please contact administrator',
+                }), 401
             access_tier = ACCESS_TIER_SUPPLIER
             staff_udf = {}
             staff_locations = []
-            user_type_hint = 'supplier'
-
-        if identity.get('is_supplier') and not is_sy_user and not has_staff_roles:
             user_type = 'supplier'
-            redirect_url = '/supplier/bidding'
             customer_code = identity.get('supplier_code')
+            redirect_url = '/supplier/bidding'
             print(f"[AUTH] Supplier user detected: {email} -> Supplier: {customer_code}")
         elif is_sy_user or has_staff_roles:
             customer_code = identity.get('customer_code')
@@ -3198,6 +3213,8 @@ def api_verify_otp():
             customer_code = identity.get('customer_code')
             user_type = 'user'
             access_tier = ACCESS_TIER_CUSTOMER
+            staff_udf = {}
+            staff_locations = []
             redirect_url = '/create-quotation'
             print(
                 f"[AUTH] Customer path: {email} tier={access_tier} "

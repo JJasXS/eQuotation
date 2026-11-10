@@ -9,6 +9,7 @@ from utils.role_permissions import (
     ACCESS_TIER_PURCH_USER,
     ACCESS_TIER_SALES_MGMT,
     ACCESS_TIER_SALES_STAFF,
+    ACCESS_TIER_SUPPLIER,
     can_access_purchase_menu,
     can_apply_pr_header_udf_change,
     can_approve_purchase_requisition,
@@ -18,6 +19,7 @@ from utils.role_permissions import (
     hide_pr_awaiting_tab,
     hide_pr_approval_edits_for_pstaff,
     hide_pr_transfer_for_pstaff,
+    infer_access_tier_from_session,
     session_is_staff_admin,
     staff_has_any_mapped_role_udf,
     staff_udf_from_sy_user_row,
@@ -165,13 +167,52 @@ def test_sales_tier_still_sees_purchase_when_role_flags_set():
     assert can_access_purchase_menu(session) is True
 
 
-def test_staff_is_roles_win_over_customer_login_mode():
-    """is* flags drive access; customer login_mode no longer strips admin/purchase."""
+def test_customer_portal_never_sees_purchase_even_with_staff_udf():
+    """Customer-tab login stays portal-only even if staff_udf is polluted."""
     session = {
         "access_tier": ACCESS_TIER_CUSTOMER,
         "login_mode": "customer",
         "staff_udf": {"isadmin": True, "ispurmng": True, "ispurhod": True},
         "user_type": "user",
+    }
+    assert can_see_view_pr(session) is False
+    assert can_access_purchase_menu(session) is False
+    assert session_is_staff_admin(session) is False
+    assert infer_access_tier_from_session(session) == ACCESS_TIER_CUSTOMER
+
+
+def test_customer_login_mode_blocks_purchase_even_if_tier_polluted():
+    session = {
+        "access_tier": ACCESS_TIER_FULL_ADMIN,
+        "login_mode": "customer",
+        "staff_udf": {"isadmin": True},
+        "user_type": "admin",
+    }
+    assert can_see_view_pr(session) is False
+    assert can_access_purchase_menu(session) is False
+    assert session_is_staff_admin(session) is False
+
+
+def test_supplier_login_mode_stays_portal_despite_staff_udf():
+    session = {
+        "access_tier": ACCESS_TIER_FULL_ADMIN,
+        "login_mode": "supplier",
+        "staff_udf": {"isadmin": True},
+        "user_type": "supplier",
+    }
+    assert can_see_view_pr(session) is False
+    assert can_access_purchase_menu(session) is False
+    assert session_is_staff_admin(session) is False
+    assert infer_access_tier_from_session(session) == ACCESS_TIER_SUPPLIER
+
+
+def test_admin_tab_is_roles_still_drive_purchase():
+    """Admin-tab sessions keep origin/main is* permission mapping."""
+    session = {
+        "access_tier": ACCESS_TIER_SALES_MGMT,
+        "login_mode": "admin",
+        "staff_udf": {"isadmin": True, "ispurmng": True},
+        "user_type": "admin",
     }
     assert can_see_view_pr(session) is True
     assert can_access_purchase_menu(session) is True

@@ -260,9 +260,14 @@ def can_transfer_pr_to_po(session) -> bool:
 
 def infer_access_tier_from_session(session) -> str:
     """
-    Resolve access tier from SY_USER is* flags first, then session access_tier,
-    then legacy user_type.
+    Login tab wins for portal sessions. Admin-tab sessions resolve from SY_USER
+    is* flags first, then session access_tier, then legacy user_type.
     """
+    login_mode = str(session.get('login_mode') or '').strip().lower() if session is not None else ''
+    if login_mode == 'customer':
+        return ACCESS_TIER_CUSTOMER
+    if login_mode == 'supplier':
+        return ACCESS_TIER_SUPPLIER
     udf = _staff_udf_from_session(session)
     if staff_has_any_mapped_role_udf(udf):
         return compute_access_tier(
@@ -296,15 +301,21 @@ def session_is_staff_admin(session) -> bool:
     """
     Staff admin for page/API gates (replaces user_type == 'admin').
 
-    Driven by is* role flags / access tier — not login_mode.
+    Portal login tabs never count as staff admin. Admin-tab sessions use is* /
+    access tier (preserved from origin/main).
     """
+    if _is_portal_only_session(session):
+        return False
     if _staff_udf_from_session(session).get('isadmin'):
         return True
     return user_type_for_session(infer_access_tier_from_session(session)) == 'admin'
 
 
 def _is_portal_only_session(session) -> bool:
-    """Pure customer/supplier portal: no staff is* role flags."""
+    """Customer / supplier portal sessions never inherit staff Purchase/admin rights."""
+    login_mode = str(session.get('login_mode') or '').strip().lower() if session is not None else ''
+    if login_mode in ('customer', 'supplier'):
+        return True
     if staff_has_any_mapped_role_udf(_staff_udf_from_session(session)):
         return False
     t = infer_access_tier_from_session(session)
