@@ -1,5 +1,8 @@
 ﻿appsettings.Local.json
 
+# Local-only test auth / launcher (never commit)
+.local/
+
 # Secrets — never commit
 .env
 .env.*.local
