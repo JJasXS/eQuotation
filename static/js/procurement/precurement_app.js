@@ -2794,6 +2794,8 @@
 
             if (selected === 'create') {
 
+                clearPurchaseRequestMessage();
+
                 ensureCreatePrLookups();
 
                 if (!Array.isArray(window.purchaseRequestItems) || !window.purchaseRequestItems.length) {
@@ -11010,9 +11012,25 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
         }
 
+        function clearPurchaseRequestMessage() {
+
+            const el = document.getElementById('pr-form-message');
+
+            if (!el) return;
+
+            el.style.display = 'none';
+
+            el.textContent = '';
+
+            el.className = 'pr-form-message';
+
+        }
+
         function showPurchaseRequestMessage(message, kind) {
 
             if (kind === 'error') {
+
+                clearPurchaseRequestMessage();
 
                 showPurchaseRequestErrorModal(message);
 
@@ -13046,6 +13064,8 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 } catch (error) {
 
+                    clearPurchaseRequestMessage();
+
                     if (!isProcurementAuthExpired(error)) showPurchaseRequestMessage(error.message || 'Failed to update purchase request.', 'error');
 
                 } finally {
@@ -13179,6 +13199,8 @@ function buildViewPurchaseRequestDetailHtml(header) {
                 }
 
             } catch (error) {
+
+                clearPurchaseRequestMessage();
 
                 if (!isProcurementAuthExpired(error)) showPurchaseRequestMessage(error.message || 'Failed to submit purchase request.', 'error');
 
@@ -13655,6 +13677,8 @@ function buildViewPurchaseRequestDetailHtml(header) {
             renderPurchaseRequestLineItems();
 
             applyPurchaseRequestFormModeUI();
+
+            clearPurchaseRequestMessage();
 
         }
 
