@@ -2079,31 +2079,125 @@ body.procurement-warm-ui .stock-report-item-search-row + .stock-card-table-wrap 
     background: #ffffff;
 }
 
+/*
+ * Create e-PR line table — weights tuned for ~15.6" laptops
+ * (1366–1920 CSS px, often ~1280–1536 with sidebar / 125% scaling).
+ * Fixed layout keeps columns proportional so the wrap rarely needs x-scroll.
+ */
 #panel-create .pr-line-items-table {
-    min-width: 1340px;
+    width: 100%;
+    min-width: 0;
+    table-layout: fixed;
+}
+
+#panel-create .pr-line-items-table th,
+#panel-create .pr-line-items-table td {
+    padding: 4px 5px;
+    overflow: hidden;
+    vertical-align: middle;
+}
+
+#panel-create .pr-line-items-table input,
+#panel-create .pr-line-items-table select {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+/* 1 Location · 2 Item Code · 3 Description · 4–6 Dims · 7–10 UDF ·
+   11 UOM · 12 SQTY · 13 SUOMQTY · 14 Unit Price · 15 Delivery · 16 Amount · 17 remove */
+#panel-create .pr-line-items-table th:nth-child(1),
+#panel-create .pr-line-items-table td:nth-child(1) { width: 6%; }
+#panel-create .pr-line-items-table th:nth-child(2),
+#panel-create .pr-line-items-table td:nth-child(2) { width: 11%; }
+#panel-create .pr-line-items-table th:nth-child(3),
+#panel-create .pr-line-items-table td:nth-child(3) { width: 12%; }
+#panel-create .pr-line-items-table th:nth-child(4),
+#panel-create .pr-line-items-table td:nth-child(4),
+#panel-create .pr-line-items-table th:nth-child(5),
+#panel-create .pr-line-items-table td:nth-child(5),
+#panel-create .pr-line-items-table th:nth-child(6),
+#panel-create .pr-line-items-table td:nth-child(6) { width: 4.5%; }
+#panel-create .pr-line-items-table th:nth-child(7),
+#panel-create .pr-line-items-table td:nth-child(7),
+#panel-create .pr-line-items-table th:nth-child(8),
+#panel-create .pr-line-items-table td:nth-child(8),
+#panel-create .pr-line-items-table th:nth-child(9),
+#panel-create .pr-line-items-table td:nth-child(9),
+#panel-create .pr-line-items-table th:nth-child(10),
+#panel-create .pr-line-items-table td:nth-child(10) { width: 4%; }
+#panel-create .pr-line-items-table th:nth-child(11),
+#panel-create .pr-line-items-table td:nth-child(11) { width: 5%; }
+#panel-create .pr-line-items-table th:nth-child(12),
+#panel-create .pr-line-items-table td:nth-child(12) { width: 4.5%; }
+#panel-create .pr-line-items-table th:nth-child(13),
+#panel-create .pr-line-items-table td:nth-child(13) { width: 5%; }
+#panel-create .pr-line-items-table th:nth-child(14),
+#panel-create .pr-line-items-table td:nth-child(14) { width: 7.5%; }
+#panel-create .pr-line-items-table th:nth-child(15),
+#panel-create .pr-line-items-table td:nth-child(15) { width: 7%; }
+#panel-create .pr-line-items-table th:nth-child(16),
+#panel-create .pr-line-items-table td:nth-child(16) { width: 5.5%; }
+#panel-create .pr-line-items-table th:nth-child(17),
+#panel-create .pr-line-items-table td:nth-child(17) { width: 2.5%; }
+
+#panel-create .pr-line-items-table .pr-loc-cell,
+#panel-create .pr-line-items-table .pr-item-code-cell,
+#panel-create .pr-line-items-table .pr-udf-cell,
+#panel-create .pr-line-items-table .pr-stock-uom-cell,
+#panel-create .pr-line-items-table .pr-qty-cell,
+#panel-create .pr-line-items-table td.pr-qty-cell--suom {
+    min-width: 0;
+    max-width: none;
+    width: auto;
 }
 
 #panel-create .pr-line-items-table .pr-item-code-cell {
-    width: 1%;
-    max-width: 10rem;
-    min-width: 6.5rem;
-    white-space: nowrap;
+    white-space: normal;
+    overflow: visible;
 }
 
 #panel-create .pr-line-items-table .pr-item-code-readonly {
-    display: inline-block;
-    max-width: 10rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    font-size: 12px;
+    display: block;
+    max-width: 100%;
+    overflow: visible;
+    text-overflow: unset;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    line-height: 1.25;
+    font-size: 11px;
     font-weight: 600;
     color: #1e3a52;
 }
 
 #panel-create .pr-line-items-table .pr-code-cell {
-    width: 1%;
-    max-width: 18rem;
-    min-width: 11rem;
+    min-width: 0;
+    max-width: none;
+}
+
+#panel-create .pr-line-items-table select.pr-stock-uom-select {
+    min-width: 0;
+    max-width: 100%;
+}
+
+#panel-create .pr-line-items-table input.pr-udf-input,
+#panel-create .pr-line-items-table input.pr-input-qty {
+    max-width: 100%;
+}
+
+#panel-create .pr-line-items-table .pr-suom-readonly {
+    min-width: 0;
+    max-width: 100%;
+}
+
+/* Narrow viewports: allow horizontal scroll instead of crushing fields */
+@media (max-width: 1180px) {
+    #panel-create .pr-line-items-table {
+        table-layout: auto;
+        min-width: 1180px;
+    }
 }
 
 /* Description picker — same UX as create-quotation product search */
@@ -2182,19 +2276,19 @@ body.procurement-warm-ui .stock-report-item-search-row + .stock-card-table-wrap 
 
 #panel-create .pr-line-items-table td.pr-catalog-product-cell {
     position: relative;
-    min-width: 11rem;
+    min-width: 0;
 }
 
 #panel-create .pr-line-items-table .pr-catalog-product-input {
     width: 100%;
-    max-width: 17rem;
+    max-width: 100%;
     box-sizing: border-box;
     font-size: 12px;
 }
 
 #panel-create .pr-line-items-table .pr-desc-readonly {
     display: block;
-    max-width: 17rem;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2202,23 +2296,26 @@ body.procurement-warm-ui .stock-report-item-search-row + .stock-card-table-wrap 
     color: #222222;
 }
 
-#panel-create .pr-line-items-table .pr-unit-price-cell {
-    width: 1%;
-    max-width: 4.5rem;
-    min-width: 3.75rem;
-}
-
-#panel-create .pr-line-items-table .pr-unit-price-cell input {
+/* Unit Price (col 14): keep room for values like 10000.00 inside fixed layout. */
+#panel-create .pr-line-items-table .pr-unit-price-cell input,
+#panel-create .pr-line-items-table td:nth-child(14) input[type="number"] {
     width: 100%;
-    max-width: 4.25rem;
     min-width: 0;
+    max-width: 100%;
     padding: 2px 4px;
     font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    box-sizing: border-box;
 }
 
 #panel-create .pr-line-items-table th.pr-col-description,
-#panel-create .pr-line-items-table th.pr-col-unit-price {
+#panel-create .pr-line-items-table th.pr-col-unit-price,
+#panel-create .pr-line-items-table th:nth-child(14) {
     white-space: nowrap;
+}
+
+#panel-create .pr-line-items-table .pr-desc-cell {
+    min-width: 0;
 }
 
 .pr-line-items-table .pr-desc-cell {

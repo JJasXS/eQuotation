@@ -131,7 +131,8 @@ def test_save_line_awards_does_not_call_split(monkeypatch):
     # Bid DTL validation: return matching pairs for both awards.
     fetch_seq = {
         "bids": [(10, 159, "400-A", "A"), (20, 159, "400-B", "B")],
-        "dtl": [(10, 101), (20, 102)],
+        # BID_ID, SOURCE_DTLKEY, BID_QTY, BID_UNITPRICE
+        "dtl": [(10, 101, 1, 10), (20, 102, 1, 20)],
     }
 
     class _Cur2(_Cur):
