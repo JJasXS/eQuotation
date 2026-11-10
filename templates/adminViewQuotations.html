@@ -10,15 +10,15 @@
 
     <title>{% if customer_my_quotations_only | default(false) %}View Quotation{% else %}Admin - View All Quotations{% endif %}</title>
 
-    <link rel="stylesheet" href="/static/css/hamburger_menu.css?v=20260810_nav_fix1">
+    <link rel="stylesheet" href="{{ css_url('css/hamburger_menu.css') }}">
 
-    <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
-    <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260604_tabs_size">
-    <link rel="stylesheet" href="/static/css/orderQuotation.css">
+    <link rel="stylesheet" href="{{ css_url('css/app_page_header.css') }}">
+    <link rel="stylesheet" href="{{ css_url('css/eq-line-tabs.css') }}">
+    <link rel="stylesheet" href="{{ css_url('css/orderQuotation.css') }}">
 
-    <link rel="stylesheet" href="/static/css/adminViewQuotations.css?v=20261106_actions_col_align">
+    <link rel="stylesheet" href="{{ css_url('css/adminViewQuotations.css') }}">
 
-    <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20261029_font_soft">
+    <link rel="stylesheet" href="{{ css_url('css/equotationIcyTheme.css') }}">
 
     <script src="/static/js/eq_core.js?v=20261029_csrf1"></script>
 </head>

@@ -1351,6 +1351,23 @@ app = Flask(__name__, template_folder="templates", static_folder="static", stati
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.jinja_env.auto_reload = True
 
+# Register before any route/blueprint renders templates (Jinja global, not only context).
+from utils.static_assets import register_css_url_helper as _register_css_url_helper
+
+_CSS_URL = _register_css_url_helper(app)
+
+# If Flask ever rebuilds the Jinja environment, keep css_url on the new env.
+_eq_prev_create_jinja_environment = app.create_jinja_environment
+
+
+def _eq_create_jinja_environment_with_css_url():
+    env = _eq_prev_create_jinja_environment()
+    env.globals['css_url'] = _CSS_URL
+    return env
+
+
+app.create_jinja_environment = _eq_create_jinja_environment_with_css_url
+
 
 @app.before_request
 def _eq_mark_request_start():
@@ -1382,6 +1399,12 @@ def _eq_log_slow_api(response):
     except Exception:
         pass
     return response
+
+
+@app.context_processor
+def inject_static_asset_helpers():
+    """Also expose css_url via context processor (belt-and-suspenders with Jinja global)."""
+    return {"css_url": _CSS_URL}
 
 
 @app.context_processor
@@ -12187,11 +12210,16 @@ if __name__ == "__main__":
                 response = await call_next(request)
                 path = request.url.path or ''
                 if path.startswith('/static/'):
-                    # Versioned URLs (?v=…) make long-lived caching safe for JS/CSS.
-                    response.headers.setdefault(
-                        'Cache-Control',
-                        'public, max-age=604800, immutable',
-                    )
+                    # Long cache only when URL carries an explicit bust token (?v=…).
+                    # Unversioned assets (e.g. CSS @import) must revalidate.
+                    if request.url.query and 'v=' in request.url.query:
+                        response.headers['Cache-Control'] = (
+                            'public, max-age=604800, immutable'
+                        )
+                    else:
+                        response.headers['Cache-Control'] = (
+                            'no-cache, must-revalidate'
+                        )
                 return response
 
         unified_asgi = Starlette(routes=_unified_routes)
