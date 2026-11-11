@@ -3,6 +3,7 @@
 let currentEmail = '';
 /** @type {'customer'|'admin'|'supplier'} */
 let currentLoginMode = 'customer';
+const LOGIN_MODES = ['customer', 'admin', 'supplier'];
 let otpExpiryTimerId = null;
 let otpExpiresAtUnix = 0;
 let otpExpired = false;
@@ -49,6 +50,62 @@ function getViewportSlideWidth() {
     return viewport ? viewport.getBoundingClientRect().width : 0;
 }
 
+function normalizeLoginMode(raw) {
+    const mode = String(raw || '').trim().toLowerCase();
+    return LOGIN_MODES.includes(mode) ? mode : 'customer';
+}
+
+function readLoginModeFromUrl() {
+    try {
+        const params = new URLSearchParams(window.location.search || '');
+        // Accept mode= or tab= (email links / bookmarks).
+        return normalizeLoginMode(params.get('mode') || params.get('tab'));
+    } catch (_err) {
+        return 'customer';
+    }
+}
+
+function syncLoginModeToUrl(mode) {
+    const next = normalizeLoginMode(mode);
+    try {
+        const url = new URL(window.location.href);
+        if (url.searchParams.get('mode') === next) {
+            // Keep a lone tab= in sync if present; otherwise leave URL alone.
+            if (url.searchParams.has('tab') && url.searchParams.get('tab') !== next) {
+                url.searchParams.set('tab', next);
+                window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+            }
+            return;
+        }
+        url.searchParams.set('mode', next);
+        if (url.searchParams.has('tab')) {
+            url.searchParams.set('tab', next);
+        }
+        window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+    } catch (_err) {
+        /* ignore */
+    }
+}
+
+/** Mark the real slide for ``mode`` active before clones are built. */
+function selectRealSlideByMode(mode) {
+    const track = getCarouselTrack();
+    if (!track) {
+        return;
+    }
+    const wanted = normalizeLoginMode(mode);
+    const reals = Array.from(track.querySelectorAll('.login-carousel-slide:not(.login-carousel-slide--clone)'));
+    reals.forEach((slide) => {
+        const isMatch = (slide.getAttribute('data-mode') || '') === wanted;
+        slide.classList.toggle('is-active', isMatch);
+    });
+    if (!reals.some((s) => s.classList.contains('is-active')) && reals.length) {
+        const fallback = reals.find((s) => (s.getAttribute('data-mode') || '') === 'customer') || reals[0];
+        fallback.classList.add('is-active');
+    }
+    currentLoginMode = wanted;
+}
+
 /** Apply transform + active slide + dots + currentLoginMode. */
 function applyCarouselPosition(instant) {
     const viewport = document.getElementById('login-carousel-viewport');
@@ -85,7 +142,7 @@ function applyCarouselPosition(instant) {
         el.setAttribute('tabindex', active ? '0' : '-1');
         el.setAttribute('aria-selected', active ? 'true' : 'false');
         if (active) {
-            currentLoginMode = el.getAttribute('data-mode') || 'customer';
+            currentLoginMode = normalizeLoginMode(el.getAttribute('data-mode') || 'customer');
         }
     });
 
@@ -93,6 +150,8 @@ function applyCarouselPosition(instant) {
     document.querySelectorAll('.login-carousel-dot').forEach((dot, i) => {
         dot.setAttribute('aria-current', i === logical ? 'true' : 'false');
     });
+
+    syncLoginModeToUrl(currentLoginMode);
 }
 
 /** Measure viewport so one full slide shows; keep current extendedIndex. */
@@ -207,6 +266,8 @@ function initLoginCarousel() {
     const next = document.getElementById('login-mode-next');
     const track = getCarouselTrack();
 
+    // Open on ?mode= / ?tab= from email links or bookmarks.
+    selectRealSlideByMode(readLoginModeFromUrl());
     buildCarouselClones();
 
     if (dotsHost && realSlideCount) {
@@ -308,16 +369,19 @@ function handleEmailSubmit(event) {
                 document.getElementById('email-display').textContent = email;
                 showStep('otp-step');
                 if (data.debug_otp) {
-                    showError(document.getElementById('otp-error'), `DEBUG OTP: ${data.debug_otp}`, 'success');
-                } else if (data.email_sent === false) {
-                    showError(
-                        document.getElementById('otp-error'),
-                        data.message ||
-                            'Email is not configured on the server (no SMTP). Check inbox only after fixing SMTP.',
-                        'warning'
-                    );
+                    renderMockOtp(data.debug_otp);
                 } else {
-                    showError(document.getElementById('otp-error'), data.message || 'OTP sent successfully', 'success');
+                    renderMockOtp('');
+                    if (data.email_sent === false) {
+                        showError(
+                            document.getElementById('otp-error'),
+                            data.message ||
+                                'Email is not configured on the server (no SMTP). Check inbox only after fixing SMTP.',
+                            'warning'
+                        );
+                    } else {
+                        showError(document.getElementById('otp-error'), data.message || 'OTP sent successfully', 'success');
+                    }
                 }
                 startOtpExpiryTimer(data.expires_at_unix, data.otp_lifetime_seconds || data.expiry);
                 startResendTimer(data.resend_cooldown_seconds);
@@ -383,7 +447,21 @@ function handleOtpSubmit(event) {
             submitBtn.textContent = 'Verify';
 
             if (data.success) {
-                const redirectUrl = data.redirect || '/create-quotation';
+                let redirectUrl = data.redirect || '/create-quotation';
+                try {
+                    const params = new URLSearchParams(window.location.search || '');
+                    const requestId = String(params.get('request_id') || '').trim();
+                    if (
+                        requestId
+                        && String(redirectUrl).indexOf('/supplier/bidding') === 0
+                    ) {
+                        const next = new URL(redirectUrl, window.location.origin);
+                        next.searchParams.set('request_id', requestId);
+                        redirectUrl = next.pathname + next.search;
+                    }
+                } catch (_err) {
+                    /* keep server redirect */
+                }
                 console.log(`Redirecting ${data.user_type} to ${redirectUrl}`);
                 window.location.href = redirectUrl;
             } else if (data.expired) {
@@ -426,23 +504,25 @@ function resendOtp() {
         })
         .then(({ data }) => {
             if (data.success) {
-                if (data.debug_otp) {
-                    showError(document.getElementById('otp-error'), `DEBUG OTP: ${data.debug_otp}`, 'success');
-                } else if (data.email_sent === false) {
-                    showError(
-                        document.getElementById('otp-error'),
-                        data.message || 'OTP regenerated but email was not sent (SMTP not configured).',
-                        'warning'
-                    );
-                } else {
-                    showError(document.getElementById('otp-error'), 'OTP sent successfully', 'success');
-                }
-                // Unlock + clear for new code
                 setOtpInputsEnabled(true);
                 document.querySelectorAll('.otp-digit').forEach((input) => {
                     input.value = '';
                     input.classList.remove('otp-digit--filled');
                 });
+                if (data.debug_otp) {
+                    renderMockOtp(data.debug_otp);
+                } else {
+                    renderMockOtp('');
+                    if (data.email_sent === false) {
+                        showError(
+                            document.getElementById('otp-error'),
+                            data.message || 'OTP regenerated but email was not sent (SMTP not configured).',
+                            'warning'
+                        );
+                    } else {
+                        showError(document.getElementById('otp-error'), 'OTP sent successfully', 'success');
+                    }
+                }
                 const first = document.querySelector('.otp-digit');
                 if (first) first.focus();
                 startOtpExpiryTimer(data.expires_at_unix, data.otp_lifetime_seconds || data.expiry);
@@ -468,6 +548,21 @@ function resendOtp() {
                 );
             }
         });
+}
+
+function renderMockOtp(code) {
+    const box = document.getElementById('otp-mock-code');
+    const digits = String(code || '').replace(/\D/g, '').slice(0, 6);
+    if (box) {
+        box.hidden = digits.length === 0;
+        box.textContent = digits ? `OTP ${digits}` : '';
+    }
+    if (!digits) return;
+    document.querySelectorAll('.otp-digit').forEach((input, index) => {
+        const ch = digits[index] || '';
+        input.value = ch;
+        input.classList.toggle('otp-digit--filled', Boolean(ch));
+    });
 }
 
 function setOtpInputsEnabled(enabled) {
@@ -635,6 +730,11 @@ function showError(errorElement, message, type = 'error') {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
+    // Defense in depth: drop prior-user caches whenever login is shown after /logout.
+    if (window.EQCore && typeof window.EQCore.clearSensitiveSessionCaches === 'function') {
+        window.EQCore.clearSensitiveSessionCaches();
+    }
+
     initLoginCarousel();
 
     const otpInputs = Array.from(document.querySelectorAll('.otp-digit'));

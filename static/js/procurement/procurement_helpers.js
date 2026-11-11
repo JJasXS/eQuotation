@@ -72,7 +72,7 @@
             const s = normalizeUdfStatus(value);
             if (!s) return '';
             if (s === 'AWAITING') return 'Awaiting Approval';
-            if (s === 'PENDING') return 'Pending (Awaiting RFQ)';
+            if (s === 'PENDING') return 'Pending';
             return s;
         }
 

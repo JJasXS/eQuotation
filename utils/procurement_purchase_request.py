@@ -72,7 +72,15 @@ def _connect_db():
     return get_db_connection()
 
 
+_COLUMN_NUMERIC_CACHE: dict[tuple[str, str], bool] = {}
+_WORKING_GENERATOR: dict[str, str] = {}
+
+
 def _column_is_numeric(cur: Any, table_name: str, column_name: str) -> bool:
+    cache_key = (str(table_name or "").upper(), str(column_name or "").upper())
+    cached = _COLUMN_NUMERIC_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
     cur.execute(
         """
         SELECT F.RDB$FIELD_TYPE
@@ -80,14 +88,17 @@ def _column_is_numeric(cur: Any, table_name: str, column_name: str) -> bool:
         JOIN RDB$FIELDS F ON RF.RDB$FIELD_SOURCE = F.RDB$FIELD_NAME
         WHERE RF.RDB$RELATION_NAME = ? AND RF.RDB$FIELD_NAME = ?
         """,
-        (table_name.upper(), column_name.upper()),
+        cache_key,
     )
     row = cur.fetchone()
     if not row or row[0] is None:
+        _COLUMN_NUMERIC_CACHE[cache_key] = False
         return False
 
     # Firebird numeric family: SMALLINT(7), INTEGER/LONG(8), BIGINT(16), NUMERIC/DECIMAL(27)
-    return int(row[0]) in {7, 8, 16, 27}
+    result = int(row[0]) in {7, 8, 16, 27}
+    _COLUMN_NUMERIC_CACHE[cache_key] = result
+    return result
 
 
 def _encode_status(status: str, numeric_target: bool) -> Any:
@@ -119,6 +130,306 @@ def _decode_status(raw_status: Any) -> str:
         4: "CANCELLED",
     }
     return reverse.get(numeric, str(numeric))
+
+
+def document_status_for_view_pr_udf(current_doc_status: Any, next_udf_status: str) -> str | None:
+    """PH_PQ.STATUS to persist with a View e-PR UDF change, or None to leave it.
+
+    Draft panel membership is STATUS == DRAFT. Awaiting Approval is the existing
+    pair UDF_STATUS AWAITING + STATUS SUBMITTED. Cancelling a draft stores
+    STATUS CANCELLED together with UDF_STATUS CANCELLED. Pending and Approved
+    UDF changes leave document STATUS.
+    """
+    doc = _decode_status(current_doc_status).upper()
+    udf = str(next_udf_status or "").strip().upper()
+    if udf in {"AWAITING_APPROVAL", "AWAITING APPROVAL"}:
+        udf = "AWAITING"
+    if doc != "DRAFT":
+        return None
+    if udf == "AWAITING":
+        return "SUBMITTED"
+    if udf == "CANCELLED":
+        return "CANCELLED"
+    return None
+
+
+def is_hidden_cancelled_draft(doc_status: Any, udf_status: Any) -> bool:
+    """True for draft-origin cancellations (hide from Draft / non-Cancelled tabs).
+
+    A draft cancel is UDF_STATUS CANCELLED while document STATUS is DRAFT or
+    CANCELLED. Those rows still belong on the Cancelled tab. Pending and Approved
+    cancellations keep document STATUS (usually SUBMITTED).
+    """
+    doc = _decode_status(doc_status).upper()
+    udf = str(udf_status or "").strip().upper()
+    if udf in {"AWAITING_APPROVAL", "AWAITING APPROVAL"}:
+        udf = "AWAITING"
+    return udf == "CANCELLED" and doc in {"DRAFT", "CANCELLED"}
+
+
+def normalize_view_pr_tab_status(value: Any) -> str:
+    """Normalize a View e-PR tab key (DRAFT/AWAITING/PENDING/APPROVED/CANCELLED)."""
+    text = str(value or "").strip().upper()
+    if text in {"AWAITING_APPROVAL", "AWAITING APPROVAL"}:
+        return "AWAITING"
+    if text in {"DRAFT", "AWAITING", "PENDING", "APPROVED", "CANCELLED"}:
+        return text
+    return ""
+
+
+def hidden_cancelled_draft_list_predicate(
+    status_col: str,
+    udf_col: str,
+    *,
+    status_is_numeric: bool,
+) -> tuple[str, list[Any]]:
+    """SQL predicate that omits cancelled drafts from mixed (non-Cancelled) lists."""
+    if status_is_numeric:
+        status_expr = f"COALESCE(H.{status_col}, -1) IN (?, ?)"
+        status_params: list[Any] = [
+            _encode_status("DRAFT", True),
+            _encode_status("CANCELLED", True),
+        ]
+    else:
+        status_expr = f"UPPER(TRIM(COALESCE(H.{status_col}, ''))) IN (?, ?)"
+        status_params = ["DRAFT", "CANCELLED"]
+    udf_expr = f"UPPER(TRIM(COALESCE(H.{udf_col}, ''))) = ?"
+    return f"NOT ({status_expr} AND {udf_expr})", [*status_params, "CANCELLED"]
+
+
+def _view_pr_tab_where_sql(
+    view_status: str,
+    *,
+    status_col: str,
+    udf_col: str,
+    status_is_numeric: bool,
+) -> tuple[str, list[Any]]:
+    """WHERE clause (without leading WHERE) for one View e-PR tab."""
+    tab = normalize_view_pr_tab_status(view_status)
+    udf_text = f"UPPER(TRIM(COALESCE(H.{udf_col}, '')))"
+    if tab == "DRAFT":
+        if status_is_numeric:
+            status_expr = f"COALESCE(H.{status_col}, -1) = ?"
+            status_params: list[Any] = [_encode_status("DRAFT", True)]
+        else:
+            status_expr = f"UPPER(TRIM(COALESCE(H.{status_col}, ''))) = ?"
+            status_params = ["DRAFT"]
+        # Active drafts only — cancelled drafts belong on Cancelled.
+        return (
+            f"{status_expr} AND ({udf_text} = '' OR {udf_text} = 'DRAFT')",
+            status_params,
+        )
+    if tab == "CANCELLED":
+        return f"{udf_text} = ?", ["CANCELLED"]
+    if tab in {"AWAITING", "PENDING", "APPROVED"}:
+        return f"{udf_text} = ?", [tab]
+    return "1 = 0", []
+
+
+def _ph_pqdtl_header_fk_col(cur) -> str:
+    """PH_PQDTL column that points at PH_PQ header key."""
+    detail_cols = _get_table_columns(cur, "PH_PQDTL")
+    return _pick_existing(detail_cols, "DOCKEY", "PQKEY", "REQUEST_ID", "HEADER_ID") or ""
+
+
+def _view_pr_has_detail_lines_sql(header_key_col: str, detail_fk_col: str) -> str:
+    """Require at least one PH_PQDTL row so empty headers are not listed in View e-PR."""
+    hk = str(header_key_col or "").strip()
+    fk = str(detail_fk_col or "").strip()
+    if not hk or not fk:
+        return ""
+    return f"EXISTS (SELECT 1 FROM PH_PQDTL D WHERE D.{fk} = H.{hk})"
+
+
+def list_view_pr_headers_for_status(
+    view_status: str,
+    *,
+    offset: int = 0,
+    limit: int = 50,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Paginated View e-PR headers from local PH_PQ for one status tab."""
+    tab = normalize_view_pr_tab_status(view_status)
+    safe_offset = max(0, int(offset or 0))
+    safe_limit = max(1, min(int(limit or 50), 50))
+    empty_page = {
+        "offset": safe_offset,
+        "limit": safe_limit,
+        "count": 0,
+        "total": 0,
+        "hasMore": False,
+        "viewStatus": tab or str(view_status or "").strip().upper(),
+    }
+    if not tab:
+        return [], empty_page
+
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        header_cols = _get_table_columns(cur, "PH_PQ")
+        key_col = _pick_existing(header_cols, "DOCKEY", "PQKEY", "ID")
+        docno_col = _pick_existing(header_cols, "DOCNO", "REQUESTNO", "PRNO")
+        docdate_col = _pick_existing(header_cols, "DOCDATE", "REQUESTDATE")
+        postdate_col = _pick_existing(header_cols, "POSTDATE", "REQUIREDDATE")
+        code_col = _pick_existing(header_cols, "CODE", "REQUESTERID")
+        company_col = _pick_existing(header_cols, "COMPANYNAME")
+        project_col = _pick_existing(header_cols, "PROJECT")
+        currency_col = _pick_existing(header_cols, "CURRENCYCODE", "CURRENCY")
+        desc_col = _pick_existing(header_cols, "DESCRIPTION")
+        status_col = _pick_existing(header_cols, "STATUS")
+        docamt_col = _pick_existing(header_cols, "DOCAMT", "TOTALAMT", "TOTAL_AMOUNT")
+        businessunit_col = _pick_existing(header_cols, "BUSINESSUNIT", "DEPARTMENTID")
+        area_col = _pick_existing(header_cols, "AREA")
+        udf_status_col = _pick_existing(header_cols, "UDF_STATUS")
+        udf_reason_col = _pick_existing(header_cols, "UDF_REASON")
+        transferable_col = _pick_existing(header_cols, "TRANSFERABLE")
+        if not key_col or not status_col or not udf_status_col:
+            return [], empty_page
+
+        status_is_numeric = _column_is_numeric(cur, "PH_PQ", status_col)
+        where_sql, where_params = _view_pr_tab_where_sql(
+            tab,
+            status_col=status_col,
+            udf_col=udf_status_col,
+            status_is_numeric=status_is_numeric,
+        )
+        has_lines_sql = _view_pr_has_detail_lines_sql(key_col, _ph_pqdtl_header_fk_col(cur))
+        if has_lines_sql:
+            where_sql = f"({where_sql}) AND {has_lines_sql}"
+        order_col = docdate_col or key_col
+        order_sql = f"H.{order_col} DESC"
+        if key_col.upper() != (order_col or "").upper():
+            order_sql = f"{order_sql}, H.{key_col} DESC"
+
+        cur.execute(f"SELECT COUNT(*) FROM PH_PQ H WHERE {where_sql}", tuple(where_params))
+        total = int((cur.fetchone() or [0])[0] or 0)
+
+        def _col(alias: str, col: str | None) -> str:
+            return f"H.{col} AS {alias}" if col else f"NULL AS {alias}"
+
+        select_cols = [
+            f"H.{key_col} AS DOCKEY",
+            _col("DOCNO", docno_col),
+            _col("DOCDATE", docdate_col),
+            _col("POSTDATE", postdate_col),
+            _col("CODE", code_col),
+            _col("COMPANYNAME", company_col),
+            _col("BUSINESSUNIT", businessunit_col),
+            _col("AREA", area_col),
+            _col("PROJECT", project_col),
+            _col("CURRENCYCODE", currency_col),
+            _col("DOCAMT", docamt_col),
+            _col("STATUS", status_col),
+            _col("UDF_STATUS", udf_status_col),
+            _col("UDF_REASON", udf_reason_col),
+            _col("TRANSFERABLE", transferable_col),
+            _col("DESCRIPTION", desc_col),
+        ]
+        cur.execute(
+            f"SELECT FIRST ? SKIP ? {', '.join(select_cols)} "
+            f"FROM PH_PQ H WHERE {where_sql} ORDER BY {order_sql}",
+            (safe_limit, safe_offset, *where_params),
+        )
+        rows = cur.fetchall() or []
+
+        def _num(value: Any) -> float:
+            try:
+                return float(value or 0)
+            except Exception:
+                return 0.0
+
+        def _iso(value: Any) -> Any:
+            if value is None:
+                return None
+            if hasattr(value, "isoformat"):
+                try:
+                    return value.isoformat()
+                except Exception:
+                    return _clean_text(value)
+            return value
+
+        records: list[dict[str, Any]] = []
+        for row in rows:
+            if not row:
+                continue
+            try:
+                row_id = int(row[0])
+            except Exception:
+                continue
+            status_text = _decode_status(row[11])
+            udf_text = str(row[12] or "").strip().upper()
+            if udf_text in {"AWAITING_APPROVAL", "AWAITING APPROVAL"}:
+                udf_text = "AWAITING"
+            records.append(
+                {
+                    "id": row_id,
+                    "requestNumber": _clean_text(row[1]),
+                    "requestDate": _iso(row[2]),
+                    "requiredDate": _iso(row[3]),
+                    "requesterId": _clean_text(row[4]),
+                    "departmentId": _clean_text(row[6] or row[7]),
+                    "costCenter": _clean_text(row[6]),
+                    "project": _clean_text(row[8]) or "----",
+                    "supplierId": _normalize_supplier_id_for_header(row[4]),
+                    "supplierName": _clean_text(row[5]),
+                    "supplierEmail": "",
+                    "currency": _clean_text(row[9]),
+                    "description": _clean_text(row[15]),
+                    "udfReason": _clean_text(row[13]),
+                    "deliveryLocation": "",
+                    "totalAmount": _num(row[10]),
+                    "status": status_text,
+                    "udfStatus": udf_text,
+                    "transferable": bool(row[14] if row[14] is not None else True),
+                    "totalQty": 0.0,
+                    "transferredQty": 0.0,
+                    "balanceQty": 0.0,
+                    "details": None,
+                }
+            )
+
+        page = {
+            "offset": safe_offset,
+            "limit": safe_limit,
+            "count": len(records),
+            "total": total,
+            "hasMore": (safe_offset + len(records)) < total,
+            "viewStatus": tab,
+        }
+        return records, page
+    finally:
+        con.close()
+
+
+def map_view_pr_status_counts() -> dict[str, int]:
+    """Tab badge counts from local PH_PQ (View e-PR source of truth)."""
+    counts = {key: 0 for key in ("DRAFT", "AWAITING", "PENDING", "APPROVED", "CANCELLED")}
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        header_cols = _get_table_columns(cur, "PH_PQ")
+        key_col = _pick_existing(header_cols, "DOCKEY", "PQKEY", "ID")
+        status_col = _pick_existing(header_cols, "STATUS")
+        udf_col = _pick_existing(header_cols, "UDF_STATUS")
+        if not status_col or not udf_col:
+            return counts
+        status_is_numeric = _column_is_numeric(cur, "PH_PQ", status_col)
+        has_lines_sql = _view_pr_has_detail_lines_sql(key_col or "", _ph_pqdtl_header_fk_col(cur))
+        for tab in counts:
+            where_sql, where_params = _view_pr_tab_where_sql(
+                tab,
+                status_col=status_col,
+                udf_col=udf_col,
+                status_is_numeric=status_is_numeric,
+            )
+            if has_lines_sql:
+                where_sql = f"({where_sql}) AND {has_lines_sql}"
+            cur.execute(f"SELECT COUNT(*) FROM PH_PQ H WHERE {where_sql}", tuple(where_params))
+            counts[tab] = int((cur.fetchone() or [0])[0] or 0)
+        return counts
+    except Exception:
+        return counts
+    finally:
+        con.close()
 
 
 def _normalize_stock_qty_uom(value: Any) -> str:
@@ -276,68 +587,106 @@ def _is_firebird_key_violation(exc: BaseException) -> bool:
     )
 
 
-def _next_key(cur: Any, table_name: str, key_column: str, generator_candidates: list[str]) -> int:
-    """Allocate the next numeric key for a shared SQL Accounting table.
-
-    Prefer Firebird generators (atomic across sessions). SQL Accounting names
-    generators after the table (e.g. PH_PQ, PH_PO, ST_XTRANS). If a generator
-    lags behind rows inserted by SQL Accounting, catch it up with GEN_ID jumps —
-    never return a bare MAX+1 while a generator exists (that races with concurrent inserts).
-    """
-    cur.execute(f"SELECT COALESCE(MAX({key_column}), 0) FROM {table_name}")
-    row = cur.fetchone()
-    max_existing = int(row[0] if row and row[0] is not None else 0)
-
-    # Table-named generator first (SQL Accounting convention), then explicit aliases.
-    ordered_candidates: list[str] = []
+def _generator_candidates(table_name: str, generator_candidates: list[str] | None) -> list[str]:
+    """Ordered generator names; prefer a previously working generator for this table."""
+    ordered: list[str] = []
+    table_key = str(table_name or "").strip().upper()
+    cached = _WORKING_GENERATOR.get(table_key)
+    if cached:
+        ordered.append(cached)
     for name in [table_name, *(generator_candidates or [])]:
         cleaned = str(name or "").strip()
-        if cleaned and cleaned.upper() not in {c.upper() for c in ordered_candidates}:
-            ordered_candidates.append(cleaned)
+        if cleaned and cleaned.upper() not in {c.upper() for c in ordered}:
+            ordered.append(cleaned)
+    return ordered
 
-    for generator_name in ordered_candidates:
-        try:
-            cur.execute(f"SELECT GEN_ID({generator_name}, 1) FROM RDB$DATABASE")
-            row = cur.fetchone()
-            if row is None or row[0] is None:
-                continue
-            gen_val = int(row[0])
-            if gen_val > max_existing:
-                return gen_val
 
-            # Generator is behind table data (SQL Accounting / other writers). Jump
-            # forward so the returned value is at least max_existing + 1.
-            delta = (max_existing + 1) - gen_val
-            if delta > 0:
-                cur.execute(
-                    f"SELECT GEN_ID({generator_name}, {int(delta)}) FROM RDB$DATABASE"
-                )
-                row = cur.fetchone()
-                if row and row[0] is not None:
-                    gen_val = int(row[0])
-            if gen_val > max_existing:
-                return gen_val
+def _remember_working_generator(table_name: str, generator_name: str) -> None:
+    cleaned = str(generator_name or "").strip()
+    if cleaned:
+        _WORKING_GENERATOR[str(table_name or "").strip().upper()] = cleaned
 
-            # Extremely rare: another writer advanced MAX during the jump.
-            cur.execute(f"SELECT COALESCE(MAX({key_column}), 0) FROM {table_name}")
-            row = cur.fetchone()
-            max_existing = int(row[0] if row and row[0] is not None else 0)
-            if gen_val > max_existing:
-                return gen_val
-            delta = (max_existing + 1) - gen_val
-            if delta > 0:
-                cur.execute(
-                    f"SELECT GEN_ID({generator_name}, {int(delta)}) FROM RDB$DATABASE"
-                )
-                row = cur.fetchone()
-                if row and row[0] is not None:
-                    return int(row[0])
-            return max_existing + 1
-        except Exception:
-            continue
 
-    # No usable generator — last resort (still racy under concurrency; callers retry inserts).
-    return max_existing + 1
+def _max_key(cur: Any, table_name: str, key_column: str) -> int:
+    cur.execute(f"SELECT COALESCE(MAX({key_column}), 0) FROM {table_name}")
+    row = cur.fetchone()
+    return int(row[0] if row and row[0] is not None else 0)
+
+
+def _gen_id(cur: Any, generator_name: str, delta: int) -> int | None:
+    cur.execute(f"SELECT GEN_ID({generator_name}, {int(delta)}) FROM RDB$DATABASE")
+    row = cur.fetchone()
+    if row is None or row[0] is None:
+        return None
+    return int(row[0])
+
+
+def _allocate_from_generator(
+    cur: Any,
+    table_name: str,
+    key_column: str,
+    generator_name: str,
+    count: int,
+    max_existing: int,
+) -> list[int] | None:
+    """Return ``count`` keys from one generator, catching it up past MAX when needed."""
+    if count <= 0:
+        return []
+    try:
+        # Catch up so the first returned id is > max_existing.
+        probe = _gen_id(cur, generator_name, 1)
+        if probe is None:
+            return None
+        if probe <= max_existing:
+            jump = (max_existing + 1) - probe
+            if jump > 0:
+                probe = _gen_id(cur, generator_name, jump)
+                if probe is None:
+                    return None
+            if probe <= max_existing:
+                max_existing = _max_key(cur, table_name, key_column)
+                if probe <= max_existing:
+                    jump = (max_existing + 1) - probe
+                    if jump > 0:
+                        probe = _gen_id(cur, generator_name, jump)
+                        if probe is None:
+                            return None
+        keys = [probe]
+        for _ in range(count - 1):
+            nxt = _gen_id(cur, generator_name, 1)
+            if nxt is None:
+                return None
+            keys.append(nxt)
+        _remember_working_generator(table_name, generator_name)
+        return keys
+    except Exception:
+        return None
+
+
+def _next_keys(
+    cur: Any,
+    table_name: str,
+    key_column: str,
+    generator_candidates: list[str],
+    count: int,
+) -> list[int]:
+    """Allocate ``count`` numeric keys with one MAX read and generator steps."""
+    if count <= 0:
+        return []
+    max_existing = _max_key(cur, table_name, key_column)
+    for generator_name in _generator_candidates(table_name, generator_candidates):
+        keys = _allocate_from_generator(
+            cur, table_name, key_column, generator_name, count, max_existing
+        )
+        if keys is not None and len(keys) == count:
+            return keys
+    # No usable generator — last resort (still racy; callers retry inserts).
+    return [max_existing + i for i in range(1, count + 1)]
+
+
+def _next_key(cur: Any, table_name: str, key_column: str, generator_candidates: list[str]) -> int:
+    """Allocate the next numeric key for a shared SQL Accounting table."""
+    return _next_keys(cur, table_name, key_column, generator_candidates, 1)[0]
 
 
 def _allocate_unique_request_number(
@@ -412,17 +761,35 @@ def _insert_dynamic(cur: Any, table_name: str, data: dict[str, Any], existing_co
     cur.execute(f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})", values)
 
 
-def ensure_purchase_request_schema() -> None:
-    """Verify existing PR tables are present. This function does not create tables."""
+_PR_SCHEMA_OK_UNTIL = 0.0
+_PR_SCHEMA_TTL_SEC = 300.0
+
+
+def _mark_pr_schema_ok(active_cur: Any) -> None:
+    global _PR_SCHEMA_OK_UNTIL
+    header_cols = _get_table_columns(active_cur, "PH_PQ")
+    detail_cols = _get_table_columns(active_cur, "PH_PQDTL")
+    if not header_cols:
+        raise RuntimeError("PH_PQ table not found")
+    if not detail_cols:
+        raise RuntimeError("PH_PQDTL table not found")
+    _PR_SCHEMA_OK_UNTIL = time.monotonic() + _PR_SCHEMA_TTL_SEC
+
+
+def ensure_purchase_request_schema(cur: Any | None = None) -> None:
+    """Verify existing PR tables are present. This function does not create tables.
+
+    Result is cached briefly so Create PR does not open an extra Firebird
+    connection on every submit. Pass ``cur`` to reuse the create transaction.
+    """
+    if time.monotonic() < _PR_SCHEMA_OK_UNTIL:
+        return
+    if cur is not None:
+        _mark_pr_schema_ok(cur)
+        return
     con = _connect_db()
     try:
-        cur = con.cursor()
-        header_cols = _get_table_columns(cur, "PH_PQ")
-        detail_cols = _get_table_columns(cur, "PH_PQDTL")
-        if not header_cols:
-            raise RuntimeError("PH_PQ table not found")
-        if not detail_cols:
-            raise RuntimeError("PH_PQDTL table not found")
+        _mark_pr_schema_ok(con.cursor())
     finally:
         con.close()
 
@@ -731,10 +1098,6 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
             errors.append(f"lineItems[{idx}] must be an object")
             continue
 
-        from utils.stock_items_catalog import enrich_pr_submit_line_item
-
-        item = enrich_pr_submit_line_item(dict(item))
-
         item_code = _clean_text(item.get("itemCode"))
         location_code = _clean_text(item.get("locationCode") or item.get("location") or item.get("loc"))
         item_name = _clean_text(item.get("itemName"))
@@ -796,6 +1159,7 @@ def _validate_and_normalize(payload: dict[str, Any]) -> dict[str, Any]:
             norm_line["stockDetail"] = dict(stock_detail)
         from utils.stock_items_catalog import merge_item_and_stock_udf_fields_for_api
 
+        # Keep client-sent UDFs; ST_ITEM fill-in happens once in create_purchase_request.
         for udf_key, udf_val in merge_item_and_stock_udf_fields_for_api(
             item,
             stock_detail if isinstance(stock_detail, dict) else {},
@@ -872,8 +1236,9 @@ def _forward_to_upstream(payload: dict[str, Any], auth_header: str | None) -> tu
     if not upstream_url:
         return ("SKIPPED", "")
 
-    timeout_seconds = int(_clean_text(os.getenv("PROCUREMENT_UPSTREAM_TIMEOUT", "8")) or "8")
-    max_attempts = int(_clean_text(os.getenv("PROCUREMENT_UPSTREAM_RETRY", "2")) or "2")
+    # Keep submit responsive; retries stay low. Default timeout 3s (was 8).
+    timeout_seconds = int(_clean_text(os.getenv("PROCUREMENT_UPSTREAM_TIMEOUT", "3")) or "3")
+    max_attempts = int(_clean_text(os.getenv("PROCUREMENT_UPSTREAM_RETRY", "1")) or "1")
     max_attempts = max(0, max_attempts)
 
     headers = {
@@ -925,17 +1290,30 @@ def create_purchase_request(
     auth_header: str | None = None,
 ) -> dict[str, Any]:
     """Validate, persist, and optionally forward a purchase request."""
-    ensure_purchase_request_schema()
+    t0 = time.perf_counter()
     validated = _validate_and_normalize(payload)
     normalized_actor = _clean_text(created_by) or "system"
     now_iso = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
     now_date = datetime.utcnow().date()
+    raw_suppliers = payload.get("suppliers") if isinstance(payload, dict) else None
 
     con = _connect_db()
     try:
         cur = con.cursor()
+        ensure_purchase_request_schema(cur)
+        t_schema = time.perf_counter()
+
+        from utils.stock_items_catalog import enrich_pr_submit_line_item
+
+        validated["lineItems"] = [
+            enrich_pr_submit_line_item(dict(item), allow_remote=False, db_cur=cur)
+            for item in validated["lineItems"]
+        ]
+        t_enrich = time.perf_counter()
+
         header_cols = _get_table_columns(cur, "PH_PQ")
         detail_cols = _get_table_columns(cur, "PH_PQDTL")
+        t_meta = time.perf_counter()
 
         request_number = _allocate_unique_request_number(
             cur,
@@ -943,6 +1321,7 @@ def create_purchase_request(
             preferred=_clean_text(validated.get("requestNumber") or ""),
         )
         status = _resolve_initial_status(validated.get("status") or "")
+        t_alloc = time.perf_counter()
 
         header_key_col = _pick_existing(header_cols, "DOCKEY", "PQKEY", "ID")
         detail_key_col = _pick_existing(detail_cols, "DTLKEY", "PQDTLKEY", "ID")
@@ -958,8 +1337,15 @@ def create_purchase_request(
         pq_header_gens = ["PH_PQ", "GEN_PH_PQ_ID", "GEN_PH_PQ_DOCKEY", "GEN_PH_PQ", "SEQ_PH_PQ_DOCKEY"]
         pq_detail_gens = ["PH_PQDTL", "GEN_PH_PQDTL_ID", "GEN_PH_PQDTL_DTLKEY", "GEN_PH_PQDTL", "SEQ_PH_PQDTL_DTLKEY"]
         header_id = _next_key(cur, "PH_PQ", header_key_col, pq_header_gens)
+        line_count = len(validated["lineItems"])
+        detail_keys = (
+            _next_keys(cur, "PH_PQDTL", detail_key_col, pq_detail_gens, line_count)
+            if detail_key_col and line_count
+            else []
+        )
 
-        upstream_status = "PENDING"
+        # SQL Accounting sync waits for Save Item Awards; no upstream/SQL API push on submit.
+        upstream_status = "DEFERRED_UNTIL_AWARDS" if status == "SUBMITTED" else "PENDING"
         upstream_reference = ""
         status_col = _pick_existing(header_cols, "STATUS")
         status_is_numeric = bool(status_col and _column_is_numeric(cur, "PH_PQ", status_col))
@@ -1065,12 +1451,12 @@ def create_purchase_request(
                 "CREATED_AT": now_iso,
             }
             if detail_key_col:
-                detail_values[detail_key_col] = _next_key(
-                    cur,
-                    "PH_PQDTL",
-                    detail_key_col,
-                    pq_detail_gens,
-                )
+                if idx - 1 < len(detail_keys):
+                    detail_values[detail_key_col] = detail_keys[idx - 1]
+                else:
+                    detail_values[detail_key_col] = _next_key(
+                        cur, "PH_PQDTL", detail_key_col, pq_detail_gens
+                    )
             _apply_pqdtl_sqty_suom_columns(
                 detail_values,
                 detail_cols,
@@ -1089,76 +1475,55 @@ def create_purchase_request(
                 generator_candidates=pq_detail_gens,
             )
 
-        if status == "SUBMITTED":
-            upstream_payload = _build_upstream_payload(
-                {
-                    **validated,
-                    "requestNumber": request_number,
-                    "status": status,
-                }
-            )
-            upstream_status, upstream_reference = _forward_to_upstream(upstream_payload, auth_header)
-
-            try:
-                from utils.procurement_sql_api_sync import sync_purchase_request_lines_sql_api_on_submit
-
-                sql_line_sync = sync_purchase_request_lines_sql_api_on_submit(
-                    int(header_id),
-                    request_number,
-                    {
-                        **validated,
-                        "requestNumber": request_number,
-                        "status": status,
-                    },
-                )
-                if sql_line_sync.get("synced"):
-                    print(
-                        f"[PROCUREMENT] SQL API PR line UDF sync dockey={header_id} docno={request_number}",
-                        flush=True,
-                    )
-            except Exception as sync_exc:
-                print(
-                    f"[PROCUREMENT] SQL API PR line UDF sync warning dockey={header_id}: {sync_exc}",
-                    flush=True,
-                )
-
-            status_col = _pick_existing(header_cols, "STATUS")
-            upstream_status_col = _pick_existing(header_cols, "UPSTREAM_STATUS")
-            upstream_ref_col = _pick_existing(header_cols, "UPSTREAM_REFERENCE")
-            status_is_numeric = bool(status_col and _column_is_numeric(cur, "PH_PQ", status_col))
-
-            updates: list[str] = []
-            values: list[Any] = []
-            if status_col:
-                updates.append(f"{status_col} = ?")
-                values.append(_encode_status(status, status_is_numeric))
-            if upstream_status_col:
-                updates.append(f"{upstream_status_col} = ?")
-                values.append(upstream_status)
-            if upstream_ref_col:
-                updates.append(f"{upstream_ref_col} = ?")
-                values.append(upstream_reference)
-            if updates:
-                values.append(header_id)
-                cur.execute(
-                    f"UPDATE PH_PQ SET {', '.join(updates)} WHERE {header_key_col} = ?",
-                    tuple(values),
-                )
+        t_insert = time.perf_counter()
+        try:
+            persist_selected_suppliers(cur, int(header_id), request_number, raw_suppliers, normalized_actor)
+        except Exception as exc:
+            # SUBMITTED RFQ flow depends on PR_SELECTED_SUPPLIER; do not soft-fail and hide invites.
+            if status == "SUBMITTED":
+                raise RuntimeError(
+                    f"Could not save invited suppliers for {request_number}: {exc}"
+                ) from exc
+            print(f"[PROCUREMENT SELECTED SUPPLIERS] save warning: {exc}", flush=True)
+        t_suppliers = time.perf_counter()
 
         con.commit()
+
+        if status == "SUBMITTED":
+            print(
+                f"[PROCUREMENT CREATE PR] SQL API sync deferred until Save Item Awards "
+                f"dockey={header_id} docno={request_number}",
+                flush=True,
+            )
+
+        total_ms = (time.perf_counter() - t0) * 1000
+        print(
+            "[PROCUREMENT CREATE PR] timing "
+            f"schema={(t_schema - t0) * 1000:.0f}ms "
+            f"enrich={(t_enrich - t_schema) * 1000:.0f}ms "
+            f"meta={(t_meta - t_enrich) * 1000:.0f}ms "
+            f"alloc={(t_alloc - t_meta) * 1000:.0f}ms "
+            f"insert={(t_insert - t_alloc) * 1000:.0f}ms "
+            f"suppliers={(t_suppliers - t_insert) * 1000:.0f}ms "
+            f"total={total_ms:.0f}ms "
+            f"lines={line_count} status={status} docno={request_number}",
+            flush=True,
+        )
 
         return {
             "id": header_id,
             "requestNumber": request_number,
             "status": status,
             "upstreamStatus": upstream_status if status == "SUBMITTED" else "PENDING",
-            "upstreamReference": upstream_reference or None,
+            "upstreamReference": None,
             "requestDate": validated["requestDate"],
             "requiredDate": validated["requiredDate"],
             "totalAmount": validated["totalAmount"],
             "currency": validated["currency"],
-            "lineItemCount": len(validated["lineItems"]),
+            "lineItemCount": line_count,
             "udfStatus": "AWAITING" if status == "SUBMITTED" else "",
+            "sqlSyncPending": False,
+            "sqlSyncDeferredUntilAwards": status == "SUBMITTED",
         }
     except Exception:
         con.rollback()
@@ -1559,6 +1924,192 @@ def transition_purchase_request_status(
         con.close()
 
 
+def _mark_draft_submitted(cur: Any, header_cols: set[str], key_col: str, request_id: int) -> None:
+    """Set PH_PQ status to submitted and approval to Awaiting in the same save."""
+    status_col = _pick_existing(header_cols, "STATUS")
+    udf_col = _pick_existing(header_cols, "UDF_STATUS", "UDFSTATUS")
+    updates: list[str] = []
+    values: list[Any] = []
+    if status_col:
+        numeric = _column_is_numeric(cur, "PH_PQ", status_col)
+        updates.append(f"{status_col} = ?")
+        values.append(_encode_status("SUBMITTED", numeric))
+    if udf_col:
+        updates.append(f"{udf_col} = ?")
+        values.append("AWAITING")
+    if not updates:
+        return
+    values.append(request_id)
+    cur.execute(
+        f"UPDATE PH_PQ SET {', '.join(updates)} WHERE {key_col} = ?",
+        tuple(values),
+    )
+
+
+def _normalize_selected_supplier_rows(raw_suppliers: Any) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for raw in raw_suppliers or []:
+        if not isinstance(raw, dict):
+            continue
+        code = _normalize_supplier_id_for_header(
+            raw.get("code") or raw.get("supplierCode") or raw.get("supplierId")
+        )
+        if not code:
+            continue
+        key = code.upper()
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(
+            {
+                "code": code,
+                "name": _clean_text(raw.get("name") or raw.get("companyname") or raw.get("supplierName")),
+                "email": _clean_text(raw.get("email") or raw.get("udf_email")),
+            }
+        )
+    return rows
+
+
+def persist_selected_suppliers(
+    cur: Any,
+    request_dockey: int,
+    request_no: str,
+    raw_suppliers: Any,
+    actor: str,
+) -> None:
+    """Write PR_SELECTED_SUPPLIER rows on an existing cursor (same create transaction)."""
+    try:
+        request_id = int(request_dockey)
+    except Exception:
+        return
+    if request_id <= 0:
+        return
+
+    suppliers = _normalize_selected_supplier_rows(raw_suppliers)
+    cur.execute("DELETE FROM PR_SELECTED_SUPPLIER WHERE REQUEST_DOCKEY = ?", (request_id,))
+    if not suppliers:
+        return
+
+    now_sql = datetime.utcnow().replace(microsecond=0)
+    actor_name = _clean_text(actor) or "admin"
+    docno = _clean_text(request_no)
+    # Catch generator up past MAX(ID) so inserts do not collide (-803 KEY VIOLATION).
+    next_ids = _next_keys(
+        cur,
+        "PR_SELECTED_SUPPLIER",
+        "ID",
+        ["GEN_PR_SELECTED_SUPPLIER_ID", "PR_SELECTED_SUPPLIER"],
+        len(suppliers),
+    )
+    for idx, supplier in enumerate(suppliers):
+        row_id = next_ids[idx] if idx < len(next_ids) else None
+        if row_id is None:
+            cur.execute("SELECT COALESCE(MAX(ID), 0) FROM PR_SELECTED_SUPPLIER")
+            row = cur.fetchone()
+            row_id = int(row[0] or 0) + 1 if row else 1
+        cur.execute(
+            """
+            INSERT INTO PR_SELECTED_SUPPLIER (
+                ID, REQUEST_DOCKEY, REQUEST_NO, SUPPLIER_CODE, SUPPLIER_NAME,
+                SUPPLIER_EMAIL, CREATED_BY, CREATED_AT, UPDATED_AT
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row_id,
+                request_id,
+                docno,
+                supplier["code"],
+                supplier["name"],
+                supplier["email"],
+                actor_name,
+                now_sql,
+                now_sql,
+            ),
+        )
+
+
+def _schedule_upstream_forward(
+    header_id: int,
+    request_number: str,
+    validated: dict[str, Any],
+    auth_header: str | None,
+) -> None:
+    """Send PROCUREMENT_CREATE_PR_URL after local commit so submit is not blocked."""
+    import threading
+
+    if not _clean_text(os.getenv("PROCUREMENT_CREATE_PR_URL")):
+        return
+
+    snapshot = dict(validated)
+    snapshot["requestNumber"] = request_number
+    snapshot["status"] = "SUBMITTED"
+
+    def _run() -> None:
+        try:
+            payload = _build_upstream_payload(snapshot)
+            status, reference = _forward_to_upstream(payload, auth_header)
+            con = _connect_db()
+            try:
+                cur = con.cursor()
+                header_cols = _get_table_columns(cur, "PH_PQ")
+                key_col = _pick_existing(header_cols, "DOCKEY", "PQKEY", "ID")
+                if not key_col:
+                    return
+                updates: list[str] = []
+                values: list[Any] = []
+                status_col = _pick_existing(header_cols, "UPSTREAM_STATUS")
+                ref_col = _pick_existing(header_cols, "UPSTREAM_REFERENCE")
+                if status_col:
+                    updates.append(f"{status_col} = ?")
+                    values.append(status)
+                if ref_col:
+                    updates.append(f"{ref_col} = ?")
+                    values.append(reference or "")
+                if not updates:
+                    return
+                values.append(int(header_id))
+                cur.execute(
+                    f"UPDATE PH_PQ SET {', '.join(updates)} WHERE {key_col} = ?",
+                    tuple(values),
+                )
+                con.commit()
+            except Exception:
+                con.rollback()
+                raise
+            finally:
+                con.close()
+        except Exception as exc:
+            print(
+                f"[PROCUREMENT] upstream forward warning dockey={header_id}: {exc}",
+                flush=True,
+            )
+
+    threading.Thread(target=_run, name="pr-upstream-forward", daemon=True).start()
+
+
+def _schedule_pr_sql_line_sync(header_id: int, request_number: str, validated: dict[str, Any]) -> None:
+    """Push line UDFs to SQL Accounting after the local save has already returned."""
+    import threading
+
+    snapshot = dict(validated)
+    snapshot["requestNumber"] = request_number
+    snapshot["status"] = "SUBMITTED"
+
+    def _run() -> None:
+        try:
+            from utils.procurement_sql_api_sync import sync_purchase_request_lines_sql_api_on_submit
+
+            sync_purchase_request_lines_sql_api_on_submit(int(header_id), request_number, snapshot)
+        except Exception as exc:
+            print(
+                f"[PROCUREMENT] SQL API PR line UDF sync warning dockey={header_id}: {exc}",
+                flush=True,
+            )
+
+    threading.Thread(target=_run, name="pr-sql-line-sync", daemon=True).start()
+
+
 def update_purchase_request(
     request_id: int,
     payload: dict[str, Any],
@@ -1655,7 +2206,7 @@ def update_purchase_request(
             raise RuntimeError("PH_PQDTL key columns not found")
 
         cur.execute(
-            f"SELECT FIRST 1 {header_key_col}, {_pick_existing(header_cols, 'STATUS') or 'NULL'} FROM PH_PQ WHERE {header_key_col} = ?",
+            f"SELECT FIRST 1 {header_key_col}, {_pick_existing(header_cols, 'STATUS') or 'NULL'}, {_pick_existing(header_cols, 'UDF_STATUS', 'UDFSTATUS') or 'NULL'} FROM PH_PQ WHERE {header_key_col} = ?",
             (normalized_request_id,),
         )
         row = cur.fetchone()
@@ -1663,6 +2214,9 @@ def update_purchase_request(
             raise PurchaseRequestValidationError("Purchase request not found")
 
         current_status = _decode_status(row[1]).upper() if len(row) > 1 else ""
+        current_udf = str(row[2] or "").strip().upper() if len(row) > 2 else ""
+        if current_udf == "CANCELLED":
+            raise PurchaseRequestValidationError("Cancelled purchase requests cannot be edited")
         if current_status and current_status != "DRAFT":
             raise PurchaseRequestValidationError("Only draft purchase requests can be edited")
 
@@ -1781,6 +2335,10 @@ def update_purchase_request(
             )
             updated_lines += int(cur.rowcount or 0)
 
+        submit_now = bool(payload.get("submit"))
+        if submit_now:
+            _mark_draft_submitted(cur, header_cols, header_key_col, normalized_request_id)
+
         con.commit()
         return {
             "requestId": normalized_request_id,
@@ -1788,6 +2346,8 @@ def update_purchase_request(
             "updatedLines": updated_lines,
             "totalAmount": total_amount,
             "updatedAt": now_iso,
+            "status": "SUBMITTED" if submit_now else "DRAFT",
+            "udfStatus": "AWAITING" if submit_now else "",
         }
     except Exception:
         con.rollback()

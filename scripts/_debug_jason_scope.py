@@ -36,13 +36,12 @@ def main() -> None:
             "NAME",
             "EMAIL",
             "UDF_LOCATION",
-            "UDF_MANAGEMENT",
-            "UDF_PMANAGEMENT",
-            "UDF_PUSER",
-            "UDF_SMANAGEMENT",
-            "UDF_SUSER",
-            "UDF_SSTAFF",
             "UDF_ISADMIN",
+            "UDF_ISPURHOD",
+            "UDF_ISPURMGR",
+            "UDF_ISPURMNG",
+            "UDF_ISDIRECTOR",
+            "UDF_SSTAFF",
             "UDF_USER",
         )
         if c in cols

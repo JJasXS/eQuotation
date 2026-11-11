@@ -37,7 +37,7 @@ def test_group_detail_ids_by_supplier():
 
 
 def test_mixed_pr_split_enabled_default():
-    assert mixed_pr_split_enabled() is True
+    assert mixed_pr_split_enabled() is False
 
 
 def test_child_docno_increments_from_parent_seed():

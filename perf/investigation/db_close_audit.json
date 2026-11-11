@@ -1,0 +1,134 @@
+{
+  "findings": [
+    {
+      "file": "main.py",
+      "function": "api_admin_update_order_status",
+      "line": 3873,
+      "opens": 1,
+      "closes": 2,
+      "severity": "medium",
+      "note": "get_db_connection without finally/with \u2014 verify closes on all paths"
+    },
+    {
+      "file": "main.py",
+      "function": "check_draft_order",
+      "line": 3982,
+      "opens": 1,
+      "closes": 2,
+      "severity": "medium",
+      "note": "get_db_connection without finally/with \u2014 verify closes on all paths"
+    },
+    {
+      "file": "main.py",
+      "function": "api_create_quotation",
+      "line": 9611,
+      "opens": 1,
+      "closes": 2,
+      "severity": "medium",
+      "note": "get_db_connection without finally/with \u2014 verify closes on all paths"
+    },
+    {
+      "file": "main.py",
+      "function": "api_get_draft_quotation_details",
+      "line": 9760,
+      "opens": 1,
+      "closes": 8,
+      "severity": "medium",
+      "note": "get_db_connection without finally/with \u2014 verify closes on all paths"
+    },
+    {
+      "file": "utils/procurement_purchase_request.py",
+      "function": "_connect_db",
+      "line": 71,
+      "opens": 1,
+      "closes": 0,
+      "severity": "high",
+      "note": "get_db_connection without any .close() in function body"
+    },
+    {
+      "file": "utils/quotation_api.py",
+      "function": "save_draft_quotation",
+      "line": 1856,
+      "opens": 1,
+      "closes": 2,
+      "severity": "medium",
+      "note": "get_db_connection without finally/with \u2014 verify closes on all paths"
+    },
+    {
+      "file": "utils/procurement_bidding.py",
+      "function": "_connect_db",
+      "line": 24,
+      "opens": 1,
+      "closes": 0,
+      "severity": "high",
+      "note": "get_db_connection without any .close() in function body"
+    }
+  ],
+  "high": [
+    {
+      "file": "utils/procurement_purchase_request.py",
+      "function": "_connect_db",
+      "line": 71,
+      "opens": 1,
+      "closes": 0,
+      "severity": "high",
+      "note": "get_db_connection without any .close() in function body"
+    },
+    {
+      "file": "utils/procurement_bidding.py",
+      "function": "_connect_db",
+      "line": 24,
+      "opens": 1,
+      "closes": 0,
+      "severity": "high",
+      "note": "get_db_connection without any .close() in function body"
+    }
+  ],
+  "medium": [
+    {
+      "file": "main.py",
+      "function": "api_admin_update_order_status",
+      "line": 3873,
+      "opens": 1,
+      "closes": 2,
+      "severity": "medium",
+      "note": "get_db_connection without finally/with \u2014 verify closes on all paths"
+    },
+    {
+      "file": "main.py",
+      "function": "check_draft_order",
+      "line": 3982,
+      "opens": 1,
+      "closes": 2,
+      "severity": "medium",
+      "note": "get_db_connection without finally/with \u2014 verify closes on all paths"
+    },
+    {
+      "file": "main.py",
+      "function": "api_create_quotation",
+      "line": 9611,
+      "opens": 1,
+      "closes": 2,
+      "severity": "medium",
+      "note": "get_db_connection without finally/with \u2014 verify closes on all paths"
+    },
+    {
+      "file": "main.py",
+      "function": "api_get_draft_quotation_details",
+      "line": 9760,
+      "opens": 1,
+      "closes": 8,
+      "severity": "medium",
+      "note": "get_db_connection without finally/with \u2014 verify closes on all paths"
+    },
+    {
+      "file": "utils/quotation_api.py",
+      "function": "save_draft_quotation",
+      "line": 1856,
+      "opens": 1,
+      "closes": 2,
+      "severity": "medium",
+      "note": "get_db_connection without finally/with \u2014 verify closes on all paths"
+    }
+  ]
+}

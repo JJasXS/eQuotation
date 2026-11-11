@@ -5,6 +5,7 @@ for drop-in replacement of legacy ``_clean_text``-style private names.
 """
 from __future__ import annotations
 
+import time
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 
@@ -40,16 +41,29 @@ def to_float(value: Any, default: float = 0.0) -> float:
         return float(default)
 
 
+_TABLE_COLUMNS_CACHE: dict[str, tuple[float, set[str]]] = {}
+_TABLE_COLUMNS_CACHE_TTL_SEC = 300.0
+
+
 def get_table_columns(cur: Any, table_name: str) -> set[str]:
+    """Return uppercase column names for a Firebird table (process-local TTL cache)."""
+    key = str(table_name or "").strip().upper()
+    now = time.monotonic()
+    cached = _TABLE_COLUMNS_CACHE.get(key)
+    if cached and (now - cached[0]) < _TABLE_COLUMNS_CACHE_TTL_SEC:
+        return set(cached[1])
+
     cur.execute(
         """
         SELECT TRIM(RF.RDB$FIELD_NAME)
         FROM RDB$RELATION_FIELDS RF
         WHERE RF.RDB$RELATION_NAME = ?
         """,
-        (table_name.upper(),),
+        (key,),
     )
-    return {str(row[0]).strip().upper() for row in (cur.fetchall() or []) if row and row[0]}
+    cols = {str(row[0]).strip().upper() for row in (cur.fetchall() or []) if row and row[0]}
+    _TABLE_COLUMNS_CACHE[key] = (now, set(cols))
+    return cols
 
 
 def pick_existing(columns: set[str], *candidates: str) -> str:

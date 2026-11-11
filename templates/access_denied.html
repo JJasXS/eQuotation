@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>No access</title>
+    <link rel="stylesheet" href="/static/css/hamburger_menu.css?v=20260810_nav_fix1">
+    <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
+    <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515">
+    <style>
+        body.equotation-icy-theme.access-denied-page {
+            margin: 0;
+            min-height: 100vh;
+            background: linear-gradient(160deg, #eef6fb 0%, #f7fafc 45%, #e8f1f7 100%);
+        }
+        .access-denied-shell {
+            max-width: 520px;
+            margin: 64px auto 40px;
+            padding: 0 20px;
+            text-align: center;
+        }
+        .access-denied-shell h1 {
+            margin: 0 0 12px;
+            font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+            font-size: 1.55rem;
+            font-weight: 650;
+            color: #1e3a4c;
+            letter-spacing: -0.02em;
+        }
+        .access-denied-shell p {
+            margin: 0 0 28px;
+            font-size: 1rem;
+            line-height: 1.5;
+            color: #4a6575;
+        }
+        .access-denied-shell .access-denied-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+        }
+        .access-denied-shell a.access-denied-btn {
+            display: inline-block;
+            padding: 10px 18px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 0.95rem;
+            font-weight: 600;
+            border: 1px solid #c5d7e4;
+            background: #fff;
+            color: #1e3a4c;
+        }
+        .access-denied-shell a.access-denied-btn--primary {
+            background: #2b6a8a;
+            border-color: #2b6a8a;
+            color: #fff;
+        }
+    </style>
+</head>
+<body class="equotation-icy-theme access-denied-page">
+    <div class="container">
+        {% set page_header_title = page_header_title | default('Access') %}
+        {% include 'components/app_page_header.html' %}
+        <div class="access-denied-shell" role="alert">
+            <h1>You have no access to this page</h1>
+            <p>{{ access_denied_message | default('Ask an administrator to assign the required role on your account.') }}</p>
+            <div class="access-denied-actions">
+                {% if home_href %}
+                <a class="access-denied-btn access-denied-btn--primary" href="{{ home_href }}">Go back</a>
+                {% endif %}
+                <a class="access-denied-btn" href="/logout" data-eq-logout="1">Log out</a>
+            </div>
+        </div>
+    </div>
+    <script src="/static/js/eq_core.js?v=20261029_csrf1"></script>
+</body>
+</html>

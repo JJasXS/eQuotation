@@ -98,7 +98,8 @@ body.procurement-warm-ui #panel-view .pr-view-filter-tabs.eq-line-tabs {
 }
 
 body.procurement-warm-ui #panel-view .pr-view-page-header--compact .pr-view-filter-tabs.eq-line-tabs {
-    padding: 0 4px;
+    padding: 0;
+    border-bottom: none;
     background: transparent;
 }
 
@@ -108,12 +109,13 @@ body.procurement-warm-ui #panel-view .pr-view-filter-tabs .eq-line-tab {
 }
 
 body.procurement-warm-ui #panel-view .pr-view-page-header--compact .pr-view-filter-tabs .eq-line-tab {
-    font-size: 13px;
-    padding: 9px 16px;
+    font-size: 14px;
+    padding: 8px 0;
+    border-bottom: none !important;
 }
 
-/* Supplier bidding invitation filters — vertical sidebar in list pane */
-.sb-invite-tabs.eq-line-tabs:not(.sb-invite-tabs--side) {
+/* Supplier bidding invitation filters — top bar in list pane */
+.sb-invite-tabs.eq-line-tabs:not(.sb-invite-tabs--top) {
     border-top: 1px solid var(--ice-border-soft, #c5dce9);
     border-radius: 0;
 }

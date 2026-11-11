@@ -1,0 +1,490 @@
+{
+  "label": "after",
+  "status": "ok",
+  "base_url": "http://127.0.0.1:8881",
+  "paths": [
+    "/login",
+    "/admin",
+    "/admin/procurement",
+    "/api/admin/procurement/stock-card",
+    "/api/admin/procurement/locations",
+    "/api/admin/procurement/suppliers",
+    "/static/css/admin.css",
+    "/static/js/admin_helpers.js"
+  ],
+  "levels": [
+    {
+      "users": 1,
+      "duration_sec": 60,
+      "requests": 4810,
+      "throughput_rps": 80.17,
+      "latency_ms": {
+        "n": 4810,
+        "median": 3.0,
+        "p95": 40.69,
+        "min": 1.03,
+        "max": 73.2,
+        "mean": 12.44
+      },
+      "error_rate": 0.0,
+      "counters": {
+        "ok": 4810
+      },
+      "error_samples": [],
+      "server": {
+        "WorkingSetMB": 153.44,
+        "CPU": 37.0625,
+        "PrivateMB": 132.25,
+        "Threads": 8,
+        "Handles": 282,
+        "pid": 19104,
+        "status": "ok"
+      },
+      "server_before": {
+        "WorkingSetMB": 196.07,
+        "CPU": 8.671875,
+        "PrivateMB": 175.71,
+        "Threads": 12,
+        "Handles": 312,
+        "pid": 19104,
+        "status": "ok"
+      }
+    },
+    {
+      "users": 5,
+      "duration_sec": 60,
+      "requests": 5176,
+      "throughput_rps": 86.27,
+      "latency_ms": {
+        "n": 5176,
+        "median": 49.27,
+        "p95": 163.39,
+        "min": 1.05,
+        "max": 324.02,
+        "mean": 57.83
+      },
+      "error_rate": 0.0,
+      "counters": {
+        "ok": 5176
+      },
+      "error_samples": [],
+      "server": {
+        "WorkingSetMB": 155.21,
+        "CPU": 66.640625,
+        "PrivateMB": 134.07,
+        "Threads": 8,
+        "Handles": 282,
+        "pid": 19104,
+        "status": "ok"
+      },
+      "server_before": {
+        "WorkingSetMB": 153.44,
+        "CPU": 37.0625,
+        "PrivateMB": 132.25,
+        "Threads": 8,
+        "Handles": 282,
+        "pid": 19104,
+        "status": "ok"
+      }
+    },
+    {
+      "users": 10,
+      "duration_sec": 60,
+      "requests": 5183,
+      "throughput_rps": 86.38,
+      "latency_ms": {
+        "n": 5183,
+        "median": 91.43,
+        "p95": 353.9,
+        "min": 1.03,
+        "max": 584.39,
+        "mean": 115.55
+      },
+      "error_rate": 0.0,
+      "counters": {
+        "ok": 5183
+      },
+      "error_samples": [],
+      "server": {
+        "WorkingSetMB": 154.36,
+        "CPU": 97.03125,
+        "PrivateMB": 133.11,
+        "Threads": 5,
+        "Handles": 282,
+        "pid": 19104,
+        "status": "ok"
+      },
+      "server_before": {
+        "WorkingSetMB": 155.21,
+        "CPU": 66.640625,
+        "PrivateMB": 134.07,
+        "Threads": 8,
+        "Handles": 282,
+        "pid": 19104,
+        "status": "ok"
+      }
+    },
+    {
+      "users": 20,
+      "duration_sec": 60,
+      "requests": 5056,
+      "throughput_rps": 84.27,
+      "latency_ms": {
+        "n": 5056,
+        "median": 174.6,
+        "p95": 660.43,
+        "min": 1.06,
+        "max": 1368.2,
+        "mean": 238.13
+      },
+      "error_rate": 0.0,
+      "counters": {
+        "ok": 5056
+      },
+      "error_samples": [],
+      "server": {
+        "WorkingSetMB": 156,
+        "CPU": 126.765625,
+        "PrivateMB": 134.96,
+        "Threads": 4,
+        "Handles": 281,
+        "pid": 19104,
+        "status": "ok"
+      },
+      "server_before": {
+        "WorkingSetMB": 154.36,
+        "CPU": 97.03125,
+        "PrivateMB": 133.11,
+        "Threads": 5,
+        "Handles": 282,
+        "pid": 19104,
+        "status": "ok"
+      }
+    }
+  ],
+  "slices": {
+    "mixed": {
+      "slice": "mixed",
+      "paths": [
+        "/login",
+        "/admin",
+        "/admin/procurement",
+        "/api/admin/procurement/stock-card",
+        "/api/admin/procurement/locations",
+        "/api/admin/procurement/suppliers",
+        "/static/css/admin.css",
+        "/static/js/admin_helpers.js"
+      ],
+      "levels": [
+        {
+          "users": 1,
+          "duration_sec": 60,
+          "requests": 4810,
+          "throughput_rps": 80.17,
+          "latency_ms": {
+            "n": 4810,
+            "median": 3.0,
+            "p95": 40.69,
+            "min": 1.03,
+            "max": 73.2,
+            "mean": 12.44
+          },
+          "error_rate": 0.0,
+          "counters": {
+            "ok": 4810
+          },
+          "error_samples": [],
+          "server": {
+            "WorkingSetMB": 153.44,
+            "CPU": 37.0625,
+            "PrivateMB": 132.25,
+            "Threads": 8,
+            "Handles": 282,
+            "pid": 19104,
+            "status": "ok"
+          },
+          "server_before": {
+            "WorkingSetMB": 196.07,
+            "CPU": 8.671875,
+            "PrivateMB": 175.71,
+            "Threads": 12,
+            "Handles": 312,
+            "pid": 19104,
+            "status": "ok"
+          }
+        },
+        {
+          "users": 5,
+          "duration_sec": 60,
+          "requests": 5176,
+          "throughput_rps": 86.27,
+          "latency_ms": {
+            "n": 5176,
+            "median": 49.27,
+            "p95": 163.39,
+            "min": 1.05,
+            "max": 324.02,
+            "mean": 57.83
+          },
+          "error_rate": 0.0,
+          "counters": {
+            "ok": 5176
+          },
+          "error_samples": [],
+          "server": {
+            "WorkingSetMB": 155.21,
+            "CPU": 66.640625,
+            "PrivateMB": 134.07,
+            "Threads": 8,
+            "Handles": 282,
+            "pid": 19104,
+            "status": "ok"
+          },
+          "server_before": {
+            "WorkingSetMB": 153.44,
+            "CPU": 37.0625,
+            "PrivateMB": 132.25,
+            "Threads": 8,
+            "Handles": 282,
+            "pid": 19104,
+            "status": "ok"
+          }
+        },
+        {
+          "users": 10,
+          "duration_sec": 60,
+          "requests": 5183,
+          "throughput_rps": 86.38,
+          "latency_ms": {
+            "n": 5183,
+            "median": 91.43,
+            "p95": 353.9,
+            "min": 1.03,
+            "max": 584.39,
+            "mean": 115.55
+          },
+          "error_rate": 0.0,
+          "counters": {
+            "ok": 5183
+          },
+          "error_samples": [],
+          "server": {
+            "WorkingSetMB": 154.36,
+            "CPU": 97.03125,
+            "PrivateMB": 133.11,
+            "Threads": 5,
+            "Handles": 282,
+            "pid": 19104,
+            "status": "ok"
+          },
+          "server_before": {
+            "WorkingSetMB": 155.21,
+            "CPU": 66.640625,
+            "PrivateMB": 134.07,
+            "Threads": 8,
+            "Handles": 282,
+            "pid": 19104,
+            "status": "ok"
+          }
+        },
+        {
+          "users": 20,
+          "duration_sec": 60,
+          "requests": 5056,
+          "throughput_rps": 84.27,
+          "latency_ms": {
+            "n": 5056,
+            "median": 174.6,
+            "p95": 660.43,
+            "min": 1.06,
+            "max": 1368.2,
+            "mean": 238.13
+          },
+          "error_rate": 0.0,
+          "counters": {
+            "ok": 5056
+          },
+          "error_samples": [],
+          "server": {
+            "WorkingSetMB": 156,
+            "CPU": 126.765625,
+            "PrivateMB": 134.96,
+            "Threads": 4,
+            "Handles": 281,
+            "pid": 19104,
+            "status": "ok"
+          },
+          "server_before": {
+            "WorkingSetMB": 154.36,
+            "CPU": 97.03125,
+            "PrivateMB": 133.11,
+            "Threads": 5,
+            "Handles": 282,
+            "pid": 19104,
+            "status": "ok"
+          }
+        }
+      ]
+    },
+    "api_only": {
+      "slice": "api_only",
+      "paths": [
+        "/api/admin/procurement/stock-card",
+        "/api/admin/procurement/locations",
+        "/api/admin/procurement/suppliers",
+        "/api/admin/procurement/purchase-requests",
+        "/api/admin/get_all_quotations"
+      ],
+      "levels": [
+        {
+          "users": 1,
+          "duration_sec": 60,
+          "requests": 2703,
+          "throughput_rps": 45.05,
+          "latency_ms": {
+            "n": 2703,
+            "median": 18.2,
+            "p95": 41.2,
+            "min": 1.99,
+            "max": 76.5,
+            "mean": 22.15
+          },
+          "error_rate": 0.0,
+          "counters": {
+            "ok": 2703
+          },
+          "error_samples": [],
+          "server": {
+            "WorkingSetMB": 154.47,
+            "CPU": 153.28125,
+            "PrivateMB": 133.12,
+            "Threads": 5,
+            "Handles": 284,
+            "pid": 19104,
+            "status": "ok"
+          },
+          "server_before": {
+            "WorkingSetMB": 156,
+            "CPU": 126.765625,
+            "PrivateMB": 134.96,
+            "Threads": 4,
+            "Handles": 281,
+            "pid": 19104,
+            "status": "ok"
+          }
+        },
+        {
+          "users": 5,
+          "duration_sec": 60,
+          "requests": 2808,
+          "throughput_rps": 46.8,
+          "latency_ms": {
+            "n": 2808,
+            "median": 106.96,
+            "p95": 185.53,
+            "min": 6.85,
+            "max": 291.84,
+            "mean": 106.66
+          },
+          "error_rate": 0.0,
+          "counters": {
+            "ok": 2808
+          },
+          "error_samples": [],
+          "server": {
+            "WorkingSetMB": 155.04,
+            "CPU": 181.46875,
+            "PrivateMB": 133.72,
+            "Threads": 7,
+            "Handles": 284,
+            "pid": 19104,
+            "status": "ok"
+          },
+          "server_before": {
+            "WorkingSetMB": 154.47,
+            "CPU": 153.28125,
+            "PrivateMB": 133.12,
+            "Threads": 5,
+            "Handles": 284,
+            "pid": 19104,
+            "status": "ok"
+          }
+        },
+        {
+          "users": 10,
+          "duration_sec": 60,
+          "requests": 2763,
+          "throughput_rps": 46.05,
+          "latency_ms": {
+            "n": 2763,
+            "median": 220.88,
+            "p95": 379.84,
+            "min": 13.74,
+            "max": 505.76,
+            "mean": 217.42
+          },
+          "error_rate": 0.0,
+          "counters": {
+            "ok": 2763
+          },
+          "error_samples": [],
+          "server": {
+            "WorkingSetMB": 155.52,
+            "CPU": 209.46875,
+            "PrivateMB": 133.98,
+            "Threads": 5,
+            "Handles": 284,
+            "pid": 19104,
+            "status": "ok"
+          },
+          "server_before": {
+            "WorkingSetMB": 155.04,
+            "CPU": 181.46875,
+            "PrivateMB": 133.72,
+            "Threads": 7,
+            "Handles": 284,
+            "pid": 19104,
+            "status": "ok"
+          }
+        },
+        {
+          "users": 20,
+          "duration_sec": 60,
+          "requests": 2631,
+          "throughput_rps": 43.85,
+          "latency_ms": {
+            "n": 2631,
+            "median": 460.82,
+            "p95": 806.11,
+            "min": 30.12,
+            "max": 989.9,
+            "mean": 457.44
+          },
+          "error_rate": 0.0,
+          "counters": {
+            "ok": 2631
+          },
+          "error_samples": [],
+          "server": {
+            "WorkingSetMB": 156.02,
+            "CPU": 237.296875,
+            "PrivateMB": 134.35,
+            "Threads": 5,
+            "Handles": 284,
+            "pid": 19104,
+            "status": "ok"
+          },
+          "server_before": {
+            "WorkingSetMB": 155.52,
+            "CPU": 209.46875,
+            "PrivateMB": 133.98,
+            "Threads": 5,
+            "Handles": 284,
+            "pid": 19104,
+            "status": "ok"
+          }
+        }
+      ]
+    }
+  }
+}

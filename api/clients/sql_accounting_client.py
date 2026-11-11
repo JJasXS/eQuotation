@@ -131,6 +131,7 @@ class SqlAccountingApiClient:
         url: str,
         *,
         timeout_seconds: float | None = None,
+        retry_transport: bool = True,
     ) -> requests.Response:
         creds = Credentials(self._settings.access_key, self._settings.secret_key)
         aws_request = AWSRequest(method="GET", url=url)
@@ -141,7 +142,8 @@ class SqlAccountingApiClient:
             if timeout_seconds is not None
             else self._settings.timeout_seconds
         )
-        return self._session.get(
+        getter = self._session.get if retry_transport else requests.get
+        return getter(
             prepared.url,
             headers=dict(prepared.headers),
             timeout=timeout,
@@ -311,6 +313,8 @@ class SqlAccountingApiClient:
         url: str,
         *,
         timeout_seconds: float | None = None,
+        max_attempts: int | None = None,
+        retry_transport: bool = True,
     ) -> tuple[int, dict[str, Any] | list[Any] | None, str]:
         """
         Send a signed GET; parse JSON object or array when possible.
@@ -319,10 +323,14 @@ class SqlAccountingApiClient:
             (http_status, parsed_json_or_none, raw_response_text)
         """
         last_exc: Exception | None = None
-        attempts = self._settings.max_retries + 1
+        attempts = self._settings.max_retries + 1 if max_attempts is None else max(1, max_attempts)
         for attempt in range(attempts):
             try:
-                resp = self._sign_and_get(url, timeout_seconds=timeout_seconds)
+                resp = self._sign_and_get(
+                    url,
+                    timeout_seconds=timeout_seconds,
+                    retry_transport=retry_transport,
+                )
                 text = resp.text or ""
                 parsed: dict[str, Any] | list[Any] | None = None
                 if text:

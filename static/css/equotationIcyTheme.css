@@ -24,6 +24,52 @@ body.equotation-icy-theme {
     color: var(--ice-text) !important;
 }
 
+/*
+ * Quotation module type: match Purchase (chat.css / procurement) — system UI stack
+ * and Windows ClearType. Avoid antialiased + heavy tracking that looks “sharp”.
+ */
+body.equotation-icy-theme.view-quotation-page,
+body.equotation-icy-theme.admin-quotations-view-page,
+body.equotation-icy-theme.customer-my-quotations-page,
+body.equotation-icy-theme.create-quotation-page,
+body.equotation-icy-theme.update-quotation-page {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif !important;
+    -webkit-font-smoothing: auto;
+    -moz-osx-font-smoothing: auto;
+    text-rendering: auto;
+}
+
+body.equotation-icy-theme.view-quotation-page .quotation-list-th,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-list-th,
+body.equotation-icy-theme.customer-my-quotations-page .quotation-list-th,
+body.equotation-icy-theme.view-quotation-page .avq-detail-doc__eyebrow,
+body.equotation-icy-theme.admin-quotations-view-page .avq-detail-doc__eyebrow,
+body.equotation-icy-theme.customer-my-quotations-page .avq-detail-doc__eyebrow,
+body.equotation-icy-theme.view-quotation-page .avq-detail-doc__total-label,
+body.equotation-icy-theme.admin-quotations-view-page .avq-detail-doc__total-label,
+body.equotation-icy-theme.customer-my-quotations-page .avq-detail-doc__total-label {
+    font-weight: 600 !important;
+    letter-spacing: 0.02em !important;
+}
+
+body.equotation-icy-theme.view-quotation-page .quotation-card__doc-value,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-card__doc-value,
+body.equotation-icy-theme.customer-my-quotations-page .quotation-card__doc-value,
+body.equotation-icy-theme.view-quotation-page .view-quotation-detail-title,
+body.equotation-icy-theme.view-quotation-page .view-qt-list-card__docno,
+body.equotation-icy-theme.view-quotation-page .view-qt-detail-doc__total,
+body.equotation-icy-theme.create-quotation-page .form-container h3,
+body.equotation-icy-theme.create-quotation-page .create-quotation-section-title {
+    font-weight: 600 !important;
+    letter-spacing: normal !important;
+}
+
+body.equotation-icy-theme.view-quotation-page .avq-status-tabs .eq-line-tab.is-active,
+body.equotation-icy-theme.view-quotation-page.admin-quotations-view-page .eq-line-tab.avq-status-tab.is-active,
+body.equotation-icy-theme.admin-quotations-view-page .eq-line-tab.avq-status-tab.is-active {
+    font-weight: 600 !important;
+}
+
 body.equotation-icy-theme .container,
 body.equotation-icy-theme .main-content {
     background: var(--ice-bg) !important;
@@ -431,28 +477,48 @@ body.equotation-icy-theme.procurement-warm-ui .stock-card-table th {
 }
 
 body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead:not(:has(> tr:nth-child(2))) tr:nth-child(1) th,
-body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead:has(> tr:nth-child(2)) tr:nth-child(2) th {
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead:has(> tr:nth-child(2)):not(:has(> tr:nth-child(3))) tr:nth-child(2) th,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead:has(> tr:nth-child(3)) tr:nth-child(3) th {
     box-shadow: 0 2px 0 var(--ice-accent) !important;
 }
 
-body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead:has(> tr:nth-child(2)) tr:nth-child(1) th {
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead:has(> tr:nth-child(2)) tr:nth-child(1) th,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead:has(> tr:nth-child(3)) tr:nth-child(2) th {
     border-bottom-color: var(--ice-accent) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead:has(> tr:nth-child(3)) tr:nth-child(2) th {
+    box-shadow: none !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui .stock-card-table th.qty-group-col {
     background: linear-gradient(180deg, var(--ice-surface-alt) 0%, var(--ice-bg-deep) 100%) !important;
     border-left-color: var(--ice-accent) !important;
     border-right-color: var(--ice-accent) !important;
-    box-shadow: inset 0 -4px 0 rgba(59, 143, 196, 0.22) !important;
+    border-top: 2px solid var(--ice-accent) !important;
+    box-shadow: inset 0 -2px 0 rgba(59, 143, 196, 0.22) !important;
     color: var(--ice-heading) !important;
 }
 
-body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead tr:first-child th.stock-card-header-cell.location-first {
-    border-left-color: var(--ice-accent) !important;
-    box-shadow: inset 3px 0 0 rgba(59, 143, 196, 0.15), 0 2px 0 var(--ice-accent) !important;
+body.equotation-icy-theme.procurement-warm-ui .stock-card-metric-group-label {
+    color: var(--ice-heading) !important;
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    text-transform: none !important;
+    letter-spacing: 0.02em !important;
 }
 
-body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead tr:first-child th.stock-card-header-cell.location-last {
+body.equotation-icy-theme.procurement-warm-ui .stock-card-hdr-code {
+    font-size: 10px !important;
+    white-space: nowrap !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead th.stock-card-header-cell.location-first {
+    border-left-color: var(--ice-accent) !important;
+    box-shadow: inset 3px 0 0 rgba(59, 143, 196, 0.15) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead th.stock-card-header-cell.location-last {
     border-right-color: var(--ice-accent) !important;
 }
 
@@ -465,6 +531,12 @@ body.equotation-icy-theme.procurement-warm-ui .stock-card-table td.qty-col {
     border-color: var(--ice-border) !important;
 }
 
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead th.qty-col[colspan="2"] {
+    width: 180px !important;
+    min-width: 180px !important;
+    max-width: 180px !important;
+}
+
 body.equotation-icy-theme.procurement-warm-ui .report-summary-card {
     border-color: var(--ice-border) !important;
     box-shadow: 0 1px 4px var(--ice-shadow) !important;
@@ -475,6 +547,20 @@ body.equotation-icy-theme.procurement-warm-ui .stock-card-table td.code-col {
     background: var(--ice-surface-alt) !important;
     border-right-color: var(--ice-border) !important;
     box-shadow: 6px 0 10px -6px var(--ice-shadow) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead th.code-col,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead th.code-col[rowspan] {
+    z-index: 50 !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table td.code-col {
+    z-index: 40 !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead th.qty-group-col,
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table thead th.stock-card-header-cell {
+    z-index: 8;
 }
 
 body.equotation-icy-theme.procurement-warm-ui .stock-card-table tbody tr:hover {
@@ -779,26 +865,77 @@ body.equotation-icy-theme.procurement-warm-ui .view-pr-transfer-btn:disabled {
     color: var(--ice-text-muted) !important;
 }
 
-body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs.eq-line-tabs {
-    background: var(--ice-surface-alt) !important;
-    border-bottom-color: var(--ice-border) !important;
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-menubar-card {
+    background: #fff !important;
+    border: 1px solid var(--ice-border-soft, #d5e6f0) !important;
+    border-radius: 10px !important;
+    box-shadow: 0 1px 2px rgba(26, 77, 110, 0.04) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs.eq-line-tabs,
+body.equotation-icy-theme.procurement-warm-ui #panel-view .avq-status-tabs.pr-view-filter-tabs {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .eq-line-tab.view-pr-filter-tab {
-    color: var(--ice-text-muted) !important;
+    color: #7a90a4 !important;
     background: transparent !important;
     border: none !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .eq-line-tab.view-pr-filter-tab:hover {
-    background: var(--ice-accent-soft) !important;
+    background: transparent !important;
     color: var(--ice-heading) !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .eq-line-tab.view-pr-filter-tab.is-active {
     color: var(--ice-heading) !important;
-    background: var(--ice-surface) !important;
-    border-bottom-color: var(--ice-accent) !important;
+    background: transparent !important;
+    border-bottom-color: transparent !important;
+    font-weight: 650 !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .eq-line-tab.view-pr-filter-tab::after {
+    content: none !important;
+    display: none !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .view-pr-filter-tab .avq-status-tab__label::after,
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .avq-status-tab .avq-status-tab__label::after {
+    content: '' !important;
+    display: block !important;
+    position: absolute !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    height: 2.5px !important;
+    border-radius: 2px 2px 0 0 !important;
+    background: transparent !important;
+    pointer-events: none !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .view-pr-filter-tab:hover .avq-status-tab__label::after {
+    background: rgba(26, 77, 110, 0.28) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .avq-status-tab.is-active .avq-status-tab__label::after,
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .view-pr-filter-tab.is-active .avq-status-tab__label::after,
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .view-pr-filter-tab.is-active:hover .avq-status-tab__label::after {
+    background: var(--ice-heading, #1a4d6e) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .avq-status-tab__badge {
+    background: #eef4f8 !important;
+    color: #7a90a4 !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .avq-status-tab.is-active .avq-status-tab__badge,
+body.equotation-icy-theme.procurement-warm-ui #panel-view .pr-view-filter-tabs .view-pr-filter-tab.is-active .avq-status-tab__badge {
+    color: var(--ice-heading) !important;
+    background: #e8f1f7 !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui .view-pr-list-column .view-pr-list::-webkit-scrollbar-track {
@@ -902,7 +1039,54 @@ body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .vie
 
 body.equotation-icy-theme.procurement-warm-ui .pr-view-quotation-detail .view-pr-detail-table tbody tr:hover td,
 body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table tbody tr:hover td {
-    background: var(--ice-accent-soft) !important;
+    background: #eef6fc !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table {
+    border: 1px solid var(--ice-border) !important;
+    border-collapse: separate !important;
+    border-spacing: 0;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table thead th {
+    border: 1px solid var(--ice-border) !important;
+    border-bottom: 2px solid #c5dff0 !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table tbody td {
+    border: 1px solid #d5e4ef !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table tbody tr.view-pr-detail-line.is-selected td {
+    background: #d6ebf8 !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table tbody tr.view-pr-detail-line.is-selected:hover td {
+    background: #c9e4f6 !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table th,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table td {
+    vertical-align: middle !important;
+    text-align: center !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table thead th.col-item-name,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table td.col-item-name {
+    text-align: left !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-sqty,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-suomqty,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-qty,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-unit-price,
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-wrap--unified .view-pr-detail-table .col-amount {
+    text-align: center !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-unified .view-pr-detail-total-row {
+    border-top: 2px solid #c5dff0 !important;
+    background: transparent !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-table .col-line,
@@ -964,9 +1148,14 @@ body.equotation-icy-theme.procurement-warm-ui .pr-view-page-header--compact .pr-
     font-size: 0.95rem !important;
 }
 
+body.equotation-icy-theme.procurement-warm-ui .pr-view-page-header--compact .pr-view-menubar-card {
+    background: #fff !important;
+    border-color: var(--ice-border-soft, #d5e6f0) !important;
+}
+
 body.equotation-icy-theme.procurement-warm-ui .pr-view-page-header--compact .pr-view-filter-tabs.eq-line-tabs {
     background: transparent !important;
-    border-bottom-color: var(--ice-border) !important;
+    border: none !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui .pr-view-page-header--compact .view-pr-refresh-btn--ghost {
@@ -1007,8 +1196,8 @@ body.equotation-icy-theme.procurement-warm-ui .pr-view-left-search-input:focus {
 }
 
 body.equotation-icy-theme.procurement-warm-ui .pr-panel-view-quotation-like .pr-view-filter-tabs {
-    border-top-color: var(--ice-border) !important;
-    background: var(--ice-surface-alt) !important;
+    border: none !important;
+    background: transparent !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui .pr-panel-view-quotation-like .pr-view-header-row {
@@ -1049,6 +1238,55 @@ body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-card__code {
     color: var(--ice-heading) !important;
 }
 
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-row {
+    background: var(--ice-surface) !important;
+    border-bottom-color: var(--ice-border-soft) !important;
+    border-left-color: var(--ice-accent) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-row:hover {
+    background: var(--ice-surface-alt) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-row.is-selected {
+    background: var(--ice-accent-soft) !important;
+    border-left-color: var(--ice-accent-hover) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-row__code {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-row__date {
+    color: var(--ice-text-muted) !important;
+    border-left-color: var(--ice-border-soft) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-row__selected,
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-row__approval,
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-row__amount {
+    border-left-color: var(--ice-border-soft) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-row .pr-view-amount-pill {
+    background: var(--ice-accent) !important;
+    color: #fff !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-row__selection {
+    color: var(--ice-heading) !important;
+    background: var(--ice-surface-muted) !important;
+    border-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-row__selection.is-partial,
+body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-row__selection.is-all {
+    color: var(--ice-accent-hover) !important;
+    background: var(--ice-accent-soft) !important;
+    border-color: var(--ice-border) !important;
+}
+
 body.equotation-icy-theme.procurement-warm-ui .pr-view-pr-card__approval-label {
     color: var(--ice-text-muted) !important;
 }
@@ -1072,8 +1310,16 @@ body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-unified .view-pr-d
 }
 
 body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-unified .view-pr-detail-wrap--unified {
-    border-top-color: var(--ice-border) !important;
+    border-color: var(--ice-border) !important;
     background: var(--ice-surface) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-unified .view-pr-detail-panel-head--rich {
+    border-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-unified .view-pr-detail-actions--toolbar {
+    border-color: var(--ice-border) !important;
 }
 
 body.equotation-icy-theme.procurement-warm-ui .view-pr-detail-panel-head--rich {
@@ -1181,13 +1427,13 @@ body.equotation-icy-theme.view-quotation-page .view-quotation-tabs button:hover 
     border-color: var(--ice-accent) !important;
 }
 
-/* eq-line tabs on /view-quotation (adminViewQuotations shell): same active style as admin — no filled Pending pill */
+/* eq-line tabs on /view-quotation — underline under label only (badge counts) */
 body.equotation-icy-theme.view-quotation-page .avq-status-tabs .eq-line-tab.is-active,
 body.equotation-icy-theme.view-quotation-page.admin-quotations-view-page .eq-line-tab.avq-status-tab.is-active {
     color: var(--ice-heading) !important;
-    font-weight: 600 !important;
-    background: var(--ice-surface) !important;
-    border-bottom-color: var(--ice-accent) !important;
+    font-weight: 650 !important;
+    background: transparent !important;
+    border-bottom-color: transparent !important;
 }
 
 body.equotation-icy-theme.view-quotation-page .view-quotation-split,
@@ -1264,34 +1510,35 @@ body.equotation-icy-theme.admin-quotations-view-page .tab-content.active {
 }
 
 body.equotation-icy-theme.admin-quotations-view-page .quotation-page-header {
-    background: var(--ice-surface) !important;
-    border-color: var(--ice-border) !important;
+    background: transparent !important;
+    border: none !important;
     box-shadow: none !important;
 }
 
 body.equotation-icy-theme.admin-quotations-view-page .avq-status-tabs.eq-line-tabs,
 body.equotation-icy-theme.admin-quotations-view-page .approvals-tabs {
-    background: var(--ice-surface-alt) !important;
-    border-color: var(--ice-border) !important;
+    background: #fff !important;
+    border-color: var(--ice-border-soft) !important;
 }
 
 body.equotation-icy-theme.admin-quotations-view-page .eq-line-tab.avq-status-tab,
 body.equotation-icy-theme.admin-quotations-view-page .approval-tab {
-    color: var(--ice-text-muted) !important;
-    flex: 0 1 auto !important;
+    color: #7a90a4 !important;
+    flex: 0 0 auto !important;
+    background: transparent !important;
 }
 
 body.equotation-icy-theme.admin-quotations-view-page .eq-line-tab.avq-status-tab:hover,
 body.equotation-icy-theme.admin-quotations-view-page .approval-tab:hover {
-    background: var(--ice-accent-soft) !important;
+    background: transparent !important;
     color: var(--ice-heading) !important;
 }
 
 body.equotation-icy-theme.admin-quotations-view-page .eq-line-tab.avq-status-tab.is-active,
 body.equotation-icy-theme.admin-quotations-view-page .approval-tab.active {
     color: var(--ice-heading) !important;
-    border-bottom-color: var(--ice-accent) !important;
-    background: var(--ice-surface) !important;
+    border-bottom-color: transparent !important;
+    background: transparent !important;
 }
 
 body.equotation-icy-theme.admin-quotations-view-page .admin-quotations-view,
@@ -1326,20 +1573,74 @@ body.equotation-icy-theme.admin-quotations-view-page tr.quotation-card.is-select
     box-shadow: inset 0 0 0 1px rgba(59, 143, 196, 0.35) !important;
 }
 
-body.equotation-icy-theme.admin-quotations-view-page .quotation-card__doc-value,
-body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-title {
+body.equotation-icy-theme.admin-quotations-view-page .quotation-card__doc-value {
     color: var(--ice-heading) !important;
 }
 
-body.equotation-icy-theme.admin-quotations-view-page .quotation-card__date-value,
-body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-sub {
+body.equotation-icy-theme.admin-quotations-view-page .quotation-card__date-value {
     color: var(--ice-text-muted) !important;
 }
 
-body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane {
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark {
     background: var(--ice-surface) !important;
     border-color: var(--ice-border) !important;
     box-shadow: 0 2px 8px var(--ice-shadow) !important;
+    color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .quotation-detail-title,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .quotation-detail-amount,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-meta__value,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-items-footer__value,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-item__code {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-doc__company {
+    color: #3d5a78 !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-doc__eyebrow,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-doc__code,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-doc__total-label,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-meta__label,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-item__desc {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .quotation-detail-meta {
+    background: var(--ice-surface-alt) !important;
+    border-color: var(--ice-border-soft) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .quotation-detail-items {
+    background: #fff !important;
+    border-color: var(--ice-border-soft) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-items-footer {
+    background: #fff !important;
+    border-color: var(--ice-border-soft) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-items-footer__label {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-items-table thead th {
+    color: var(--ice-text-muted) !important;
+    background: #f3f6f9 !important;
+    border-bottom-color: var(--ice-border-soft) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-items-table tbody td {
+    border-top-color: var(--ice-border-soft) !important;
+    color: var(--ice-text-muted) !important;
+    background: #fff !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .avq-detail-item__subtotal {
+    color: var(--ice-heading) !important;
 }
 
 body.equotation-icy-theme.admin-quotations-view-page .admin-quotations-view .quotation-items-table thead th {
@@ -1365,35 +1666,49 @@ body.equotation-icy-theme.admin-quotations-view-page .quotation-company-select,
 body.equotation-icy-theme.admin-quotations-view-page #quotation-date-from,
 body.equotation-icy-theme.admin-quotations-view-page #quotation-date-to,
 body.equotation-icy-theme.admin-quotations-view-page #company-filter-dropdown {
-    background: var(--ice-surface-input) !important;
+    background: #fff !important;
     border-color: var(--ice-border-soft) !important;
     color: var(--ice-text) !important;
 }
 
-body.equotation-icy-theme.admin-quotations-view-page .quotation-filter-btn--primary,
-body.equotation-icy-theme.admin-quotations-view-page #quotation-date-apply {
-    background: var(--ice-accent) !important;
-    color: #fff !important;
-    border: none !important;
+body.equotation-icy-theme.admin-quotations-view-page .avq-filters-card,
+body.equotation-icy-theme.admin-quotations-view-page .avq-status-tabs.eq-line-tabs {
+    background: #fff !important;
+    border-color: var(--ice-border-soft) !important;
 }
 
-body.equotation-icy-theme.admin-quotations-view-page .quotation-filter-btn--primary:hover,
-body.equotation-icy-theme.admin-quotations-view-page #quotation-date-apply:hover {
-    background: var(--ice-accent-hover) !important;
+body.equotation-icy-theme.admin-quotations-view-page .avq-filters-card__title {
+    color: var(--ice-heading) !important;
 }
 
-body.equotation-icy-theme.admin-quotations-view-page .quotation-filter-btn--secondary,
-body.equotation-icy-theme.admin-quotations-view-page #quotation-date-clear,
-body.equotation-icy-theme.admin-quotations-view-page #company-filter-clear {
-    background: var(--ice-surface) !important;
-    color: var(--ice-accent-hover) !important;
+body.equotation-icy-theme.admin-quotations-view-page .avq-filters-clear-btn {
+    background: #fff !important;
+    color: var(--ice-heading) !important;
     border: 1px solid var(--ice-border) !important;
 }
 
-body.equotation-icy-theme.admin-quotations-view-page .quotation-filter-btn--secondary:hover,
-body.equotation-icy-theme.admin-quotations-view-page #quotation-date-clear:hover,
-body.equotation-icy-theme.admin-quotations-view-page #company-filter-clear:hover {
+body.equotation-icy-theme.admin-quotations-view-page .avq-filters-clear-btn:hover {
     background: var(--ice-accent-soft) !important;
+    border-color: var(--ice-accent) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .avq-filter-field__label {
+    color: var(--ice-text-muted) !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .quotation-filter-input,
+body.equotation-icy-theme.admin-quotations-view-page .quotation-company-select {
+    background: #fff !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .avq-status-tab__badge {
+    background: #eef4f8 !important;
+    color: #7a90a4 !important;
+}
+
+body.equotation-icy-theme.admin-quotations-view-page .avq-status-tab.is-active .avq-status-tab__badge {
+    color: var(--ice-heading) !important;
+    background: #e8f1f7 !important;
 }
 
 body.equotation-icy-theme.admin-quotations-view-page .active-tab-controls {
@@ -1409,10 +1724,9 @@ body.equotation-icy-theme.admin-quotations-view-page .quotation-bulk-selected-co
     color: var(--ice-text-muted) !important;
 }
 
-body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-meta {
-    color: var(--ice-text-muted) !important;
-    border-top-color: var(--ice-border) !important;
-    border-bottom-color: var(--ice-border) !important;
+body.equotation-icy-theme.admin-quotations-view-page .quotation-detail-pane.avq-detail-dark .quotation-detail-meta {
+    color: var(--ice-heading) !important;
+    border-color: var(--ice-border-soft) !important;
 }
 
 /* ---- Pricing priority rules ---- */
@@ -1527,4 +1841,77 @@ body.equotation-icy-theme.supplier-bidding-page .supplier-bidding-split {
     background: var(--ice-surface) !important;
     border-color: var(--ice-border) !important;
     box-shadow: 0 4px 20px var(--ice-shadow) !important;
+}
+
+/* ---- Purchase dashboard filter bar (icy) ---- */
+body.equotation-icy-theme.procurement-warm-ui .stock-report-filter-bar {
+    background: var(--ice-surface) !important;
+    border-color: var(--ice-border) !important;
+    box-shadow: 0 2px 14px var(--ice-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-report-filter-bar__row--actions {
+    border-top-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-report-filter-bar__row--controls > .stock-ms + .stock-ms,
+body.equotation-icy-theme.procurement-warm-ui .stock-report-filter-bar__row--controls > .stock-ms + .stock-report-filter-field,
+body.equotation-icy-theme.procurement-warm-ui .stock-report-filter-bar__row--controls > .stock-report-filter-field + .stock-report-filter-field,
+body.equotation-icy-theme.procurement-warm-ui .stock-report-filter-bar__row--controls > .stock-report-filter-field + .stock-ms {
+    border-left-color: var(--ice-border) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-report-filter-summary,
+body.equotation-icy-theme.procurement-warm-ui .stock-ms__field-label {
+    color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-ms__trigger,
+body.equotation-icy-theme.procurement-warm-ui .stock-ms__menu,
+body.equotation-icy-theme.procurement-warm-ui .stock-report-filter-field--cutoff input[type=" date\],
+body.equotation-icy-theme.procurement-warm-ui .stock-card-uom-toggle--segmented {
+ background: #fff !important;
+ border-color: var(--ice-border) !important;
+ color: var(--ice-text) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-ms__trigger:hover,
+body.equotation-icy-theme.procurement-warm-ui .stock-ms.is-open .stock-ms__trigger {
+ border-color: var(--ice-accent) !important;
+ box-shadow: 0 0 0 2px rgba(59, 143, 196, 0.18) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-ms__caret {
+ border-top-color: var(--ice-accent) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-ms__tool-btn {
+ background: var(--ice-accent-soft) !important;
+ border-color: var(--ice-border) !important;
+ color: var(--ice-heading) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-ms__option:hover,
+body.equotation-icy-theme.procurement-warm-ui .stock-column-filter-chip:hover {
+ background: var(--ice-accent-soft) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-uom-toggle--segmented .stock-card-uom-option {
+ border-right-color: var(--ice-border) !important;
+ color: var(--ice-text) !important;
+ background: #fff !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-uom-toggle--segmented .stock-card-uom-option:has(input:checked) {
+ background: var(--ice-accent) !important;
+ color: #fff !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-uom-toggle--segmented .stock-card-uom-option:hover:not(:has(input:checked)) {
+ background: var(--ice-accent-soft) !important;
+}
+
+body.equotation-icy-theme.procurement-warm-ui .stock-card-table th.stock-card-group-sep {
+ border-left-color: var(--ice-accent) !important;
+ border-right-color: var(--ice-accent) !important;
 }

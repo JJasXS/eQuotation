@@ -326,56 +326,88 @@ function quotationDetailCacheKey(row) {
     return row._sourceSlQtDraft ? `${dk}_slqtdraft` : `${dk}_slqt`;
 }
 
+function buildAvqStatusTabHtml(key, label, count) {
+    const active = selectedQuotationTabFilters.has(key);
+    return (
+        `<button type="button" role="tab" id="tab-${key}" class="eq-line-tab avq-status-tab${active ? ' is-active' : ''}"` +
+        ` aria-selected="${active ? 'true' : 'false'}" onclick="toggleQuotationFilter('${key}')">` +
+        `<span class="avq-status-tab__label">${label}</span>` +
+        `<span class="avq-status-tab__badge" data-tab-count="${key}">${count}</span>` +
+        `</button>`
+    );
+}
+
+function setAvqStatusTabCount(key, count) {
+    const badge = document.querySelector(`[data-tab-count="${key}"]`);
+    if (badge) badge.textContent = String(count);
+}
+
+function clearAllAvqFilters() {
+    const fromEl = document.getElementById('quotation-date-from');
+    const toEl = document.getElementById('quotation-date-to');
+    const dropdown = document.getElementById('company-filter-dropdown');
+    if (fromEl) fromEl.value = '';
+    if (toEl) toEl.value = '';
+    if (dropdown) dropdown.value = '';
+    adminDateFrom = '';
+    adminDateTo = '';
+    companyFilter = '';
+    listVisibleLimit = { drafts: 5, pending: 5, reviewed: 5, cancelled: 5 };
+    refreshQuotationListView();
+    setAvqFiltersDrawerOpen(false);
+}
+
 function buildViewQuotationsShellHtml(showAdminFilters) {
-    const filterInner = showAdminFilters
-        ? `
-                        <div class="avq-filter-group avq-filter-group--dates">
-                            <span class="avq-filter-group-label">Date range</span>
-                            <div class="avq-filter-group-fields">
-                                <label class="quotation-filter-label">From
-                                    <input type="date" id="quotation-date-from" class="quotation-filter-input">
-                                </label>
-                                <label class="quotation-filter-label">To
-                                    <input type="date" id="quotation-date-to" class="quotation-filter-input">
-                                </label>
-                                <button type="button" id="quotation-date-apply" class="quotation-filter-btn quotation-filter-btn--primary">Apply</button>
-                                <button type="button" id="quotation-date-clear" class="quotation-filter-btn quotation-filter-btn--ghost">Clear dates</button>
-                            </div>
-                        </div>
-                        <div class="avq-filter-group avq-filter-group--company">
-                            <span class="avq-filter-group-label">Company</span>
-                            <div class="avq-filter-group-fields">
-                                <select id="company-filter-dropdown" class="quotation-company-select" aria-label="Filter by company">
-                                    <option value="">All Companies</option>
-                                </select>
-                                <button type="button" id="company-filter-clear" class="quotation-filter-btn quotation-filter-btn--secondary">Clear</button>
-                            </div>
-                        </div>
-                    `
-        : '';
+    const clearIcon =
+        '<svg class="avq-filters-clear-btn__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+        '<path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.1A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>' +
+        '</svg>';
     const filterBlock = showAdminFilters
         ? `
                     <button type="button" class="avq-filters-edge-tab" id="avq-filters-edge-tab" aria-expanded="false" aria-controls="avq-filter-drawer" title="Open filters">
                         <span class="avq-filters-edge-tab-label">Filters</span>
                     </button>
                     <div id="avq-filters-backdrop" class="avq-filters-backdrop" hidden onclick="setAvqFiltersDrawerOpen(false)" aria-hidden="true"></div>
-                    <div class="quotation-page-header-controls avq-filter-bar" id="avq-filter-drawer" aria-label="Quotation filters">
-                        <div class="avq-filters-drawer-head">
-                            <strong class="avq-filters-drawer-title">Filters</strong>
-                            <button type="button" class="avq-filters-close-btn" onclick="setAvqFiltersDrawerOpen(false)" aria-label="Close filters">&times;</button>
+                    <section class="avq-filters-card avq-filter-bar" id="avq-filter-drawer" aria-label="Quotation filters">
+                        <div class="avq-filters-card__head">
+                            <strong class="avq-filters-card__title">Filters</strong>
+                            <div class="avq-filters-card__head-actions">
+                                <button type="button" id="avq-filters-clear" class="avq-filters-clear-btn" title="Clear filters">
+                                    ${clearIcon}
+                                    <span>Clear</span>
+                                </button>
+                                <button type="button" class="avq-filters-close-btn" onclick="setAvqFiltersDrawerOpen(false)" aria-label="Close filters">&times;</button>
+                            </div>
                         </div>
-                        ${filterInner}
-                    </div>`
+                        <div class="avq-filters-card__fields">
+                            <label class="avq-filter-field" for="quotation-date-from">
+                                <span class="avq-filter-field__label">Date From</span>
+                                <input type="date" id="quotation-date-from" class="quotation-filter-input" placeholder="dd/mm/yyyy">
+                            </label>
+                            <label class="avq-filter-field" for="quotation-date-to">
+                                <span class="avq-filter-field__label">Date To</span>
+                                <input type="date" id="quotation-date-to" class="quotation-filter-input" placeholder="dd/mm/yyyy">
+                            </label>
+                            <label class="avq-filter-field avq-filter-field--company" for="company-filter-dropdown">
+                                <span class="avq-filter-field__label">Company</span>
+                                <select id="company-filter-dropdown" class="quotation-company-select" aria-label="Filter by company">
+                                    <option value="">All Companies</option>
+                                </select>
+                            </label>
+                        </div>
+                    </section>`
         : '';
+    const statusTabs =
+        buildAvqStatusTabHtml('drafts', 'Drafts', draftsQuotationsCache.length) +
+        buildAvqStatusTabHtml('pending', 'Pending', pendingQuotationsCache.length) +
+        buildAvqStatusTabHtml('reviewed', 'Reviewed', reviewedQuotationsCache.length) +
+        buildAvqStatusTabHtml('cancelled', 'Cancelled', cancelledQuotationsCache.length);
     return `
             <div class="admin-quotations-view">
                 <div class="quotation-page-header quotation-page-header--compact">
                     ${filterBlock}
                     <nav class="eq-line-tabs avq-status-tabs" role="tablist" aria-label="Quotation status">
-                        <button type="button" role="tab" id="tab-drafts" class="eq-line-tab avq-status-tab${selectedQuotationTabFilters.has('drafts') ? ' is-active' : ''}" aria-selected="${selectedQuotationTabFilters.has('drafts') ? 'true' : 'false'}" onclick="toggleQuotationFilter('drafts')">Drafts (${draftsQuotationsCache.length})</button>
-                        <button type="button" role="tab" id="tab-pending" class="eq-line-tab avq-status-tab${selectedQuotationTabFilters.has('pending') ? ' is-active' : ''}" aria-selected="${selectedQuotationTabFilters.has('pending') ? 'true' : 'false'}" onclick="toggleQuotationFilter('pending')">Pending (${pendingQuotationsCache.length})</button>
-                        <button type="button" role="tab" id="tab-reviewed" class="eq-line-tab avq-status-tab${selectedQuotationTabFilters.has('reviewed') ? ' is-active' : ''}" aria-selected="${selectedQuotationTabFilters.has('reviewed') ? 'true' : 'false'}" onclick="toggleQuotationFilter('reviewed')">Reviewed (${reviewedQuotationsCache.length})</button>
-                        <button type="button" role="tab" id="tab-cancelled" class="eq-line-tab avq-status-tab${selectedQuotationTabFilters.has('cancelled') ? ' is-active' : ''}" aria-selected="${selectedQuotationTabFilters.has('cancelled') ? 'true' : 'false'}" onclick="toggleQuotationFilter('cancelled')">Cancelled (${cancelledQuotationsCache.length})</button>
+                        ${statusTabs}
                     </nav>
                 </div>
                 <div id="quotation-tab-content"></div>
@@ -410,6 +442,93 @@ function formatDateForDisplay(raw) {
     if (!d || isNaN(d.getTime())) return String(raw);
     const day = String(d.getDate()).padStart(2, '0');
     return `${day}-${MONTH_SHORT[d.getMonth()]}-${d.getFullYear()}`;
+}
+
+/** Detail panel date: "26 Oct 2026" */
+function formatDateForDetailDisplay(raw) {
+    if (raw == null || raw === '' || raw === '-') return '—';
+    const d = parseQuotationDate(raw);
+    if (!d || isNaN(d.getTime())) {
+        const fallback = formatDateForDisplay(raw);
+        return fallback === '-' ? '—' : fallback;
+    }
+    return `${d.getDate()} ${MONTH_SHORT[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+function detailStatusLabel(filterTab) {
+    const labels = {
+        drafts: 'Draft',
+        pending: 'Pending',
+        reviewed: 'Reviewed',
+        cancelled: 'Cancelled',
+    };
+    return labels[filterTab] || 'Pending';
+}
+
+function buildDetailStatusBadgeHtml(filterTab) {
+    const key = filterTab || 'pending';
+    const label = detailStatusLabel(key);
+    return (
+        `<span class="avq-detail-status avq-detail-status--${escapeHtml(key)}">` +
+        `<span class="avq-detail-status__dot" aria-hidden="true"></span>` +
+        `<span class="avq-detail-status__text">${escapeHtml(label)}</span>` +
+        `</span>`
+    );
+}
+
+function buildDetailMetaCellHtml(label, valueHtml) {
+    return (
+        `<div class="avq-detail-meta__cell">` +
+        `<span class="avq-detail-meta__label">${escapeHtml(label)}</span>` +
+        `<span class="avq-detail-meta__value">${valueHtml}</span>` +
+        `</div>`
+    );
+}
+
+function buildDetailItemsTableHtml(items) {
+    let total = 0;
+    let rowsHtml = '';
+    items.forEach((item) => {
+        const sqty = lineSqty(item);
+        const suomQty = lineSuomQty(item);
+        const qtyDisplay = formatQtyCell(sqty);
+        const suomDisplay = formatQtyCell(suomQty);
+        const price = Number(item.UNITPRICE || 0).toFixed(2);
+        const discount = Number(item.DISC || 0).toFixed(2);
+        const amountRow = lineItemAmount(item).toFixed(2);
+        total += parseFloat(amountRow);
+        const itemCode = item.ITEMCODE != null ? String(item.ITEMCODE).trim() : '';
+        const description = item.DESCRIPTION != null ? String(item.DESCRIPTION).trim() : '';
+        const codeLine = itemCode
+            ? `<div class="avq-detail-item__code">${escapeHtml(itemCode)}</div>`
+            : '';
+        const descLine = description
+            ? `<div class="avq-detail-item__desc">${escapeHtml(description)}</div>`
+            : '';
+        const itemCell = codeLine || descLine
+            ? `<td class="avq-detail-item__cell">${codeLine}${descLine}</td>`
+            : '<td class="avq-detail-item__cell"><span class="avq-detail-item__empty">—</span></td>';
+        rowsHtml += '<tr>';
+        rowsHtml += itemCell;
+        rowsHtml += `<td>RM ${price}</td><td>${qtyDisplay}</td><td>${suomDisplay}</td>` +
+            `<td>RM ${discount}</td><td class="avq-detail-item__subtotal">RM ${amountRow}</td>`;
+        rowsHtml += '</tr>';
+    });
+    const totalFixed = total.toFixed(2);
+    return (
+        `<div class="quotation-items-scroll">` +
+        `<table class="quotation-items-table avq-detail-items-table">` +
+        `<colgroup><col style="width:34%" /><col style="width:14%" /><col style="width:10%" />` +
+        `<col style="width:10%" /><col style="width:14%" /><col style="width:18%" /></colgroup>` +
+        `<thead><tr>` +
+        `<th scope="col">Item / Description</th><th scope="col">Price</th><th scope="col">Qty</th>` +
+        `<th scope="col">S/U Qty</th><th scope="col">Discount</th><th scope="col">Subtotal</th>` +
+        `</tr></thead><tbody>${rowsHtml}</tbody></table></div>` +
+        `<div class="avq-detail-items-footer">` +
+        `<span class="avq-detail-items-footer__label">Total Amount</span>` +
+        `<span class="avq-detail-items-footer__value">RM ${totalFixed}</span>` +
+        `</div>`
+    );
 }
 
 function filterQuotationsByDate(list, fromStr, toStr) {
@@ -485,13 +604,22 @@ function hideQuotationStatusActionsFromPage() {
     );
 }
 
-/** Edit button visibility: customers may edit Drafts tab only; staff use full workflow. */
+/** Customer View Quotation (mine list) may edit own Drafts. Admin all-list never. */
+function canEditOwnDraftQuotations() {
+    return isCustomerMyQuotationsPage();
+}
+
+/**
+ * Edit button visibility:
+ * - Drafts on Customer View Quotation only.
+ * - Admin/Staff all-quotations list: never (Drafts + Pending view-only).
+ */
 function canShowQuotationEdit(filterTab) {
     const tab = (filterTab || '').trim().toLowerCase();
-    if (isCustomerMyQuotationsPage()) {
-        return tab === 'drafts';
+    if (tab !== 'drafts') {
+        return false;
     }
-    return !hideQuotationStatusActionsFromPage();
+    return isCustomerMyQuotationsPage();
 }
 
 /** List/detail workflow buttons (Reviewed, Cancel, Restore, bulk) — not on customer View Quotation. */
@@ -511,7 +639,7 @@ function showQuotationListCreatorColumn() {
 function showQuotationListActionsColumn(filterTab) {
     const tab = (filterTab || getActiveQuotationTab()).trim().toLowerCase();
     if (isCustomerMyQuotationsPage()) {
-        return tab === 'drafts';
+        return tab === 'drafts' && canEditOwnDraftQuotations();
     }
     return false;
 }
@@ -643,14 +771,21 @@ function filterQuotationsByCompany(list) {
 
 async function setupCompanyFilter() {
     const dropdown = document.getElementById('company-filter-dropdown');
-    const clearBtn = document.getElementById('company-filter-clear');
-    if (!dropdown || !clearBtn) {
+    const clearBtn = document.getElementById('avq-filters-clear');
+    if (!dropdown) {
         return;
     }
 
     const companies = await getAllUniqueCompanyNames();
     dropdown.innerHTML = '<option value="">All Companies</option>' +
         companies.map(name => `<option value="${name}">${name}</option>`).join('');
+
+    // Keep dropdown in sync after shell rebuild; drop stale filters that are no longer listed.
+    dropdown.value = companyFilter || '';
+    if (companyFilter && dropdown.value !== companyFilter) {
+        companyFilter = '';
+        dropdown.value = '';
+    }
 
     dropdown.onchange = function() {
         companyFilter = dropdown.value;
@@ -659,38 +794,48 @@ async function setupCompanyFilter() {
         setAvqFiltersDrawerOpen(false);
     };
 
-    clearBtn.onclick = function() {
-        companyFilter = '';
-        dropdown.value = '';
-        listVisibleLimit = { drafts: 5, pending: 5, reviewed: 5, cancelled: 5 };
-        refreshQuotationListView();
-        setAvqFiltersDrawerOpen(false);
-    };
+    if (clearBtn) {
+        clearBtn.onclick = clearAllAvqFilters;
+    }
+}
+
+/** Merge SL_QTDRAFT rows into the Drafts tab cache (customer + admin). */
+function appendSlQtDraftRows(draftRes) {
+    if (!draftRes) {
+        return;
+    }
+    if (draftRes.success === false) {
+        console.error('Draft quotations failed to load:', draftRes.error || draftRes);
+        return;
+    }
+    const rows = Array.isArray(draftRes.data) ? draftRes.data : [];
+    rows.forEach((d) => {
+        draftsQuotationsCache.push({
+            ...d,
+            _sourceSlQtDraft: true,
+            COMPANYNAME: d.COMPANYNAME || '',
+            CODE: d.CODE || '',
+        });
+    });
+}
+
+function applyAvqDateFilterFromInputs() {
+    const fromEl = document.getElementById('quotation-date-from');
+    const toEl = document.getElementById('quotation-date-to');
+    if (!fromEl || !toEl) return;
+    adminDateFrom = fromEl.value || '';
+    adminDateTo = toEl.value || '';
+    listVisibleLimit = { drafts: 5, pending: 5, reviewed: 5, cancelled: 5 };
+    refreshQuotationListView();
 }
 
 function setupDateFilter() {
     const fromEl = document.getElementById('quotation-date-from');
     const toEl = document.getElementById('quotation-date-to');
-    const applyBtn = document.getElementById('quotation-date-apply');
-    const clearBtn = document.getElementById('quotation-date-clear');
-    if (!fromEl || !toEl || !applyBtn || !clearBtn) return;
+    if (!fromEl || !toEl) return;
 
-    applyBtn.onclick = function() {
-        adminDateFrom = fromEl.value || '';
-        adminDateTo = toEl.value || '';
-        listVisibleLimit = { drafts: 5, pending: 5, reviewed: 5, cancelled: 5 };
-        refreshQuotationListView();
-        setAvqFiltersDrawerOpen(false);
-    };
-    clearBtn.onclick = function() {
-        fromEl.value = '';
-        toEl.value = '';
-        adminDateFrom = '';
-        adminDateTo = '';
-        listVisibleLimit = { drafts: 5, pending: 5, reviewed: 5, cancelled: 5 };
-        refreshQuotationListView();
-        setAvqFiltersDrawerOpen(false);
-    };
+    fromEl.onchange = applyAvqDateFilterFromInputs;
+    toEl.onchange = applyAvqDateFilterFromInputs;
 
     fromEl.value = adminDateFrom || '';
     toEl.value = adminDateTo || '';
@@ -748,10 +893,10 @@ function refreshQuotationListView() {
     const { drafts: draftsList, pending: pendingList, reviewed: reviewedList, cancelled: cancelledList } =
         getFilteredAdminLists();
 
-    draftsBtn.textContent = `Drafts (${draftsList.length})`;
-    pendingBtn.textContent = `Pending (${pendingList.length})`;
-    reviewedBtn.textContent = `Reviewed (${reviewedList.length})`;
-    cancelledBtn.textContent = `Cancelled (${cancelledList.length})`;
+    setAvqStatusTabCount('drafts', draftsList.length);
+    setAvqStatusTabCount('pending', pendingList.length);
+    setAvqStatusTabCount('reviewed', reviewedList.length);
+    setAvqStatusTabCount('cancelled', cancelledList.length);
 
     ['tab-drafts', 'tab-pending', 'tab-reviewed', 'tab-cancelled'].forEach((id) => {
         const btn = document.getElementById(id);
@@ -781,7 +926,7 @@ function refreshQuotationListView() {
                 </div>
             </div>
             <div id="quotation-detail-drawer-backdrop" class="quotation-detail-drawer-backdrop" hidden onclick="closeQuotationDetailDrawer()" aria-hidden="true"></div>
-            <div class="quotation-detail-pane" id="quotation-detail-pane" aria-label="Quotation details">
+            <div class="quotation-detail-pane avq-detail-dark" id="quotation-detail-pane" aria-label="Quotation details">
                 <div class="quotation-detail-drawer-chrome" id="quotation-detail-drawer-chrome">
                     <strong class="quotation-detail-drawer-title">Quotation details</strong>
                     <button type="button" class="quotation-detail-drawer-close" onclick="closeQuotationDetailDrawer()" aria-label="Close quotation details">&times;</button>
@@ -834,12 +979,18 @@ async function loadQuotations() {
     try {
         quotationDetailCache.clear();
         const mine = isCustomerMyQuotationsPage();
+        const readJson = (response) => (
+            window.EQCore && typeof window.EQCore.readJsonResponse === 'function'
+                ? window.EQCore.readJsonResponse(response)
+                : response.json()
+        );
         let allQuotations = [];
+        let draftRes = null;
 
         if (mine) {
-            const [mainRes, draftRes] = await Promise.all([
-                fetch('/api/get_my_quotations').then((r) => r.json()),
-                fetch('/api/get_my_draft_quotations').then((r) => r.json()),
+            const [mainRes, myDraftRes] = await Promise.all([
+                fetch('/api/get_my_quotations').then(readJson),
+                fetch('/api/get_my_draft_quotations').then(readJson),
             ]);
             if (!mainRes.success) {
                 const message = mainRes.error ? String(mainRes.error) : 'Failed to load quotations';
@@ -847,59 +998,38 @@ async function loadQuotations() {
                 return;
             }
             allQuotations = mainRes.data || [];
-            draftsQuotationsCache = [];
-            pendingQuotationsCache = [];
-            reviewedQuotationsCache = [];
-            cancelledQuotationsCache = [];
-            allQuotations.forEach((qt) => {
-                const b = quotationWorkflowBucket(qt);
-                if (b === 'drafts') {
-                    draftsQuotationsCache.push(qt);
-                } else if (b === 'pending') {
-                    pendingQuotationsCache.push(qt);
-                } else if (b === 'cancelled') {
-                    cancelledQuotationsCache.push(qt);
-                } else {
-                    reviewedQuotationsCache.push(qt);
-                }
-            });
-            const slDrafts = draftRes && draftRes.success ? draftRes.data || [] : [];
-            slDrafts.forEach((d) => {
-                draftsQuotationsCache.push({
-                    ...d,
-                    _sourceSlQtDraft: true,
-                    COMPANYNAME: d.COMPANYNAME || '',
-                });
-            });
+            draftRes = myDraftRes;
         } else {
-            const response = await fetch('/api/admin/get_all_quotations');
-            const data = await response.json();
-
-            if (!data.success) {
-                const message = data.error ? String(data.error) : 'Failed to load quotations';
+            const [mainRes, adminDraftRes] = await Promise.all([
+                fetch('/api/admin/get_all_quotations').then(readJson),
+                fetch('/api/admin/get_all_draft_quotations').then(readJson),
+            ]);
+            if (!mainRes.success) {
+                const message = mainRes.error ? String(mainRes.error) : 'Failed to load quotations';
                 content.innerHTML = `<div style="padding: 20px; text-align: center; color: #ff6b6b;">${message}</div>`;
                 return;
             }
-
-            allQuotations = data.data || [];
-
-            draftsQuotationsCache = [];
-            pendingQuotationsCache = [];
-            reviewedQuotationsCache = [];
-            cancelledQuotationsCache = [];
-            allQuotations.forEach((qt) => {
-                const b = quotationWorkflowBucket(qt);
-                if (b === 'drafts') {
-                    draftsQuotationsCache.push(qt);
-                } else if (b === 'pending') {
-                    pendingQuotationsCache.push(qt);
-                } else if (b === 'cancelled') {
-                    cancelledQuotationsCache.push(qt);
-                } else {
-                    reviewedQuotationsCache.push(qt);
-                }
-            });
+            allQuotations = mainRes.data || [];
+            draftRes = adminDraftRes;
         }
+
+        draftsQuotationsCache = [];
+        pendingQuotationsCache = [];
+        reviewedQuotationsCache = [];
+        cancelledQuotationsCache = [];
+        allQuotations.forEach((qt) => {
+            const b = quotationWorkflowBucket(qt);
+            if (b === 'drafts') {
+                draftsQuotationsCache.push(qt);
+            } else if (b === 'pending') {
+                pendingQuotationsCache.push(qt);
+            } else if (b === 'cancelled') {
+                cancelledQuotationsCache.push(qt);
+            } else {
+                reviewedQuotationsCache.push(qt);
+            }
+        });
+        appendSlQtDraftRows(draftRes);
 
         listVisibleLimit = { drafts: 5, pending: 5, reviewed: 5, cancelled: 5 };
 
@@ -908,10 +1038,12 @@ async function loadQuotations() {
         content.innerHTML = html;
         if (!mine) {
             setupDateFilter();
+            await setupCompanyFilter();
             setupAvqFiltersDrawerDrag();
         } else {
             adminDateFrom = '';
             adminDateTo = '';
+            companyFilter = '';
         }
         const urlTab = readTabFromUrl();
         if (urlTab) {
@@ -920,7 +1052,12 @@ async function loadQuotations() {
         syncTabToUrl(getActiveQuotationTab());
         refreshQuotationListView();
     } catch (error) {
-        content.innerHTML = '<div style="padding: 20px; text-align: center; color: #ff6b6b;">Failed to load quotations.</div>';
+        if (error && error.authExpired) {
+            window.location.assign('/login');
+            return;
+        }
+        const message = (error && error.message) ? String(error.message) : 'Failed to load quotations.';
+        content.innerHTML = `<div style="padding: 20px; text-align: center; color: #ff6b6b;">${escapeHtml(message)}</div>`;
         console.error('Error loading quotations:', error);
     }
 }
@@ -954,10 +1091,10 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
                     <input type="checkbox" id="select-all-pending" class="quotation-bulk-checkbox" onchange="toggleSelectAllPending(event)">
                     Select all
                 </label>
+                <span id="selected-count-pending" class="quotation-bulk-selected-count">0 selected</span>
                 <button type="button" id="bulk-review-pending-btn" onclick="performBulkReviewPending()" class="btn-bulk-review-pending" disabled>
                     Mark reviewed
                 </button>
-                <span id="selected-count-pending" class="quotation-bulk-selected-count">0 selected</span>
             </div>
         `;
     }
@@ -968,10 +1105,10 @@ function renderQuotationList(list, options = {}, tabKey = 'reviewed', hasMore = 
                     <input type="checkbox" id="select-all-active" class="quotation-bulk-checkbox quotation-bulk-checkbox--danger" onchange="toggleSelectAllActive(event)">
                     Select all
                 </label>
+                <span id="selected-count-active" class="quotation-bulk-selected-count">0 selected</span>
                 <button id="bulk-delete-active-btn" onclick="showDeleteConfirmActive()" class="btn-delete-active" disabled>
                     Batch cancel
                 </button>
-                <span id="selected-count-active" class="quotation-bulk-selected-count">0 selected</span>
             </div>
         `;
     }
@@ -1109,41 +1246,52 @@ async function renderQuotationDetail(currentList, options = {}) {
         return;
     }
 
-    const filterTab = selected._filterTab || 'reviewed';
+    const filterTab = (selected._filterTab || activeTab || 'reviewed').toLowerCase();
     const isPending = filterTab === 'pending';
     const isCancelled = filterTab === 'cancelled';
     const isReviewed = filterTab === 'reviewed';
-    const isDrafts = filterTab === 'drafts';
+    const isDrafts = filterTab === 'drafts' || activeTab === 'drafts';
     const detailActionsHtml =
-        `${canShowQuotationEdit(filterTab) && isDrafts ? `<button type="button" class="edit-button" data-dockey="${selected.DOCKEY}" data-filter-tab="${escapeHtml(filterTab)}" data-draft-source="${selected._sourceSlQtDraft ? 'slqtdraft' : 'slqt'}" onclick="editQuotationFromBtn(this)">Edit</button>` : ''}`
+        `${canShowQuotationEdit('drafts') && isDrafts ? `<button type="button" class="edit-button" data-dockey="${selected.DOCKEY}" data-filter-tab="drafts" data-draft-source="${selected._sourceSlQtDraft ? 'slqtdraft' : 'slqt'}" onclick="editQuotationFromBtn(this)">Edit</button>` : ''}`
         + `${canShowQuotationEdit(filterTab) && isPending && canShowQuotationWorkflowActions(filterTab) ? `<button type="button" class="edit-button" data-dockey="${selected.DOCKEY}" data-filter-tab="${escapeHtml(filterTab)}" data-draft-source="slqt" onclick="editQuotationFromBtn(this)">Edit</button>` : ''}`
         + `${isPending && canShowQuotationWorkflowActions(filterTab) ? `<button class="activate-btn" onclick="activateQuotation(${selected.DOCKEY})">Reviewed</button>` : ''}`
         + `${isReviewed && canShowQuotationWorkflowActions(filterTab) ? `<button class="toggle-cancelled-btn" onclick="toggleCancelledStatus(${selected.DOCKEY}, false)">Cancel</button>` : ''}`
         + `${isCancelled && canShowQuotationWorkflowActions(filterTab) ? `<button class="toggle-cancelled-btn" onclick="toggleCancelledStatus(${selected.DOCKEY}, true)">Restore</button>` : ''}`;
     const amount = Number(selected.DOCAMT || 0).toFixed(2);
-    const docDate = formatDateForDisplay(selected.DOCDATE);
-    const validity = formatDateForDisplay(selected.VALIDITY);
-    const companyName = selected.COMPANYNAME || '';
-    const customerCode = selected.CODE || '';
-
+    const docDate = formatDateForDetailDisplay(selected.DOCDATE);
+    const validity = formatDateForDetailDisplay(selected.VALIDITY);
+    const companyName = (selected.COMPANYNAME != null ? String(selected.COMPANYNAME) : '').trim();
+    const customerCode = (selected.CODE != null ? String(selected.CODE) : '').trim();
+    const docNo = selected.DOCNO || (`DOCKEY #${selected.DOCKEY}`);
     const showSubmitterInMeta = !isCustomerMyQuotationsPage();
+    const metaCells =
+        buildDetailMetaCellHtml('Date', escapeHtml(docDate)) +
+        buildDetailMetaCellHtml('Valid Until', escapeHtml(validity)) +
+        (showSubmitterInMeta
+            ? buildDetailMetaCellHtml('Submitted By', formatCreatorDisplay(selected.creatorName, selected.creatorEmail))
+            : '') +
+        buildDetailMetaCellHtml('Department', formatCreatorDepartmentDisplay(selected.creatorDepartment));
+
     body.innerHTML = `
-        <div class="quotation-detail-pane-layout">
+        <div class="quotation-detail-pane-layout avq-detail-doc">
             <div class="quotation-detail-pane-top">
-                <div class="quotation-detail-head">
-                    <div>
-                        <div class="quotation-detail-title">${escapeHtml(selected.DOCNO || ('DOCKEY #' + selected.DOCKEY))}</div>
-                        <div class="quotation-detail-sub">${escapeHtml(companyName)} (${escapeHtml(customerCode)})</div>
+                <div class="avq-detail-doc__header">
+                    <div class="avq-detail-doc__identity">
+                        <div class="avq-detail-doc__eyebrow">Quotation Details</div>
+                        <div class="avq-detail-doc__title-row">
+                            <div class="quotation-detail-title">${escapeHtml(docNo)}</div>
+                            ${buildDetailStatusBadgeHtml(filterTab)}
+                        </div>
+                        <div class="avq-detail-doc__company">${escapeHtml(companyName || '—')}</div>
+                        ${customerCode ? `<div class="avq-detail-doc__code">${escapeHtml(customerCode)}</div>` : ''}
                     </div>
-                    <div class="quotation-detail-amount">RM ${amount}</div>
+                    <div class="avq-detail-doc__aside">
+                        <div class="avq-detail-doc__total-label">Total Amount</div>
+                        <div class="quotation-detail-amount">RM ${amount}</div>
+                        ${detailActionsHtml ? `<div class="quotation-detail-actions">${detailActionsHtml}</div>` : ''}
+                    </div>
                 </div>
-                <div class="quotation-detail-meta">
-                    <span><strong>Date:</strong> ${docDate}</span>
-                    <span><strong>Valid Until:</strong> ${validity}</span>
-                    ${showSubmitterInMeta ? `<span><strong>Submitted by:</strong> ${formatCreatorDisplay(selected.creatorName, selected.creatorEmail)}</span>` : ''}
-                    <span><strong>Department:</strong> ${formatCreatorDepartmentDisplay(selected.creatorDepartment)}</span>
-                </div>
-                ${detailActionsHtml ? `<div class="quotation-detail-actions">${detailActionsHtml}</div>` : ''}
+                <div class="quotation-detail-meta avq-detail-doc__meta">${metaCells}</div>
             </div>
             <div class="quotation-detail-items" id="quotation-detail-items">
                 <div class="quotation-detail-loading">Loading items...</div>
@@ -1179,42 +1327,7 @@ async function renderQuotationDetail(currentList, options = {}) {
             detailContainer.innerHTML = '<div class="quotation-detail-empty">No items</div>';
             return;
         }
-
-        let itemsHtml = '<div class="quotation-items-scroll"><table class="quotation-items-table">';
-        itemsHtml += '<colgroup><col style="width:30%" /><col style="width:12%" /><col style="width:10%" /><col style="width:10%" /><col style="width:12%" /><col style="width:16%" /></colgroup>';
-        itemsHtml += '<thead><tr>';
-        itemsHtml += '<th scope="col">Item</th><th scope="col">Price</th><th scope="col">Qty</th><th scope="col">S/U Qty</th><th scope="col">Discount</th><th scope="col">Subtotal</th>';
-        itemsHtml += '</tr></thead><tbody>';
-        let total = 0;
-        items.forEach((item) => {
-            const sqty = lineSqty(item);
-            const suomQty = lineSuomQty(item);
-            const qtyDisplay = formatQtyCell(sqty);
-            const suomDisplay = formatQtyCell(suomQty);
-            const price = Number(item.UNITPRICE || 0).toFixed(2);
-            const discount = Number(item.DISC || 0).toFixed(2);
-            const amountRow = lineItemAmount(item).toFixed(2);
-            total += parseFloat(amountRow);
-            // SL_QTDTL.ITEMCODE can be NULL when the line is description-only; JSON null must not render as the string "null".
-            const itemCode = item.ITEMCODE != null ? String(item.ITEMCODE).trim() : '';
-            const description = item.DESCRIPTION != null ? String(item.DESCRIPTION).trim() : '';
-            const codeLine = itemCode
-                ? `<div style="font-weight: 600; color: var(--ice-heading, #1a4d6e);">${itemCode.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`
-                : '';
-            const descLine = description
-                ? `<div style="color: var(--ice-text-muted, #5a7a94); font-size: 11px;">${description.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`
-                : '';
-            const itemCell = codeLine || descLine
-                ? `<td>${codeLine}${descLine}</td>`
-                : '<td><span style="color: var(--ice-text-muted, #5a7a94);">—</span></td>';
-            itemsHtml += '<tr>';
-            itemsHtml += itemCell;
-            itemsHtml += `<td>RM ${price}</td><td>${qtyDisplay}</td><td>${suomDisplay}</td><td>RM ${discount}</td><td style="font-weight: 600;">RM ${amountRow}</td>`;
-            itemsHtml += '</tr>';
-        });
-        itemsHtml += `<tr class="quotation-items-total"><td colspan="5">TOTAL</td><td>RM ${total.toFixed(2)}</td></tr>`;
-        itemsHtml += '</tbody></table></div>';
-        detailContainer.innerHTML = itemsHtml;
+        detailContainer.innerHTML = buildDetailItemsTableHtml(items);
     } catch (error) {
         console.error('Error loading quotation detail items:', error);
         detailContainer.innerHTML = '<div class="quotation-detail-error">Failed to load items</div>';
@@ -1226,17 +1339,23 @@ function editQuotation(dockey, options = {}) {
     if (!canShowQuotationEdit(filterTab)) {
         return;
     }
-    const id = encodeURIComponent(dockey);
-    if (isCustomerMyQuotationsPage()) {
-        const source = (options.source || '').toLowerCase();
-        const row = findQuotationRowInCaches(dockey, filterTab);
-        const isSlQtDraft = source === 'slqtdraft' || (row && row._sourceSlQtDraft);
-        window.location.href = isSlQtDraft
-            ? `/create-quotation?draftDockey=${id}`
-            : `/create-quotation?dockey=${id}`;
+    if (dockey == null || String(dockey).trim() === '') {
         return;
     }
-    window.location.href = `/admin/update-quotation?dockey=${id}`;
+    const id = encodeURIComponent(String(dockey).trim());
+    const source = (options.source || '').toLowerCase();
+    const row = findQuotationRowInCaches(dockey, filterTab);
+    const isSlQtDraft = source === 'slqtdraft' || (row && row._sourceSlQtDraft);
+    // Only customers may navigate to draft editors; Admin/Staff have no Edit on Drafts/Pending.
+    if (filterTab !== 'drafts' && !isSlQtDraft) {
+        return;
+    }
+    if (!canEditOwnDraftQuotations() || !isCustomerMyQuotationsPage()) {
+        return;
+    }
+    window.location.href = isSlQtDraft
+        ? `/create-quotation?draftDockey=${id}`
+        : `/create-quotation?dockey=${id}`;
 }
 
 // Reviewed tab: batch cancel (CANCELLED status — same as /api/admin/delete_quotations)
@@ -1461,7 +1580,4 @@ function showErrorActive(message) {
 
 document.addEventListener('DOMContentLoaded', async () => {
     await loadQuotations();
-    if (!isCustomerMyQuotationsPage()) {
-        await setupCompanyFilter();
-    }
 });

@@ -6,40 +6,45 @@
     <title>Supplier Bidding</title>
     <link rel="stylesheet" href="/static/css/hamburger_menu.css?v=20260810_nav_fix1">
     <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
-    <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515_icy">
+    <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20261029_font_soft">
     <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260604_tabs_size">
-    <link rel="stylesheet" href="/static/css/supplierBidding.css?v=20260810_mobile8">
-    <script src="/static/js/eq_core.js?v=20260813_core"></script>
+    <link rel="stylesheet" href="/static/css/supplierBidding.css?v=20261030_left_33">
+    <script src="/static/js/eq_core.js?v=20261029_csrf1"></script>
 </head>
 <body class="equotation-icy-theme supplier-bidding-page">
     <div class="container">
         <div class="main-content">
             {% set page_header_title = "Supplier > Bidding" %}
-            {% set page_header_subtitle_is_html = true %}
-            {%- set page_header_subtitle -%}
-            Logged in as {{ user_name or "—" }} | Supplier Code: <strong id="supplier-code-text">{{ supplier_code or "—" }}</strong>
-            {%- endset -%}
-            {% set page_header_right %}
-            <button class="action-btn" type="button" onclick="loadInvitations()">Refresh</button>
-            <a href="/logout" class="action-btn action-btn--signout">Sign out</a>
-            {% endset %}
             {% include 'components/app_page_header.html' %}
 
             <div class="tab-content active supplier-bidding-layout">
+                <div class="sb-page-toolbar" aria-label="Invitation filters">
+                    <nav class="eq-line-tabs sb-invite-tabs" id="sb-invite-filters" role="tablist" aria-label="Filter by invitation status">
+                        <button type="button" role="tab" class="eq-line-tab is-active" data-sb-filter="OPEN" aria-selected="true" title="Open rounds / in progress">Open</button>
+                        <button type="button" role="tab" class="eq-line-tab" data-sb-filter="SUBMITTED" aria-selected="false" title="Bid submitted, awaiting admin decision">Submitted</button>
+                        <button type="button" role="tab" class="eq-line-tab" data-sb-filter="ACCEPTED" aria-selected="false" title="Admin decision: bid accepted or not selected">Accepted</button>
+                        <button type="button" role="tab" class="eq-line-tab" data-sb-filter="CANCELLED" aria-selected="false" title="Invited purchase requests that were cancelled">Cancelled</button>
+                    </nav>
+                    <div class="sb-page-toolbar-actions">
+                        <button class="sb-icon-btn" type="button" onclick="loadInvitations()" aria-label="Reload invitations" title="Reload">
+                            <svg class="sb-icon-btn__svg" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.1A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+                        </button>
+                    </div>
+                </div>
                 <div class="supplier-bidding-split">
                     <aside class="supplier-bidding-list-pane" aria-label="Invitations list">
-                        <div class="supplier-bidding-list-head">
-                            <h2>My invitations</h2>
-                            <p class="sb-muted">Select a request to view line items and enter your bid on the right.</p>
+                        <div class="sb-list-sticky-header">
+                            <label class="sb-list-search-label" for="sb-invite-search">Search PR</label>
+                            <input
+                                type="search"
+                                id="sb-invite-search"
+                                class="sb-list-search-input"
+                                placeholder="PR code or description…"
+                                autocomplete="off"
+                                oninput="onInviteSearchInput(this.value)"
+                            />
                         </div>
                         <div class="sb-invite-pane-body">
-                            <nav class="eq-line-tabs sb-invite-tabs sb-invite-tabs--side" id="sb-invite-filters" role="tablist" aria-label="Filter by invitation status">
-                                <div class="sb-invite-tabs__heading">Status</div>
-                                <button type="button" role="tab" class="eq-line-tab is-active" data-sb-filter="OPEN" aria-selected="true" title="Open rounds / in progress">Open</button>
-                                <button type="button" role="tab" class="eq-line-tab" data-sb-filter="SUBMITTED" aria-selected="false" title="Bid submitted, awaiting admin decision">Submitted</button>
-                                <button type="button" role="tab" class="eq-line-tab" data-sb-filter="ACCEPTED" aria-selected="false" title="Admin decision: bid accepted or not selected">Accepted</button>
-                                <button type="button" role="tab" class="eq-line-tab" data-sb-filter="CLOSED" aria-selected="false" title="Invitation closed (no final bid outcome)">Closed</button>
-                            </nav>
                             <div id="invites-list" class="sb-invites-list-scroll">
                                 <div class="sb-invites-list-inner sb-invites-list-inner--loading">
                                     <div class="sb-invites-empty">Loading invitations…</div>
@@ -50,7 +55,10 @@
                     <div class="supplier-bidding-detail-pane" aria-label="Bidding workbench">
                         <div id="sb-sheet-backdrop" class="sb-sheet-backdrop" hidden aria-hidden="true"></div>
                         <div id="supplier-bid-placeholder" class="sb-placeholder">
-                            <p><strong>Select an invitation</strong> from the list to load purchase request details and submit your item-level prices.</p>
+                            <div class="sb-placeholder-hero">
+                                <p><strong>No invitation selected</strong></p>
+                                <p class="sb-placeholder-hint">Select an invitation to view line items and enter your bid.</p>
+                            </div>
                         </div>
                         <div id="bidding-workbench">
                             <div class="sb-workbench-header" id="sb-workbench-drag-region">
@@ -65,7 +73,13 @@
                                 </div>
                                 <button type="button" class="sb-sheet-close" id="sb-sheet-close" aria-label="Close bid" title="Close bid" hidden>&times;</button>
                                 <div class="bidding-head">
-                                    <h3 id="active-request-title">Bid details</h3>
+                                    <p class="bidding-head__eyebrow">Purchase request</p>
+                                    <div class="bidding-head__title-row">
+                                        <h3 id="active-request-title">Bid details</h3>
+                                        <div class="bidding-head__actions" id="bidding-head-actions">
+                                            <button class="action-btn sb-submit-bid-btn" type="button" id="submit-bid-btn" onclick="submitBid()">Submit bid</button>
+                                        </div>
+                                    </div>
                                     <div id="active-request-subtitle" class="sb-subtitle muted"></div>
                                     <div id="bid-decision-legend" class="sb-decision-legend" hidden aria-label="Line decision legend">
                                         <span class="sb-legend-pill sb-legend-pill--accepted">Accepted line</span>
@@ -75,25 +89,41 @@
                                 <div id="bid-summary-panel" class="bid-summary-panel" hidden></div>
                             </div>
                             <div class="sb-workbench-body">
-                                <div class="table-wrap">
-                                    <div class="sb-table-scroll">
-                                        <table class="bid-lines-table bid-lines-table--edit" id="bid-lines-table">
-                                            <colgroup id="bid-lines-cols"></colgroup>
-                                            <thead id="bid-lines-thead"></thead>
-                                            <tbody id="bid-lines-body"></tbody>
-                                        </table>
-                                    </div>
-                                    <div id="bid-lines-total-bar" class="bid-lines-total-bar" hidden aria-live="polite"></div>
-                                </div>
+                                <table class="bid-lines-table bid-lines-table--edit" id="bid-lines-table">
+                                    <colgroup id="bid-lines-cols"></colgroup>
+                                    <thead id="bid-lines-thead"></thead>
+                                    <tbody id="bid-lines-body"></tbody>
+                                </table>
+                                <div id="bid-lines-total-bar" class="bid-lines-total-bar" hidden aria-live="polite"></div>
                             </div>
                             <div id="supplier-bid-message"></div>
-                            <div class="footer-actions">
-                                <button class="action-btn" type="button" id="submit-bid-btn" onclick="submitBid()">Submit bid</button>
-                            </div>
                         </div>
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <div id="sb-success-modal" class="sb-success-modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="sb-success-modal-title" aria-hidden="true">
+        <div class="sb-success-modal__backdrop" onclick="closeBidSuccessModal()"></div>
+        <div class="sb-success-modal__dialog">
+            <div class="sb-success-modal__icon" aria-hidden="true">✓</div>
+            <h2 id="sb-success-modal-title" class="sb-success-modal__title">Bid submitted</h2>
+            <p id="sb-success-modal-body" class="sb-success-modal__body">Your bid was submitted successfully.</p>
+            <div id="sb-success-modal-pr-wrap" class="sb-success-modal__pr-wrap" style="display:none;">
+                <span class="sb-success-modal__pr-label">Request number</span>
+                <span id="sb-success-modal-request-no" class="sb-success-modal__pr-number"></span>
+            </div>
+            <button type="button" class="sb-success-modal__ok" id="sb-success-modal-ok" onclick="closeBidSuccessModal()">OK</button>
+        </div>
+    </div>
+
+    <div id="sb-alert-modal" class="sb-alert-modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="sb-alert-modal-title" aria-hidden="true">
+        <div class="sb-alert-modal__backdrop" onclick="closeBidAlertModal()"></div>
+        <div class="sb-alert-modal__dialog">
+            <h2 id="sb-alert-modal-title" class="sb-alert-modal__title">Notice</h2>
+            <p id="sb-alert-modal-body" class="sb-alert-modal__body"></p>
+            <button type="button" class="sb-alert-modal__ok" id="sb-alert-modal-ok" onclick="closeBidAlertModal()">OK</button>
         </div>
     </div>
 
@@ -107,12 +137,32 @@
         let openInviteSeq = 0;
         let invitationsAllRows = [];
         let currentInviteFilter = 'OPEN';
-        const SB_INVITE_TAB_KEYS = ['OPEN', 'SUBMITTED', 'ACCEPTED', 'CLOSED'];
+        let searchQuery = '';
+        const SB_INVITE_TAB_KEYS = ['OPEN', 'SUBMITTED', 'ACCEPTED', 'CANCELLED'];
 
         function inviteTabFromParam(raw) {
             let key = String(raw || '').trim().toUpperCase();
             if (key === 'REJECTED') key = 'ACCEPTED';
+            // Legacy History tab (?tab=closed|history) maps to Cancelled.
+            if (key === 'CLOSED' || key === 'HISTORY') key = 'CANCELLED';
             return SB_INVITE_TAB_KEYS.includes(key) ? key : 'OPEN';
+        }
+
+        function isPrCancelled(rowOrBody) {
+            if (!rowOrBody) return false;
+            if (rowOrBody.prCancelled === true || rowOrBody.prCancelled === 1) return true;
+            const udf = String(
+                rowOrBody.requestUdfStatus != null
+                    ? rowOrBody.requestUdfStatus
+                    : (rowOrBody.udfStatus != null ? rowOrBody.udfStatus : '')
+            ).toUpperCase();
+            return udf === 'CANCELLED' || udf === 'INACTIVE';
+        }
+
+        function isInviteReadOnlyMeta(meta) {
+            if (!meta) return false;
+            if (isPrCancelled(meta)) return true;
+            return String(meta.inviteStatus || '').toUpperCase() === 'CLOSED';
         }
 
         function inviteTabToParam(tab) {
@@ -157,8 +207,7 @@
             if (!meta) return;
             const rid = Number(meta.requestDockey || 0);
             if (!rid) return;
-            const closed = String(meta.inviteStatus || '').toUpperCase() === 'CLOSED';
-            openInvite(rid, meta.requestNumber || '', closed);
+            openInvite(rid, meta.requestNumber || '', isInviteReadOnlyMeta(meta));
         }
 
         function onSupplierBiddingPopState() {
@@ -183,8 +232,7 @@
             if (tabForInvite !== currentInviteFilter) {
                 setInvitationFilter(tabForInvite, { updateUrl: true, replace: true });
             }
-            const closed = String(meta.inviteStatus || '').toUpperCase() === 'CLOSED';
-            await openInvite(state.requestId, meta.requestNumber || '', closed, {
+            await openInvite(state.requestId, meta.requestNumber || '', isInviteReadOnlyMeta(meta), {
                 updateUrl: true,
                 replace: true,
             });
@@ -194,7 +242,7 @@
             const list = invitesListEl();
             if (!list) return;
             const rid = requestId == null ? null : Number(requestId);
-            list.querySelectorAll('.sb-invite-card').forEach((row) => {
+            list.querySelectorAll('.sb-invite-row').forEach((row) => {
                 const id = Number(row.getAttribute('data-request-id') || 0);
                 row.classList.toggle('is-selected', rid != null && !Number.isNaN(rid) && id === rid);
             });
@@ -216,7 +264,7 @@
             window._sbInviteClicksBound = true;
             document.addEventListener('keydown', (e) => {
                 if (e.key !== 'Enter' && e.key !== ' ') return;
-                const row = e.target.closest('#invites-list .sb-invite-card');
+                const row = e.target.closest('#invites-list .sb-invite-row');
                 if (!row) return;
                 e.preventDefault();
                 openInviteFromRow(row);
@@ -227,7 +275,7 @@
                     const btn = e.target.closest('button.eq-line-tab[data-sb-filter]');
                     if (!btn) return;
                     const f = (btn.getAttribute('data-sb-filter') || 'OPEN').toUpperCase();
-                    if (f === 'OPEN' || f === 'SUBMITTED' || f === 'ACCEPTED' || f === 'CLOSED') {
+                    if (f === 'OPEN' || f === 'SUBMITTED' || f === 'ACCEPTED' || f === 'CANCELLED') {
                         setInvitationFilter(f);
                     }
                 });
@@ -329,7 +377,7 @@
             function canStartDrag(target) {
                 if (!sheetModeActive()) return false;
                 if (!target || !target.closest) return false;
-                if (target.closest('input, textarea, select, button, a, .bid-lines-table, .sb-workbench-body, .footer-actions')) {
+                if (target.closest('input, textarea, select, button, a, .bid-lines-table, .sb-workbench-body, .bidding-head__actions')) {
                     return false;
                 }
                 return !!(target.closest('#sb-sheet-handle') || target.closest('#sb-workbench-drag-region'));
@@ -436,12 +484,15 @@
             if (normalized === 'AWARDED' || normalized === 'APPROVED' || normalized === 'ACCEPTED' || normalized.startsWith('APPROV')) {
                 return 'status-accepted';
             }
-            if (normalized === 'CLOSED') return 'status-closed';
+            if (normalized === 'CLOSED' || normalized === 'CANCELLED' || normalized === 'INACTIVE') {
+                return 'status-closed';
+            }
             return 'status-responded';
         }
 
-        /** One of OPEN | SUBMITTED | ACCEPTED | CLOSED for sidebar filters (rejected bids use ACCEPTED). */
+        /** One of OPEN | SUBMITTED | ACCEPTED | CANCELLED for sidebar filters. */
         function getInvitationFilterKey(row) {
+            if (isPrCancelled(row)) return 'CANCELLED';
             const inv = String(row && row.inviteStatus != null ? row.inviteStatus : '').toUpperCase();
             const bid = String(row && row.bidStatus != null ? row.bidStatus : '').toUpperCase();
             if (
@@ -454,7 +505,8 @@
             ) {
                 return 'ACCEPTED';
             }
-            if (inv === 'CLOSED') return 'CLOSED';
+            // Closed invite without cancel → Accepted / not selected (replaces old History bucket).
+            if (inv === 'CLOSED') return 'ACCEPTED';
             if (bid === 'SUBMITTED' || inv === 'RESPONDED') return 'SUBMITTED';
             return 'OPEN';
         }
@@ -471,6 +523,9 @@
                 || normalized.startsWith('APPROV')
             ) {
                 return 'ACCEPTED';
+            }
+            if (normalized === 'CANCELLED' || normalized === 'INACTIVE') {
+                return 'CANCELLED';
             }
             if (normalized === 'CLOSED') {
                 return 'CLOSED';
@@ -548,7 +603,7 @@
                 OPEN: 'Open',
                 SUBMITTED: 'Submitted',
                 ACCEPTED: 'Accepted / not selected',
-                CLOSED: 'Closed',
+                CANCELLED: 'Cancelled',
             };
             return map[String(key || '').toUpperCase()] || String(key || '');
         }
@@ -566,79 +621,171 @@
             const label = inviteFilterLabel(filterKey);
             const countLabel = count === 1 ? '1 invitation' : count + ' invitations';
             const tabTotal = sumInviteTotals(rows);
-            const totalHint =
-                tabTotal != null
-                    ? '<span class="sb-invites-list-bar__total">Tab total: <strong>' +
-                      escapeHtml(tabTotal.toFixed(2)) +
-                      '</strong></span>'
-                    : '';
+            const totalPart =
+                tabTotal != null ? ' · Total ' + escapeHtml(tabTotal.toFixed(2)) : '';
             return (
                 '<div class="sb-invites-list-inner">' +
-                '<div class="sb-invites-list-bar">' +
-                '<div class="sb-invites-list-bar__left">' +
-                '<span class="sb-invites-list-bar__title">' +
-                escapeHtml(label) +
-                '</span>' +
-                '<span class="sb-invites-list-bar__count">' +
-                escapeHtml(countLabel) +
-                '</span>' +
-                totalHint +
-                '</div>' +
-                '<span class="sb-invites-list-bar__hint">Click a card to open details</span>' +
-                '</div>' +
-                '<div class="sb-invites-cards" role="list">' +
+                '<div class="sb-invites-cards">' +
+                '<table class="sb-invites-table">' +
+                '<thead><tr>' +
+                '<th class="sb-invites-th sb-col-pr">PR</th>' +
+                '<th class="sb-invites-th sb-col-desc">Description</th>' +
+                '<th class="sb-invites-th sb-col-date">Invited</th>' +
+                '<th class="sb-invites-th sb-col-date">Need by</th>' +
+                '<th class="sb-invites-th sb-col-lines">Lines</th>' +
+                '</tr></thead><tbody>' +
                 cardsHtml +
-                '</div></div>'
+                '</tbody></table></div>' +
+                '<p class="sb-invites-list-summary">' +
+                escapeHtml(label) +
+                ' · ' +
+                escapeHtml(countLabel) +
+                totalPart +
+                '</p></div>'
             );
         }
 
+        function onInviteSearchInput(value) {
+            searchQuery = String(value || '').trim().toLowerCase();
+            renderInvitations();
+        }
+
+        function inviteMatchesSearch(row, q) {
+            if (!q) return true;
+            const pr = String(row.requestNumber || '').toLowerCase();
+            const desc = String(row.requestDescription || row.firstItem || '').toLowerCase();
+            return pr.includes(q) || desc.includes(q);
+        }
+
+        function inviteCell(value) {
+            const text = String(value == null ? '' : value).trim();
+            if (!text || text === '-' || text === '---') return '—';
+            return escapeHtml(text);
+        }
+
         function renderInviteCard(row, activeRid) {
-            const bidStatus = row.bidStatus || row.inviteStatus || 'OPEN';
-            const bidStatusLabel = displayBidStatus(bidStatus);
-            const stClass = chipClass(bidStatusLabel);
-            const inviteClosed = String(row.inviteStatus || '').toUpperCase() === 'CLOSED';
+            const readOnly = isInviteReadOnlyMeta(row);
             const rdoc = Number(row.requestDockey);
             const sel = activeRid != null && rdoc === activeRid;
             const prLabel = escapeHtml(row.requestNumber || 'PR-' + row.requestDockey);
-            const hasBid = row.bidId != null && Number(row.bidId) > 0;
+            const lineCount = Number(row.lineCount || row.bidLineCount || 0);
+            const lineLabel = lineCount > 0 ? String(lineCount) : '—';
+            const desc = String(row.requestDescription || row.firstItem || '').trim();
             return (
-                '<article class="sb-invite-card' +
+                '<tr class="sb-invite-row' +
                 (sel ? ' is-selected' : '') +
                 '" data-request-id="' +
                 rdoc +
                 '" data-invite-closed="' +
-                (inviteClosed ? '1' : '0') +
-                '" role="listitem button" tabindex="0" onclick="sbOpenInviteRow(this)" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();sbOpenInviteRow(this);}">' +
-                '<div class="sb-invite-card__head">' +
-                '<div class="sb-invite-card__title-block">' +
-                '<span class="sb-invite-card__pr">' +
-                prLabel +
-                '</span>' +
-                '<span class="sb-invite-card__ref">Request #' +
-                escapeHtml(String(rdoc)) +
-                (hasBid ? ' · Bid #' + escapeHtml(String(row.bidId)) : '') +
-                '</span></div>' +
-                '<span class="status-chip ' +
-                stClass +
-                '">' +
-                escapeHtml(bidStatusLabel) +
-                '</span></div></article>'
+                (readOnly ? '1' : '0') +
+                '" tabindex="0" onclick="sbOpenInviteRow(this)">' +
+                '<td class="sb-invite-row__pr" title="' + prLabel + '">' + prLabel +
+                '<span class="sb-invite-row__ref">#' + escapeHtml(String(rdoc)) + '</span></td>' +
+                '<td class="sb-invite-row__desc" title="' + escapeHtml(desc) + '">' + inviteCell(desc) + '</td>' +
+                '<td class="sb-invite-row__date">' + inviteCell(row.inviteAt) + '</td>' +
+                '<td class="sb-invite-row__date">' + inviteCell(row.requestDeliveryDate) + '</td>' +
+                '<td class="sb-invite-row__lines">' + lineLabel + '</td></tr>'
             );
-        }
-
-        function showBidMessage(message, isError) {
-            const box = document.getElementById('supplier-bid-message');
-            box.style.display = 'block';
-            box.textContent = message;
-            box.style.background = isError ? '#fde3e3' : '#e4f4e1';
-            box.style.color = isError ? '#8d1f1f' : '#1f6b2a';
         }
 
         function clearBidMessage() {
             const box = document.getElementById('supplier-bid-message');
+            if (!box) return;
             box.style.display = 'none';
             box.textContent = '';
         }
+
+        let sbModalEscapeHandler = null;
+
+        function clearBidModalEscapeHandler() {
+            if (sbModalEscapeHandler) {
+                document.removeEventListener('keydown', sbModalEscapeHandler);
+                sbModalEscapeHandler = null;
+            }
+        }
+
+        function bindBidModalEscape(closeFn) {
+            clearBidModalEscapeHandler();
+            sbModalEscapeHandler = function (e) {
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    closeFn();
+                }
+            };
+            document.addEventListener('keydown', sbModalEscapeHandler);
+        }
+
+        function closeBidSuccessModal() {
+            const modal = document.getElementById('sb-success-modal');
+            if (modal) {
+                modal.style.display = 'none';
+                modal.setAttribute('aria-hidden', 'true');
+            }
+            clearBidModalEscapeHandler();
+        }
+
+        function closeBidAlertModal() {
+            const modal = document.getElementById('sb-alert-modal');
+            if (modal) {
+                modal.style.display = 'none';
+                modal.setAttribute('aria-hidden', 'true');
+            }
+            clearBidModalEscapeHandler();
+        }
+
+        function showBidAlertModal(title, body) {
+            const modal = document.getElementById('sb-alert-modal');
+            const titleEl = document.getElementById('sb-alert-modal-title');
+            const bodyEl = document.getElementById('sb-alert-modal-body');
+            const okBtn = document.getElementById('sb-alert-modal-ok');
+            if (!modal || !titleEl || !bodyEl) return;
+
+            closeBidSuccessModal();
+            titleEl.textContent = title || 'Notice';
+            bodyEl.textContent = body || '';
+            modal.style.display = '';
+            modal.setAttribute('aria-hidden', 'false');
+            bindBidModalEscape(closeBidAlertModal);
+            if (okBtn) {
+                setTimeout(function () { okBtn.focus(); }, 0);
+            }
+        }
+
+        function showBidMessage(message, isError) {
+            clearBidMessage();
+            showBidAlertModal(isError ? 'Unable to submit bid' : 'Notice', message || '');
+        }
+
+        function showBidSuccessModal(title, body, requestNumber) {
+            const modal = document.getElementById('sb-success-modal');
+            const titleEl = document.getElementById('sb-success-modal-title');
+            const bodyEl = document.getElementById('sb-success-modal-body');
+            const wrap = document.getElementById('sb-success-modal-pr-wrap');
+            const numEl = document.getElementById('sb-success-modal-request-no');
+            const okBtn = document.getElementById('sb-success-modal-ok');
+            if (!modal || !titleEl || !bodyEl) return;
+
+            closeBidAlertModal();
+            titleEl.textContent = title || 'Bid submitted';
+            bodyEl.textContent = body || 'Your bid was submitted successfully.';
+            const rn = requestNumber != null ? String(requestNumber).trim() : '';
+            if (rn && wrap && numEl) {
+                numEl.textContent = rn;
+                wrap.style.display = '';
+            } else if (wrap) {
+                wrap.style.display = 'none';
+            }
+
+            modal.style.display = '';
+            modal.setAttribute('aria-hidden', 'false');
+            bindBidModalEscape(closeBidSuccessModal);
+            if (okBtn) {
+                setTimeout(function () { okBtn.focus(); }, 0);
+            }
+        }
+
+        window.closeBidSuccessModal = closeBidSuccessModal;
+        window.closeBidAlertModal = closeBidAlertModal;
 
         function clearWorkbenchIfHiddenByFilter() {
             if (!activeInvite) return;
@@ -662,14 +809,28 @@
                 return;
             }
             const filterKey = (currentInviteFilter || 'OPEN').toString().toUpperCase();
-            const rows = all.filter((r) => getInvitationFilterKey(r) === filterKey);
+            const q = searchQuery || '';
+            const rows = all
+                .filter((r) => getInvitationFilterKey(r) === filterKey)
+                .filter((r) => inviteMatchesSearch(r, q));
             if (!rows.length) {
                 list.classList.remove('sb-list--loading');
-                list.innerHTML = renderInvitesEmpty(
-                    'No invitations match <strong>' +
-                        escapeHtml(filterKey) +
-                        '</strong>. Try another status filter.'
-                );
+                const label = inviteFilterLabel(filterKey);
+                let emptyMsg;
+                if (q) {
+                    emptyMsg =
+                        'No invitations match your search in <strong>' +
+                        escapeHtml(label) +
+                        '</strong>.';
+                } else if (filterKey === 'CANCELLED') {
+                    emptyMsg = 'No cancelled purchase requests for your invitations.';
+                } else {
+                    emptyMsg =
+                        'No invitations match <strong>' +
+                        escapeHtml(label) +
+                        '</strong>. Try another status filter.';
+                }
+                list.innerHTML = renderInvitesEmpty(emptyMsg);
                 clearWorkbenchIfHiddenByFilter();
                 return;
             }
@@ -847,18 +1008,30 @@
 
         function bidTotalAmount(myBid) {
             if (!myBid || !Array.isArray(myBid.lines)) return 0;
-            return myBid.lines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
+            return myBid.lines.reduce((sum, line) => {
+                const qty = Number(line.quantity || 0);
+                const price = Number(line.unitPrice || 0);
+                if (!(qty > 0 && price > 0)) return sum;
+                return sum + Number(line.amount || 0);
+            }, 0);
         }
 
         function renderBidSummaryPanel(myBid, inviteClosed, inviteMeta) {
             const panel = document.getElementById('bid-summary-panel');
             if (!panel) return;
+            const cancelled = isPrCancelled(inviteMeta);
 
             if (!myBid) {
+                if (cancelled) {
+                    panel.hidden = false;
+                    panel.innerHTML =
+                        '<p class="bid-summary-empty">This purchase request was <strong>cancelled</strong>. Bidding is closed (read-only).</p>';
+                    return;
+                }
                 if (inviteClosed) {
                     panel.hidden = false;
                     panel.innerHTML =
-                        '<p class="bid-summary-empty">This invitation is <strong>closed</strong>. No bid was submitted for this purchase request.</p>';
+                        '<p class="bid-summary-empty">This invitation is closed (bidding ended). No bid was submitted for this purchase request.</p>';
                     return;
                 }
                 panel.hidden = true;
@@ -939,6 +1112,16 @@
             if (el) el.hidden = !show;
         }
 
+        function setSubmitBidVisible(show) {
+            const actions = document.getElementById('bidding-head-actions');
+            const btn = document.getElementById('submit-bid-btn');
+            if (actions) actions.hidden = !show;
+            if (btn) {
+                btn.hidden = !show;
+                btn.style.display = show ? '' : 'none';
+            }
+        }
+
         async function openInvite(requestId, requestNo, inviteClosed, options) {
             const opts = options || {};
             const rid = Number(requestId);
@@ -976,8 +1159,15 @@
             activeInvite = { requestId: rid, requestNo: String(body.requestNumber || requestNo || '') };
 
             const mb = body.myBid;
-            const inviteMeta = findInviteMeta(rid);
-            let readOnly = !!inviteClosed || !!mb;
+            const inviteMeta = findInviteMeta(rid) || {};
+            if (body.udfStatus && !inviteMeta.requestUdfStatus) {
+                inviteMeta.requestUdfStatus = body.udfStatus;
+            }
+            if (body.prCancelled) {
+                inviteMeta.prCancelled = true;
+            }
+            const prCancelled = isPrCancelled(body) || isPrCancelled(inviteMeta);
+            let readOnly = !!inviteClosed || !!mb || prCancelled;
             workbenchReadOnly = readOnly;
 
             document.getElementById('active-request-title').textContent = 'Bid for ' + (body.requestNumber || ('PR-' + body.requestId));
@@ -986,20 +1176,30 @@
             const bidLog = Array.isArray(body.bidLog) ? body.bidLog : [];
             const useBidLog = readOnly && bidLog.length > 0;
             let readHint = 'Fill in your quote and submit to admin for review.';
-            if (readOnly && stUpper === 'REJECTED') {
+            if (readOnly && prCancelled) {
+                readHint = 'This purchase request was cancelled (read-only).';
+            } else if (readOnly && stUpper === 'REJECTED') {
                 readHint = 'Your full submitted bid is below (read-only). Admin decision note is shown above.';
             } else if (readOnly && (useBidLog || body.hasPartialLineAwards)) {
                 readHint = 'Row colours show admin line decisions for your submitted bid.';
             } else if (readOnly && stUpper === 'APPROVED') {
                 readHint = 'Your accepted bid is below (read-only).';
             } else if (readOnly && inviteClosed && !mb) {
-                readHint = 'This invitation is closed with no submitted bid.';
+                readHint = 'This invitation is closed (bidding ended) with no submitted bid.';
             } else if (readOnly) {
                 readHint = 'Your submitted pricing is below (read-only).';
             }
             document.getElementById('active-request-subtitle').innerHTML =
-                'Required delivery: <strong>' + escapeHtml(reqDel) + '</strong>. ' + readHint;
+                '<span class="sb-delivery-chip" title="Required delivery">' +
+                '<span class="sb-delivery-chip__label">Delivery</span>' +
+                '<strong>' +
+                escapeHtml(reqDel) +
+                '</strong></span>' +
+                '<span class="sb-subtitle-hint">' +
+                escapeHtml(readHint) +
+                '</span>';
             setBidDecisionLegendVisible(readOnly && mb && (useBidLog || body.hasPartialLineAwards));
+            setSubmitBidVisible(!readOnly);
 
             const lineRows = useBidLog ? [] : buildSupplierBidLineRows(body.details || [], mb);
 
@@ -1020,9 +1220,9 @@
                 }
             }
             if (readOnly) {
-                thead.innerHTML = '<tr><th class="bid-th bid-th--item">Item</th><th class="bid-th bid-th--date">Delivery Date</th><th class="bid-th bid-th--qty">Requested Qty</th><th class="bid-th bid-th--qty">S/U Qty</th><th class="bid-th bid-th--qty">Bid Qty</th><th class="bid-th bid-th--price">Bid Unit Price</th><th class="bid-th bid-th--amount">Amount</th><th class="bid-th bid-th--lead">Lead Days</th><th class="bid-th bid-th--remarks">Remarks</th></tr>';
+                thead.innerHTML = '<tr><th class="bid-th bid-th--item">Item</th><th class="bid-th bid-th--date">Delivery</th><th class="bid-th bid-th--qty">Req Qty</th><th class="bid-th bid-th--qty">S/U Qty</th><th class="bid-th bid-th--qty">Bid Qty</th><th class="bid-th bid-th--price">Unit Price</th><th class="bid-th bid-th--amount">Amount</th><th class="bid-th bid-th--lead">Lead</th><th class="bid-th bid-th--remarks">Remarks</th></tr>';
             } else {
-                thead.innerHTML = '<tr><th class="bid-th bid-th--item">Item</th><th class="bid-th bid-th--date">Delivery Date</th><th class="bid-th bid-th--qty">Requested Qty</th><th class="bid-th bid-th--qty">S/U Qty</th><th class="bid-th bid-th--qty">Bid Qty</th><th class="bid-th bid-th--price">Bid Unit Price</th><th class="bid-th bid-th--lead">Lead Days</th><th class="bid-th bid-th--remarks">Remarks</th></tr>';
+                thead.innerHTML = '<tr><th class="bid-th bid-th--item">Item</th><th class="bid-th bid-th--date">Delivery</th><th class="bid-th bid-th--qty">Req Qty</th><th class="bid-th bid-th--qty">S/U Qty</th><th class="bid-th bid-th--qty">Bid Qty</th><th class="bid-th bid-th--price">Unit Price</th><th class="bid-th bid-th--lead">Lead</th><th class="bid-th bid-th--remarks">Remarks</th></tr>';
             }
 
             let rows = '';
@@ -1080,17 +1280,16 @@
                 const qtyVal = blRow.quantity != null ? dq : Number(line.quantity || 0).toFixed(2);
                 const priceVal = (blRow.unitPrice != null && blRow.unitPrice !== '') ? Number(blRow.unitPrice).toFixed(2) : '';
                 const ldVal = blRow.leadDays != null ? String(ld) : '0';
-                const remarksAttr = String(rm).replace(/"/g, '&quot;');
                 return `
                     <tr data-detail-id="${lid}">
                         <td class="bid-cell--item" data-label="Item">${escapeHtml(line.itemCode)} - ${escapeHtml(line.itemName || line.description)}</td>
                         <td class="bid-cell--date" data-label="Delivery Date">${escapeHtml(formatDateText(line.deliveryDate))}</td>
                         <td class="bid-cell--req bid-cell--num" data-label="Requested Qty">${Number(line.quantity || 0).toFixed(2)}</td>
                         <td class="bid-cell--req bid-cell--num bid-readonly-cell" data-label="S/U Qty">${suomDisp}</td>
-                        <td data-label="Bid Qty"><input type="number" step="0.01" min="0" class="bid-qty" value="${qtyVal}"></td>
-                        <td data-label="Bid Unit Price"><input type="number" step="0.01" min="0" class="bid-unit-price" value="${priceVal}" placeholder="Enter quote unit price"></td>
-                        <td data-label="Lead Days"><input type="number" step="1" min="0" class="bid-lead-days" value="${ldVal}"></td>
-                        <td data-label="Remarks"><input type="text" class="bid-remarks" placeholder="Optional" value="${remarksAttr}"></td>
+                        <td data-label="Bid Qty"><input type="number" step="0.01" min="0" class="bid-qty" value="${qtyVal}" aria-label="Bid quantity"></td>
+                        <td data-label="Bid Unit Price"><input type="number" step="0.01" min="0" class="bid-unit-price" value="${priceVal}" placeholder="Price" aria-label="Bid unit price"></td>
+                        <td data-label="Lead Days"><input type="number" step="1" min="0" class="bid-lead-days" value="${ldVal}" aria-label="Lead days"></td>
+                        <td class="bid-cell--remarks" data-label="Remarks"><textarea class="bid-remarks" rows="2" placeholder="Full remarks (optional)" aria-label="Remarks">${escapeHtml(rm)}</textarea></td>
                     </tr>`;
             }).join('');
             }
@@ -1102,35 +1301,66 @@
                     : 'No lines available';
             document.getElementById('bid-lines-body').innerHTML =
                 rows || ('<tr><td colspan="' + colEmpty + '" class="muted">' + emptyMsg + '</td></tr>');
-            document.getElementById('submit-bid-btn').style.display = readOnly ? 'none' : 'inline-block';
-            const footer = document.querySelector('#bidding-workbench .footer-actions');
-            if (footer) footer.hidden = !!readOnly;
             renderBidSummaryPanel(mb, inviteClosed, inviteMeta);
             renderBidLinesFoot(mb);
 
             showWorkbench(true);
         }
 
+        const BID_LINE_INCOMPLETE_MSG =
+            'Please enter Bid Qty and Unit Price, or provide Remarks if you cannot supply this item.';
+
+        function isValidBidQuotation(qty, price) {
+            return Number(qty) > 0 && Number(price) > 0;
+        }
+
         function collectBidLines() {
             const bodyRows = Array.from(document.querySelectorAll('#bid-lines-body tr[data-detail-id]'));
             return bodyRows.map((row) => {
+                const qtyRaw = String((row.querySelector('.bid-qty') || {}).value || '').trim();
+                const priceRaw = String((row.querySelector('.bid-unit-price') || {}).value || '').trim();
+                const qty = Number(qtyRaw || 0);
+                const price = Number(priceRaw || 0);
+                const remarks = String((row.querySelector('.bid-remarks') || {}).value || '').trim();
+                const quoted = isValidBidQuotation(qty, price);
                 return {
                     detailId: Number(row.dataset.detailId),
-                    quantity: Number((row.querySelector('.bid-qty') || {}).value || 0),
-                    unitPrice: Number((row.querySelector('.bid-unit-price') || {}).value || 0),
+                    // Prefill qty alone is not a quotation; clear incomplete numerics when remarks-only.
+                    quantity: quoted ? qty : 0,
+                    unitPrice: quoted ? price : 0,
                     leadDays: Number((row.querySelector('.bid-lead-days') || {}).value || 0),
-                    remarks: String((row.querySelector('.bid-remarks') || {}).value || '').trim(),
+                    remarks,
+                    _quoted: quoted,
+                    _hasRemarks: !!remarks,
                 };
             }).filter((line) => line.detailId > 0);
         }
 
+        function validateBidLinesForSubmit(lines) {
+            for (let i = 0; i < lines.length; i += 1) {
+                const line = lines[i];
+                if (!line._quoted && !line._hasRemarks) {
+                    return { ok: false, index: i, message: BID_LINE_INCOMPLETE_MSG };
+                }
+            }
+            return { ok: true };
+        }
+
         async function submitBid() {
             if (workbenchReadOnly) {
-                showBidMessage('This bid is read-only.', true);
+                const cancelled =
+                    isPrCancelled(activeRequest) ||
+                    isPrCancelled(findInviteMeta(activeInvite && activeInvite.requestId));
+                showBidMessage(
+                    cancelled
+                        ? 'This purchase request was cancelled; bidding is not allowed.'
+                        : 'This bid is read-only.',
+                    true
+                );
                 return;
             }
             if (!activeInvite || !activeRequest) {
-                alert('Please open an invitation first.');
+                showBidAlertModal('Unable to submit bid', 'Please open an invitation first.');
                 return;
             }
             const lines = collectBidLines();
@@ -1138,10 +1368,23 @@
                 showBidMessage('No bid lines to submit.', true);
                 return;
             }
+            const validation = validateBidLinesForSubmit(lines);
+            if (!validation.ok) {
+                showBidMessage(validation.message || BID_LINE_INCOMPLETE_MSG, true);
+                return;
+            }
 
             const btn = document.getElementById('submit-bid-btn');
-            btn.disabled = true;
+            if (btn) btn.disabled = true;
             clearBidMessage();
+
+            const payloadLines = lines.map(({ detailId, quantity, unitPrice, leadDays, remarks }) => ({
+                detailId,
+                quantity,
+                unitPrice,
+                leadDays,
+                remarks,
+            }));
 
             try {
                 const res = await fetch('/api/procurement/bidding/submit', {
@@ -1150,7 +1393,7 @@
                     body: JSON.stringify({
                         requestId: activeInvite.requestId,
                         requestNumber: activeInvite.requestNo,
-                        bidLines: lines,
+                        bidLines: payloadLines,
                     }),
                 });
                 const body = await res.json();
@@ -1158,12 +1401,20 @@
                     showBidMessage(body.error || 'Failed to submit bid', true);
                     return;
                 }
-                showBidMessage('Bid submitted successfully. Awaiting admin review.', false);
+                const requestNo =
+                    (activeInvite && activeInvite.requestNo) ||
+                    (body.data && (body.data.requestNo || body.data.requestNumber)) ||
+                    '';
+                showBidSuccessModal(
+                    'Bid submitted',
+                    'Your bid was submitted successfully. Awaiting admin review.',
+                    requestNo,
+                );
                 await loadInvitations();
             } catch (err) {
                 showBidMessage('Bid submission failed: ' + err.message, true);
             } finally {
-                btn.disabled = false;
+                if (btn) btn.disabled = false;
             }
         }
 
@@ -1188,9 +1439,7 @@
             showWorkbench(false);
             document.getElementById('bid-lines-body').innerHTML = '';
             document.getElementById('bid-lines-thead').innerHTML = '';
-            document.getElementById('submit-bid-btn').style.display = 'inline-block';
-            const footer = document.querySelector('#bidding-workbench .footer-actions');
-            if (footer) footer.hidden = false;
+            setSubmitBidVisible(true);
             if (opts.updateUrl !== false) {
                 syncSupplierBiddingUrl({
                     tab: currentInviteFilter,

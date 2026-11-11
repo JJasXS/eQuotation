@@ -122,11 +122,12 @@ body.admin-bidding-page .container.bidding-page {
         font-size: 11px;
     }
 
-    .pr-item {
-        padding: 7px 8px;
+    .pr-row {
+        padding: 12px 10px;
+        min-height: 42px;
     }
 
-    .pr-item .title {
+    .pr-row__code {
         font-size: 12px;
     }
 }
@@ -162,6 +163,63 @@ body.admin-bidding-page .container.bidding-page {
     margin-top: 6px;
 }
 
+.bidding-col-head--bids {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.bidding-col-head--bids h2 {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.bidding-col-head--bids .toolbar--bids-actions {
+    margin-top: 0;
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+}
+
+body.admin-bidding-page .pr-status-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    margin-top: 8px;
+    min-width: 0;
+}
+
+body.admin-bidding-page .pr-status-row #pr-count {
+    flex: 0 0 auto;
+    margin: 0 0 6px;
+    font-size: 11px;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+body.admin-bidding-page .pr-status-tabs.eq-line-tabs {
+    display: flex;
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: none;
+    border-bottom: 1px solid var(--ice-border, #b8d4e8);
+    border-radius: 0;
+    background: transparent;
+}
+
+body.admin-bidding-page .pr-status-tabs .eq-line-tab {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 7px 2px;
+    font-size: 11px;
+    line-height: 1.2;
+    text-align: center;
+    white-space: nowrap;
+}
+
 .bidding-col-sub {
     padding: 6px 10px;
     font-size: 11px;
@@ -191,40 +249,61 @@ body.admin-bidding-page .container.bidding-page {
 }
 
 .pr-list {
-    display: grid;
-    gap: 6px;
-    /* Keep rows content-sized; one PR must not stretch into a tall "tab" */
+    display: flex;
+    flex-direction: column;
+    gap: 0;
     align-content: start;
-    grid-auto-rows: max-content;
 }
 
-.pr-item {
-    border: 1px solid var(--ice-border-soft, #c5dce9);
-    border-radius: 9px;
-    padding: 8px 9px;
-    background: var(--ice-surface, #f7fbff);
+.pr-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.7fr) minmax(0, 1.1fr);
+    align-items: center;
+    column-gap: 10px;
+    width: 100%;
+    margin: 0;
+    padding: 14px 12px;
+    min-height: 46px;
+    border: none;
+    border-bottom: 1px solid var(--ice-border-soft, #c5dce9);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
     cursor: pointer;
-    transition: border-color 0.15s, box-shadow 0.15s;
+    text-align: left;
+    font: inherit;
+    color: inherit;
     height: auto;
-    align-self: start;
+    align-self: stretch;
 }
 
-.pr-item:hover {
-    border-color: var(--ice-accent, #3b8fc4);
-    box-shadow: 0 2px 8px var(--ice-shadow, rgba(30, 80, 120, 0.12));
+.pr-row:hover {
+    background: var(--ice-surface-alt, #eef6fc);
 }
 
-.pr-item.active {
-    border-color: var(--ice-accent, #3b8fc4);
-    background: linear-gradient(180deg, #fff 0%, var(--ice-accent-soft, #dbeafe) 100%);
-    box-shadow: inset 0 0 0 1px rgba(59, 143, 196, 0.25);
+.pr-row.active {
+    background: var(--ice-accent-soft, #dbeafe);
 }
 
-.pr-item .title {
+.pr-row__code {
+    min-width: 0;
     font-weight: 700;
     font-size: 12px;
     line-height: 1.2;
     color: var(--ice-heading, #1a4d6e);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pr-row__status,
+.pr-row__supplier {
+    min-width: 0;
+    font-size: 12px;
+    color: var(--ice-text-muted, #5a7a94);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .toolbar {
@@ -263,6 +342,36 @@ body.admin-bidding-page .container.bidding-page {
 .btn:disabled {
     opacity: 0.55;
     cursor: not-allowed;
+}
+
+.bidding-reload-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--ice-accent-hover, #2d74a3);
+    cursor: pointer;
+    flex: 0 0 auto;
+}
+
+.bidding-reload-btn:hover {
+    background: var(--ice-accent-soft, #dbeafe);
+}
+
+.bidding-reload-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.bidding-reload-btn__svg {
+    width: 18px;
+    height: 18px;
+    display: block;
 }
 
 .invite-help {
@@ -403,6 +512,154 @@ body.admin-bidding-page .container.bidding-page {
 
 .bid-col-lead {
     width: 44px;
+}
+
+.bid-col-remark {
+    width: 52px;
+}
+
+.bid-card .bid-td-remark {
+    text-align: center;
+    white-space: nowrap;
+    padding-left: 4px;
+    padding-right: 4px;
+}
+
+.bid-remark-empty {
+    color: #8aa0b3;
+}
+
+.bid-remark-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid #b7d0e2;
+    border-radius: 4px;
+    background: #eef6fb;
+    color: #1a4d6e;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.bid-remark-btn:hover,
+.bid-remark-btn:focus-visible {
+    background: #d9ecf8;
+    border-color: #7fb0d0;
+    outline: none;
+    z-index: 5;
+}
+
+.bid-remark-btn svg {
+    width: 13px;
+    height: 13px;
+}
+
+.bid-remark-tooltip {
+    display: none;
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 6px);
+    min-width: 140px;
+    max-width: 260px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid #c5d9e8;
+    background: #1a4d6e;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.35;
+    text-align: left;
+    white-space: pre-wrap;
+    word-break: break-word;
+    box-shadow: 0 6px 16px rgba(18, 42, 64, 0.2);
+    pointer-events: none;
+    z-index: 6;
+}
+
+.bid-remark-btn:hover .bid-remark-tooltip,
+.bid-remark-btn:focus-visible .bid-remark-tooltip {
+    display: block;
+}
+
+.bid-remark-modal[hidden] {
+    display: none !important;
+}
+
+.bid-remark-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+
+.bid-remark-modal__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(18, 42, 64, 0.45);
+}
+
+.bid-remark-modal__panel {
+    position: relative;
+    z-index: 1;
+    width: min(420px, 100%);
+    max-height: min(70vh, 480px);
+    overflow: auto;
+    background: #fff;
+    border: 1px solid #c5d9e8;
+    border-radius: 8px;
+    box-shadow: 0 12px 32px rgba(18, 42, 64, 0.18);
+    padding: 14px 16px 16px;
+}
+
+.bid-remark-modal__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.bid-remark-modal__head h3 {
+    margin: 0;
+    font-size: 15px;
+    color: #1a4d6e;
+}
+
+.bid-remark-modal__close {
+    border: none;
+    background: transparent;
+    color: #5a7a94;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 2px;
+}
+
+.bid-remark-modal__item {
+    font-size: 12px;
+    margin-bottom: 10px;
+    word-break: break-word;
+}
+
+.bid-remark-modal__body {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 14px;
+    line-height: 1.45;
+    color: #1f2f3d;
+    background: #f5f9fc;
+    border: 1px solid #d7e6f1;
+    border-radius: 6px;
+    padding: 10px 12px;
+    min-height: 48px;
 }
 
 .bid-card .bid-td-item {
@@ -654,9 +911,9 @@ body.admin-bidding-page .container.bidding-page {
         grid-auto-rows: max-content !important;
     }
 
-    body.admin-bidding-page .pr-item {
+    body.admin-bidding-page .pr-row {
         height: auto !important;
-        align-self: start !important;
+        align-self: stretch !important;
     }
 
     body.admin-bidding-page .bidding-col[aria-label="Supplier cost comparison"] {

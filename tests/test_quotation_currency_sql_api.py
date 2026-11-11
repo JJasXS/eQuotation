@@ -83,6 +83,80 @@ def test_format_currency_display_keeps_dashes():
     assert _format_currency_display_value("----") == "----"
 
 
+@patch("utils.sql_api_customer._firebird_customer_currency", return_value="SGD")
+@patch("utils.sql_api_customer.sql_api_currency_and_code")
+def test_apply_keeps_session_code_and_firebird_currency_when_sql_empty(mock_sql_api, _mock_fb):
+    mock_sql_api.return_value = {"code": "OTHER", "currencycode": "", "httpStatus": "401"}
+    out = apply_sql_api_currency_to_customer_payload(
+        {"CODE": "OLD", "CURRENCYCODE": "MYR"},
+        CUSTOMER,
+    )
+    assert out["CODE"] == CUSTOMER
+    assert out["sqlApiCustomerCode"] == CUSTOMER
+    assert out["sqlApiCurrencyCode"] == "SGD"
+    assert out["customerScalars"]["code"] == CUSTOMER
+
+
+@patch("utils.sql_api_customer._firebird_customer_currency", return_value="SGD")
+@patch("utils.sql_api_customer.sql_api_currency_and_code")
+def test_apply_sql_currency_wins_over_firebird(mock_sql_api, _mock_fb):
+    mock_sql_api.return_value = {"code": "OTHER", "currencycode": "----", "httpStatus": "200"}
+    out = apply_sql_api_currency_to_customer_payload({"CODE": "OLD"}, CUSTOMER)
+    assert out["CODE"] == CUSTOMER
+    assert out["sqlApiCurrencyCode"] == "----"
+    _mock_fb.assert_not_called()
+
+
+@patch("utils.sql_api_customer._firebird_customer_currency", return_value="")
+@patch("utils.sql_api_customer.sql_api_currency_and_code")
+def test_apply_leaves_currency_empty_when_both_sources_miss(mock_sql_api, _mock_fb):
+    mock_sql_api.return_value = {"code": "", "currencycode": "", "httpStatus": "404"}
+    out = apply_sql_api_currency_to_customer_payload({}, "")
+    assert out.get("CODE", "") == ""
+    assert out["sqlApiCurrencyCode"] == ""
+
+
+def test_unreachable_sql_api_does_not_raise_and_keeps_customer_code(monkeypatch):
+    from api.clients import SqlAccountingApiError
+
+    class _Settings:
+        access_key = "configured"
+        secret_key = "configured"
+        timeout_seconds = 12
+
+    class _Client:
+        def get_json(self, url, timeout_seconds=None, **_kwargs):
+            raise SqlAccountingApiError("connection refused", status_code=None, response_body=None)
+
+    monkeypatch.setattr(
+        "utils.sql_api_customer.load_sql_accounting_api_settings",
+        lambda: _Settings(),
+    )
+    monkeypatch.setattr("utils.sql_api_customer.SqlAccountingApiClient", lambda settings: _Client())
+    monkeypatch.setattr("utils.sql_api_customer._customer_detail_urls", lambda code: ["http://127.0.0.1/customer"])
+    monkeypatch.setattr("utils.sql_api_customer._firebird_customer_currency", lambda code: "")
+
+    out = apply_sql_api_currency_to_customer_payload({"COMPANYNAME": "YHY"}, CUSTOMER)
+    assert out["CODE"] == CUSTOMER
+    assert out["sqlApiCustomerCode"] == CUSTOMER
+    assert out["sqlApiCurrencyCode"] == ""
+
+
+def test_apply_uses_supplied_sql_fields_without_another_request(monkeypatch):
+    def _fail(_code):
+        raise AssertionError("SQL customer GET must not run again")
+
+    monkeypatch.setattr("utils.sql_api_customer.sql_api_currency_and_code", _fail)
+    monkeypatch.setattr("utils.sql_api_customer._firebird_customer_currency", lambda code: "SGD")
+    out = apply_sql_api_currency_to_customer_payload(
+        {"COMPANYNAME": "YHY"},
+        CUSTOMER,
+        sql_fields={"code": "OTHER", "currencycode": "", "httpStatus": ""},
+    )
+    assert out["CODE"] == CUSTOMER
+    assert out["sqlApiCurrencyCode"] == "SGD"
+
+
 @patch("utils.sql_api_customer.sql_api_currency_and_code")
 def test_apply_sql_api_currency_overwrites_legacy_myr(mock_sql_api):
     mock_sql_api.return_value = {"code": CUSTOMER, "currencycode": "----", "httpStatus": "200"}

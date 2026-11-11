@@ -14,6 +14,9 @@ body.view-quotation-page {
     background: var(--ice-bg, #e3f2fa);
     color: var(--ice-text, #1e3a52);
     min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: auto;
+    -moz-osx-font-smoothing: auto;
 }
 
 body.view-quotation-page .container {
@@ -212,7 +215,7 @@ body.view-quotation-page .tab-content.active {
 }
 
 .view-qt-list-card__docno {
-    font-weight: 700;
+    font-weight: 600;
     font-size: 13px;
     color: #4f3a1f;
     word-break: break-word;
@@ -368,7 +371,7 @@ body.view-quotation-page .tab-content.active {
 .view-qt-detail-doc__total {
     flex-shrink: 0;
     font-size: 14px;
-    font-weight: 800;
+    font-weight: 600;
     color: #fff;
     padding: 6px 12px;
     border-radius: 8px;
@@ -441,9 +444,9 @@ body.view-quotation-page .tab-content.active {
     margin: 0 0 6px;
     padding: 0 2px;
     font-size: 10px;
-    font-weight: 700;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.07em;
+    letter-spacing: 0.02em;
     color: #8a7a62;
 }
 
@@ -521,7 +524,7 @@ body.view-quotation-page .tab-content.active {
 .view-quotation-detail-title {
     margin: 0;
     font-size: 1.2rem;
-    font-weight: 800;
+    font-weight: 600;
     color: #3d2a14;
     line-height: 1.2;
 }
@@ -539,7 +542,7 @@ body.view-quotation-page .tab-content.active {
     font-weight: 600;
     font-size: 10px;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.02em;
     border-bottom: 1px solid var(--ice-border, #b8d4e8);
     background: #f8f0e0;
 }

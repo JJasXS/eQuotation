@@ -8,7 +8,7 @@ def test_detail_suppliers_prefers_awarded_over_invites(monkeypatch):
     )
     monkeypatch.setattr(
         "main._list_selected_suppliers",
-        lambda _rid: [
+        lambda _rid, request_no=None, enrich=True: [
             {"code": "400-P0001", "name": "PROACC", "email": "a@proacc.com"},
             {"code": "400-J0001", "name": "JASON CORP", "email": "b@jason.com"},
         ],
@@ -27,7 +27,10 @@ def test_detail_suppliers_falls_back_to_invites_when_no_award(monkeypatch):
         {"code": "400-P0001", "name": "PROACC", "email": ""},
         {"code": "400-J0001", "name": "JASON CORP", "email": ""},
     ]
-    monkeypatch.setattr("main._list_selected_suppliers", lambda _rid: invites)
+    monkeypatch.setattr(
+        "main._list_selected_suppliers",
+        lambda _rid, request_no=None, enrich=True: invites,
+    )
     monkeypatch.setattr("main._enrich_supplier_display_rows", lambda rows: rows)
 
     out = _list_detail_suppliers_for_request(58)

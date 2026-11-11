@@ -398,6 +398,61 @@ def _ensure_chat_tpl_message_columns(conn):
         cur.close()
 
 
+def _ensure_st_item_udf_direct_checkbox(conn):
+    """Let SQL Accounting turn ST_ITEM.UDF_DIRECT on.
+
+    The column is a Firebird BOOLEAN. A NULL value makes the stock-item checkbox
+    throw "Could not convert variant of type (Null) into type (Double)".
+    FALSE is unchecked and can be switched to TRUE. The report reads IS TRUE.
+    """
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT F.RDB$FIELD_TYPE
+            FROM RDB$RELATION_FIELDS RF
+            JOIN RDB$FIELDS F ON F.RDB$FIELD_NAME = RF.RDB$FIELD_SOURCE
+            WHERE TRIM(RF.RDB$RELATION_NAME) = 'ST_ITEM'
+              AND TRIM(RF.RDB$FIELD_NAME) = 'UDF_DIRECT'
+            """
+        )
+        row = cur.fetchone()
+        if not row or int(row[0] or 0) != 23:
+            print("[DB INIT] ST_ITEM.UDF_DIRECT is not a Firebird boolean; checkbox ensure skipped")
+            return False
+
+        cur.execute("UPDATE ST_ITEM SET UDF_DIRECT = FALSE WHERE UDF_DIRECT IS NULL")
+        conn.commit()
+        try:
+            cur.execute("DROP TRIGGER TRG_ST_ITEM_UDF_DIRECT_BOOL")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+        cur.execute(
+            """
+            CREATE TRIGGER TRG_ST_ITEM_UDF_DIRECT_BOOL FOR ST_ITEM
+            ACTIVE BEFORE INSERT OR UPDATE POSITION 0
+            AS
+            BEGIN
+              IF (NEW.UDF_DIRECT IS NULL) THEN
+                NEW.UDF_DIRECT = FALSE;
+            END
+            """
+        )
+        conn.commit()
+        print("[DB INIT] ST_ITEM.UDF_DIRECT nulls set to FALSE so the checkbox can be turned on")
+        return True
+    except Exception as exc:
+        print(f"[DB INIT WARNING] UDF_DIRECT checkbox ensure skipped: {exc}")
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return False
+    finally:
+        cur.close()
+
+
 def _ensure_st_item_udf_uom_column(conn):
     """Ensure ST_ITEM table has UDF_UOM column for quotation item UOM lookups."""
     cur = conn.cursor()
@@ -1944,6 +1999,42 @@ def _ensure_ph_po_approval_slot_columns(conn):
         cur.close()
 
 
+def _ensure_ph_pqdtl_supplier_udf_columns(conn):
+    """Ensure PH_PQDTL.UDF_SUPCODE / UDF_SUPNAME for per-line awarded suppliers (no PR split)."""
+    if not _relation_exists(conn, "PH_PQDTL"):
+        print("[DB INIT] PH_PQDTL not found; line supplier UDF ensure skipped")
+        return False
+
+    cur = conn.cursor()
+    try:
+        for col, width in (("UDF_SUPCODE", 40), ("UDF_SUPNAME", 200)):
+            cur.execute(
+                """
+                SELECT f.RDB$FIELD_NAME
+                FROM RDB$RELATION_FIELDS f
+                WHERE f.RDB$RELATION_NAME = 'PH_PQDTL' AND f.RDB$FIELD_NAME = ?
+                """,
+                (col,),
+            )
+            if cur.fetchone():
+                print(f"[DB INIT] {col} column already exists in PH_PQDTL")
+                continue
+            conn.commit()
+            cur.execute(f"ALTER TABLE PH_PQDTL ADD {col} VARCHAR({width})")
+            conn.commit()
+            print(f"[DB INIT] {col} column added to PH_PQDTL")
+        return True
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "already exists" in error_msg or "duplicate" in error_msg:
+            print("[DB INIT] PH_PQDTL line supplier UDF columns already exist")
+            return True
+        print(f"[DB INIT WARNING] Could not add PH_PQDTL line supplier UDFs: {e}")
+        return False
+    finally:
+        cur.close()
+
+
 def _ensure_ph_pq_status_trigger(conn):
     """Trigger on PH_PQ that enforces UDF_PQAPPROVED based on UDF_STATUS.
 
@@ -2419,6 +2510,7 @@ def initialize_database(db_path, db_user, db_password):
 
         # Ensure ST_ITEM has UDF_UOM for quotation item lookup queries
         _ensure_st_item_udf_uom_column(conn)
+        _ensure_st_item_udf_direct_checkbox(conn)
         
         # One-time backfill from AR_CUSTOMERBRANCH.EMAIL to AR_CUSTOMER.UDF_EMAIL
         _backfill_udf_email_from_branch_email(conn)
@@ -2477,6 +2569,7 @@ def initialize_database(db_path, db_user, db_password):
         # Ensure PH_PQ status/approval triggers exist
         _ensure_ph_pq_status_trigger(conn)
         _ensure_ph_pqdtl_defaults_trigger(conn)
+        _ensure_ph_pqdtl_supplier_udf_columns(conn)
 
         # Ensure supplier bidding tables exist
         _ensure_procurement_bidding_tables(conn)

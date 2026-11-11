@@ -9,5 +9,4 @@ ENDPOINT_PATHS = {
     "getorderdetails": "/php/getOrderDetails.php",
     "updateorderdetail": "/php/updateOrderDetail.php",
     "insertorderdetail": "/php/insertOrderDetail.php",
-    "getcompanynames": "/php/getCompanyNames.php",
 }

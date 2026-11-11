@@ -22,15 +22,9 @@
 
     <link rel="stylesheet" href="/static/css/adminViewQuotations.css?v=20260430">
 
-    <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260810_tabs_phone_v3">
-    <link rel="stylesheet" href="/static/css/precurement.css?v=20260814_view_pr_declutter2">
+    <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20261029_pr_menubar_pad">
+    <link rel="stylesheet" href="/static/css/precurement.css?v=20261105_draft_table_footer">
     <style id="pr-report-phone-layout">
-    /* Report settings: phone drawer (slides in from right) */
-    .stock-report-settings-bar,
-    .stock-report-settings-drawer-head,
-    .stock-report-settings-backdrop {
-      display: none;
-    }
     @media (max-width: 900px) {
       body.procurement-warm-ui .procurement-module-tabs.eq-line-tabs {
         flex-wrap: nowrap !important;
@@ -44,202 +38,15 @@
         font-size: 12px !important;
         white-space: nowrap !important;
       }
-
-      #panel-report .stock-report-settings-bar {
-        display: block !important;
-        width: 100%;
-        margin: 0 0 8px;
-        box-sizing: border-box;
-      }
-      #panel-report .stock-report-settings-open-btn {
-        display: block;
-        width: 100%;
-        box-sizing: border-box;
-        border: 1px solid #b8d4e8;
-        background: #3b8fc4;
-        color: #fff;
-        border-radius: 10px;
-        padding: 11px 14px;
-        font-size: 14px;
-        font-weight: 600;
-        cursor: pointer;
-        text-align: center;
-      }
-
-      #panel-report .stock-report-settings-backdrop {
-        display: none;
-        position: fixed;
-        inset: 0;
-        z-index: 2400;
-        background: rgba(20, 40, 60, 0.45);
-        border: none;
-        padding: 0;
-        margin: 0;
-      }
-      #panel-report .stock-report-settings-backdrop.is-open {
-        display: block !important;
-      }
-
-      #panel-report .stock-report-settings-drawer-head {
-        display: flex !important;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        margin: 0 0 12px;
-        padding: 0 0 10px;
-        border-bottom: 1px solid #d5e6f2;
-        flex: 0 0 auto !important;
-        width: 100% !important;
-      }
-      #panel-report .stock-report-settings-drawer-head strong {
-        font-size: 15px;
-        color: #1a4d6e;
-      }
-      #panel-report .stock-report-settings-close-btn {
-        border: 1px solid #b8d4e8;
-        background: #eef6fc;
-        color: #1a4d6e;
-        width: 2.25rem;
-        height: 2.25rem;
-        border-radius: 8px;
-        font-size: 1.35rem;
-        line-height: 1;
-        cursor: pointer;
-      }
-
-      #panel-report .location-filter-shell.location-filter-shell--below-cutoff {
-        position: fixed !important;
-        top: 0 !important;
-        right: 0 !important;
-        bottom: 0 !important;
-        left: auto !important;
-        width: min(100vw, 22.5rem) !important;
-        max-width: 100vw !important;
-        height: 100vh !important;
-        height: 100dvh !important;
-        margin: 0 !important;
-        padding: 14px 14px 24px !important;
-        overflow-x: hidden !important;
-        overflow-y: auto !important;
-        z-index: 2401 !important;
-        border-radius: 14px 0 0 14px !important;
-        box-shadow: -8px 0 28px rgba(20, 40, 60, 0.22) !important;
-        background: #f7fbff !important;
-        border: 1px solid #b8d4e8 !important;
-        border-right: none !important;
-        transform: translateX(105%) !important;
-        transition: transform 0.28s ease !important;
-        -webkit-overflow-scrolling: touch;
-        box-sizing: border-box !important;
-        display: flex !important;
-        flex-direction: column !important;
-        gap: 0 !important;
-      }
-      #panel-report .location-filter-shell.location-filter-shell--below-cutoff.is-open {
-        transform: translateX(0) !important;
-      }
-      body.stock-report-settings-drawer-open {
-        overflow: hidden !important;
-      }
-
-      #panel-report .location-filter-shell--below-cutoff .location-filter-locations {
-        display: flex !important;
-        flex-direction: column !important;
-        flex-wrap: nowrap !important;
-        align-items: stretch !important;
-        gap: 12px !important;
-        width: 100% !important;
-      }
-      #panel-report .location-filter-shell--below-cutoff .location-filter-locations__main,
-      #panel-report .location-filter-shell--below-cutoff .location-filter-locations__settings,
-      #panel-report .location-filter-shell--below-cutoff .stock-column-filter-panel,
-      #panel-report .location-filter-shell--below-cutoff .stock-report-advanced-settings,
-      #panel-report .location-filter-shell--below-cutoff .stock-report-settings-group,
-      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip,
-      #panel-report .stock-dashboard-cutoff-strip__left,
-      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip__main {
-        display: flex !important;
-        flex-direction: column !important;
-        flex-wrap: nowrap !important;
-        align-items: stretch !important;
-        width: 100% !important;
-        max-width: 100% !important;
-        min-width: 0 !important;
-        flex: 0 0 auto !important;
-        margin-left: 0 !important;
-        margin-right: 0 !important;
-        padding-left: 0 !important;
-        border-left: none !important;
-        box-sizing: border-box !important;
-      }
-      #panel-report .stock-column-filter-chips {
-        display: grid !important;
-        grid-template-columns: 1fr 1fr !important;
-        gap: 8px 12px !important;
-        width: 100% !important;
-      }
-      #panel-report .stock-card-uom-toggle {
-        display: flex !important;
-        flex-direction: column !important;
-        align-items: stretch !important;
-        width: 100% !important;
-        box-sizing: border-box !important;
-        gap: 8px !important;
-        padding: 8px 10px !important;
-      }
-      #panel-report .stock-card-uom-option {
-        width: 100% !important;
-        justify-content: flex-start !important;
-      }
-      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip {
-        justify-content: stretch !important;
-        background: transparent !important;
-        border: none !important;
-        box-shadow: none !important;
-        padding: 0 !important;
-        margin: 4px 0 0 0 !important;
-      }
-      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip .location-filter-date-field {
-        display: flex !important;
-        flex-direction: column !important;
-        width: 100% !important;
-        max-width: none !important;
-        margin: 0 !important;
-        gap: 4px !important;
-      }
-      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip .location-filter-date-field input,
-      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip .location-filter-date-field input[type="date"] {
-        display: block !important;
-        width: 100% !important;
-        min-width: 0 !important;
-        max-width: none !important;
-        box-sizing: border-box !important;
-      }
-      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip__date-actions {
-        display: flex !important;
-        flex-direction: column !important;
-        align-items: stretch !important;
-        width: 100% !important;
-        gap: 8px !important;
-      }
-      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip__date-actions .view-pr-refresh-btn,
-      #panel-report .location-filter-shell--below-cutoff .stock-dashboard-cutoff-strip__date-actions .location-buy-btn {
-        display: block !important;
-        width: 100% !important;
-        box-sizing: border-box !important;
-        text-align: center !important;
-        padding: 10px 12px !important;
-        font-size: 13px !important;
-      }
     }
     </style>
 
-    <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260814_view_pr_declutter2">
+    <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20261105_draft_table_align">
 
-    <script src="/static/js/eq_core.js?v=20260813_core"></script>
+    <script src="/static/js/eq_core.js?v=20261029_csrf1"></script>
 </head>
 
-<body class="equotation-icy-theme procurement-warm-ui{% if perm_hide_pr_transfer | default(false) %} procurement-hide-transfer{% endif %}{% if perm_hide_pr_approval_edits | default(false) %} procurement-hide-pr-approval-edits{% endif %}">
+<body class="equotation-icy-theme procurement-warm-ui{% if perm_hide_pr_transfer | default(false) %} procurement-hide-transfer{% endif %}{% if perm_hide_pr_approval_edits | default(false) %} procurement-hide-pr-approval-edits{% endif %}{% if perm_hide_pr_awaiting_tab | default(false) %} procurement-hide-pr-awaiting{% endif %}">
 
     <div class="container procurement-warm-container">
 
@@ -291,97 +98,61 @@
 
                                                                         <div class="stock-dashboard-report-pane">
 
-                                        <div class="stock-report-settings-bar" id="stock-report-settings-bar">
-                                            <button type="button" class="stock-report-settings-open-btn" id="stock-report-settings-open" aria-controls="stock-report-settings-panel" aria-expanded="false" onclick="openStockReportSettingsDrawer()">
-                                                Report settings
-                                            </button>
-                                        </div>
+                                        <div class="stock-report-filter-bar" id="stock-report-settings-panel" aria-label="Report filters">
 
-                                        <div class="stock-report-settings-backdrop" id="stock-report-settings-backdrop" hidden onclick="closeStockReportSettingsDrawer()"></div>
+                                            <div class="stock-report-filter-bar__row stock-report-filter-bar__row--controls">
 
-                                        <div class="location-filter-shell location-filter-shell--below-cutoff" id="stock-report-settings-panel" role="dialog" aria-modal="true" aria-labelledby="stock-report-settings-title">
-
-                                            <div class="stock-report-settings-drawer-head">
-                                                <strong id="stock-report-settings-title">Report settings</strong>
-                                                <button type="button" class="stock-report-settings-close-btn" id="stock-report-settings-close" aria-label="Close settings" onclick="closeStockReportSettingsDrawer()">×</button>
-                                            </div>
-
-                                            <div class="location-filter-locations">
-
-                                                <div class="location-filter-locations__main">
-
-                                                    <div class="location-filter-row location-filter-row--stack">
-
-                                                        <span class="location-filter-label">Selected</span>
-
-                                                        <div id="selected-location-list" class="location-pill-list"></div>
-
+                                                <div class="stock-ms" id="stock-location-ms" data-stock-ms="location">
+                                                    <span class="stock-ms__field-label" id="stock-location-ms-label">Selected Locations</span>
+                                                    <button type="button" class="stock-ms__trigger" id="stock-location-ms-trigger" aria-labelledby="stock-location-ms-label" aria-haspopup="listbox" aria-expanded="false" onclick="toggleStockMultiSelect('location')">
+                                                        <span class="stock-ms__value" id="stock-location-ms-value">All locations (0)</span>
+                                                        <span class="stock-ms__caret" aria-hidden="true"></span>
+                                                    </button>
+                                                    <div class="stock-ms__menu" id="stock-location-ms-menu" hidden role="listbox" aria-multiselectable="true">
+                                                        <div class="stock-ms__toolbar">
+                                                            <button type="button" class="stock-ms__tool-btn" onclick="selectAllStockCardLocations()">Select All</button>
+                                                            <button type="button" class="stock-ms__tool-btn" onclick="clearAllStockCardLocations()">Clear</button>
+                                                        </div>
+                                                        <div class="stock-ms__options" id="stock-location-ms-options"></div>
                                                     </div>
-
-                                                    <div class="location-filter-row location-filter-row--stack">
-
-                                                        <span class="location-filter-label">Add</span>
-
-                                                        <div id="available-location-list" class="location-pill-list"></div>
-
-                                                    </div>
-
                                                 </div>
 
-                                                <div class="location-filter-locations__settings">
-
-                                                    <div id="stock-column-filter-panel" class="stock-column-filter-panel">
-
-                                                        <div class="location-filter-row location-filter-row--stack">
-
-                                                            <span class="location-filter-label">Table columns</span>
-
-                                                            <div id="stock-column-filter-chips" class="stock-column-filter-chips" aria-label="Show or hide quantity columns in the stock table (summary row above is not filtered)"></div>
-
+                                                <div class="stock-ms" id="stock-column-ms" data-stock-ms="column">
+                                                    <span class="stock-ms__field-label" id="stock-column-ms-label">Table Columns</span>
+                                                    <button type="button" class="stock-ms__trigger" id="stock-column-ms-trigger" aria-labelledby="stock-column-ms-label" aria-haspopup="listbox" aria-expanded="false" onclick="toggleStockMultiSelect('column')">
+                                                        <span class="stock-ms__value" id="stock-column-ms-value">8 groups selected</span>
+                                                        <span class="stock-ms__caret" aria-hidden="true"></span>
+                                                    </button>
+                                                    <div class="stock-ms__menu" id="stock-column-ms-menu" hidden role="listbox" aria-multiselectable="true">
+                                                        <div class="stock-ms__toolbar">
+                                                            <button type="button" class="stock-ms__tool-btn" onclick="selectAllStockCardMetricGroups()">Select All</button>
+                                                            <button type="button" class="stock-ms__tool-btn" onclick="clearAllStockCardMetricGroups()">Clear</button>
                                                         </div>
-
-                                                        
-
+                                                        <div class="stock-ms__options" id="stock-column-filter-chips" aria-label="Show or hide quantity columns in the stock table"></div>
                                                     </div>
-
-                                                    <div id="stock-report-advanced-settings" class="stock-report-advanced-settings" aria-hidden="false">
-
-                                                        <div id="stock-report-qty-group" class="stock-report-settings-group">
-
-                                                            <div class="location-filter-row location-filter-row--stack">
-
-                                                                <span class="location-filter-label">Report qty</span>
-
-                                                                <div class="stock-card-uom-toggle" role="group" aria-label="Stock quantity columns">
-
-                                                                    <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="sqty_only" onchange="onStockCardUomDisplayChange(this)" /> SQTY only</label>
-
-                                                                    <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="suom_only" checked onchange="onStockCardUomDisplayChange(this)" /> SUOMQTY only</label>
-
-                                                                    <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="both" onchange="onStockCardUomDisplayChange(this)" /> SQTY + SUOMQTY</label>
-
-                                                                </div>
-
-                                                            </div>
-
-                                                        </div>
-                                                        </div>
-
                                                 </div>
 
-                                                <div class="stock-dashboard-cutoff-strip">
-                                                    <div class="stock-dashboard-cutoff-strip__left">
-                                                        <div class="location-filter-main stock-dashboard-cutoff-strip__main">
-                                                                <label class="pr-field location-filter-date-field">
-                                                                    <span class="location-filter-label">Cutoff date</span>
-                                                                    <input type="date" id="stock-card-from-date" aria-label="Cutoff date" title="Cutoff date" />
-                                                                </label>
-                                                                <div class="stock-dashboard-cutoff-strip__date-actions">
-                                                                    <button type="button" class="view-pr-refresh-btn" onclick="applyStockCardDateFilter()">Apply Cutoff</button>
-                                                                    <button type="button" class="view-pr-refresh-btn" onclick="clearStockCardDateFilter()">Clear Cutoff</button>
-                                                                    <button type="button" class="location-buy-btn" onclick="goToCreateProcurement()">New e-Purchase Request</button>
-                                                                </div>
-                                                        </div>
+                                                <div class="stock-report-filter-field stock-report-filter-field--uom" id="stock-report-qty-group">
+                                                    <span class="stock-ms__field-label">Report Qty</span>
+                                                    <div class="stock-card-uom-toggle stock-card-uom-toggle--segmented" role="group" aria-label="Stock quantity columns">
+                                                        <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="sqty_only" onchange="onStockCardUomDisplayChange(this)" /><span>SQTY only</span></label>
+                                                        <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="suom_only" checked onchange="onStockCardUomDisplayChange(this)" /><span>SUOMQTY only</span></label>
+                                                        <label class="stock-card-uom-option"><input type="radio" name="stock-card-uom-col" value="both" onchange="onStockCardUomDisplayChange(this)" /><span>SQTY + SUOMQTY</span></label>
+                                                    </div>
+                                                </div>
+
+                                                <div class="stock-report-filter-field stock-report-filter-field--cutoff">
+                                                    <span class="stock-ms__field-label">Cutoff Date</span>
+                                                    <div class="stock-report-cutoff-inline" role="group" aria-label="Cutoff date filter">
+                                                        <label class="pr-field location-filter-date-field" for="stock-card-from-date">
+                                                            <span class="visually-hidden">Cutoff date</span>
+                                                            <input type="date" id="stock-card-from-date" aria-label="Cutoff date" title="Cutoff date" />
+                                                        </label>
+                                                        <button type="button" class="view-pr-refresh-btn" onclick="applyStockCardDateFilter()">Apply Cutoff</button>
+                                                        <button type="button" class="view-pr-icon-btn view-pr-refresh-btn--ghost stock-report-cutoff-refresh" onclick="clearStockCardDateFilter()" title="Clear cutoff and refresh" aria-label="Clear cutoff and refresh">
+                                                            <svg class="view-pr-icon-btn__svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.1A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+                                                        </button>
+                                                        <button type="button" class="location-buy-btn" onclick="goToCreateProcurement()">New e-Purchase Request</button>
                                                     </div>
                                                 </div>
 
@@ -411,7 +182,7 @@
 
                                                     <tr>
 
-                                                        <th class="code-col">ST_ITEM.CODE</th>
+                                                        <th class="code-col">ITEM CODE</th>
 
                                                         <th class="qty-col">Quantity on Hand</th>
 
@@ -525,29 +296,39 @@
 
                             <div class="admin-quotations-view" style="padding: 0;">
 
-                                <div class="quotation-page-header pr-view-page-header pr-view-page-header--compact">
+                                <div class="quotation-page-header quotation-page-header--compact pr-view-page-header pr-view-page-header--compact">
                                     <div class="pr-view-toolbar">
-                                        <h2 class="pr-view-page-title">Purchase Requests</h2>
-                                        <nav class="eq-line-tabs pr-view-filter-tabs" id="view-pr-filter-tabs" role="tablist" aria-label="Filter by approval status">
-                                            <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="DRAFT" aria-selected="false" onclick="toggleViewStatusFilter('DRAFT')">Draft</button>
-                                            <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="AWAITING" aria-selected="false" onclick="toggleViewStatusFilter('AWAITING')">Awaiting Approval</button>
-                                            <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab is-active" data-status="PENDING" aria-selected="true" onclick="toggleViewStatusFilter('PENDING')">Pending</button>
-                                            <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="APPROVED" aria-selected="false" onclick="toggleViewStatusFilter('APPROVED')">Approved</button>
-                                            <button type="button" role="tab" class="eq-line-tab view-pr-filter-tab" data-status="CANCELLED" aria-selected="false" onclick="toggleViewStatusFilter('CANCELLED')">Cancelled</button>
-                                        </nav>
-                                        <div class="pr-view-toolbar-actions view-pr-actions-right view-pr-actions-right--toolbar">
-                                            <button type="button" class="view-pr-refresh-btn view-pr-bulk-transfer-toggle" id="view-bulk-transfer-toggle" onclick="onBulkTransferToolbarClick()" aria-pressed="false" hidden title="Transfer selected lines on the open/checked PR(s) — same as Transfer to Purchase Order">Bulk Transfer to PO</button>
-                                            <button type="button" class="view-pr-refresh-btn view-pr-refresh-btn--ghost" id="view-bulk-consolidate-btn" onclick="toggleViewBulkTransferPanel(true)" hidden title="Combine lines from multiple approved PRs into one transfer workspace">Consolidate…</button>
-                                            <button type="button" class="view-pr-icon-btn view-pr-refresh-btn--ghost" onclick="loadViewPurchaseRequests(true, { bustCache: true })" title="Refresh list" aria-label="Refresh list">
-                                                <svg class="view-pr-icon-btn__svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.1A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
-                                            </button>
-                                            <button type="button" class="view-pr-refresh-btn view-pr-update-availability-btn" hidden aria-hidden="true" id="view-pr-update-btn" onclick="saveViewDetailApprovals()" disabled title="Check and update item availability before transferring this PR.">Update</button>
-                                        </div>
-                                    </div>
-                                    <div id="view-pr-bulk-pending-bar" class="view-pr-bulk-pending-bar" hidden>
-                                        <span id="view-pr-bulk-selection-count" class="view-pr-bulk-selection-count">No PRs selected.</span>
-                                        <div class="view-pr-bulk-pending-bar__actions">
-                                            <button type="button" class="view-pr-refresh-btn view-pr-bulk-btn view-pr-bulk-btn--primary" id="view-pr-bulk-approve-btn" onclick="viewPrBulkQueueApproveSelected()" disabled>Update selected</button>
+                                        <div class="pr-view-menubar-card">
+                                            <nav class="eq-line-tabs avq-status-tabs pr-view-filter-tabs" id="view-pr-filter-tabs" role="tablist" aria-label="Filter by approval status">
+                                                <button type="button" role="tab" class="eq-line-tab avq-status-tab view-pr-filter-tab" data-status="DRAFT" aria-selected="false" onclick="toggleViewStatusFilter('DRAFT')">
+                                                    <span class="avq-status-tab__label">Draft</span>
+                                                    <span class="avq-status-tab__badge" data-pr-tab-count="DRAFT">0</span>
+                                                </button>
+                                                {% if not (perm_hide_pr_awaiting_tab | default(false)) %}
+                                                <button type="button" role="tab" class="eq-line-tab avq-status-tab view-pr-filter-tab" data-status="AWAITING" aria-selected="false" onclick="toggleViewStatusFilter('AWAITING')">
+                                                    <span class="avq-status-tab__label">Awaiting Approval</span>
+                                                    <span class="avq-status-tab__badge" data-pr-tab-count="AWAITING">0</span>
+                                                </button>
+                                                {% endif %}
+                                                <button type="button" role="tab" class="eq-line-tab avq-status-tab view-pr-filter-tab is-active" data-status="PENDING" aria-selected="true" onclick="toggleViewStatusFilter('PENDING')">
+                                                    <span class="avq-status-tab__label">Pending</span>
+                                                    <span class="avq-status-tab__badge" data-pr-tab-count="PENDING">0</span>
+                                                </button>
+                                                <button type="button" role="tab" class="eq-line-tab avq-status-tab view-pr-filter-tab" data-status="APPROVED" aria-selected="false" onclick="toggleViewStatusFilter('APPROVED')">
+                                                    <span class="avq-status-tab__label">Approved</span>
+                                                    <span class="avq-status-tab__badge" data-pr-tab-count="APPROVED">0</span>
+                                                </button>
+                                                <button type="button" role="tab" class="eq-line-tab avq-status-tab view-pr-filter-tab" data-status="CANCELLED" aria-selected="false" onclick="toggleViewStatusFilter('CANCELLED')">
+                                                    <span class="avq-status-tab__label">Cancelled</span>
+                                                    <span class="avq-status-tab__badge" data-pr-tab-count="CANCELLED">0</span>
+                                                </button>
+                                            </nav>
+                                            <div class="pr-view-toolbar-actions view-pr-actions-right view-pr-actions-right--toolbar">
+                                                <button type="button" class="view-pr-icon-btn view-pr-refresh-btn--ghost" onclick="loadViewPurchaseRequests(true, { bustCache: true })" title="Refresh list" aria-label="Refresh list">
+                                                    <svg class="view-pr-icon-btn__svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.1A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+                                                </button>
+                                                <button type="button" class="view-pr-refresh-btn view-pr-update-availability-btn" hidden aria-hidden="true" id="view-pr-update-btn" onclick="saveViewDetailApprovals()" disabled title="Check and update item availability before transferring this PR.">Update</button>
+                                            </div>
                                         </div>
                                     </div>
                                     <p id="view-pr-list-perf" class="view-pr-list-perf view-pr-list-perf--inline" aria-live="polite" hidden></p>
@@ -562,33 +343,57 @@
                                             <div class="pr-view-left-search">
 
                                                 <div class="pr-view-left-search-top">
-                                                    <label class="pr-view-left-search-label" for="view-pr-search-input">Search PR</label>
-                                                    <label class="pr-view-left-bulk-select" id="view-pr-list-bulk-select-wrap" hidden title="Select all visible purchase requests">
+                                                    <h3 class="pr-view-left-title" id="view-pr-list-heading">PR List</h3>
+
+                                                    <div id="view-pr-bulk-pending-bar" class="view-pr-bulk-pending-bar pr-view-left-bulk-bar" hidden>
+                                                        <label class="pr-view-left-bulk-select" id="view-pr-list-bulk-select-wrap" hidden title="Select all visible purchase requests">
+                                                            <input
+                                                                type="checkbox"
+                                                                id="view-pr-list-bulk-select-all"
+                                                                aria-label="Select all purchase requests"
+                                                                onchange="onViewPrListBulkSelectAllChange(this)"
+                                                            />
+                                                            <span>Select all</span>
+                                                        </label>
+                                                        <div class="view-pr-bulk-pending-bar__actions" id="view-pr-list-bulk-actions">
+                                                            <button
+                                                                type="button"
+                                                                class="view-pr-refresh-btn view-pr-bulk-transfer-toggle pr-view-left-bulk-transfer view-pr-bulk-btn view-pr-bulk-btn--primary"
+                                                                id="view-bulk-transfer-toggle"
+                                                                onclick="onBulkTransferToolbarClick()"
+                                                                aria-pressed="false"
+                                                                hidden
+                                                                title="Transfer selected lines on the open/checked PR(s) — same as Transfer to Purchase Order"
+                                                            >Bulk Transfer to PO</button>
+                                                            <button
+                                                                type="button"
+                                                                class="view-pr-to-pending-btn view-pr-refresh-btn view-pr-bulk-btn view-pr-bulk-btn--primary"
+                                                                id="view-pr-bulk-approve-btn"
+                                                                onclick="viewPrBulkQueueApproveSelected()"
+                                                                disabled
+                                                                hidden
+                                                                title="Change selected PRs to Pending"
+                                                            >to Pending</button>
+                                                        </div>
+                                                        <span id="view-pr-bulk-selection-count" class="view-pr-bulk-selection-count" hidden aria-live="polite">0 selected</span>
+                                                    </div>
+
+                                                    <div class="pr-view-left-search-field">
+                                                        <span class="pr-view-left-search-icon" aria-hidden="true">
+                                                            <svg viewBox="0 0 24 24" width="15" height="15" focusable="false"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+                                                        </span>
+                                                        <label class="pr-view-left-search-label visually-hidden" for="view-pr-search-input">Search PR code</label>
                                                         <input
-                                                            type="checkbox"
-                                                            id="view-pr-list-bulk-select-all"
-                                                            aria-label="Select all purchase requests for bulk update"
-                                                            onchange="onViewPrListBulkSelectAllChange(this)"
+                                                            type="search"
+                                                            id="view-pr-search-input"
+                                                            class="view-pr-search-input pr-view-left-search-input"
+                                                            placeholder="Search PR code..."
+                                                            oninput="onViewPrSearchChange(this.value)"
+                                                            autocomplete="off"
+                                                            aria-labelledby="view-pr-list-heading"
                                                         />
-                                                        <span>Select all</span>
-                                                    </label>
+                                                    </div>
                                                 </div>
-
-                                                <input
-
-                                                    type="search"
-
-                                                    id="view-pr-search-input"
-
-                                                    class="view-pr-search-input pr-view-left-search-input"
-
-                                                    placeholder="PR code..."
-
-                                                    oninput="onViewPrSearchChange(this.value)"
-
-                                                    autocomplete="off"
-
-                                                />
 
                                             </div>
 
@@ -596,7 +401,7 @@
 
                                         <div class="pr-view-left-list-body">
 
-                                            <div class="pr-view-list-scroll view-pr-list view-pr-list--cards" id="view-pr-list">
+                                            <div class="pr-view-list-scroll view-pr-list view-pr-list--rows" id="view-pr-list">
 
                                                 <div class="view-pr-empty">Loading e-Purchase Request records...</div>
 
@@ -604,7 +409,7 @@
 
                                             <div id="view-pr-load-more-wrap" class="view-pr-load-more-wrap view-pr-load-more-wrap--footer" style="display: none;">
 
-                                                <button type="button" class="view-pr-refresh-btn view-pr-load-more-btn" id="view-pr-load-more-btn" onclick="loadMoreViewPurchaseRequests()">… more (+15)</button>
+                                                <button type="button" class="view-pr-refresh-btn view-pr-load-more-btn" id="view-pr-load-more-btn" onclick="loadMoreViewPurchaseRequests()">… more</button>
 
                                             </div>
 
@@ -1092,9 +897,11 @@
 
 <section class="pr-create-panel" aria-label="Invite suppliers">
 
-                                        <div class="pr-create-panel-head">
+                                        <div class="pr-create-panel-head pr-create-panel-head--invite">
 
                                             <h2 class="pr-create-panel-title">Invite suppliers</h2>
+
+                                            <span id="pr-supplier-selected-badge" class="pr-supplier-selected-badge" aria-live="polite">0 selected</span>
 
                                         </div>
 
@@ -1102,65 +909,77 @@
 
                                 <div class="pr-supplier-section pr-supplier-invite-card pr-supplier-invite-card--in-panel">
 
-                                    <p class="pr-supplier-invite-hint">Search and select suppliers to invite.</p>
-
                                     <div class="pr-supplier-invite-inner">
 
-                                        <div class="pr-supplier-add-row">
+                                        <div class="pr-supplier-block pr-supplier-block--add">
 
-                                            <input id="pr-supplier-search" type="text" placeholder="Search supplier…" autocomplete="off" />
+                                            <h3 class="pr-supplier-block-title">Add Suppliers</h3>
 
-                                            <div id="pr-supplier-dropdown" class="supplier-dropdown" style="display:none;"></div>
+                                            <p id="pr-supplier-load-error" class="pr-supplier-load-error" style="display:none;" role="alert"></p>
+
+                                            <div class="pr-supplier-add-row">
+
+                                                <input id="pr-supplier-search" type="text" placeholder="Select a supplier to invite..." autocomplete="off" />
+
+                                                <div id="pr-supplier-dropdown" class="supplier-dropdown" style="display:none;"></div>
+
+                                            </div>
 
                                         </div>
 
-                                        <div class="pr-supplier-table-wrap">
+                                        <div class="pr-supplier-block pr-supplier-block--selected" data-count="0">
 
-                                            <table class="pr-supplier-table pr-supplier-table--invite">
+                                            <h3 class="pr-supplier-block-title">Selected Suppliers (<span id="pr-supplier-selected-count">0</span>)</h3>
 
-                                                <colgroup>
+                                            <div class="pr-supplier-table-wrap">
 
-                                                    <col class="pr-sup-col-idx" span="1" />
+                                                <table class="pr-supplier-table pr-supplier-table--invite">
 
-                                                    <col class="pr-sup-col-code" span="1" />
+                                                    <colgroup>
 
-                                                    <col class="pr-sup-col-name" span="1" />
+                                                        <col class="pr-sup-col-idx" span="1" />
 
-                                                    <col class="pr-sup-col-email" span="1" />
+                                                        <col class="pr-sup-col-code" span="1" />
 
-                                                    <col class="pr-sup-col-action" span="1" />
+                                                        <col class="pr-sup-col-name" span="1" />
 
-                                                </colgroup>
+                                                        <col class="pr-sup-col-email" span="1" />
 
-                                                <thead>
+                                                        <col class="pr-sup-col-action" span="1" />
 
-                                                    <tr>
+                                                    </colgroup>
 
-                                                        <th>#</th>
+                                                    <thead>
 
-                                                        <th>Code</th>
+                                                        <tr>
 
-                                                        <th>Company</th>
+                                                            <th>#</th>
 
-                                                        <th>Email</th>
+                                                            <th>Code</th>
 
-                                                        <th class="pr-sup-th-action"></th>
+                                                            <th>Company</th>
 
-                                                    </tr>
+                                                            <th>Email</th>
 
-                                                </thead>
+                                                            <th class="pr-sup-th-action">Action</th>
 
-                                                <tbody id="pr-supplier-tbody">
+                                                        </tr>
 
-                                                    <tr id="pr-supplier-empty-row">
+                                                    </thead>
 
-                                                        <td colspan="5" class="pr-supplier-empty">No suppliers added. Search and select above.</td>
+                                                    <tbody id="pr-supplier-tbody">
 
-                                                    </tr>
+                                                        <tr id="pr-supplier-empty-row">
 
-                                                </tbody>
+                                                            <td colspan="5" class="pr-supplier-empty">No suppliers selected</td>
 
-                                            </table>
+                                                        </tr>
+
+                                                    </tbody>
+
+                                                </table>
+
+                                            </div>
 
                                         </div>
 
@@ -1228,6 +1047,16 @@
 
     </div>
 
+    <div id="pr-error-modal" class="pr-error-modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="pr-error-modal-title" aria-hidden="true">
+        <div class="pr-error-modal__backdrop" onclick="closePurchaseRequestErrorModal()"></div>
+        <div class="pr-error-modal__dialog">
+            <div class="pr-error-modal__icon" aria-hidden="true">!</div>
+            <h2 id="pr-error-modal-title" class="pr-error-modal__title">Attention</h2>
+            <p id="pr-error-modal-body" class="pr-error-modal__body"></p>
+            <button type="button" class="pr-error-modal__ok" id="pr-error-modal-ok" onclick="closePurchaseRequestErrorModal()">OK</button>
+        </div>
+    </div>
+
     <div id="pr-confirm-modal" class="pr-confirm-modal" hidden role="dialog" aria-modal="true" aria-labelledby="pr-confirm-modal-title">
         <div class="pr-confirm-modal__backdrop" onclick="resolveProcurementConfirmModal(false)"></div>
         <div class="pr-confirm-modal__dialog">
@@ -1248,7 +1077,7 @@
     <script src="/static/js/procurement/procurement_stock_card.js?v=20260813_extract"></script>
     <script src="/static/js/procurement/procurement_view_pr.js?v=20260813_extract"></script>
     <script src="/static/js/procurement/procurement_create_pr.js?v=20260813_extract"></script>
-    <script src="/static/js/procurement/precurement_app.js?v=20260814_view_pr_declutter2"></script>
+    <script src="/static/js/procurement/precurement_app.js?v=20261110_pr_form_message_clear"></script>
 
     <script src="/static/js/hamburger_menu.js"></script>
 

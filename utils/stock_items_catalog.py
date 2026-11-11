@@ -9,11 +9,16 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from typing import Any
 
 from api.clients import SqlAccountingApiClient, SqlAccountingApiError
 from api.config import load_sql_accounting_api_settings
-from utils.sql_query_helpers import fetch_stock_items
+from utils.sql_query_helpers import fetch_stock_item_by_code, fetch_stock_items
+
+_STOCK_DETAIL_CACHE: dict[str, tuple[float, dict[str, Any] | None]] = {}
+_STOCK_LIST_CACHE: tuple[float, list[dict[str, Any]] | None] | None = None
+_STOCK_CACHE_SECONDS = 60.0
 
 
 def _dedupe_by_stock_code(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -165,6 +170,10 @@ def fetch_stock_item_sql_api_by_code(code: str) -> dict[str, Any] | None:
     item_code = str(code or "").strip()
     if not item_code:
         return None
+    cache_key = item_code.upper()
+    cached = _STOCK_DETAIL_CACHE.get(cache_key)
+    if cached and (time.monotonic() - cached[0]) < _STOCK_CACHE_SECONDS:
+        return cached[1]
     settings = load_sql_accounting_api_settings()
     if settings.dry_run or not settings.access_key or not settings.secret_key:
         return None
@@ -176,11 +185,14 @@ def fetch_stock_item_sql_api_by_code(code: str) -> dict[str, Any] | None:
         status, parsed, raw = client.get_json(
             settings.resolved_stock_item_detail_url(item_code),
             timeout_seconds=float(
-                os.getenv("SQL_API_STOCK_ITEM_TIMEOUT_SECONDS") or settings.timeout_seconds
+                os.getenv("SQL_API_STOCK_ITEM_TIMEOUT_SECONDS") or "5"
             ),
+            max_attempts=1,
+            retry_transport=False,
         )
     except SqlAccountingApiError as exc:
         print(f"[stock_items_catalog] SQL API stock detail failed for {item_code!r}: {exc}", flush=True)
+        _STOCK_DETAIL_CACHE[cache_key] = (time.monotonic(), None)
         return None
     if status >= 400:
         snippet = (raw or "")[:300].replace("\n", " ")
@@ -188,8 +200,11 @@ def fetch_stock_item_sql_api_by_code(code: str) -> dict[str, Any] | None:
             f"[stock_items_catalog] SQL API stock detail HTTP {status} for {item_code!r}: {snippet}",
             flush=True,
         )
+        _STOCK_DETAIL_CACHE[cache_key] = (time.monotonic(), None)
         return None
-    return _parse_stock_detail_json(parsed)
+    parsed_row = _parse_stock_detail_json(parsed)
+    _STOCK_DETAIL_CACHE[cache_key] = (time.monotonic(), parsed_row)
+    return parsed_row
 
 
 def _try_fetch_stock_items_sql_api() -> list[dict[str, Any]] | None:
@@ -198,6 +213,10 @@ def _try_fetch_stock_items_sql_api() -> list[dict[str, Any]] | None:
     Returns [] when the list endpoint is configured but returned no rows (caller may fall back).
     Returns None when SQL stock list is not configured, dry-run, or the request failed.
     """
+    global _STOCK_LIST_CACHE
+    cached = _STOCK_LIST_CACHE
+    if cached and (time.monotonic() - cached[0]) < _STOCK_CACHE_SECONDS:
+        return cached[1]
     settings = load_sql_accounting_api_settings()
     if settings.dry_run:
         return None
@@ -212,7 +231,7 @@ def _try_fetch_stock_items_sql_api() -> list[dict[str, Any]] | None:
         status, parsed, raw = client.get_json(
             settings.resolved_stock_item_list_url(),
             timeout_seconds=float(
-                os.getenv("SQL_API_STOCK_ITEM_TIMEOUT_SECONDS") or settings.timeout_seconds
+                os.getenv("SQL_API_STOCK_ITEM_TIMEOUT_SECONDS") or "5"
             ),
         )
     except SqlAccountingApiError as exc:
@@ -224,8 +243,8 @@ def _try_fetch_stock_items_sql_api() -> list[dict[str, Any]] | None:
         print(f"[stock_items_catalog] SQL API stock list HTTP {status}: {snippet}", flush=True)
         return None
 
-    items = _parse_stock_list_json(parsed)
-    items = _dedupe_by_stock_code(items)
+    items = _dedupe_by_stock_code(_parse_stock_list_json(parsed))
+    _STOCK_LIST_CACHE = (time.monotonic(), items)
     return items
 
 
@@ -373,37 +392,53 @@ def stock_item_udf_fields_for_api(item: dict[str, Any] | None) -> dict[str, Any]
     return dict(stock_item_udf_fields_from_row(item))
 
 
-def _firebird_stock_row_for_code(item_code: str) -> dict[str, Any]:
-    """Load ST_ITEM row (all UDF_* columns) when SQL API catalog row is missing fields."""
+def _firebird_stock_row_for_code(item_code: str, db_cur: Any | None = None) -> dict[str, Any]:
+    """Load one ST_ITEM row by code when the SQL API row is missing fields."""
     code = str(item_code or "").strip()
     if not code:
         return {}
+    if db_cur is not None:
+        try:
+            return fetch_stock_item_by_code(db_cur, code) or {}
+        except Exception:
+            return {}
     try:
         from utils.db_utils import get_db_connection
-        from utils.sql_query_helpers import fetch_stock_items
 
         con = get_db_connection()
         cur = con.cursor()
-        rows = fetch_stock_items(cur)
-        cur.close()
-        con.close()
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            row_code = str(row.get("CODE") or "").strip()
-            if row_code.upper() == code.upper():
-                return row
+        try:
+            return fetch_stock_item_by_code(cur, code) or {}
+        finally:
+            cur.close()
+            con.close()
     except Exception:
-        pass
-    return {}
+        return {}
+
+
+def _merge_local_stock(
+    stock: dict[str, Any],
+    code: str,
+    *,
+    db_cur: Any | None = None,
+) -> dict[str, Any]:
+    """Fill gaps from the company file. Values already on the line stay."""
+    local = _firebird_stock_row_for_code(code, db_cur=db_cur)
+    if not local:
+        return stock
+    if not stock:
+        return local
+    return {**local, **stock}
 
 
 def _resolve_catalog_stock_for_line(
     item: dict[str, Any],
     *,
     needs_sql_api_detail: Any | None = None,
+    allow_remote: bool = True,
+    db_cur: Any | None = None,
 ) -> dict[str, Any]:
-    """SQL API catalog first, then description/code match, then Firebird ST_ITEM."""
+    """Local ST_ITEM by code, then optionally one SQL API item / stock list."""
     code = str(
         item.get("itemCode") or item.get("itemcode") or item.get("code") or ""
     ).strip()
@@ -415,23 +450,19 @@ def _resolve_catalog_stock_for_line(
         blob = item.get(blob_key)
         if isinstance(blob, dict):
             stock.update(blob)
-    if not stock:
-        hit = find_catalog_stock_item_prefer_sql_api(code=code, description=desc)
-        if isinstance(hit, dict):
-            stock = hit
-    if not stock and (code or desc):
-        hit = find_catalog_stock_item(code=code, description=desc)
-        if isinstance(hit, dict):
-            stock = hit
+    if code:
+        stock = _merge_local_stock(stock, code, db_cur=db_cur)
+    if not allow_remote:
+        return stock
     detail_check = needs_sql_api_detail or catalog_row_needs_sql_api_detail
     if code and detail_check(stock):
         detail = fetch_stock_item_sql_api_by_code(code)
         if detail:
             stock = {**detail, **stock}
-    if not _catalog_field_str(stock, "UDF_MTYPE", "udf_mtype") and code:
-        fb = _firebird_stock_row_for_code(code)
-        if fb:
-            stock = {**fb, **stock}
+    if not stock:
+        hit = find_catalog_stock_item_prefer_sql_api(code=code, description=desc)
+        if isinstance(hit, dict):
+            stock = hit
     return stock
 
 
@@ -465,27 +496,71 @@ def _attach_catalog_stock_to_line_item(item: dict[str, Any], stock: dict[str, An
     return item
 
 
-def enrich_quotation_submit_line_item(item: dict[str, Any]) -> dict[str, Any]:
+def _quotation_line_has_client_stock_detail(item: dict[str, Any]) -> bool:
+    """True when the browser already attached a catalog/stock blob with a stock code."""
+    for key in ("stockDetail", "stockApi", "stockCatalog", "catalogRow"):
+        blob = item.get(key)
+        if not isinstance(blob, dict):
+            continue
+        if str(blob.get("CODE") or blob.get("code") or "").strip():
+            return True
+    return bool(str(item.get("itemCode") or item.get("itemcode") or item.get("code") or "").strip())
+
+
+def enrich_quotation_submit_line_item(
+    item: dict[str, Any],
+    *,
+    allow_remote: bool | None = None,
+) -> dict[str, Any]:
     """
     Attach catalog stock row + lowercase ``udf_*`` keys on a create-quotation line dict.
 
     Call after ``itemCode`` / product description are known so ``udf_mtype`` is copied from
     ST_ITEM / SQL API stockitem onto the line sent to ``/salesquotation``.
+
+    When the line already carries ``stockDetail`` (or itemCode), skip remote stockitem GETs.
     """
     if not isinstance(item, dict):
         return item
-    stock = _resolve_catalog_stock_for_line(item)
+    remote = allow_remote
+    if remote is None:
+        remote = not _quotation_line_has_client_stock_detail(item)
+    stock = _resolve_catalog_stock_for_line(
+        item,
+        needs_sql_api_detail=_quotation_stock_needs_remote_detail,
+        allow_remote=bool(remote),
+    )
     return _attach_catalog_stock_to_line_item(item, stock)
 
 
-def enrich_pr_submit_line_item(item: dict[str, Any]) -> dict[str, Any]:
+def _quotation_stock_needs_remote_detail(row: dict[str, Any] | None) -> bool:
+    """Remote stock GET only when the company file has no row for this code."""
+    if not isinstance(row, dict):
+        return True
+    return not str(row.get("CODE") or row.get("code") or "").strip()
+
+
+def enrich_pr_submit_line_item(
+    item: dict[str, Any],
+    *,
+    allow_remote: bool = True,
+    db_cur: Any | None = None,
+) -> dict[str, Any]:
     """
     Attach stock catalog UDFs (thickness, width, length, density, formula, mtype, etc.)
     onto a purchase-request line before SQL API ``/purchaserequest`` sync.
+
+    Use ``allow_remote=False`` on the Create PR submit hot path so Firebird insert
+    does not wait on SQL Accounting stockitem GETs; background sync still enriches.
     """
     if not isinstance(item, dict):
         return item
-    stock = _resolve_catalog_stock_for_line(item, needs_sql_api_detail=catalog_row_needs_pr_stock_detail)
+    stock = _resolve_catalog_stock_for_line(
+        item,
+        needs_sql_api_detail=catalog_row_needs_pr_stock_detail,
+        allow_remote=allow_remote,
+        db_cur=db_cur,
+    )
     return _attach_catalog_stock_to_line_item(item, stock)
 
 
@@ -558,20 +633,49 @@ def find_catalog_stock_item_prefer_sql_api(
     description: str = "",
     cached_items: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
-    """
-  Match a stock row: live SQL API list GET first, then ``cached_items`` / uncached catalog.
-
-  Use this for per-product lookups (pricing, dimensions) so a Firebird-backed process
-  cache does not mask a working SQL API.
-    """
-    sql_items = _try_fetch_stock_items_sql_api()
-    if sql_items:
-        hit = find_catalog_stock_item(code=code, description=description, items=sql_items)
-        if hit:
-            return hit
+    """Match one stock row by code before downloading the stock list."""
+    code_q = str(code or "").strip()
+    if code_q:
+        detail = fetch_stock_item_sql_api_by_code(code_q)
+        if detail:
+            return detail
+        local = _firebird_stock_row_for_code(code_q)
+        if local:
+            return local
     if cached_items is not None:
         return find_catalog_stock_item(code=code, description=description, items=cached_items)
-    return find_catalog_stock_item(code=code, description=description)
+    return _local_stock_by_description(description)
+
+
+def _local_stock_by_description(description: str) -> dict[str, Any] | None:
+    """Exact or single local match. Does not download the stock list."""
+    needle = str(description or "").strip()
+    if len(needle) < 2:
+        return None
+    try:
+        from utils.db_utils import get_db_connection
+        from utils.sql_query_helpers import search_stock_items
+
+        con = get_db_connection()
+        cur = con.cursor()
+        try:
+            rows = search_stock_items(cur, needle, limit=8)
+        finally:
+            cur.close()
+            con.close()
+    except Exception:
+        return None
+    wanted = needle.upper()
+    exact = [
+        row for row in rows
+        if str(row.get("DESCRIPTION") or "").strip().upper() == wanted
+        or str(row.get("CODE") or "").strip().upper() == wanted
+    ]
+    if len(exact) == 1:
+        return exact[0]
+    if len(rows) == 1:
+        return rows[0]
+    return None
 
 
 def fetch_stock_items_catalog_uncached() -> list[dict[str, Any]]:

@@ -2,6 +2,22 @@
 var HAMBURGER_EXPANDED_KEY = 'hamburgerExpandedSubmenus';
 var HAMBURGER_EXPANDED_KEY_LEGACY = 'adminHamburgerExpandedSubmenus';
 
+function clearSensitiveSessionCachesLocal() {
+    if (window.EQCore && typeof window.EQCore.clearSensitiveSessionCaches === 'function') {
+        window.EQCore.clearSensitiveSessionCaches();
+        return;
+    }
+    try {
+        sessionStorage.removeItem('procurementViewPrFirstPageV3_page15');
+        sessionStorage.removeItem('admin_pricing_priority_rules_cache_v1');
+        Object.keys(sessionStorage).forEach((key) => {
+            if (key.indexOf('adminDashboard.') === 0) {
+                sessionStorage.removeItem(key);
+            }
+        });
+    } catch (_e) { /* ignore */ }
+}
+
 function toggleHamburgerMenu() {
     const dropdown = document.getElementById('hamburger-dropdown');
     const overlay = document.getElementById('hamburger-overlay');
@@ -116,7 +132,12 @@ function handleMenuAction(action) {
             window.location.href = '/user/approvals';
             break;
         case 'logout':
-            window.location.href = '/logout';
+            clearSensitiveSessionCachesLocal();
+            if (window.EQCore && typeof window.EQCore.logout === 'function') {
+                window.EQCore.logout();
+            } else {
+                window.location.href = '/logout';
+            }
             break;
         default:
             console.log('Unknown action:', action);
@@ -242,4 +263,17 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
     restoreHamburgerExpandedState();
+
+    // Logout must POST with CSRF; intercept legacy GET links.
+    document.querySelectorAll('a.logout-link[href="/logout"], a[href="/logout"]').forEach((link) => {
+        link.addEventListener('click', function (event) {
+            event.preventDefault();
+            clearSensitiveSessionCachesLocal();
+            if (window.EQCore && typeof window.EQCore.logout === 'function') {
+                window.EQCore.logout();
+            } else {
+                window.location.href = '/logout';
+            }
+        });
+    });
 });

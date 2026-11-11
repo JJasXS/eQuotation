@@ -1,0 +1,4 @@
+*.log
+bench.pid
+*.out.log
+*.err.log

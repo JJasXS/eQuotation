@@ -160,17 +160,6 @@ body {
     display: none !important;
 }
 
-.admin-test-panel {
-    padding: 48px 24px;
-    text-align: center;
-    font-size: 28px;
-    font-weight: 600;
-    color: var(--ice-heading, #1a4d6e);
-    background: var(--ice-surface-alt, #eef6fc);
-    border: 1px solid var(--ice-border, #b8d4e8);
-    border-radius: 8px;
-}
-
 .welcome-content {
     text-align: center;
     padding: 24px 40px 8px;

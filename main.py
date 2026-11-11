@@ -16,8 +16,7 @@ import string
 from difflib import SequenceMatcher
 import traceback
 from typing import Any
-from urllib.parse import quote
-from flask import Flask, render_template, request, jsonify, session, redirect, make_response
+from flask import Flask, render_template, request, jsonify, session, redirect, make_response, g
 import fdb
 import openai
 import requests
@@ -38,7 +37,8 @@ from utils import (
     set_ai_config,
     extract_product_and_quantity, get_product_price, set_order_config,
     resolve_numbered_reference, get_selling_price,
-    create_or_update_quotation, save_draft_quotation, fetch_quotation_details_for_email,
+    create_or_update_quotation, save_draft_quotation, list_draft_quotations,
+    fetch_quotation_details_for_email,
     peek_next_qt_docno,
 )
 from utils.procurement_stock_card_queries import (
@@ -49,12 +49,16 @@ from utils.procurement_stock_card_queries import (
 from utils.procurement_purchase_request import (
     PurchaseRequestValidationError,
     create_purchase_request,
+    list_view_pr_headers_for_status,
+    map_view_pr_status_counts,
     normalize_purchase_request_status_input,
+    normalize_view_pr_tab_status,
     parse_line_qty_sq_su,
     peek_purchase_request_status_by_request_number,
     preview_purchase_request_number,
     transition_purchase_request_status,
     update_purchase_request,
+    is_hidden_cancelled_draft,
 )
 from utils.procurement_purchase_order_transfer import (
     PurchaseOrderTransferValidationError,
@@ -90,30 +94,41 @@ from utils.procurement_bidding import (
     reject_bid,
     save_line_awards,
     submit_supplier_bid,
-    supplier_has_active_bid_invitation,
+    supplier_has_bid_invitation,
     validate_transfer_against_line_awards,
 )
 from utils.role_permissions import (
+    ACCESS_TIER_CUSTOMER,
+    ACCESS_TIER_DIRECTOR,
     ACCESS_TIER_FULL_ADMIN,
+    ACCESS_TIER_HOD,
     ACCESS_TIER_NO_ROLE,
     ACCESS_TIER_PURCH_MGMT,
-    ACCESS_TIER_PURCH_STAFF,
+    ACCESS_TIER_PURCH_USER,
     ACCESS_TIER_SALES_MGMT,
     ACCESS_TIER_SALES_STAFF,
     ACCESS_TIER_SUPPLIER,
     can_access_admin_dashboard,
     can_access_admin_view_quotations,
     can_access_create_quotation,
+    can_edit_own_draft_quotations,
+    can_open_create_quotation_page,
     can_access_pending_approvals_admin,
     can_access_purchase_menu,
     can_access_view_quotation_customer_ui,
+    can_apply_pr_header_udf_change,
     can_patch_pr_workflow_status,
+    can_transfer_pr_to_po,
     can_update_pr_approvals_and_header_status,
+    hide_pr_awaiting_tab,
     infer_access_tier_from_session,
     is_full_management_admin,
     location_in_scope,
+    session_is_staff_admin,
     session_location_scope,
+    staff_has_any_mapped_role_udf,
     template_permission_context,
+    user_type_for_session,
 )
 from utils.sql_query_helpers import (
     fetch_stock_item_prices_for_chat,
@@ -162,7 +177,13 @@ from config.order_config import (
 )
 
 # Import OTP configuration
-from config.otp_config import generate_otp, OTP_LENGTH, OTP_EXPIRY_SECONDS, OTP_RESEND_COOLDOWN_SECONDS
+from config.otp_config import (
+    generate_otp,
+    OTP_LENGTH,
+    OTP_EXPIRY_SECONDS,
+    OTP_RESEND_COOLDOWN_SECONDS,
+    OTP_MAX_VERIFY_ATTEMPTS,
+)
 
 # ============================================
 # CONFIGURATION - Load from environment variables
@@ -351,6 +372,7 @@ set_ai_config(OPENAI_API_KEY, OPENAI_MODEL)
 # OTP STORAGE & CONFIGURATION
 # ============================================
 # In-memory OTP storage: { "email|login_mode": {'otp': code, 'expiry': datetime} }
+# Legacy in-process dict kept empty; OTP state lives in utils.otp_store (sqlite/memory).
 OTP_STORAGE = {}
 
 # Helper configuration
@@ -366,7 +388,7 @@ def require_api_auth(admin_only=False, unauth_message='Not authenticated', forbi
     """Return a Flask error response tuple when auth/role checks fail; otherwise return None."""
     if 'user_email' not in session:
         return jsonify({'success': False, 'error': unauth_message}), 401
-    if admin_only and session.get('user_type') != 'admin':
+    if admin_only and not session_is_staff_admin(session):
         return jsonify({'success': False, 'error': forbidden_message}), 403
     return None
 
@@ -532,16 +554,17 @@ def require_page_access(
         return redirect('/login')
 
     if infer_access_tier_from_session(session) == ACCESS_TIER_NO_ROLE:
+        # Clear so /login can render instead of bouncing back into a protected page.
+        session.clear()
         return redirect('/login')
 
-    user_type = session.get('user_type')
     if require_full_management_admin:
         if not is_full_management_admin(session):
             return redirect('/admin')
         return None
-    if require_admin and user_type != 'admin':
+    if require_admin and not session_is_staff_admin(session):
         return redirect('/create-quotation')
-    if block_admin and user_type == 'admin':
+    if block_admin and session_is_staff_admin(session):
         return redirect(admin_redirect)
     return None
 
@@ -549,7 +572,7 @@ def require_page_access(
 def _redirect_purchasing_roles_from_sales_analytics_pages():
     """Purchasing roles use procurement; block analytics/sales-only admin pages."""
     tier = session.get('access_tier')
-    if tier in (ACCESS_TIER_PURCH_MGMT, ACCESS_TIER_PURCH_STAFF):
+    if tier in (ACCESS_TIER_PURCH_MGMT, ACCESS_TIER_HOD, ACCESS_TIER_DIRECTOR):
         return redirect(f'{PROCUREMENT_UI_PATH}?tab=view')
     return None
 
@@ -582,13 +605,18 @@ def render_protected_template(
     return render_template(template_name, **template_context)
 
 
+def _strip_customer_code(value):
+    text = str(value or '').strip()
+    return text or None
+
+
 def get_current_customer_code(*, resolve_missing=False):
-    """Return current session customer code, optionally resolving it from AR_CUSTOMERBRANCH by user email."""
-    customer_code = session.get('customer_code')
+    """Return current session customer code, optionally resolving it from the customer email."""
+    customer_code = _strip_customer_code(session.get('customer_code'))
     if customer_code or not resolve_missing:
         return customer_code
 
-    user_email = session.get('user_email')
+    user_email = str(session.get('user_email') or '').strip()
     if not user_email:
         return None
 
@@ -597,13 +625,17 @@ def get_current_customer_code(*, resolve_missing=False):
     try:
         con = get_db_connection()
         cur = con.cursor()
-        cur.execute('SELECT CODE FROM AR_CUSTOMERBRANCH WHERE EMAIL = ?', (user_email,))
-        row = cur.fetchone()
-        if row and row[0]:
-            customer_code = row[0]
-            session.pop('customer_company_name', None)
-            session['customer_code'] = customer_code
-            return customer_code
+        for sql in (
+            'SELECT CODE FROM AR_CUSTOMERBRANCH WHERE UPPER(TRIM(EMAIL)) = UPPER(TRIM(?))',
+            'SELECT CODE FROM AR_CUSTOMER WHERE UPPER(TRIM(EMAIL)) = UPPER(TRIM(?))',
+        ):
+            cur.execute(sql, (user_email,))
+            row = cur.fetchone()
+            customer_code = _strip_customer_code(row[0] if row else None)
+            if customer_code:
+                session.pop('customer_company_name', None)
+                session['customer_code'] = customer_code
+                return customer_code
         return None
     finally:
         if cur:
@@ -631,7 +663,7 @@ def _resolve_session_customer_company_name():
         con = get_db_connection()
         cur = con.cursor()
         cur.execute(
-            'SELECT FIRST 1 COMPANYNAME FROM AR_CUSTOMER WHERE CODE = ?',
+            'SELECT FIRST 1 COMPANYNAME FROM AR_CUSTOMER WHERE UPPER(TRIM(CODE)) = UPPER(TRIM(?))',
             (cc,),
         )
         row = cur.fetchone()
@@ -1315,12 +1347,41 @@ def format_chatbot_response(text):
 
 app = Flask(__name__, template_folder="templates", static_folder="static", static_url_path="/static")
 
-# Dev server (8881) and FLASK_DEBUG: reload templates from disk so UI changes show without a full restart.
-_flask_port_cfg = str(os.getenv('FLASK_PORT', '8880')).strip()
-_flask_debug_cfg = str(os.getenv('FLASK_DEBUG', 'False')).strip().lower() in ('1', 'true', 'yes')
-if _flask_port_cfg == '8881' or _flask_debug_cfg:
-    app.config['TEMPLATES_AUTO_RELOAD'] = True
-    app.jinja_env.auto_reload = True
+# Always reload templates from disk so UI edits show without a full restart.
+app.config['TEMPLATES_AUTO_RELOAD'] = True
+app.jinja_env.auto_reload = True
+
+
+@app.before_request
+def _eq_mark_request_start():
+    try:
+        g._eq_request_started = time.perf_counter()
+    except Exception:
+        pass
+
+
+@app.after_request
+def _eq_log_slow_api(response):
+    """Log /api/* requests slower than 500ms to help diagnose create-quotation latency."""
+    try:
+        path = str(request.path or '')
+        if not path.startswith('/api/'):
+            return response
+        started = getattr(g, '_eq_request_started', None)
+        if started is None:
+            return response
+        elapsed_ms = (time.perf_counter() - float(started)) * 1000.0
+        if elapsed_ms < 500.0:
+            return response
+        print(
+            f"[SLOW API] {request.method} {path} "
+            f"status={getattr(response, 'status_code', '?')} "
+            f"ms={elapsed_ms:.1f}",
+            flush=True,
+        )
+    except Exception:
+        pass
+    return response
 
 
 @app.context_processor
@@ -1351,11 +1412,103 @@ def inject_tenant_code_for_ui():
 
 
 # Configure Flask session
-app.secret_key = os.getenv('FLASK_SECRET_KEY', 'dev-secret-key-change-in-production')
-app.config['SESSION_COOKIE_SECURE'] = False  # Set to True in production with HTTPS
+_flask_env = (os.getenv('FLASK_ENV') or os.getenv('EQ_ENV') or '').strip().lower()
+_is_production = _flask_env in ('production', 'prod') or (
+    str(os.getenv('EQ_REQUIRE_SECURE_COOKIES', '')).strip().lower() in ('1', 'true', 'yes', 'on')
+)
+_secret = (os.getenv('FLASK_SECRET_KEY') or '').strip()
+_dev_secret_fallback = 'dev-secret-key-change-in-production'
+if _is_production:
+    if not _secret or _secret == _dev_secret_fallback or len(_secret) < 32:
+        raise RuntimeError(
+            'FLASK_SECRET_KEY must be set to a strong unique value (32+ chars) in production. '
+            'Refusing to start with the development fallback.'
+        )
+    app.secret_key = _secret
+else:
+    app.secret_key = _secret or _dev_secret_fallback
+    if not _secret:
+        print(
+            '[SECURITY] FLASK_SECRET_KEY unset — using development fallback. '
+            'Set FLASK_SECRET_KEY before any production deploy.',
+            flush=True,
+        )
+
+# Production always uses Secure session cookies. Local HTTP may disable via env.
+_secure_cookie_raw = (os.getenv('SESSION_COOKIE_SECURE') or '').strip().lower()
+if _is_production:
+    if _secure_cookie_raw in ('0', 'false', 'no', 'off'):
+        print(
+            '[SECURITY] Ignoring SESSION_COOKIE_SECURE=0 in production — forcing Secure cookies.',
+            flush=True,
+        )
+    _session_cookie_secure = True
+elif _secure_cookie_raw in ('1', 'true', 'yes', 'on'):
+    _session_cookie_secure = True
+elif _secure_cookie_raw in ('0', 'false', 'no', 'off'):
+    _session_cookie_secure = False
+else:
+    _session_cookie_secure = False
+app.config['SESSION_COOKIE_SECURE'] = _session_cookie_secure
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
+print(
+    f"[SECURITY] SESSION_COOKIE_SECURE={_session_cookie_secure} production={_is_production}",
+    flush=True,
+)
+
+# Trust X-Forwarded-Proto / Host when behind HTTPS reverse proxy (staging/prod).
+_trust_proxy = (os.getenv('EQ_TRUST_PROXY') or ('1' if _is_production else '0')).strip().lower()
+if _trust_proxy in ('1', 'true', 'yes', 'on'):
+    try:
+        from werkzeug.middleware.proxy_fix import ProxyFix
+
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+        print('[SECURITY] ProxyFix enabled (EQ_TRUST_PROXY)', flush=True)
+    except Exception as _proxy_err:
+        print(f'[SECURITY] ProxyFix unavailable: {_proxy_err}', flush=True)
+
+
+@app.before_request
+def _eq_dev_refresh_sy_user_roles():
+    """APP=dev only: re-read SY_USER Role Selection into session on each page/API hit.
+
+    APP=prod: roles stay frozen from OTP login (this hook no-ops).
+    """
+    path = str(request.path or '')
+    if path.startswith('/static') or path.startswith('/favicon'):
+        return None
+    if 'user_email' not in session:
+        return None
+    try:
+        from utils.sy_user_roles import mock_role_refresh_enabled, refresh_staff_session_roles
+
+        if not mock_role_refresh_enabled():
+            return None
+        refresh_staff_session_roles(session)
+    except Exception as exc:
+        print(f'[DEV ROLE] before_request refresh error: {exc}', flush=True)
+    return None
+
+
+@app.before_request
+def _eq_csrf_guard():
+    """CSRF token + Origin/Referer checks for cookie-authenticated mutations."""
+    from utils.csrf_protect import validate_csrf_request
+
+    return validate_csrf_request(request)
+
+
+@app.route('/api/csrf_token', methods=['GET'])
+def api_csrf_token():
+    """Return/mint CSRF token for browser clients (session cookie auth)."""
+    from utils.csrf_protect import ensure_csrf_token
+
+    if 'user_email' not in session:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    token = ensure_csrf_token()
+    return jsonify({'success': True, 'csrf_token': token})
 
 # Register blueprints
 from routes.quotation_routes import quotation_bp
@@ -1386,10 +1539,57 @@ register_procurement_routes(
 
 @app.after_request
 def add_no_cache_headers(response):
+    """Keep authenticated HTML/API responses uncached. Static assets are served by
+    Starlette outside this hook and may use long-lived cache with versioned URLs.
+    """
+    path = str(request.path or '')
+    if path.startswith('/static/'):
+        return response
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
     return response
+
+
+@app.after_request
+def _eq_set_csrf_cookie(response):
+    """Expose a readable CSRF cookie mirroring the session token (double-submit)."""
+    from utils.csrf_protect import CSRF_COOKIE_NAME, ensure_csrf_token
+
+    path = str(request.path or '')
+    if path.startswith('/static/'):
+        return response
+    if 'user_email' not in session:
+        return response
+    try:
+        token = ensure_csrf_token()
+        response.set_cookie(
+            CSRF_COOKIE_NAME,
+            token,
+            max_age=int(app.config['PERMANENT_SESSION_LIFETIME'].total_seconds()),
+            secure=bool(app.config.get('SESSION_COOKIE_SECURE')),
+            httponly=False,
+            samesite='Lax',
+            path='/',
+        )
+    except Exception:
+        pass
+    return response
+
+
+@app.after_request
+def rewrite_api_non_json_responses(response):
+    """API and PHP proxy routes stay JSON if a handler redirects to login or renders HTML."""
+    from utils.api_json_errors import rewrite_api_html_response
+
+    path = request.path or ""
+    rewritten = rewrite_api_html_response(path, response)
+    if rewritten is not response:
+        print(
+            f"[API JSON] replaced non-JSON API response path={path} status={response.status_code}",
+            flush=True,
+        )
+    return rewritten
 
 
 def _build_sql_api_auth_headers():
@@ -1483,6 +1683,32 @@ def api_admin_http_cache_diagnostics():
     })
 
 
+def _sl_iv_codes_with_invoice():
+    """Return customer CODEs that have at least one dated SL_IV row (local Firebird)."""
+    from utils.db_utils import db_connection
+
+    with db_connection() as con:
+        cur = con.cursor()
+        cur.execute(
+            """
+            SELECT DISTINCT TRIM(CODE)
+            FROM SL_IV
+            WHERE DOCDATE IS NOT NULL
+              AND CODE IS NOT NULL
+              AND TRIM(CODE) <> ''
+            """
+        )
+        return {str(row[0]).strip() for row in (cur.fetchall() or []) if row and row[0]}
+
+
+def _active_customer_has_invoice(code, invoice_map, codes_with_invoice):
+    """True when an Active (A) customer should count toward pie slice Active (not AWO)."""
+    if invoice_map:
+        inv = invoice_map.get(code)
+        return bool(inv and inv.get('days_ago_label') != 'No invoice')
+    return code in codes_with_invoice
+
+
 @app.route('/api/admin/customer_status_summary', methods=['GET'])
 @api_admin_required(unauth_message='Not authenticated', forbidden_message='Insufficient permissions')
 def customer_status_summary():
@@ -1503,8 +1729,8 @@ def customer_status_summary():
 
     try:
         customers = _fetch_all_customers_from_sql_api()
-        # Do not trigger nested invoice-aging API on dashboard load.
-        # If invoice aging data already exists in cache, reuse it to split A/AWO.
+        # Prefer cached invoice-aging map when present; otherwise query SL_IV locally.
+        # Do not call nested /api/admin/invoice_aging_summary from dashboard load.
         invoice_map: dict[str, Any] = {}
         cached_invoice = _dashboard_cache_get('invoice_aging_summary_full')
         if isinstance(cached_invoice, dict):
@@ -1514,15 +1740,26 @@ def customer_status_summary():
                 else []
             )
             if isinstance(cached_items, list):
-                invoice_map = {str(item.get('code') or ''): item for item in cached_items if isinstance(item, dict)}
+                invoice_map = {
+                    str(item.get('code') or ''): item
+                    for item in cached_items
+                    if isinstance(item, dict)
+                }
+
+        codes_with_invoice: set[str] = set()
+        if not invoice_map:
+            try:
+                codes_with_invoice = _sl_iv_codes_with_invoice()
+            except Exception as inv_exc:
+                print(f'[CUSTOMER STATUS] SL_IV invoice lookup failed: {inv_exc}', flush=True)
+                codes_with_invoice = set()
 
         for customer in customers:
             status = customer.get('status', '')
             code = customer.get('code', '')
-            # Only split 'Active' into two groups
+            # Only split 'Active' into two groups (Active vs Active w/o invoice).
             if status == 'A':
-                inv = invoice_map.get(code)
-                if inv and inv.get('days_ago_label') != 'No invoice':
+                if _active_customer_has_invoice(code, invoice_map, codes_with_invoice):
                     counts['A'] += 1
                 else:
                     counts['AWO'] += 1
@@ -1652,9 +1889,19 @@ def invoice_aging_summary():
                 'today': today.isoformat(),
             }
         }
-        # Keep a cached full map for other dashboard summaries (without causing nested API calls).
-        if offset == 0 and limit >= total_codes:
-            _dashboard_cache_set('invoice_aging_summary_full', payload_out)
+        # Always cache the full customer/invoice map for dashboard A/AWO split
+        # (paged responses use limit=10 by default and must not drop the full list).
+        _dashboard_cache_set(
+            'invoice_aging_summary_full',
+            {
+                'success': True,
+                'data': {
+                    'items': latest_by_code,
+                    'total_codes': total_codes,
+                    'today': today.isoformat(),
+                },
+            },
+        )
         return jsonify(payload_out), 200
     except requests.exceptions.RequestException as exc:
         return jsonify({'success': False, 'error': f'Failed to reach SQL API /customer: {exc}'}), 502
@@ -2626,6 +2873,25 @@ def api_lookup_postcode():
         print(f"[ERROR] lookup_postcode failed: {e}")
         return jsonify({'success': False, 'error': 'Failed to lookup postcode'}), 500
 
+def _dev_otp_on_screen() -> bool:
+    """APP=dev: show OTP on the login page and skip SMTP. APP=prod: email only."""
+    from utils.app_mode import is_dev_app
+
+    return is_dev_app()
+
+
+try:
+    from utils.app_mode import app_mode as _eq_app_mode
+
+    print(
+        f"[APP] mode={_eq_app_mode()} "
+        f"(dev: on-page OTP + live role refresh; prod: email OTP + roles at login)",
+        flush=True,
+    )
+except Exception as _app_mode_err:
+    print(f"[APP] mode unresolved: {_app_mode_err}", flush=True)
+
+
 def _login_otp_storage_key(email: str, login_mode: str) -> str:
     """OTP is scoped by login tab (customer / admin / supplier) so the same inbox can use different codes."""
     e = (email or '').strip().lower()
@@ -2680,16 +2946,12 @@ def api_send_otp():
     
     if not email:
         return jsonify({'success': False, 'error': 'Email is required'}), 400
-    
-    # ============================================
-    # VALIDATION DISABLED FOR TESTING
-    # Uncomment below to enable email validation
-    # ============================================
-    # import re
-    # email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    # if not re.match(email_pattern, email):
-    #     return jsonify({'success': False, 'error': 'Invalid email format'}), 400
-    
+
+    import re
+    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    if not re.match(email_pattern, email):
+        return jsonify({'success': False, 'error': 'Invalid email format'}), 400
+
     try:
         # Use cached FastAPI identity lookup so OTP send + verify share one round-trip.
         is_admin = False
@@ -2708,8 +2970,8 @@ def api_send_otp():
 
         if not (is_admin or is_user or is_customer or is_supplier):
             print(
-                f"[DEBUG OTP] rejected (email not in directory for login_mode={login_mode!r}): {email!r}. "
-                "Customer tab: AR_CUSTOMER email/UDF; Admin: SY_USER; Supplier: supplier email.",
+                f"[DEBUG OTP] rejected (email not in SY_USER / AR_CUSTOMER / supplier for "
+                f"login_mode={login_mode!r}): {email!r}.",
                 flush=True,
             )
             return jsonify({
@@ -2717,8 +2979,10 @@ def api_send_otp():
                 'error': 'Email not found, please contact administrator'
             }), 401
 
-        # Resend cooldown (server-side)
-        existing = OTP_STORAGE.get(otp_key)
+        from utils import otp_store as _otp_store
+
+        # Resend cooldown (server-side; shared across threads/processes)
+        existing = _otp_store.get_otp(otp_key)
         if existing and existing.get('last_sent'):
             since = (datetime.now() - existing['last_sent']).total_seconds()
             if since < OTP_RESEND_COOLDOWN_SECONDS:
@@ -2730,20 +2994,37 @@ def api_send_otp():
                     'resend_cooldown_seconds': OTP_RESEND_COOLDOWN_SECONDS,
                 }), 429
 
-        # Generate OTP
+        # Generate OTP (never log the code — only that one was issued)
         otp = generate_otp(OTP_LENGTH)
-        print(f"[DEBUG OTP] {email} -> {otp}", flush=True)
+        print(f"[DEBUG OTP] OTP issued for mode={login_mode} (code not logged)", flush=True)
         now = datetime.now()
         expiry = now + timedelta(seconds=OTP_EXPIRY_SECONDS)
-        
+
         # Store OTP temporarily (keyed by email + login tab)
-        OTP_STORAGE[otp_key] = {
-            'otp': otp,
-            'expiry': expiry,
-            'last_sent': now,
-        }
-        
-        # Send OTP via email
+        _otp_store.put_otp(otp_key, otp, expiry=expiry, last_sent=now, attempts=0)
+
+        expires_at_unix = int(expiry.timestamp())
+
+        # APP=dev: never SMTP — show OTP on the login page to avoid spam while testing.
+        if _dev_otp_on_screen():
+            print(
+                f"[DEV OTP] skipped email for {email!r} mode={login_mode}; "
+                "code returned as debug_otp for on-page entry",
+                flush=True,
+            )
+            return jsonify({
+                'success': True,
+                'email_sent': False,
+                'mock_otp': True,
+                'debug_otp': otp,
+                'message': 'DEV mode: use the OTP shown on this page (email not sent).',
+                'expiry': OTP_EXPIRY_SECONDS,
+                'expires_at_unix': expires_at_unix,
+                'otp_lifetime_seconds': OTP_EXPIRY_SECONDS,
+                'resend_cooldown_seconds': OTP_RESEND_COOLDOWN_SECONDS,
+            }), 200
+
+        # APP=prod: send OTP via email (no on-page code).
         subject = "Your Login OTP Code"
         body = f"""
         <html>
@@ -2760,7 +3041,6 @@ def api_send_otp():
             </body>
         </html>
         """
-        # Send synchronously so API success matches real SMTP outcome (async used to hide failures).
         import utils.email_utils as _eu_otp
         has_smtp = bool((_eu_otp.SMTP_EMAIL or "").strip() and (_eu_otp.SMTP_PASSWORD or "").strip())
         if not has_smtp:
@@ -2775,12 +3055,12 @@ def api_send_otp():
             mail_ok = send_email(email, subject, body)
         except Exception as mail_err:
             print(f"[DEBUG OTP] send_email raised for {email!r}: {mail_err}", flush=True)
-            del OTP_STORAGE[otp_key]
+            _otp_store.delete_otp(otp_key)
             return jsonify({'success': False, 'error': f'Email send error: {mail_err}'}), 502
 
         if has_smtp and not mail_ok:
             print(f"[DEBUG OTP] send_email returned False for {email!r} (SMTP auth or transport failure).", flush=True)
-            del OTP_STORAGE[otp_key]
+            _otp_store.delete_otp(otp_key)
             return jsonify({
                 'success': False,
                 'error': (
@@ -2789,8 +3069,7 @@ def api_send_otp():
                 ),
             }), 502
 
-        expires_at_unix = int(expiry.timestamp())
-        response_payload = {
+        return jsonify({
             'success': True,
             'email_sent': bool(has_smtp and mail_ok),
             'message': (
@@ -2798,19 +3077,14 @@ def api_send_otp():
                 if has_smtp and mail_ok
                 else (
                     'OTP generated but email is not configured (missing SMTP_EMAIL/SMTP_PASSWORD). '
-                    'Check server console or enable debug for the code.'
+                    'Check server console.'
                 )
             ),
             'expiry': OTP_EXPIRY_SECONDS,
             'expires_at_unix': expires_at_unix,
             'otp_lifetime_seconds': OTP_EXPIRY_SECONDS,
             'resend_cooldown_seconds': OTP_RESEND_COOLDOWN_SECONDS,
-        }
-
-        if app.debug:
-            response_payload['debug_otp'] = otp
-
-        return jsonify(response_payload), 200
+        }), 200
     
     except Exception as e:
         print(f"[DEBUG OTP] send_otp error for {email}: {e}", flush=True)
@@ -2831,21 +3105,27 @@ def api_verify_otp():
         return jsonify({'success': False, 'error': 'Email and OTP are required'}), 400
     
     try:
-        # OTP validation (120s expiry + one-time use)
-        if otp_key not in OTP_STORAGE:
-            return jsonify({'success': False, 'error': 'OTP not found. Request a new one.', 'expired': True}), 400
+        from utils import otp_store as _otp_store
 
-        stored_data = OTP_STORAGE[otp_key]
-
-        if datetime.now() > stored_data['expiry']:
-            del OTP_STORAGE[otp_key]
-            return jsonify({'success': False, 'error': 'OTP has expired. Request a new one.', 'expired': True}), 400
-
-        if otp != stored_data['otp']:
-            return jsonify({'success': False, 'error': 'Invalid OTP. Please try again.'}), 400
-
-        # One-time use: consume OTP immediately after successful verification
-        del OTP_STORAGE[otp_key]
+        ok, err_code, meta = _otp_store.verify_and_consume(
+            otp_key, otp, max_attempts=OTP_MAX_VERIFY_ATTEMPTS
+        )
+        if not ok:
+            if err_code == 'missing':
+                return jsonify({'success': False, 'error': 'OTP not found. Request a new one.', 'expired': True}), 400
+            if err_code == 'expired':
+                return jsonify({'success': False, 'error': 'OTP has expired. Request a new one.', 'expired': True}), 400
+            if err_code == 'locked':
+                return jsonify({
+                    'success': False,
+                    'error': 'Too many invalid attempts. Request a new OTP.',
+                    'expired': True,
+                }), 429
+            remaining = int(meta.get('remaining') or 0)
+            return jsonify({
+                'success': False,
+                'error': f'Invalid OTP. {remaining} attempt(s) remaining.',
+            }), 400
 
         # Cached identity lookup — typically a hit because send_otp populated it ~seconds ago.
         try:
@@ -2870,58 +3150,87 @@ def api_verify_otp():
             staff_locations = []
         user_type_hint = str(identity.get('user_type_hint') or 'user').strip()
 
-        if identity.get('is_supplier'):
+        # Login tab wins: Customer/Supplier portals never inherit SY_USER staff roles.
+        # Admin tab keeps origin/main is* mapping for landing page / permissions.
+        is_sy_user = bool(identity.get('is_admin'))
+        has_staff_roles = staff_has_any_mapped_role_udf(staff_udf)
+
+        if login_mode == 'customer':
+            if not (identity.get('is_user') or identity.get('is_customer')):
+                return jsonify({
+                    'success': False,
+                    'error': 'Email not found in customer records, please contact administrator',
+                }), 401
+            access_tier = ACCESS_TIER_CUSTOMER
+            staff_udf = {}
+            staff_locations = []
+            user_type = 'user'
+            customer_code = identity.get('customer_code')
+            redirect_url = '/create-quotation'
+            print(
+                f"[AUTH] Customer path: {email} tier={access_tier} "
+                f"user_type={user_type} login_mode={login_mode}",
+                flush=True,
+            )
+        elif login_mode == 'supplier':
+            if not identity.get('is_supplier'):
+                return jsonify({
+                    'success': False,
+                    'error': 'Email not found in supplier records, please contact administrator',
+                }), 401
+            access_tier = ACCESS_TIER_SUPPLIER
+            staff_udf = {}
+            staff_locations = []
             user_type = 'supplier'
-            redirect_url = '/supplier/bidding'
             customer_code = identity.get('supplier_code')
+            redirect_url = '/supplier/bidding'
             print(f"[AUTH] Supplier user detected: {email} -> Supplier: {customer_code}")
+        elif is_sy_user or has_staff_roles:
+            customer_code = identity.get('customer_code')
+            access_tier = infer_access_tier_from_session({
+                'staff_udf': staff_udf,
+                'access_tier': access_tier or ACCESS_TIER_FULL_ADMIN,
+            })
+            if access_tier in (ACCESS_TIER_CUSTOMER, ACCESS_TIER_NO_ROLE, ACCESS_TIER_SUPPLIER, ''):
+                access_tier = ACCESS_TIER_FULL_ADMIN
+            user_type = 'admin'
+            if access_tier in (
+                ACCESS_TIER_PURCH_MGMT,
+                ACCESS_TIER_HOD,
+                ACCESS_TIER_DIRECTOR,
+                ACCESS_TIER_PURCH_USER,
+            ):
+                redirect_url = f'{PROCUREMENT_UI_PATH}?tab=view'
+            else:
+                # full_admin / sales_mgmt / sales_staff / default SY_USER → admin module
+                redirect_url = '/admin'
+            print(
+                f"[AUTH] SY_USER path: {email} tier={access_tier} "
+                f"user_type={user_type} login_mode={login_mode} staff_udf={staff_udf}",
+                flush=True,
+            )
         elif identity.get('is_user') or identity.get('is_customer'):
             customer_code = identity.get('customer_code')
-            user_type = user_type_hint if user_type_hint in ('admin', 'user') else 'user'
-            if access_tier == ACCESS_TIER_SALES_STAFF:
-                user_type = 'user'
-            if user_type == 'admin' and access_tier in (ACCESS_TIER_FULL_ADMIN, ACCESS_TIER_SALES_MGMT):
-                redirect_url = '/admin'
-            elif user_type == 'admin':
-                redirect_url = f'{PROCUREMENT_UI_PATH}?tab=view'
-            else:
-                redirect_url = '/create-quotation'
-            print(f"[AUTH] Customer path: {email} tier={access_tier} user_type={user_type}")
-        elif identity.get('is_admin'):
-            if access_tier == ACCESS_TIER_NO_ROLE:
-                return jsonify({
-                    'success': False,
-                    'error': (
-                        'No role is assigned for this account. '
-                        'Ask an administrator to set one of UDF_MANAGEMENT, UDF_SMANAGEMENT, UDF_PMANAGEMENT, '
-                        'UDF_SSTAFF, UDF_SUSER, or UDF_PUSER on SY_USER.'
-                    ),
-                }), 403
-            customer_code = identity.get('customer_code')
-            user_type = user_type_hint if user_type_hint in ('admin', 'user') else 'admin'
-            if access_tier == ACCESS_TIER_SALES_STAFF:
-                user_type = 'user'
-                redirect_url = '/create-quotation'
-            elif access_tier in (ACCESS_TIER_FULL_ADMIN, ACCESS_TIER_SALES_MGMT):
-                user_type = 'admin'
-                redirect_url = '/admin'
-            elif access_tier in (ACCESS_TIER_PURCH_MGMT, ACCESS_TIER_PURCH_STAFF):
-                user_type = 'admin'
-                redirect_url = f'{PROCUREMENT_UI_PATH}?tab=view'
-            else:
-                return jsonify({
-                    'success': False,
-                    'error': 'Unrecognized access profile for this account. Contact an administrator.',
-                }), 403
-            print(f"[AUTH] SY_USER-only path: {email} tier={access_tier} user_type={user_type}")
+            user_type = 'user'
+            access_tier = ACCESS_TIER_CUSTOMER
+            staff_udf = {}
+            staff_locations = []
+            redirect_url = '/create-quotation'
+            print(
+                f"[AUTH] Customer path: {email} tier={access_tier} "
+                f"user_type={user_type} login_mode={login_mode}",
+                flush=True,
+            )
         else:
             return jsonify({
                 'success': False,
                 'error': 'Email not found in customer or supplier records, please contact administrator'
             }), 401
 
-        # OTP is valid - create session
+        # OTP is valid - rotate session to prevent fixation, then bind identity
+        session.clear()
         session['user_email'] = email
+        session['login_mode'] = login_mode
         session['access_tier'] = access_tier or ('supplier' if user_type == 'supplier' else 'customer')
         session['staff_udf'] = staff_udf
         session['staff_locations'] = staff_locations
@@ -2930,6 +3239,8 @@ def api_verify_otp():
         session['customer_code'] = customer_code  # Store customer/supplier code in session
         if user_type == 'supplier':
             session['supplier_code'] = customer_code
+        from utils.csrf_protect import ensure_csrf_token as _ensure_csrf_token
+        _ensure_csrf_token()
         session.pop('login_customer_department', None)
         session.pop('login_matched_udf_email_column', None)
         session.pop('login_udf_email_suffix', None)
@@ -2975,10 +3286,26 @@ def api_verify_otp():
         print(f"Error verifying OTP: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+def _guide_capture_login_allowed() -> bool:
+    """EQ_GUIDE_CAPTURE must be on, and the caller must be loopback unless explicitly overridden.
+
+    Do not trust X-Forwarded-For here — that header is attacker-controlled without a trusted proxy.
+    """
+    if str(os.getenv('EQ_GUIDE_CAPTURE', '')).strip().lower() not in ('1', 'true', 'yes'):
+        return False
+    if str(os.getenv('EQ_GUIDE_CAPTURE_ALLOW_REMOTE', '')).strip().lower() in ('1', 'true', 'yes'):
+        return True
+    addr = (request.remote_addr or '').strip().lower()
+    return addr in ('127.0.0.1', '::1', 'localhost')
+
+
 @app.route('/api/guide_capture_login', methods=['POST'])
 def api_guide_capture_login():
-    """Dev-only session seed for user-guide screenshots. Requires EQ_GUIDE_CAPTURE=1."""
-    if str(os.getenv('EQ_GUIDE_CAPTURE', '')).strip().lower() not in ('1', 'true', 'yes'):
+    """Dev-only session seed for user-guide screenshots / local perf.
+
+    Requires EQ_GUIDE_CAPTURE=1 and a loopback client (or EQ_GUIDE_CAPTURE_ALLOW_REMOTE=1).
+    """
+    if not _guide_capture_login_allowed():
         return jsonify({'success': False, 'error': 'Guide capture login disabled'}), 404
 
     data = request.get_json(silent=True) or {}
@@ -2996,17 +3323,20 @@ def api_guide_capture_login():
 
     if role == 'supplier':
         session['user_type'] = 'supplier'
+        session['login_mode'] = 'supplier'
         session['access_tier'] = ACCESS_TIER_SUPPLIER
         session['customer_code'] = (data.get('supplier_code') or 'GUIDE-SUP').strip()
         session['supplier_code'] = session['customer_code']
         redirect_url = '/supplier/bidding'
     elif role == 'customer':
         session['user_type'] = 'user'
-        session['access_tier'] = 'customer'
+        session['login_mode'] = 'customer'
+        session['access_tier'] = ACCESS_TIER_CUSTOMER
         session['customer_code'] = (data.get('customer_code') or 'GUIDE-CUST').strip()
         redirect_url = '/create-quotation'
     else:
         session['user_type'] = 'admin'
+        session['login_mode'] = 'admin'
         session['access_tier'] = ACCESS_TIER_FULL_ADMIN
         session['customer_code'] = None
         redirect_url = '/admin'
@@ -3060,18 +3390,20 @@ def create_order_page():
 
 @app.route('/create-quotation')
 def create_quotation_page():
-    """Create quotation (customers + sales-capable staff + full admin; not supplier / purchasing-only)."""
+    """Create quotation (customers + sales-capable staff; admin edit deep-links for View Quotation)."""
     page_error = require_page_access()
     if page_error:
         return page_error
-    if not can_access_create_quotation(session):
+    dockey = request.args.get('dockey', '')
+    draft_dockey = request.args.get('draftDockey', '')
+    if not can_open_create_quotation_page(session, dockey=dockey, draft_dockey=draft_dockey):
         if session.get('user_type') == 'supplier':
             return redirect('/supplier/bidding')
         if can_access_purchase_menu(session):
             return redirect(f'{PROCUREMENT_UI_PATH}?tab=view')
-        return redirect('/create-quotation')
-    dockey = request.args.get('dockey', '')
-    draft_dockey = request.args.get('draftDockey', '')
+        # Never redirect to self — that causes ERR_TOO_MANY_REDIRECTS.
+        session.clear()
+        return redirect('/login')
     response = make_response(render_protected_template(
         'createQuotation.html',
         dockey=dockey,
@@ -3103,6 +3435,8 @@ def view_quotation_page():
         customer_my_quotations_only=True,
         page_header_subtitle='Welcome: ' + (session.get('user_email') or '—'),
         perm_hide_quotation_status_actions=True,
+        # This route is the customer View Quotation UI — Draft Edit must be available.
+        perm_edit_own_draft_quotations=True,
     )
 
 @app.route('/admin/view-quotations')
@@ -3138,7 +3472,7 @@ def admin_delete_quotations():
 
 @app.route('/admin/pricing-priority-rules')
 def admin_pricing_priority_rules():
-    """Pricing priority rules (UDF_MANAGEMENT full admin only)."""
+    """Pricing priority rules (UDF_ISADMIN full admin only)."""
     return render_protected_template(
         'pricingPriorityRules.html',
         require_admin=True,
@@ -3765,28 +4099,6 @@ def list_php_endpoints():
             endpoints.append(f'/php/{fname}')
     return jsonify({'endpoints': endpoints})
 
-@app.route('/get_chats')
-@api_login_required(unauth_message='Unauthorized')
-def get_chats():
-    customer_code = session.get('customer_code')
-    if not customer_code:
-        return jsonify({'success': False, 'error': 'Customer code not found'}), 400
-    
-    try:
-        # Call PHP endpoint to get chats (degrade gracefully if upstream is slow/down).
-        data, _status = proxy_json_request(
-            'GET',
-            '/php/getChats.php',
-            params={'customerCode': customer_code},
-        )
-        if isinstance(data, dict) and data.get('success'):
-            return jsonify({'success': True, 'chats': data.get('chats', [])})
-        print(f"[WARN] get_chats: upstream success=false for customerCode={customer_code!r}")
-        return jsonify({'success': True, 'chats': [], 'degraded': True}), 200
-    except Exception as e:
-        print(f"[WARN] get_chats: upstream failed for customerCode={customer_code!r}: {e}")
-        return jsonify({'success': True, 'chats': [], 'degraded': True}), 200
-
 @app.route('/api/get_active_order')
 @api_login_required(unauth_message='Unauthorized')
 def api_get_active_order():
@@ -3831,14 +4143,14 @@ def api_admin_update_order_status():
     if status not in valid_statuses:
         return jsonify({'success': False, 'error': 'Invalid status'}), 400
 
+    con = None
+    cur = None
     try:
         con = get_db_connection()
         cur = con.cursor()
         cur.execute('UPDATE ORDER_TPL SET STATUS = ? WHERE ORDERID = ?', (status, orderid))
         con.commit()
         updated = cur.rowcount
-        cur.close()
-        con.close()
 
         if not updated:
             return jsonify({'success': False, 'error': 'Order not found'}), 404
@@ -3846,6 +4158,17 @@ def api_admin_update_order_status():
         return jsonify({'success': True, 'orderid': orderid, 'status': status})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if con:
+                con.close()
+        except Exception:
+            pass
 
 @app.route('/api/insert_chat', methods=['POST'])
 @api_login_required(unauth_message='Unauthorized')
@@ -3854,6 +4177,8 @@ def api_insert_chat():
     chat_name = data.get('chatname', '').strip()
     if not chat_name:
         return jsonify({'success': False, 'error': 'Chat name required'}), 400
+    con = None
+    cur = None
     try:
         con = get_db_connection()
         cur = con.cursor()
@@ -3889,8 +4214,6 @@ def api_insert_chat():
         )
         
         con.commit()
-        cur.close()
-        con.close()
         
         print(f"[INFO] Chat {chatid} created successfully with welcome message")
         
@@ -3906,6 +4229,17 @@ def api_insert_chat():
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if con:
+                con.close()
+        except Exception:
+            pass
 
 @app.route('/get_chat_details')
 @api_login_required(unauth_message='Unauthorized')
@@ -3936,12 +4270,12 @@ def check_draft_order():
     if not user_owns_chat(chatid, session.get('user_email')):
         return jsonify({'success': False, 'error': 'Forbidden'}), 403
     
+    con = None
+    cur = None
     try:
         con = get_db_connection()
         cur = con.cursor()
         order_id = find_draft_order_id_by_chatid(cur, chatid)
-        cur.close()
-        con.close()
         
         if order_id is not None:
             return jsonify({'success': True, 'hasDraft': True, 'orderid': order_id})
@@ -3949,6 +4283,17 @@ def check_draft_order():
             return jsonify({'success': True, 'hasDraft': False})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if con:
+                con.close()
+        except Exception:
+            pass
 
 @app.route('/api/check_user_has_draft')
 @api_login_required(unauth_message='Unauthorized')
@@ -3992,6 +4337,33 @@ def _fetch_stock_items_cached():
         _fetch_stock_items_cached_uncached,
         ttl_seconds=_sql_api_master_cache_ttl_seconds(),
     )
+
+
+@app.route('/api/search_stock_items')
+@api_login_required(unauth_message='Unauthorized')
+def api_search_stock_items():
+    """Short ST_ITEM search for product pickers. Never returns the full catalog."""
+    query = (request.args.get('q') or '').strip()
+    if len(query) < 1:
+        return jsonify({'success': True, 'items': []})
+    cache_key = query.casefold()
+    try:
+        from utils.sql_query_helpers import search_stock_items
+        from utils.ttl_cache import stock_search_cache
+
+        def _load():
+            con = get_db_connection()
+            cur = con.cursor()
+            try:
+                return search_stock_items(cur, query, limit=40)
+            finally:
+                cur.close()
+                con.close()
+
+        items = stock_search_cache.get_or_load(cache_key, _load, ttl_seconds=90.0)
+        return jsonify({'success': True, 'items': items})
+    except Exception as exc:
+        return jsonify({'success': False, 'error': str(exc), 'items': []}), 500
 
 
 @app.route('/api/get_stock_items')
@@ -4165,9 +4537,8 @@ def api_admin_procurement_stock_item_uoms():
 def api_admin_procurement_stock_card():
     """Return stock card table rows for procurement overall report.
 
-    Before querying, re-applies ST_TR.UDF_SUOMQTY → ST_XTRANS.SUOMQTY (same as
-    ``/api/admin/procurement/sync-st-xtrans-suomqty``) so the dashboard does not
-    need a manual sync.
+    This is a read. SUOMQTY stays current via the ST_TR trigger. The full
+    ST_XTRANS rewrite stays on POST ``/api/admin/procurement/sync-st-xtrans-suomqty``.
     """
     raw_from_date = (request.args.get('from_date') or '').strip()
     raw_to_date = (request.args.get('to_date') or '').strip()
@@ -4192,14 +4563,6 @@ def api_admin_procurement_stock_card():
     cur = None
     try:
         con = get_db_connection()
-        # Keep ST_XTRANS.SUOMQTY aligned with ST_TR.UDF_SUOMQTY before reading the report (same as POST sync endpoint).
-        ok_sync = sync_st_xtrans_suomqty_from_st_tr_udf(con)
-        if not ok_sync:
-            print(
-                '[PROCUREMENT STOCK CARD] ST_TR→ST_XTRANS SUOMQTY sync skipped or failed '
-                '(dashboard still loads; see DB init warnings).',
-                flush=True,
-            )
         cur = con.cursor()
         locations, data, stock_card_meta = fetch_procurement_stock_card_data(
             cur, from_date=from_date, to_date=to_date, qty_mode=qty_mode
@@ -4224,7 +4587,7 @@ def api_admin_procurement_stock_card():
             'locations': locations,
             'data': data,
             'st_tr_udf_suomqty': st_tr_udf_suomqty,
-            'suomqty_sync_applied': ok_sync,
+            'suomqty_sync_applied': False,
         })
     except Exception as e:
         print(f"[PROCUREMENT STOCK CARD] DB error: {e}", flush=True)
@@ -4751,59 +5114,24 @@ def _normalize_selected_suppliers(raw_suppliers):
 
 def _save_selected_suppliers(request_dockey, request_no, raw_suppliers, actor):
     """Persist selected suppliers for a purchase request (used by draft and edit flows)."""
-    try:
-        request_id = int(request_dockey)
-    except Exception:
-        return
-
-    if request_id <= 0:
-        return
-
-    suppliers = _normalize_selected_suppliers(raw_suppliers)
     con = None
-    cur = None
     try:
+        from utils.procurement_purchase_request import persist_selected_suppliers
+
         con = get_db_connection()
-        cur = con.cursor()
-
-        cur.execute('DELETE FROM PR_SELECTED_SUPPLIER WHERE REQUEST_DOCKEY = ?', (request_id,))
-
-        if suppliers:
-            cur.execute('SELECT COALESCE(MAX(ID), 0) FROM PR_SELECTED_SUPPLIER')
-            row = cur.fetchone()
-            next_id = int(row[0] or 0) + 1 if row else 1
-            now_sql = datetime.utcnow().replace(microsecond=0)
-
-            for supplier in suppliers:
-                cur.execute(
-                    '''
-                    INSERT INTO PR_SELECTED_SUPPLIER (
-                        ID, REQUEST_DOCKEY, REQUEST_NO, SUPPLIER_CODE, SUPPLIER_NAME,
-                        SUPPLIER_EMAIL, CREATED_BY, CREATED_AT, UPDATED_AT
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''',
-                    (
-                        next_id,
-                        request_id,
-                        str(request_no or '').strip(),
-                        supplier['code'],
-                        supplier['name'],
-                        supplier['email'],
-                        str(actor or 'admin').strip() or 'admin',
-                        now_sql,
-                        now_sql,
-                    ),
-                )
-                next_id += 1
-
+        persist_selected_suppliers(
+            con.cursor(),
+            request_dockey,
+            request_no,
+            raw_suppliers,
+            actor,
+        )
         con.commit()
     except Exception as exc:
         if con:
             con.rollback()
         print(f"[PROCUREMENT SELECTED SUPPLIERS] save warning: {exc}", flush=True)
     finally:
-        if cur:
-            cur.close()
         if con:
             con.close()
 
@@ -4831,7 +5159,7 @@ def _enrich_supplier_display_rows(rows: list[dict]) -> list[dict]:
     return rows
 
 
-def _list_selected_suppliers(request_dockey, request_no=None):
+def _list_selected_suppliers(request_dockey, request_no=None, *, enrich=True):
     try:
         request_id = int(request_dockey or 0)
     except Exception:
@@ -4888,6 +5216,8 @@ def _list_selected_suppliers(request_dockey, request_no=None):
                 'name': str((row[1] if len(row) > 1 else '') or '').strip(),
                 'email': str((row[2] if len(row) > 2 else '') or '').strip(),
             })
+        if not enrich:
+            return result
         return _enrich_supplier_display_rows(result)
     except Exception as exc:
         print(f"[PROCUREMENT SELECTED SUPPLIERS] list warning: {exc}", flush=True)
@@ -5332,7 +5662,10 @@ def _assert_detail_ids_in_location_scope(detail_ids) -> tuple[bool, str]:
 
 
 def _list_detail_suppliers_for_request(request_dockey, request_no=None):
-    """View e-PR detail: show awarded vendor(s) when set; else selected invite list."""
+    """View e-PR detail: show awarded vendor(s) when set; else selected invite list.
+
+    Local-only (enrich=False): SQL API supplier-master lookup must not block line load.
+    """
     try:
         request_id = int(request_dockey or 0)
     except Exception:
@@ -5341,8 +5674,8 @@ def _list_detail_suppliers_for_request(request_dockey, request_no=None):
     if request_id > 0:
         awarded = list_awarded_suppliers_for_request(request_id)
         if awarded:
-            return _enrich_supplier_display_rows(awarded)
-    return _list_selected_suppliers(request_id, request_no=request_no)
+            return awarded
+    return _list_selected_suppliers(request_id, request_no=request_no, enrich=False)
 
 
 @app.route('/api/admin/procurement/purchase-requests', methods=['POST'])
@@ -5369,10 +5702,8 @@ def api_admin_create_purchase_request():
 
     try:
         _assert_payload_line_locations_in_scope(payload)
+        # Suppliers are persisted inside create_purchase_request (same Firebird tx).
         result = create_purchase_request(payload, created_by=actor, auth_header=auth_header)
-
-        suppliers = payload.get('suppliers') or []
-        _save_selected_suppliers(result.get('id'), result.get('requestNumber'), suppliers, actor)
 
         # SUBMITTED create now lands in UDF_STATUS=AWAITING. Bid invitations and RFQ
         # emails are deferred until header status moves Awaiting -> Pending.
@@ -5810,11 +6141,103 @@ def _queue_rfq_invitation_emails_for_suppliers(
     return _rfq_recipient_count(targets)
 
 
-def _send_bidding_invitations_for_pr(request_dockey, request_no, actor):
-    """Create PR_BID_INVITE rows and queue RFQ emails once, on Awaiting -> Pending.
+def _request_no_from_header_changes(changes, request_id: int) -> str:
+    for raw in changes or []:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            rid = int(raw.get('requestId') or 0)
+        except Exception:
+            rid = 0
+        if rid != request_id:
+            continue
+        return str(
+            raw.get('requestNumber')
+            or raw.get('requestNo')
+            or raw.get('docNo')
+            or ''
+        ).strip()
+    return ''
 
-    Skips if invitations already exist for this dockey (idempotent for re-saves).
-    Returns dict with inviteCount and emailsQueued.
+
+def _awaiting_to_pending_targets(changes, applied, previous_by_id) -> list[tuple[int, str]]:
+    """Return (request_id, request_no) pairs that just moved Awaiting -> Pending."""
+    if not isinstance(applied, list):
+        return []
+    targets: list[tuple[int, str]] = []
+    for applied_change in applied:
+        if not isinstance(applied_change, dict):
+            continue
+        try:
+            request_id = int(applied_change.get('requestId') or 0)
+        except Exception:
+            request_id = 0
+        if not request_id:
+            continue
+        status_value = normalize_pr_udf_status(applied_change.get('udfStatus'))
+        previous = normalize_pr_udf_status(
+            applied_change.get('previousUdfStatus')
+            if applied_change.get('previousUdfStatus') is not None
+            else previous_by_id.get(request_id, '')
+        )
+        if status_value != 'PENDING' or previous != 'AWAITING':
+            continue
+        targets.append((request_id, _request_no_from_header_changes(changes, request_id)))
+    return targets
+
+
+def _send_pending_bid_invites_worker(changes, applied, previous_by_id, actor) -> None:
+    """Queue RFQ emails after Awaiting -> Pending (invites are created synchronously)."""
+    for request_id, request_no in _awaiting_to_pending_targets(changes, applied, previous_by_id):
+        try:
+            _queue_rfq_emails_for_existing_invites(request_id, request_no)
+        except Exception as invite_exc:
+            print(
+                f"[PROCUREMENT PR HEADER STATUS] RFQ email queue on PENDING failed "
+                f"for {request_id}: {invite_exc}",
+                flush=True,
+            )
+
+
+def _count_bid_invites_for_request(request_dockey: int) -> int:
+    """Cheap EXISTS-style count for PR_BID_INVITE (avoid full invite list join)."""
+    try:
+        dockey = int(request_dockey or 0)
+    except Exception:
+        dockey = 0
+    if dockey <= 0:
+        return 0
+    con = None
+    cur = None
+    try:
+        con = get_db_connection()
+        cur = con.cursor()
+        cur.execute(
+            "SELECT COUNT(*) FROM PR_BID_INVITE WHERE REQUEST_DOCKEY = ?",
+            (dockey,),
+        )
+        row = cur.fetchone()
+        return int(row[0] or 0) if row else 0
+    except Exception as exc:
+        print(f"[PROCUREMENT] count bid invites failed for {dockey}: {exc}", flush=True)
+        return 0
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if con:
+                con.close()
+        except Exception:
+            pass
+
+
+def _create_bidding_invitations_sync(request_dockey, request_no, actor):
+    """Create PR_BID_INVITE rows immediately on Awaiting -> Pending (local DB only).
+
+    Email send stays async so supplier portal can list the RFQ as soon as status saves.
     """
     try:
         dockey = int(request_dockey or 0)
@@ -5824,33 +6247,38 @@ def _send_bidding_invitations_for_pr(request_dockey, request_no, actor):
     if not dockey:
         return {'inviteCount': 0, 'emailsQueued': 0, 'skipped': True, 'reason': 'missing_dockey'}
 
-    existing = []
-    try:
-        existing = list_invited_suppliers_for_request(dockey) or []
-    except Exception as exc:
-        print(f"[PROCUREMENT] list_invited_suppliers_for_request failed for {dockey}: {exc}", flush=True)
-
-    if existing:
+    existing_count = _count_bid_invites_for_request(dockey)
+    if existing_count > 0:
         print(
             f"[PROCUREMENT] Bid invitations already exist for PR {req_no or dockey} "
-            f"({len(existing)}); skip re-send",
+            f"({existing_count}); skip re-create",
             flush=True,
         )
         return {
-            'inviteCount': len(existing),
+            'inviteCount': existing_count,
             'emailsQueued': 0,
             'skipped': True,
             'reason': 'already_invited',
+            'requestNumber': req_no,
+            'requestId': dockey,
         }
 
-    suppliers = _list_selected_suppliers(dockey)
+    # enrich=False: do not wait on SQL API before suppliers can see the RFQ.
+    suppliers = _list_selected_suppliers(dockey, enrich=False)
     if not suppliers:
         print(
             f"[PROCUREMENT] No selected suppliers for PR {req_no or dockey}; "
             "cannot create bid invitations",
             flush=True,
         )
-        return {'inviteCount': 0, 'emailsQueued': 0, 'skipped': True, 'reason': 'no_suppliers'}
+        return {
+            'inviteCount': 0,
+            'emailsQueued': 0,
+            'skipped': True,
+            'reason': 'no_suppliers',
+            'requestNumber': req_no,
+            'requestId': dockey,
+        }
 
     if not req_no:
         local = _resolve_local_purchase_request_header(str(dockey), '')
@@ -5862,19 +6290,56 @@ def _send_bidding_invitations_for_pr(request_dockey, request_no, actor):
                 or ''
             ).strip()
 
-    from utils.procurement_bidding import create_bid_invitations
     create_bid_invitations(
         request_dockey=dockey,
         request_no=req_no,
         suppliers=suppliers,
         created_by=actor,
     )
+    print(
+        f"[PROCUREMENT] Awaiting->Pending: created bid invitations for "
+        f"{len(suppliers)} supplier(s) on PR {req_no or dockey}",
+        flush=True,
+    )
+    return {
+        'inviteCount': len(suppliers),
+        'emailsQueued': 0,
+        'skipped': False,
+        'requestNumber': req_no,
+        'requestId': dockey,
+    }
+
+
+def _queue_rfq_emails_for_existing_invites(request_dockey, request_no):
+    """Resolve emails (may hit SQL API) and queue RFQ mail for an already-invited PR."""
+    try:
+        dockey = int(request_dockey or 0)
+    except Exception:
+        dockey = 0
+    req_no = str(request_no or '').strip()
+    if not dockey:
+        return {'emailsQueued': 0, 'skipped': True, 'reason': 'missing_dockey'}
+
+    suppliers = _list_selected_suppliers(dockey, enrich=True)
+    if not suppliers:
+        return {'emailsQueued': 0, 'skipped': True, 'reason': 'no_suppliers'}
+
+    if not req_no:
+        local = _resolve_local_purchase_request_header(str(dockey), '')
+        if isinstance(local, dict):
+            req_no = str(
+                local.get('docno')
+                or local.get('docNo')
+                or local.get('requestNumber')
+                or ''
+            ).strip()
+
     lines, req_date = _local_pr_lines_for_rfq_email(dockey, req_no)
     queued = _queue_rfq_invitation_emails_for_suppliers(
         suppliers, req_no, req_date, lines, request_dockey=dockey,
     )
     print(
-        f"[PROCUREMENT] Awaiting->Pending: created bid invitations for "
+        f"[PROCUREMENT] Awaiting->Pending: queued RFQ emails for "
         f"{len(suppliers)} supplier(s) on PR {req_no or dockey}; emailsQueued={queued}",
         flush=True,
     )
@@ -5887,6 +6352,18 @@ def _send_bidding_invitations_for_pr(request_dockey, request_no, actor):
     }
     if queued <= 0 and not (os.getenv('SUPPLIER_PORTAL_BASE_URL') or '').strip():
         result['reason'] = 'missing_portal_url'
+    return result
+
+
+def _send_bidding_invitations_for_pr(request_dockey, request_no, actor):
+    """Create PR_BID_INVITE rows then queue RFQ emails (legacy combined helper)."""
+    result = _create_bidding_invitations_sync(request_dockey, request_no, actor)
+    if result.get('skipped') and result.get('reason') in ('missing_dockey', 'no_suppliers'):
+        return result
+    email_result = _queue_rfq_emails_for_existing_invites(request_dockey, request_no)
+    result['emailsQueued'] = int(email_result.get('emailsQueued') or 0)
+    if email_result.get('reason') and not result.get('reason'):
+        result['reason'] = email_result.get('reason')
     return result
 
 
@@ -5951,11 +6428,12 @@ def _send_rfq_invitation_emails_background(
         dockey = int(request_dockey or 0)
     except Exception:
         dockey = 0
-    bidding_url = f"{portal_base}/supplier/bidding"
+    # Land on login with Supplier carousel selected; request_id carried through after OTP.
+    bidding_url = f"{portal_base}/login?mode=supplier"
     if dockey > 0:
-        bidding_url = f"{bidding_url}?request_id={dockey}"
+        bidding_url = f"{bidding_url}&request_id={int(dockey)}"
     portal_cta_html = (
-        "<p style='margin-top:14px;'>Please go to the supplier bidding portal to submit your quotation:</p>"
+        "<p style='margin-top:14px;'>Please sign in on the supplier portal to submit your quotation:</p>"
         f"<p style='margin-top:8px;'><a href='{_rfq_invite_safe_html(bidding_url)}' "
         f"style='color:#1d4ed8;font-weight:600;'>{_rfq_invite_safe_html(bidding_url)}</a></p>"
     )
@@ -6255,6 +6733,12 @@ def api_admin_list_purchase_requests():
     raw_debug_suppliers = request.args.get('debug_suppliers')
     raw_include_total = request.args.get('include_total')
     raw_no_cache = request.args.get('no_cache')
+    raw_view_status = (
+        request.args.get('view_status')
+        or request.args.get('udf_status')
+        or ''
+    ).strip()
+    view_status = normalize_view_pr_tab_status(raw_view_status)
     include_total_upstream = str(raw_include_total or '').strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
     no_cache = str(raw_no_cache or '').strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
     debug_suppliers = str(raw_debug_suppliers or '').strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
@@ -6273,6 +6757,51 @@ def api_admin_list_purchase_requests():
     offset = max(0, offset)
     # SQL API pagination typically expects smaller pages; keep this conservative.
     limit = max(1, min(limit, 50))
+
+    if not can_access_purchase_menu(session):
+        return jsonify({'success': False, 'error': 'You have no access to this page'}), 403
+    if view_status == 'AWAITING' and hide_pr_awaiting_tab(session):
+        return jsonify({'success': False, 'error': 'Awaiting Approval is not available for this role'}), 403
+
+    # View e-PR tabs filter by local PH_PQ.UDF_STATUS (source of truth). Without this,
+    # the Cancelled tab only sees cancelled rows that happen to fall in the newest page.
+    if view_status:
+        try:
+            records, page = list_view_pr_headers_for_status(
+                view_status,
+                offset=offset,
+                limit=limit,
+            )
+            try:
+                status_counts = map_view_pr_status_counts()
+            except Exception as count_exc:
+                print(f"[PROCUREMENT LIST PR] status counts warning: {count_exc}", flush=True)
+                status_counts = {}
+            total_ms = round((time.perf_counter() - started_total) * 1000, 1)
+            print(
+                f"[PROCUREMENT LIST PR PERF] view_status={view_status} total_ms={total_ms} "
+                f"rows={len(records)} offset={offset} limit={limit} total={page.get('total')}",
+                flush=True,
+            )
+            return jsonify({
+                'success': True,
+                'data': records,
+                'count': len(records),
+                'pagination': page,
+                'statusCounts': status_counts,
+                'perf': {
+                    'totalMs': total_ms,
+                    'viewStatus': view_status,
+                    'rowCount': len(records),
+                    'source': 'local_ph_pq',
+                },
+            })
+        except Exception as view_status_exc:
+            print(f"[PROCUREMENT LIST PR] view_status={view_status} error: {view_status_exc}", flush=True)
+            return jsonify({
+                'success': False,
+                'error': f'Failed to list {view_status} purchase requests: {view_status_exc}',
+            }), 500
 
     def _fetch_pr_balance_qty_map(request_ids):
         if not request_ids:
@@ -6666,6 +7195,11 @@ def api_admin_list_purchase_requests():
                 )
         except Exception as loc_exc:
             print(f"[PROCUREMENT LIST PR] location scope header filter warning: {loc_exc}", flush=True)
+
+        records = [
+            rec for rec in records
+            if not is_hidden_cancelled_draft(rec.get("status"), rec.get("udfStatus"))
+        ]
 
         if debug_suppliers:
             try:
@@ -7095,6 +7629,10 @@ def api_admin_purchase_request_details_fallback():
         }
 
     try:
+        draft_response = _draft_purchase_request_detail_response(raw_request_id, request_no)
+        if draft_response is not None:
+            return draft_response
+
         headers = _build_sql_api_auth_headers()
         global PURCHASE_REQUEST_DETAIL_ENDPOINT_HINT
         candidates = []
@@ -7433,6 +7971,147 @@ def _resolve_local_purchase_request_header(raw_request_id, request_no):
             con.close()
 
 
+def _draft_line_from_local(row: dict, idx: int) -> dict:
+    qty = _num(row.get('quantity') if row.get('quantity') is not None else row.get('qty'))
+    sqty = _num(row.get('sqty')) if row.get('sqty') is not None else qty
+    suom = _num(row.get('suomqty')) if row.get('suomqty') is not None else 0.0
+    basis = 'SQTY' if sqty > 0 and suom <= 0 else 'SUOMQTY'
+    detail_id = row.get('id') or row.get('dtlkey') or idx
+    return {
+        'id': detail_id,
+        'seq': row.get('seq') if row.get('seq') is not None else idx,
+        'itemCode': str(row.get('itemCode') or row.get('itemcode') or '').strip(),
+        'itemName': str(row.get('itemName') or row.get('description') or '').strip(),
+        'description': str(row.get('description') or '').strip(),
+        'locationCode': str(row.get('locationCode') or row.get('location') or '').strip(),
+        'quantity': qty,
+        'unitPrice': _num(row.get('unitPrice') if row.get('unitPrice') is not None else row.get('unitprice')),
+        'tax': _num(row.get('tax') if row.get('tax') is not None else row.get('taxamt')),
+        'amount': _num(row.get('amount')),
+        'deliveryDate': row.get('deliveryDate') or row.get('deliverydate'),
+        'transferable': row.get('transferable'),
+        'udfPqApproved': row.get('udf_pqapproved') if row.get('udf_pqapproved') is not None else row.get('udfPqApproved'),
+        'udfReason': str(row.get('udf_reason') or row.get('udfReason') or '').strip(),
+        'transferredQty': 0.0,
+        'remainingQty': qty,
+        'isFinalChosenPrice': False,
+        'sqty': sqty,
+        'suomqty': suom,
+        'stockQtyUom': basis,
+        'project': str(row.get('project') or '').strip() or '----',
+    }
+
+
+def _apply_awarded_pricing_from_gate(details: list, gate: dict | None) -> None:
+    """Overlay awarded unit prices onto View e-PR detail rows (mutates details)."""
+    if not details or not isinstance(gate, dict):
+        return
+    approved_line_map: dict[int, dict] = {}
+    line_awards = gate.get('lineAwards')
+    if isinstance(line_awards, list) and line_awards:
+        for line in line_awards:
+            if not isinstance(line, dict):
+                continue
+            try:
+                approved_line_map[int(line.get('detailId'))] = line
+            except Exception:
+                continue
+    else:
+        approved_bid = gate.get('approvedBid')
+        approved_lines = approved_bid.get('lines') if isinstance(approved_bid, dict) else []
+        for line in approved_lines if isinstance(approved_lines, list) else []:
+            if not isinstance(line, dict):
+                continue
+            try:
+                approved_line_map[int(line.get('detailId'))] = line
+            except Exception:
+                continue
+    if not approved_line_map:
+        return
+    for detail in details:
+        if not isinstance(detail, dict):
+            continue
+        try:
+            detail_id = int(detail.get('id'))
+        except Exception:
+            continue
+        hit = approved_line_map.get(detail_id)
+        if not hit:
+            continue
+        qty = _num(detail.get('quantity'))
+        approved_price = _num(hit.get('unitPrice'))
+        approved_tax = _num(hit.get('tax'))
+        detail['unitPrice'] = approved_price
+        detail['tax'] = approved_tax
+        detail['amount'] = _num(hit.get('amount')) or max(0.0, (qty * approved_price) + approved_tax)
+        detail['isFinalChosenPrice'] = True
+        detail['finalPriceSource'] = 'APPROVED_BID'
+
+
+def _draft_purchase_request_detail_response(raw_request_id, request_no):
+    """Read one PR from local PH_PQ/PH_PQDTL (including Approved after awards).
+
+    Avoids waiting on SQL Acc API / supplier-master enrich for View e-PR line load.
+    """
+    started = time.perf_counter()
+    local = _resolve_local_purchase_request_header(raw_request_id, request_no)
+    if not isinstance(local, dict):
+        return None
+    lines = local.get('sdsdocdetail')
+    if not isinstance(lines, list):
+        return None
+    details = [
+        _draft_line_from_local(row, idx)
+        for idx, row in enumerate(lines, start=1)
+        if isinstance(row, dict)
+    ]
+    detail_count_before_scope = len(details)
+    details = _filter_pr_details_by_location_scope(details)
+    if detail_count_before_scope and not details:
+        print(
+            f"[PROCUREMENT PR DETAIL] location scope removed all lines "
+            f"for request_id={local.get('dockey')} before={detail_count_before_scope}",
+            flush=True,
+        )
+    dockey = local.get('dockey')
+    try:
+        dockey_int = int(dockey or 0)
+    except Exception:
+        dockey_int = 0
+    docno = str(local.get('docno') or request_no or '').strip()
+    gate = None
+    if dockey_int > 0 and details:
+        try:
+            gate = get_transfer_gate_state(dockey_int)
+            _apply_awarded_pricing_from_gate(details, gate)
+            apply_transferable_flags_for_approved_pr(dockey_int, details, gate=gate)
+        except Exception as gate_exc:
+            print(
+                f"[PROCUREMENT PR DETAIL] local gate warning for {dockey_int}: {gate_exc}",
+                flush=True,
+            )
+    suppliers = _list_detail_suppliers_for_request(dockey_int, request_no=docno)
+    total_amount = sum(_num(row.get('amount')) for row in details if isinstance(row, dict))
+    total_ms = round((time.perf_counter() - started) * 1000, 1)
+    print(
+        f"[PROCUREMENT PR DETAIL PERF] request_id={dockey_int} total_ms={total_ms} "
+        f"source=local detail_count={len(details)} detail_count_before_scope={detail_count_before_scope} "
+        f"supplier_count={len(suppliers)} "
+        f"udf={normalize_pr_udf_status(local.get('udf_status') or local.get('udfStatus'))}",
+        flush=True,
+    )
+    return jsonify({
+        'success': True,
+        'id': dockey_int or dockey,
+        'requestNumber': docno or None,
+        'udfReason': str(local.get('udf_reason') or '').strip(),
+        'details': details,
+        'totalAmount': total_amount,
+        'suppliers': suppliers,
+        'count': len(details),
+    })
+
+
 @app.route('/api/admin/procurement/bidding/invitations', methods=['POST'])
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_create_bidding_invitations():
@@ -7515,7 +8194,7 @@ def api_admin_list_request_invitations(request_id):
     try:
         ctx = resolve_bidding_context(int(request_id))
         source_id = int(ctx.get('biddingSourceDockey') or request_id)
-        rows = _enrich_supplier_rows_company_names(list_invited_suppliers_for_request(source_id))
+        rows = list_invited_suppliers_for_request(source_id)
         return jsonify({'success': True, 'data': rows, 'count': len(rows)})
     except BiddingValidationError as exc:
         return jsonify({'success': False, 'error': str(exc)}), 400
@@ -7703,9 +8382,11 @@ def api_supplier_bidding_request_details():
 
         bidding_ctx = resolve_bidding_context(request_dockey_int)
         source_dockey_int = int(bidding_ctx.get('biddingSourceDockey') or request_dockey_int)
-        invite_ok = supplier_has_active_bid_invitation(request_dockey_int, supplier_session_code)
+        # Allow any invite status (incl. CLOSED) so Cancelled / closed rounds stay readable;
+        # submit_supplier_bid still blocks CLOSED and cancelled PRs.
+        invite_ok = supplier_has_bid_invitation(request_dockey_int, supplier_session_code)
         if not invite_ok and source_dockey_int != request_dockey_int:
-            invite_ok = supplier_has_active_bid_invitation(source_dockey_int, supplier_session_code)
+            invite_ok = supplier_has_bid_invitation(source_dockey_int, supplier_session_code)
         if not request_dockey_int or not invite_ok:
             return jsonify({'success': False, 'error': 'Forbidden'}), 403
 
@@ -7796,6 +8477,7 @@ def api_supplier_bidding_request_details():
         has_partial_line_awards = False
         awarded_detail_ids: list[int] = []
         bid_log: list[dict] = []
+        request_udf_status = ''
         if request_dockey_int:
             my_bid = get_supplier_bid_snapshot(request_dockey_int, supplier_session_code)
             bid_log = build_supplier_bid_log(request_dockey_int, supplier_session_code)
@@ -7807,6 +8489,9 @@ def api_supplier_bidding_request_details():
             has_line_awards = bool(award_state.get('hasLineAwards'))
             has_partial_line_awards = bool(award_state.get('hasPartialLineAwards'))
             awarded_detail_ids = list(award_state.get('awardedDetailIds') or [])
+            request_udf_status = normalize_pr_udf_status(
+                get_pr_udf_status_local(request_dockey_int)
+            )
 
         return jsonify({
             'success': True,
@@ -7817,6 +8502,8 @@ def api_supplier_bidding_request_details():
             'count': len(details),
             'requiredDeliveryDate': format_display_date(required_for_pr),
             'documentDate': pq_meta.get('documentDate'),
+            'udfStatus': request_udf_status,
+            'prCancelled': request_udf_status == 'CANCELLED',
             'myBid': my_bid,
             'bidLog': bid_log,
             'hasLineAwards': has_line_awards,
@@ -7845,11 +8532,9 @@ def api_supplier_submit_bid():
     bid_lines = payload.get('bidLines') if isinstance(payload.get('bidLines'), list) else []
     remarks = str(payload.get('remarks') or '').strip()
 
+    # Session supplier only — never trust a client-supplied supplierCode.
     supplier_code = (session.get('supplier_code') or session.get('customer_code') or '').strip()
     supplier_name = str(payload.get('supplierName') or session.get('user_email') or '').strip()
-    from utils.sql_api_supplier import resolve_supplier_company_name
-
-    supplier_name = resolve_supplier_company_name(supplier_code, supplier_name)
     actor = (session.get('user_email') or supplier_code or 'supplier').strip()
 
     if not raw_request_id and not request_no:
@@ -7859,11 +8544,16 @@ def api_supplier_submit_bid():
     if not bid_lines:
         return jsonify({'success': False, 'error': 'bidLines[] is required'}), 400
 
+    t0 = time.perf_counter()
     try:
-        headers = _build_sql_api_auth_headers()
-        request_header, last_status = _resolve_purchase_request_header(raw_request_id, request_no, headers, timeout=12)
+        # Local Firebird first — bid submit must not wait on api.sql.my.
+        request_header = _resolve_local_purchase_request_header(raw_request_id, request_no)
+        last_status = 200 if request_header else 404
         if not request_header:
-            request_header = _resolve_local_purchase_request_header(raw_request_id, request_no)
+            headers = _build_sql_api_auth_headers()
+            request_header, last_status = _resolve_purchase_request_header(
+                raw_request_id, request_no, headers, timeout=(1.0, 3.0)
+            )
 
         if not request_header:
             if last_status in (200, 404):
@@ -7872,6 +8562,7 @@ def api_supplier_submit_bid():
 
         request_dockey = int(request_header.get('dockey'))
         request_docno = str(request_header.get('docno') or '').strip()
+        t_resolve = time.perf_counter()
         result = submit_supplier_bid(
             request_dockey=request_dockey,
             request_no=request_docno,
@@ -7880,6 +8571,13 @@ def api_supplier_submit_bid():
             bid_lines=bid_lines,
             remarks=remarks,
             created_by=actor,
+        )
+        t_done = time.perf_counter()
+        print(
+            f"[SUPPLIER BIDDING SUBMIT] timing resolve={((t_resolve - t0) * 1000):.0f}ms "
+            f"save={((t_done - t_resolve) * 1000):.0f}ms total={((t_done - t0) * 1000):.0f}ms "
+            f"dockey={request_dockey} supplier={supplier_code} lines={len(bid_lines)}",
+            flush=True,
         )
         return jsonify({'success': True, 'message': 'Bid submitted successfully', 'data': result})
     except BiddingValidationError as exc:
@@ -7936,26 +8634,37 @@ def _enrich_supplier_rows_company_names(rows: list) -> list:
     return rows
 
 
-def _enrich_bidding_gate_with_pr_udf(request_id: int, gate: dict) -> dict:
-    """Merge SQL API + local PH_PQ UDF status so item awards lock matches View e-PR."""
+def _enrich_bidding_gate_with_pr_udf(request_id: int, gate: dict, *, allow_remote: bool = True) -> dict:
+    """Merge PH_PQ UDF status so item awards lock matches View e-PR.
+
+    Local Firebird is source of truth for award save. SQL API overlay is optional
+    and skipped on the save path so Save Item Awards is not blocked on api.sql.my.
+    """
     if not isinstance(gate, dict):
         gate = {}
     api_udf = ''
-    try:
-        headers = _build_sql_api_auth_headers()
-        request_header, _status = _resolve_purchase_request_header(request_id, '', headers, timeout=8)
-        if isinstance(request_header, dict):
-            api_udf = normalize_pr_udf_status(
-                request_header.get('udf_status') or request_header.get('udfStatus')
+    if allow_remote:
+        try:
+            headers = _build_sql_api_auth_headers()
+            request_header, _status = _resolve_purchase_request_header(
+                request_id, '', headers, timeout=(1.0, 3.0)
             )
-    except Exception:
-        api_udf = ''
+            if isinstance(request_header, dict):
+                api_udf = normalize_pr_udf_status(
+                    request_header.get('udf_status') or request_header.get('udfStatus')
+                )
+        except Exception:
+            api_udf = ''
     local_udf = normalize_pr_udf_status(gate.get('prUdfStatus') or get_pr_udf_status_local(request_id))
-    display_udf = api_udf or local_udf
+    # Local Firebird is source of truth for award lock / display; SQL API is informational only.
+    display_udf = local_udf or api_udf
+    has_line_awards = bool(gate.get('hasLineAwards'))
     gate['prUdfStatus'] = display_udf
     gate['prUdfStatusApi'] = api_udf
     gate['prUdfStatusLocal'] = local_udf
-    gate['lineAwardsLocked'] = is_pr_line_awards_locked(api_udf) or is_pr_line_awards_locked(local_udf)
+    gate['lineAwardsLocked'] = is_pr_line_awards_locked(
+        local_udf or display_udf, has_line_awards=has_line_awards
+    )
     return gate
 
 
@@ -7965,8 +8674,7 @@ def api_admin_list_request_bids(request_id):
     """List supplier bids and transfer gate state for one purchase request."""
     try:
         bids, _ctx = list_bids_for_bidding_view(request_id)
-        bids = _enrich_supplier_rows_company_names(bids)
-        gate = _enrich_bidding_gate_with_pr_udf(request_id, get_transfer_gate_state(request_id))
+        gate = get_transfer_gate_state(request_id)
         return jsonify({'success': True, 'data': bids, 'count': len(bids), 'gate': gate})
     except Exception as exc:
         print(f"[PROCUREMENT BIDDING LIST] error: {exc}", flush=True)
@@ -7981,12 +8689,44 @@ def api_admin_save_bid_line_awards(request_id):
     awards = payload.get('awards') if isinstance(payload.get('awards'), list) else []
     udf_reason = str(payload.get('udfReason') or payload.get('reason') or '').strip()
     actor = (session.get('user_email') or session.get('user_name') or 'admin').strip()
+    t0 = time.perf_counter()
     try:
-        gate_preview = _enrich_bidding_gate_with_pr_udf(request_id, get_transfer_gate_state(request_id))
-        api_udf = str(gate_preview.get('prUdfStatusApi') or gate_preview.get('prUdfStatus') or '').strip()
-        result = save_line_awards(request_id, awards, actor, udf_reason, pr_udf_status=api_udf)
-        gate = _enrich_bidding_gate_with_pr_udf(request_id, get_transfer_gate_state(request_id))
-        return jsonify({'success': True, 'message': 'Line awards saved', 'data': result, 'gate': gate})
+        # Local UDF only — do not wait on SQL API before/after award save.
+        gate_preview = _enrich_bidding_gate_with_pr_udf(
+            request_id, get_transfer_gate_state(request_id), allow_remote=False
+        )
+        local_udf = str(
+            gate_preview.get('prUdfStatusLocal') or gate_preview.get('prUdfStatus') or ''
+        ).strip()
+        t_gate = time.perf_counter()
+        result = save_line_awards(request_id, awards, actor, udf_reason, pr_udf_status=local_udf)
+        t_save = time.perf_counter()
+        gate = _enrich_bidding_gate_with_pr_udf(
+            request_id, get_transfer_gate_state(request_id), allow_remote=False
+        )
+        supplier_count = 0
+        try:
+            supplier_count = int((result or {}).get('supplierCount') or 0)
+        except Exception:
+            supplier_count = 0
+        message = 'Line awards saved; purchase request moved to Approved'
+        if supplier_count > 1:
+            message = (
+                'Line awards saved on one purchase request '
+                '(suppliers stored per line); moved to Approved'
+            )
+        print(
+            f"[PROCUREMENT BIDDING LINE AWARD] timing gate={((t_gate - t0) * 1000):.0f}ms "
+            f"save={((t_save - t_gate) * 1000):.0f}ms total={((time.perf_counter() - t0) * 1000):.0f}ms "
+            f"dockey={request_id} awards={len(awards)} suppliers={supplier_count}",
+            flush=True,
+        )
+        return jsonify({
+            'success': True,
+            'message': message,
+            'data': result,
+            'gate': gate,
+        })
     except BiddingValidationError as exc:
         return jsonify({'success': False, 'error': str(exc)}), 400
     except Exception as exc:
@@ -8304,6 +9044,8 @@ def api_admin_purchase_request_transfer_candidates():
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_bulk_transfer_purchase_requests_to_po():
     """Consolidate selected lines from multiple APPROVED PRs into one PO per supplier/currency."""
+    if not can_transfer_pr_to_po(session):
+        return jsonify({'success': False, 'error': 'Transfer to PO requires UDF_APPROVEPO'}), 403
     payload = request.get_json(silent=True) or {}
     lines = payload.get('lines') if isinstance(payload.get('lines'), list) else []
     transfer_date = payload.get('transferDate')
@@ -8600,6 +9342,8 @@ def api_admin_bulk_transfer_purchase_requests_to_po():
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_transfer_purchase_request_to_po():
     """Transfer approved purchase request detail quantities into PH_PO/PH_PODTL and ST_XTRANS."""
+    if not can_transfer_pr_to_po(session):
+        return jsonify({'success': False, 'error': 'Transfer to PO requires UDF_APPROVEPO'}), 403
     payload = request.get_json(silent=True) or {}
     raw_request_id = str(payload.get('requestId') or '').strip()
     request_no = str(payload.get('requestNumber') or '').strip()
@@ -8915,7 +9659,6 @@ def api_get_product_price():
                 catalog_row = find_catalog_stock_item_prefer_sql_api(
                     code=item_code,
                     description=description,
-                    cached_items=_fetch_stock_items_cached(),
                 )
                 code_for_detail = item_code or str(
                     (catalog_row or {}).get("CODE") or (catalog_row or {}).get("code") or ""
@@ -9304,12 +10047,83 @@ def api_create_order():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+def _apply_header_status_changes_local(changes: list) -> dict:
+    """Write PH_PQ.UDF_STATUS locally (same rules as /purchaserequest/header-status).
+
+    Avoids the Flask -> mounted FastAPI HTTP hop so Awaiting -> Pending + RFQ invite
+    can finish in one local Firebird transaction path.
+    """
+    from fastapi import HTTPException
+    from api.routes.purchase_requests import _apply_purchase_request_header_status
+    from utils.firebird_helpers import _get_table_columns, _pick_existing
+    from utils.procurement_purchase_request import _column_is_numeric
+
+    con = get_db_connection()
+    cur = None
+    try:
+        cur = con.cursor()
+        header_cols = _get_table_columns(cur, "PH_PQ")
+        key_col = _pick_existing(header_cols, "DOCKEY", "PQKEY", "ID")
+        udf_status_col = _pick_existing(header_cols, "UDF_STATUS")
+        if not key_col:
+            raise ValueError("PH_PQ key column not found")
+        if not udf_status_col:
+            raise ValueError("PH_PQ.UDF_STATUS column not found")
+        status_col = _pick_existing(header_cols, "STATUS") or ""
+        status_is_numeric = bool(status_col and _column_is_numeric(cur, "PH_PQ", status_col))
+
+        updated = 0
+        applied: list[dict] = []
+        for raw in changes:
+            if not isinstance(raw, dict):
+                continue
+            try:
+                result = _apply_purchase_request_header_status(
+                    cur,
+                    raw,
+                    key_col=key_col,
+                    udf_status_col=udf_status_col,
+                    status_col=status_col,
+                    status_is_numeric=status_is_numeric,
+                )
+            except HTTPException as exc:
+                detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail or exc)
+                raise ValueError(detail) from exc
+            if result is None:
+                continue
+            rowcount, applied_change = result
+            updated += int(rowcount or 0)
+            if isinstance(applied_change, dict):
+                applied.append(applied_change)
+        con.commit()
+        return {
+            "success": True,
+            "updated": updated,
+            "requested": len(changes),
+            "changes": applied,
+        }
+    except Exception:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            con.close()
+        except Exception:
+            pass
+
+
 @app.route('/api/admin/procurement/purchase-requests/header-status', methods=['POST'])
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_purchase_request_header_status_update():
-    """Update UDF_STATUS for purchase request headers."""
-    if not can_update_pr_approvals_and_header_status(session):
-        return jsonify({'success': False, 'error': 'Insufficient permissions to update PR header status'}), 403
+    """Update UDF_STATUS for purchase request headers (local-first + sync RFQ invites)."""
     payload = request.get_json(silent=True) or {}
     actor = (session.get('user_email') or session.get('user_name') or 'admin').strip()
 
@@ -9332,38 +10146,27 @@ def api_admin_purchase_request_header_status_update():
             previous = normalize_pr_udf_status(get_pr_udf_status_local(request_id))
             previous_by_id[request_id] = previous
             status_value = str(raw.get('udfStatus') or '').strip().upper()
+            if not can_apply_pr_header_udf_change(session, previous, status_value):
+                return jsonify({
+                    'success': False,
+                    'error': 'Insufficient permissions to update this PR header status',
+                }), 403
             if status_value == 'PENDING' and previous == 'AWAITING':
-                suppliers = _list_selected_suppliers(request_id)
+                suppliers = _list_selected_suppliers(request_id, enrich=False)
                 if not suppliers:
                     return jsonify({
                         'success': False,
-                        'error': (
-                            'Select at least one supplier before moving to Pending (Awaiting RFQ).'
-                        ),
+                        'error': 'Select at least one supplier before moving to Pending.',
                     }), 400
 
-        headers = _build_sql_api_auth_headers()
+        # Local Firebird write — no HTTP hop to mounted /eq-sql-api.
         try:
-            body, _resp = http_request_json(
-                'POST',
-                f"{FASTAPI_BASE_URL}/purchaserequest/header-status",
-                json=payload,
-                headers=headers or None,
-            )
-        except requests.exceptions.HTTPError as e:
-            message = ''
-            if e.response is not None:
-                try:
-                    b = e.response.json()
-                    message = b.get('detail') if isinstance(b, dict) else ''
-                except Exception:
-                    message = (e.response.text or '').strip()
-            st = e.response.status_code if e.response is not None else 502
-            err = f"SQL API returned {st}" + (f": {message}" if message else '')
-            return jsonify({'success': False, 'error': err}), st if st in (400, 404) else 502
+            body = _apply_header_status_changes_local(changes)
+        except ValueError as exc:
+            message = str(exc or '').strip() or 'Invalid header status change'
+            status_code = 404 if 'not found' in message.lower() else 400
+            return jsonify({'success': False, 'error': message}), status_code
 
-        # Awaiting Approval -> Pending only: create invitations and queue RFQ emails.
-        invite_results = []
         applied = body.get('changes') if isinstance(body, dict) else None
         if not isinstance(applied, list) or not applied:
             applied = []
@@ -9382,42 +10185,12 @@ def api_admin_purchase_request_header_status_update():
                     'previousUdfStatus': previous_by_id.get(request_id, ''),
                 })
 
-        for applied_change in applied:
-            if not isinstance(applied_change, dict):
-                continue
+        # Invites before response so supplier Open tab can see the RFQ immediately.
+        bid_invitation_results = []
+        for request_id, request_no in _awaiting_to_pending_targets(changes, applied, previous_by_id):
             try:
-                request_id = int(applied_change.get('requestId') or 0)
-            except Exception:
-                request_id = 0
-            if not request_id:
-                continue
-            status_value = normalize_pr_udf_status(applied_change.get('udfStatus'))
-            previous = normalize_pr_udf_status(
-                applied_change.get('previousUdfStatus')
-                if applied_change.get('previousUdfStatus') is not None
-                else previous_by_id.get(request_id, '')
-            )
-            if status_value != 'PENDING' or previous != 'AWAITING':
-                continue
-            request_no = ''
-            for raw in changes:
-                if not isinstance(raw, dict):
-                    continue
-                try:
-                    rid = int(raw.get('requestId') or 0)
-                except Exception:
-                    rid = 0
-                if rid == request_id:
-                    request_no = str(
-                        raw.get('requestNumber')
-                        or raw.get('requestNo')
-                        or raw.get('docNo')
-                        or ''
-                    ).strip()
-                    break
-            try:
-                invite_results.append(
-                    _send_bidding_invitations_for_pr(request_id, request_no, actor)
+                bid_invitation_results.append(
+                    _create_bidding_invitations_sync(request_id, request_no, actor)
                 )
             except Exception as invite_exc:
                 print(
@@ -9425,23 +10198,29 @@ def api_admin_purchase_request_header_status_update():
                     f"for {request_id}: {invite_exc}",
                     flush=True,
                 )
-                invite_results.append({
+                bid_invitation_results.append({
                     'inviteCount': 0,
                     'emailsQueued': 0,
                     'skipped': True,
                     'reason': str(invite_exc),
                     'requestId': request_id,
+                    'requestNumber': request_no,
                 })
 
-        out = body if isinstance(body, dict) else {'upstream': body}
-        if invite_results:
-            out = dict(out)
-            out['bidInvitationResults'] = invite_results
+        try:
+            with PURCHASE_REQUEST_LIST_CACHE_LOCK:
+                PURCHASE_REQUEST_LIST_CACHE.clear()
+        except Exception:
+            pass
+        # Emails may hit SQL API for udf_email01..15 — keep off the request path.
+        threading.Thread(
+            target=_send_pending_bid_invites_worker,
+            args=(changes, applied, previous_by_id, actor),
+            daemon=True,
+        ).start()
+        out = dict(body) if isinstance(body, dict) else {'upstream': body}
+        out['bidInvitationResults'] = bid_invitation_results
         return jsonify({'success': True, 'data': out})
-    except requests.exceptions.Timeout:
-        return jsonify({'success': False, 'error': 'Header status update request timed out'}), 504
-    except requests.exceptions.ConnectionError:
-        return jsonify({'success': False, 'error': 'Cannot reach SQL API for header status update'}), 503
     except Exception as exc:
         print(f"[PROCUREMENT PR HEADER STATUS UPDATE] error: {exc}", flush=True)
         return jsonify({'success': False, 'error': str(exc)}), 500
@@ -9456,6 +10235,19 @@ def api_quotation_next_docno():
         for_dockey = int(request.args.get('dockey') or 0)
     except (TypeError, ValueError):
         for_dockey = 0
+    # Prevent DOCNO probing of other customers' quotations via dockey guess.
+    if for_dockey > 0 and session.get('user_type') != 'admin':
+        try:
+            from utils.quotation_api import _read_sl_qt_header_for_sales_api
+            hb = _read_sl_qt_header_for_sales_api(for_dockey)
+            qt_code = str(hb.get('code') or '').strip().upper()
+            sess_code = str(
+                get_current_customer_code(resolve_missing=True) or session.get('customer_code') or ''
+            ).strip().upper()
+            if not qt_code or not sess_code or qt_code != sess_code:
+                return jsonify({'success': False, 'error': 'Forbidden'}), 403
+        except Exception:
+            return jsonify({'success': False, 'error': 'Forbidden'}), 403
     try:
         result = peek_next_qt_docno(for_dockey=for_dockey)
         if not result.get('success'):
@@ -9473,6 +10265,9 @@ def api_create_quotation():
         return jsonify({'success': False, 'error': 'Forbidden'}), 403
     customer_code = get_current_customer_code(resolve_missing=True) or session.get('customer_code')
     data = dict(request.get_json() or {})
+    # Never trust client-supplied admin bypass flags on the customer create path.
+    data.pop('adminUpdate', None)
+    data.pop('skipCustomerCodeCheck', None)
     # Same identity as OTP login (e.g. UDF_EMAIL2) — carried into SQL Accounting header note / cc / attention.
     data['loginEmail'] = (session.get('user_email') or '').strip()
     mc = session.get('login_matched_udf_email_column')
@@ -9502,17 +10297,6 @@ def api_create_quotation():
         return jsonify({'success': False, 'error': 'At least one item is required'}), 400
 
     try:
-        from utils.sql_api_customer import sql_api_currency_and_code
-        _cc_preview = sql_api_currency_and_code(str(customer_code or "").strip())
-        print(
-            f"DEBUG [Flask api_create_quotation]: SQL API GET /customer currencycode="
-            f"{_cc_preview.get('currencycode')!r} httpStatus={_cc_preview.get('httpStatus')!r}",
-            flush=True,
-        )
-    except Exception as _cc_exc:
-        print(f"DEBUG [Flask api_create_quotation]: SQL API currency preview failed: {_cc_exc}", flush=True)
-    
-    try:
         if dockey:
             print(f"DEBUG [Flask]: UPDATING quotation - dockey={dockey}", flush=True)
         else:
@@ -9540,14 +10324,36 @@ def api_create_quotation():
 
         if draft_dockey:
             try:
-                con = get_db_connection()
-                cur = con.cursor()
-                cur.execute('DELETE FROM SL_QTDTLDRAFT WHERE DOCKEY = ?', (draft_dockey,))
-                cur.execute('DELETE FROM SL_QTDRAFT WHERE DOCKEY = ? AND CODE = ?', (draft_dockey, customer_code))
-                con.commit()
-                cur.close()
-                con.close()
-                print(f"DEBUG [Flask api_create_quotation]: Deleted draft DOCKEY={draft_dockey} after successful submission", flush=True)
+                from utils.db_utils import db_connection
+                with db_connection() as con:
+                    cur = con.cursor()
+                    try:
+                        # Ownership first: only wipe lines after confirming the draft belongs
+                        # to this customer (prevents deleting another customer's draft lines).
+                        cur.execute(
+                            'SELECT FIRST 1 DOCKEY FROM SL_QTDRAFT WHERE DOCKEY = ? AND CODE = ?',
+                            (draft_dockey, customer_code),
+                        )
+                        owned = cur.fetchone()
+                        if owned:
+                            cur.execute('DELETE FROM SL_QTDTLDRAFT WHERE DOCKEY = ?', (draft_dockey,))
+                            cur.execute(
+                                'DELETE FROM SL_QTDRAFT WHERE DOCKEY = ? AND CODE = ?',
+                                (draft_dockey, customer_code),
+                            )
+                            con.commit()
+                            print(
+                                f"DEBUG [Flask api_create_quotation]: Deleted draft DOCKEY={draft_dockey} after successful submission",
+                                flush=True,
+                            )
+                        else:
+                            print(
+                                f"WARNING [Flask api_create_quotation]: Skipping draft cleanup — "
+                                f"DOCKEY={draft_dockey} not owned by session customer",
+                                flush=True,
+                            )
+                    finally:
+                        cur.close()
             except Exception as cleanup_error:
                 print(f"WARNING [Flask api_create_quotation]: Failed to delete draft DOCKEY={draft_dockey}: {cleanup_error}", flush=True)
 
@@ -9571,8 +10377,8 @@ def api_create_quotation():
 @app.route('/api/save_draft_quotation', methods=['POST'])
 @api_login_required(unauth_message='Session expired. Please log in again.')
 def api_save_draft_quotation():
-    """Save quotation draft into SL_QTDRAFT/SL_QTDTLDRAFT."""
-    if not can_access_create_quotation(session):
+    """Save quotation draft into SL_QTDRAFT/SL_QTDTLDRAFT (customers only)."""
+    if not can_edit_own_draft_quotations(session):
         return jsonify({'success': False, 'error': 'Forbidden'}), 403
     customer_code = get_current_customer_code(resolve_missing=False)
     data = request.get_json() or {}
@@ -9608,32 +10414,19 @@ def api_get_my_draft_quotations():
         return jsonify({'success': False, 'error': 'Customer code not found'}), 400
 
     try:
-        con = get_db_connection()
-        cur = con.cursor()
-        cur.execute(
-            '''
-            SELECT DOCKEY, DOCNO, DOCDATE, DESCRIPTION, DOCAMT, VALIDITY, TERMS
-            FROM SL_QTDRAFT
-            WHERE CODE = ?
-            ORDER BY DOCDATE DESC, DOCKEY DESC
-            ''',
-            (customer_code,)
-        )
-        rows = cur.fetchall()
-        cur.close()
-        con.close()
-        drafts = []
-        for row in rows:
-            drafts.append({
-                'DOCKEY': int(row[0]) if row[0] is not None else None,
-                'DOCNO': row[1],
-                'DOCDATE': str(row[2]) if row[2] is not None else None,
-                'DESCRIPTION': row[3],
-                'DOCAMT': float(row[4]) if row[4] is not None else 0,
-                'VALIDITY': str(row[5]) if row[5] is not None else None,
-                'CREDITTERM': str(row[6]) if row[6] is not None else '',
-            })
+        drafts = list_draft_quotations(customer_code=customer_code)
         return jsonify({'success': True, 'data': drafts})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/get_all_draft_quotations')
+@api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
+def api_admin_get_all_draft_quotations():
+    """Get all saved drafts from SL_QTDRAFT for admin View Quotation Drafts."""
+    try:
+        drafts = list_draft_quotations(customer_code=None)
+        return jsonify({'success': True, 'count': len(drafts), 'data': drafts})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -9669,7 +10462,7 @@ def api_get_draft_quotation_details():
             con.close()
             return jsonify({'success': False, 'error': 'Draft not found'}), 404
         draft_owner = (str(hdr[11]) if len(hdr) > 11 and hdr[11] is not None else '').strip()
-        if user_type != 'admin':
+        if not session_is_staff_admin(session):
             if not customer_code:
                 cur.close()
                 con.close()
@@ -9753,6 +10546,8 @@ def api_get_my_quotations():
     if not customer_code:
         return jsonify({'success': False, 'error': 'Customer code not found. Please logout and login again.'}), 400
 
+    con = None
+    cur = None
     try:
         con = get_db_connection()
         cur = con.cursor()
@@ -9778,19 +10573,19 @@ def api_get_my_quotations():
             if opt_col in sl_qt_cols and opt_col not in fields:
                 fields.append(opt_col)
 
+        customer_code = _strip_customer_code(customer_code)
         company_name = _resolve_session_customer_company_name() if 'COMPANYNAME' in sl_qt_cols else ''
+        where_clause = 'UPPER(TRIM(q.CODE)) = UPPER(TRIM(?))'
+        where_params = (customer_code,)
         if company_name:
             where_clause = '''(
-                q.CODE = ?
+                UPPER(TRIM(q.CODE)) = UPPER(TRIM(?))
                 OR (
                     TRIM(COALESCE(q.COMPANYNAME, '')) <> ''
                     AND UPPER(TRIM(q.COMPANYNAME)) = UPPER(TRIM(?))
                 )
             )'''
             where_params = (customer_code, company_name)
-        else:
-            where_clause = 'q.CODE = ?'
-            where_params = (customer_code,)
 
         select_sql = f'''
             SELECT {', '.join('q.' + f for f in fields)}
@@ -9800,8 +10595,6 @@ def api_get_my_quotations():
         '''
         cur.execute(select_sql, where_params)
         rows = cur.fetchall()
-        cur.close()
-        con.close()
 
         quotations = []
         for row in rows:
@@ -9859,7 +10652,19 @@ def api_get_my_quotations():
         _attach_creator_names_to_quotations(cur, quotations)
         return jsonify({'success': True, 'data': quotations})
     except Exception as e:
+        print(f"[GET MY QUOTATIONS] {e}", flush=True)
         return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if con:
+                con.close()
+        except Exception:
+            pass
 
 @app.route('/api/get_quotation_details')
 @api_login_required(unauth_message='Unauthorized')
@@ -9874,7 +10679,7 @@ def api_get_quotation_details():
     except (TypeError, ValueError):
         return jsonify({'success': False, 'error': 'Invalid dockey parameter'}), 400
 
-    user_type = (session.get('user_type') or '').strip().lower()
+    is_staff_admin = session_is_staff_admin(session)
     session_customer_code = (session.get('customer_code') or '').strip()
     requested_customer_code = (request.args.get('customer_code') or '').strip()
 
@@ -9884,7 +10689,7 @@ def api_get_quotation_details():
     except Exception:
         resolved_customer_code = ''
 
-    if user_type == 'admin':
+    if is_staff_admin:
         customer_code = (requested_customer_code or session_customer_code or resolved_customer_code).strip()
     else:
         # Session viewer code (email → AR_CUSTOMERBRANCH). Access to the document is decided by CODE or shared COMPANYNAME.
@@ -9911,7 +10716,7 @@ def api_get_quotation_details():
             qt_code = str(acl_row[0] or '').strip()
             qt_company = str(acl_row[1] or '').strip() if len(acl_row) > 1 else ''
 
-            if user_type != 'admin':
+            if not is_staff_admin:
                 if not customer_code:
                     return jsonify({'success': False, 'error': 'Customer code not found in session'}), 400
                 if not _quotation_visible_to_customer_session(qt_code, qt_company):
@@ -10049,8 +10854,6 @@ def api_get_quotation_details():
             'success': False,
             'error': str(e),
             'dockey': dockey,
-            'customer_code': customer_code,
-            'session': dict(session)
         }), 500
 
 @app.route('/api/admin/get_all_quotations')
@@ -10942,8 +11745,6 @@ def _merge_session_login_customer_udf_meta(payload):
     return payload
 
 
-@app.route('/api/get_user_info')
-@api_login_required(unauth_message='Unauthorized')
 def _normalize_customer_info(payload, customer_code=''):
     if isinstance(payload, list) and payload:
         first = payload[0]
@@ -11109,8 +11910,82 @@ def _debug_log_user_info_payload(source, payload):
     print(f"[DEBUG] get_user_info: Final payload source={source} summary={summary}", flush=True)
 
 
+def _build_get_user_info_body(customer_code: str, *, prefer_sql: bool = False) -> tuple[dict, int]:
+    """Build get_user_info JSON body and HTTP status (no Flask response)."""
+    from utils.sql_api_customer import (
+        apply_sql_api_currency_to_customer_payload,
+        currency_fields_from_sql_row,
+        fetch_sql_api_customer_row,
+    )
+
+    local_payload = _fetch_customer_info_from_local_ar(customer_code)
+    prefer_local = str(os.getenv('EQ_USER_INFO_LOCAL_FIRST', '1')).strip().lower() in (
+        '1', 'true', 'yes', 'on',
+    )
+    if local_payload and prefer_local and not prefer_sql:
+        _debug_log_user_info_payload('local_firebird_ar', local_payload)
+        payload_out = apply_sql_api_currency_to_customer_payload(
+            _merge_session_login_customer_udf_meta(local_payload),
+            customer_code,
+            sql_fields={'code': str(customer_code).strip(), 'currencycode': ''},
+        )
+        return {'success': True, 'data': payload_out, 'source': 'local_firebird_ar'}, 200
+
+    sql_access_key = (os.getenv('SQL_API_ACCESS_KEY') or '').strip()
+    sql_secret_key = (os.getenv('SQL_API_SECRET_KEY') or '').strip()
+    sql_host = (os.getenv('SQL_API_HOST') or '').strip()
+
+    if sql_access_key and sql_secret_key and sql_host:
+        sql_row, last_sql_status = fetch_sql_api_customer_row(customer_code)
+        sql_fields = currency_fields_from_sql_row(sql_row, customer_code, last_sql_status)
+        normalized = _normalize_customer_info(sql_row, customer_code) if sql_row else None
+        if normalized and _customer_info_has_meaningful_data(normalized):
+            _debug_log_user_info_payload('sql_api', normalized)
+            payload_out = apply_sql_api_currency_to_customer_payload(
+                _merge_session_login_customer_udf_meta(normalized),
+                customer_code,
+                sql_fields=sql_fields,
+            )
+            return {'success': True, 'data': payload_out, 'source': 'sql_api'}, 200
+
+        if local_payload:
+            _debug_log_user_info_payload('local_firebird_ar', local_payload)
+            payload_out = apply_sql_api_currency_to_customer_payload(
+                _merge_session_login_customer_udf_meta(local_payload),
+                customer_code,
+                sql_fields=sql_fields,
+            )
+            return {'success': True, 'data': payload_out, 'source': 'local_firebird_ar'}, 200
+
+        fail_status = 502 if (last_sql_status and last_sql_status >= 500) else 404
+        err_msg = 'No SQL API customer data returned'
+        if last_sql_status:
+            err_msg = f'No SQL API customer data returned (upstream HTTP {last_sql_status})'
+        fail_body = {'success': False, 'error': err_msg}
+        if last_sql_status is not None:
+            fail_body['upstream_http_status'] = last_sql_status
+        return fail_body, fail_status
+
+    if local_payload:
+        _debug_log_user_info_payload('local_firebird_ar', local_payload)
+        payload_out = apply_sql_api_currency_to_customer_payload(
+            _merge_session_login_customer_udf_meta(local_payload),
+            customer_code,
+            sql_fields={'code': str(customer_code).strip(), 'currencycode': ''},
+        )
+        return {'success': True, 'data': payload_out, 'source': 'local_firebird_ar'}, 200
+    return {'success': False, 'error': 'No customer data from SQL API or local database'}, 404
+
+
+@app.route('/api/get_user_info')
+@api_login_required(unauth_message='Unauthorized')
 def api_get_user_info():
-    """Return customer info for create-quotation: SQL API when configured, else local Firebird AR_* tables."""
+    """Return customer info for create-quotation: SQL API when configured, else local Firebird AR_* tables.
+
+    Query flags:
+    - ``prefer_sql=1`` — try SQL Accounting first (background overlay).
+    - ``nocache=1`` — bypass the 90s process cache.
+    """
     customer_code = get_current_customer_code(resolve_missing=True)
     if not customer_code:
         if can_access_create_quotation(session) and session.get('user_type') == 'admin':
@@ -11131,195 +12006,37 @@ def api_get_user_info():
         print("[DEBUG] get_user_info: customer_code not in session", flush=True)
         return jsonify({'success': False, 'error': 'Customer code not found'}), 400
 
+    prefer_sql = str(request.args.get('prefer_sql') or '').strip().lower() in ('1', 'true', 'yes')
+    no_cache = str(request.args.get('nocache') or '').strip().lower() in ('1', 'true', 'yes')
+    cache_key = f"{customer_code}|{'sql' if prefer_sql else 'local'}"
+
     try:
-        # 1) Preferred path: SQL API customer details endpoint (example: /customer/*?code=...)
-        sql_access_key = (os.getenv('SQL_API_ACCESS_KEY') or '').strip()
-        sql_secret_key = (os.getenv('SQL_API_SECRET_KEY') or '').strip()
-        sql_host = (os.getenv('SQL_API_HOST') or '').strip()
-        sql_region = (os.getenv('SQL_API_REGION') or 'ap-southeast-5').strip()
-        from utils.sql_api_sigv4 import resolve_sql_api_sigv4_service
+        from utils.ttl_cache import user_info_cache
 
-        sql_service = resolve_sql_api_sigv4_service(sql_host, os.getenv('SQL_API_SERVICE'))
-        sql_detail_path = (os.getenv('SQL_API_CUSTOMER_DETAIL_PATH') or '/customer/*').strip()
-        sql_use_tls = (os.getenv('SQL_API_USE_TLS', 'true').strip().lower() in ('1', 'true', 'yes', 'on'))
+        if no_cache:
+            user_info_cache.invalidate(cache_key)
+            user_info_cache.invalidate(f"{customer_code}|local")
+            user_info_cache.invalidate(f"{customer_code}|sql")
 
-        if sql_access_key and sql_secret_key and sql_host:
-            raw_path = (sql_detail_path or '/customer/*').strip()
-            if not raw_path.startswith('/'):
-                raw_path = '/' + raw_path
-            trimmed_path = raw_path.replace('*', '').rstrip('/') or '/customer'
-            code_str = quote(str(customer_code), safe='')
-            scheme = 'https' if sql_use_tls else 'http'
+        def _load():
+            body, status = _build_get_user_info_body(customer_code, prefer_sql=prefer_sql)
+            return {'body': body, 'status': int(status)}
 
-            # Try multiple path shapes because some SQL API deployments only return branch
-            # fields for wildcard/path-parameter variants.
-            candidate_urls = [
-                f"{scheme}://{sql_host.rstrip('/')}{quote(trimmed_path, safe='/:?&=%')}?code={code_str}",
-                f"{scheme}://{sql_host.rstrip('/')}{quote(raw_path, safe='/:?&=%')}?code={code_str}",
-                f"{scheme}://{sql_host.rstrip('/')}{quote(trimmed_path.rstrip('/') + '/' + str(customer_code), safe='/:?&=%')}",
-            ]
-
-            # Preserve order but deduplicate identical URLs.
-            unique_urls = []
-            for url in candidate_urls:
-                if url not in unique_urls:
-                    unique_urls.append(url)
-
-            sql_headers = {'Accept': 'application/json'}
-            best_normalized = None
-            best_source = None
-            last_sql_status = None
-            last_upstream_error_message = None
-
-            for idx, sql_url in enumerate(unique_urls, start=1):
-                print(f"[DEBUG] get_user_info: Calling SQL API variant {idx}/{len(unique_urls)} at {sql_url}", flush=True)
-
-                try:
-                    # Prefer SigV4 signing if botocore is available in this Flask runtime.
-                    from botocore.auth import SigV4Auth
-                    from botocore.awsrequest import AWSRequest
-                    from botocore.credentials import Credentials
-
-                    creds = Credentials(sql_access_key, sql_secret_key)
-                    aws_request = AWSRequest(method='GET', url=sql_url, headers=sql_headers)
-                    SigV4Auth(creds, sql_service, sql_region).add_auth(aws_request)
-                    prepared = aws_request.prepare()
-
-                    sql_response = requests.get(
-                        prepared.url,
-                        headers=dict(prepared.headers),
-                        timeout=(3.0, 10.0),
-                    )
-                except Exception as sigv4_error:
-                    # Fallback for environments where upstream accepts key headers.
-                    print(f"[DEBUG] get_user_info: SigV4 unavailable/failed ({sigv4_error}); trying header auth", flush=True)
-                    sql_response = requests.get(
-                        sql_url,
-                        headers={
-                            **sql_headers,
-                            'X-Access-Key': sql_access_key,
-                            'X-Secret-Key': sql_secret_key,
-                            'X-Region': sql_region,
-                            'X-Service': sql_service,
-                        },
-                        timeout=(3.0, 10.0),
-                    )
-
-                print(f"[DEBUG] get_user_info: SQL API response status {sql_response.status_code}", flush=True)
-                if not sql_response.ok:
-                    last_sql_status = sql_response.status_code
-                    try:
-                        err_json = sql_response.json()
-                        if isinstance(err_json, dict):
-                            err_obj = err_json.get('error')
-                            if isinstance(err_obj, dict) and err_obj.get('message'):
-                                last_upstream_error_message = str(err_obj.get('message')).strip()
-                            elif err_json.get('message'):
-                                last_upstream_error_message = str(err_json.get('message')).strip()
-                    except Exception:
-                        pass
-                    print(f"[DEBUG] get_user_info: SQL API response preview: {(sql_response.text or '')[:260]}", flush=True)
-                    continue
-
-                try:
-                    sql_json = sql_response.json()
-                except Exception as parse_err:
-                    print(f"[DEBUG] get_user_info: SQL API JSON parse failed: {parse_err}", flush=True)
-                    continue
-
-                if isinstance(sql_json, dict):
-                    print(f"[DEBUG] get_user_info: SQL JSON top-level keys: {list(sql_json.keys())}", flush=True)
-                    sql_data = sql_json.get('data')
-                    if isinstance(sql_data, list):
-                        print(f"[DEBUG] get_user_info: SQL JSON data list length: {len(sql_data)}", flush=True)
-                        if sql_data and isinstance(sql_data[0], dict):
-                            print(f"[DEBUG] get_user_info: SQL first data keys: {list(sql_data[0].keys())}", flush=True)
-                    elif isinstance(sql_data, dict):
-                        print(f"[DEBUG] get_user_info: SQL data keys: {list(sql_data.keys())}", flush=True)
-                elif isinstance(sql_json, list):
-                    print(f"[DEBUG] get_user_info: SQL JSON list length: {len(sql_json)}", flush=True)
-
-                normalized = _normalize_customer_info(sql_json, customer_code)
-                if not normalized or not _customer_info_has_meaningful_data(normalized):
-                    continue
-
-                # Keep first valid result as baseline, but prefer one that has address/phone.
-                if best_normalized is None:
-                    best_normalized = normalized
-                    best_source = f'sql_api_variant_{idx}'
-
-                addr1 = str(normalized.get('ADDRESS1', '')).strip().upper()
-                phone1 = str(normalized.get('PHONE1', '')).strip().upper()
-                if addr1 not in ('', 'N/A') or phone1 not in ('', 'N/A'):
-                    _debug_log_user_info_payload(f'sql_api_variant_{idx}', normalized)
-                    from utils.sql_api_customer import apply_sql_api_currency_to_customer_payload
-
-                    payload_out = apply_sql_api_currency_to_customer_payload(
-                        _merge_session_login_customer_udf_meta(normalized),
-                        customer_code,
-                    )
-                    return jsonify({
-                        'success': True,
-                        'data': payload_out,
-                        'source': f'sql_api_variant_{idx}',
-                    })
-
-            if best_normalized is not None:
-                _debug_log_user_info_payload(best_source or 'sql_api', best_normalized)
-                from utils.sql_api_customer import apply_sql_api_currency_to_customer_payload
-
-                payload_out = apply_sql_api_currency_to_customer_payload(
-                    _merge_session_login_customer_udf_meta(best_normalized),
-                    customer_code,
-                )
-                return jsonify({
-                    'success': True,
-                    'data': payload_out,
-                    'source': best_source or 'sql_api',
-                })
-
-            local_payload = _fetch_customer_info_from_local_ar(customer_code)
-            if local_payload:
-                _debug_log_user_info_payload('local_firebird_ar', local_payload)
-                from utils.sql_api_customer import apply_sql_api_currency_to_customer_payload
-
-                payload_out = apply_sql_api_currency_to_customer_payload(
-                    _merge_session_login_customer_udf_meta(local_payload),
-                    customer_code,
-                )
-                return jsonify({
-                    'success': True,
-                    'data': payload_out,
-                    'source': 'local_firebird_ar',
-                })
-
-            # Upstream errors (e.g. 500 "Regenerate views are required") are not "not found"; use 502 for 5xx.
-            fail_status = 502 if (last_sql_status and last_sql_status >= 500) else 404
-            err_msg = 'No SQL API customer data returned'
-            if last_upstream_error_message:
-                err_msg = f'SQL API: {last_upstream_error_message}'
-            elif last_sql_status:
-                err_msg = f'No SQL API customer data returned (upstream HTTP {last_sql_status})'
-            fail_body = {'success': False, 'error': err_msg}
-            if last_sql_status is not None:
-                fail_body['upstream_http_status'] = last_sql_status
-            return jsonify(fail_body), fail_status
-
-        local_only = _fetch_customer_info_from_local_ar(customer_code)
-        if local_only:
-            _debug_log_user_info_payload('local_firebird_ar', local_only)
-            from utils.sql_api_customer import apply_sql_api_currency_to_customer_payload
-
-            payload_out = apply_sql_api_currency_to_customer_payload(
-                _merge_session_login_customer_udf_meta(local_only),
-                customer_code,
+        packed = user_info_cache.get_or_load(cache_key, _load, ttl_seconds=90.0)
+        body = packed.get('body') if isinstance(packed, dict) else None
+        status = int((packed or {}).get('status') or 500)
+        if not isinstance(body, dict):
+            body, status = _build_get_user_info_body(customer_code, prefer_sql=prefer_sql)
+        if status >= 400:
+            user_info_cache.invalidate(cache_key)
+        elif prefer_sql and body.get('success'):
+            # Overlay upgrades the fast local cache too.
+            user_info_cache.put(
+                f"{customer_code}|local",
+                {'body': body, 'status': status},
+                ttl_seconds=90.0,
             )
-            return jsonify({
-                'success': True,
-                'data': payload_out,
-                'source': 'local_firebird_ar',
-            })
-        return jsonify({'success': False, 'error': 'No customer data from SQL API or local database'}), 404
+        return jsonify(body), status
     except Exception as e:
         print(f"[DEBUG] get_user_info: Exception occurred: {str(e)}", flush=True)
         import traceback
@@ -11329,7 +12046,7 @@ def api_get_user_info():
 
 def _fetch_company_names_from_local_firebird():
     """
-    Same data as legacy php/getCompanyNames.php: distinct AR_CUSTOMER.COMPANYNAME (non-empty).
+    Distinct AR_CUSTOMER.COMPANYNAME (non-empty).
     Returns (list[str], None) on success, or (None, error_string) on failure.
     """
     con = None
@@ -11430,7 +12147,7 @@ if __name__ == "__main__":
         # Single port: uvicorn serves FastAPI (mounted) + Flask (WSGI) together on FLASK_PORT (default 8880).
         FASTAPI_BASE_URL = f'http://127.0.0.1:{flask_port}{EQ_SQL_API_MOUNT_PATH}'.rstrip('/')
 
-        from asgiref.wsgi import WsgiToAsgi
+        from a2wsgi import WSGIMiddleware
         from starlette.applications import Starlette
         from starlette.routing import Mount
         from starlette.staticfiles import StaticFiles
@@ -11438,10 +12155,21 @@ if __name__ == "__main__":
         from api.app import app as fastapi_app
 
         app.debug = flask_debug
-        flask_asgi = WsgiToAsgi(app)
-        # Serve /static via Starlette so CSS/JS do not go through WsgiToAsgi. That wrapper uses
-        # CurrentThreadExecutor; concurrent static requests can raise:
-        # RuntimeError: CurrentThreadExecutor already quit or is broken
+        # a2wsgi runs Flask WSGI on a worker thread pool so concurrent /api/* calls
+        # do not serialize behind asgiref WsgiToAsgi's thread_sensitive executor.
+        try:
+            flask_workers = max(4, min(64, int(os.getenv('EQ_FLASK_WORKERS', '16'))))
+        except (TypeError, ValueError):
+            flask_workers = 16
+        # EQ_FLASK_WORKERS = a2wsgi ThreadPoolExecutor size (same process). Not uvicorn OS workers.
+        otp_store_mode = (os.getenv('EQ_OTP_STORE') or 'sqlite').strip().lower() or 'sqlite'
+        print(
+            f"[SECURITY] Flask concurrency=threads({flask_workers}); "
+            f"OTP store={otp_store_mode}; uvicorn processes=1 (default)",
+            flush=True,
+        )
+        flask_asgi = WSGIMiddleware(app, workers=flask_workers)
+        # Serve /static via Starlette so CSS/JS do not go through the WSGI bridge.
         _static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
         _unified_routes = [
             Mount(EQ_SQL_API_MOUNT_PATH, fastapi_app),
@@ -11451,10 +12179,27 @@ if __name__ == "__main__":
                 Mount('/static', StaticFiles(directory=_static_dir), name='eq_static'),
             )
         _unified_routes.append(Mount('/', flask_asgi))
+
+        from starlette.middleware.base import BaseHTTPMiddleware
+
+        class _StaticCacheMiddleware(BaseHTTPMiddleware):
+            async def dispatch(self, request, call_next):
+                response = await call_next(request)
+                path = request.url.path or ''
+                if path.startswith('/static/'):
+                    # Versioned URLs (?v=…) make long-lived caching safe for JS/CSS.
+                    response.headers.setdefault(
+                        'Cache-Control',
+                        'public, max-age=604800, immutable',
+                    )
+                return response
+
         unified_asgi = Starlette(routes=_unified_routes)
+        unified_asgi.add_middleware(_StaticCacheMiddleware)
         print(
             f"Starting unified server at http://{flask_host}:{flask_port} "
-            f"(Flask / + FastAPI {EQ_SQL_API_MOUNT_PATH}/ ; debug={flask_debug}) ...",
+            f"(Flask / + FastAPI {EQ_SQL_API_MOUNT_PATH}/ ; "
+            f"flask_workers={flask_workers}; debug={flask_debug}) ...",
             flush=True,
         )
         print(f"FastAPI docs: http://127.0.0.1:{flask_port}{EQ_SQL_API_MOUNT_PATH}/docs", flush=True)

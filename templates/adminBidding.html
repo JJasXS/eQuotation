@@ -16,11 +16,13 @@
 
     <link rel="stylesheet" href="/static/css/app_page_header.css?v=20260515_icy">
 
-    <link rel="stylesheet" href="/static/css/adminBidding.css?v=20260814_pr_row_compact">
+    <link rel="stylesheet" href="/static/css/eq-line-tabs.css?v=20260604_tabs_size">
+
+    <link rel="stylesheet" href="/static/css/adminBidding.css?v=20261029_bids_toolbar">
 
     <link rel="stylesheet" href="/static/css/equotationIcyTheme.css?v=20260515_admin_blue">
 
-    <script src="/static/js/eq_core.js?v=20260813_core"></script>
+    <script src="/static/js/eq_core.js?v=20261029_csrf1"></script>
 </head>
 
 <body class="equotation-icy-theme admin-bidding-page">
@@ -36,7 +38,9 @@
             {% set page_header_right %}
 
             <button class="btn secondary" type="button" id="invite-drawer-open-btn" onclick="setInviteDrawerOpen(true)">Invited</button>
-            <button class="btn" type="button" onclick="loadRequests()">Refresh PR</button>
+            <button class="bidding-reload-btn" type="button" onclick="loadRequests()" title="Refresh purchase requests" aria-label="Refresh purchase requests">
+                <svg class="bidding-reload-btn__svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.1A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+            </button>
 
             {% endset %}
 
@@ -52,23 +56,19 @@
 
                         <h2>Purchase Requests</h2>
 
+                        <div class="pr-status-row">
+
+                        <nav class="eq-line-tabs pr-status-tabs" id="pr-status-filter" role="tablist" aria-label="Filter by status">
+
+                            <button type="button" role="tab" class="eq-line-tab is-active" data-status="PENDING" aria-selected="true" onclick="setPrStatusFilter('PENDING')">Pending</button>
+
+                            <button type="button" role="tab" class="eq-line-tab" data-status="APPROVED" aria-selected="false" onclick="setPrStatusFilter('APPROVED')">Approved</button>
+
+                            <button type="button" role="tab" class="eq-line-tab" data-status="CANCELLED" aria-selected="false" onclick="setPrStatusFilter('CANCELLED')">Cancelled</button>
+
+                        </nav>
+
                         <span id="pr-count" class="muted"></span>
-
-                        <div class="toolbar" style="margin-top:10px;">
-
-                            <label class="muted">Status</label>
-
-                            <select id="pr-status-filter" onchange="onPrStatusFilterChange()">
-
-                                <option value="ALL">ALL</option>
-
-                                <option value="APPROVED">APPROVED</option>
-
-                                <option value="PENDING">PENDING</option>
-
-                                <option value="CANCELLED">CANCELLED</option>
-
-                            </select>
 
                         </div>
 
@@ -80,15 +80,17 @@
 
                 <section class="bidding-col" aria-label="Submitted bids">
 
-                    <div class="bidding-col-head">
+                    <div class="bidding-col-head bidding-col-head--bids">
 
                         <h2>Submitted bids</h2>
 
-                        <div class="toolbar">
+                        <div class="toolbar toolbar--bids-actions">
 
-                            <button class="btn secondary" type="button" id="load-bids-btn" onclick="loadBidsForActivePr()" disabled>Refresh bids</button>
+                            <button class="btn" type="button" id="save-line-awards-btn" onclick="saveLineAwards()" disabled>Save Item</button>
 
-                            <button class="btn" type="button" id="save-line-awards-btn" onclick="saveLineAwards()" disabled>Save Item Awards</button>
+                            <button class="bidding-reload-btn" type="button" id="load-bids-btn" onclick="loadBidsForActivePr({force:true})" title="Refresh bids" aria-label="Refresh bids" disabled>
+                                <svg class="bidding-reload-btn__svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.1A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+                            </button>
 
                         </div>
 
@@ -120,6 +122,18 @@
 
         </div>
 
+    </div>
+
+    <div id="bid-remark-modal" class="bid-remark-modal" hidden>
+        <div class="bid-remark-modal__backdrop" onclick="closeBidLineRemark()"></div>
+        <div class="bid-remark-modal__panel" role="dialog" aria-modal="true" aria-labelledby="bid-remark-modal-title">
+            <div class="bid-remark-modal__head">
+                <h3 id="bid-remark-modal-title">Supplier remark</h3>
+                <button type="button" class="bid-remark-modal__close" onclick="closeBidLineRemark()" aria-label="Close">&times;</button>
+            </div>
+            <div class="bid-remark-modal__item muted" id="bid-remark-modal-item"></div>
+            <div class="bid-remark-modal__body" id="bid-remark-modal-body"></div>
+        </div>
     </div>
 
     <div id="invite-drawer-backdrop" class="invite-drawer-backdrop" hidden></div>
@@ -157,6 +171,18 @@
     <script>
 
         let requestsCache = [];
+
+        const PR_LIST_PAGE_SIZE = 12;
+
+        let prListNextOffset = 0;
+
+        let prListHasMore = true;
+
+        let prListLoading = false;
+
+        let prListResetScroll = false;
+
+        let prListGeneration = 0;
 
         let supplierCache = [];
 
@@ -199,6 +225,7 @@
             if (headerBtn) headerBtn.setAttribute('aria-expanded', next ? 'true' : 'false');
             if (next) {
                 document.getElementById('invite-drawer-close')?.focus({ preventScroll: true });
+                if (!supplierCache.length) loadSuppliers();
             }
         }
 
@@ -210,12 +237,18 @@
         document.getElementById('invite-drawer-close')?.addEventListener('click', () => setInviteDrawerOpen(false));
         document.getElementById('invite-drawer-backdrop')?.addEventListener('click', () => setInviteDrawerOpen(false));
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && isInviteDrawerOpen()) {
+            if (e.key !== 'Escape') return;
+            const remarkModal = document.getElementById('bid-remark-modal');
+            if (remarkModal && !remarkModal.hidden) {
+                closeBidLineRemark();
+                return;
+            }
+            if (isInviteDrawerOpen()) {
                 setInviteDrawerOpen(false);
             }
         });
 
-        const BIDDING_STATUS_FILTERS = ['ALL', 'APPROVED', 'PENDING', 'CANCELLED'];
+        const BIDDING_STATUS_FILTERS = ['PENDING', 'APPROVED', 'CANCELLED'];
 
         function readBiddingUrlParams() {
             try {
@@ -239,8 +272,8 @@
         function syncBiddingPrToUrl() {
             try {
                 const url = new URL(window.location.href);
-                const filter = document.getElementById('pr-status-filter')?.value || 'ALL';
-                if (filter && filter !== 'ALL') {
+                const filter = getPrStatusFilter();
+                if (filter && filter !== 'PENDING') {
                     url.searchParams.set('status', filter.toLowerCase());
                 } else {
                     url.searchParams.delete('status');
@@ -265,11 +298,142 @@
             } catch (e) { /* ignore */ }
         }
 
+        function getPrStatusFilter() {
+            const active = document.querySelector('#pr-status-filter .eq-line-tab.is-active');
+            const status = active && active.dataset ? active.dataset.status : '';
+            return BIDDING_STATUS_FILTERS.includes(status) ? status : 'PENDING';
+        }
+
+        function applyPrStatusTab(status) {
+            const next = BIDDING_STATUS_FILTERS.includes(status) ? status : 'PENDING';
+            document.querySelectorAll('#pr-status-filter .eq-line-tab').forEach((btn) => {
+                const on = btn.dataset.status === next;
+                btn.classList.toggle('is-active', on);
+                btn.setAttribute('aria-selected', on ? 'true' : 'false');
+            });
+        }
+
+        function setPrStatusFilter(status) {
+            applyPrStatusTab(status);
+            prListResetScroll = true;
+            renderRequests();
+            syncBiddingPrToUrl();
+        }
+
+        function biddingPrStatusLabel(row) {
+            const udf = normalizePrUdfStatus(row.udfStatus);
+            if (udf === 'AWAITING') return 'Awaiting';
+            if (udf === 'PENDING') return 'Pending';
+            if (udf === 'APPROVED') return 'Approved';
+            if (udf === 'CANCELLED') return 'Cancelled';
+            return udf || '-';
+        }
+
+        function biddingPrMatchesFilter(row, filter) {
+            const docStatus = String(row.status || '').toUpperCase();
+            if (docStatus !== 'SUBMITTED') return false;
+            const udf = normalizePrUdfStatus(row.udfStatus);
+            if (filter === 'APPROVED') return udf === 'APPROVED';
+            if (filter === 'CANCELLED') return udf === 'CANCELLED';
+            return udf === 'PENDING';
+        }
+
+        function visibleBiddingRequests() {
+            const filter = getPrStatusFilter();
+            return requestsCache.filter((row) => biddingPrMatchesFilter(row, filter)).sort((a, b) => {
+                const da = Date.parse(a?.requestDate || '') || 0;
+                const db = Date.parse(b?.requestDate || '') || 0;
+                if (db !== da) return db - da;
+                return Number(b?.id || 0) - Number(a?.id || 0);
+            });
+        }
+
+        async function fetchBiddingPrPage() {
+            if (prListLoading || !prListHasMore) return false;
+            prListLoading = true;
+            const generation = prListGeneration;
+            const offset = prListNextOffset;
+            try {
+                const res = await fetch(
+                    `/api/admin/procurement/purchase-requests?offset=${offset}&limit=${PR_LIST_PAGE_SIZE}&fast=1&include_qty=0`
+                );
+                const body = await res.json();
+                if (generation !== prListGeneration) return false;
+                if (!res.ok || !body.success) {
+                    msg(body.error || 'Failed to load purchase requests', true);
+                    prListHasMore = false;
+                    return false;
+                }
+                const rows = Array.isArray(body.data) ? body.data : [];
+                const seen = new Set(requestsCache.map((row) => Number(row.id)));
+                let added = 0;
+                rows.forEach((row) => {
+                    const id = Number(row.id);
+                    if (seen.has(id)) return;
+                    seen.add(id);
+                    requestsCache.push(row);
+                    added += 1;
+                });
+                prListNextOffset = offset + rows.length;
+                prListHasMore = rows.length >= PR_LIST_PAGE_SIZE && added > 0;
+                return true;
+            } catch (e) {
+                if (generation === prListGeneration) {
+                    msg('Failed to load purchase requests', true);
+                    prListHasMore = false;
+                }
+                return false;
+            } finally {
+                if (generation === prListGeneration) prListLoading = false;
+            }
+        }
+
+        async function loadMoreBiddingPrs() {
+            const list = document.getElementById('pr-list');
+            const scrollTop = list ? list.scrollTop : 0;
+            const ok = await fetchBiddingPrPage();
+            if (!ok) return;
+            renderRequests();
+            if (list) list.scrollTop = scrollTop;
+        }
+
+        function onPrListScroll() {
+            const list = document.getElementById('pr-list');
+            if (!list || prListLoading || !prListHasMore) return;
+            const nearBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 48;
+            if (nearBottom) loadMoreBiddingPrs();
+        }
+
+        function maybeFillPrListViewport() {
+            const list = document.getElementById('pr-list');
+            if (!list || prListLoading || !prListHasMore) return;
+            requestAnimationFrame(() => {
+                if (prListLoading || !prListHasMore) return;
+                if (list.clientHeight < 40) return;
+                if (list.scrollHeight > list.clientHeight + 8) return;
+                loadMoreBiddingPrs();
+            });
+        }
+
+        function hasBiddingUrlPr() {
+            const params = readBiddingUrlParams();
+            return params.id > 0 || !!params.docno;
+        }
+
+        async function loadBiddingPrsUntilUrlMatch() {
+            let guard = 0;
+            while (!findPrRowFromUrlParams() && prListHasMore && guard < 8) {
+                const ok = await fetchBiddingPrPage();
+                guard += 1;
+                if (!ok) break;
+                renderRequests();
+            }
+        }
+
         function applyBiddingStatusFromUrl() {
             const { status } = readBiddingUrlParams();
-            const sel = document.getElementById('pr-status-filter');
-            if (!sel || !status) return;
-            sel.value = status;
+            if (!status) return;
+            applyPrStatusTab(status);
         }
 
         function findPrRowFromUrlParams() {
@@ -293,6 +457,12 @@
             const row = findPrRowFromUrlParams();
             if (!row) return false;
             if (activePr && Number(activePr.id) === Number(row.id) && !opts.force) {
+                activePr.requestNumber = String(row.requestNumber || activePr.requestNumber || '');
+                activePr.status = String(row.status || '');
+                activePr.supplierName = String(row.supplierName || '');
+                activePr.udfStatus = row.udfStatus || '';
+                setSelectionUi();
+                renderRequests();
                 syncBiddingPrToUrl();
                 return true;
             }
@@ -307,11 +477,6 @@
             return true;
         }
 
-        function onPrStatusFilterChange() {
-            renderRequests();
-            syncBiddingPrToUrl();
-        }
-
         function normalizePrUdfStatus(value) {
             const s = String(value || '').trim().toUpperCase();
             if (s === 'ACTIVE') return 'APPROVED';
@@ -322,7 +487,10 @@
         function isLineAwardsLocked() {
             if (!activePr) return false;
             const udf = normalizePrUdfStatus(activePr.udfStatus);
-            return lineAwardsLocked || udf === 'APPROVED' || udf === 'CANCELLED';
+            // Server gate is authoritative (locks after first Save Item, or Cancelled).
+            // Do not lock on APPROVED alone — Save Item is what moves Pending → Approved.
+            if (lineAwardsLocked) return true;
+            return udf === 'CANCELLED';
         }
 
         function applyLineAwardsLockState() {
@@ -331,11 +499,12 @@
             if (saveBtn) {
                 saveBtn.disabled = !activePr || locked;
                 saveBtn.title = locked
-                    ? 'Locked: PR is Approved or Cancelled on View e-PR'
-                    : '';
+                    ? 'Locked: item awards already saved, or PR is Cancelled'
+                    : 'Save selected line awards and move this PR to Approved';
             }
             document.querySelectorAll('.line-award-checkbox').forEach((cb) => {
-                cb.disabled = locked;
+                const unquoted = String(cb.dataset.isQuoted || '') !== '1';
+                cb.disabled = locked || unquoted;
             });
         }
 
@@ -435,37 +604,85 @@
 
         }
 
+        function openBidLineRemark(btn) {
+            const modal = document.getElementById('bid-remark-modal');
+            const itemEl = document.getElementById('bid-remark-modal-item');
+            const bodyEl = document.getElementById('bid-remark-modal-body');
+            if (!modal || !bodyEl) return;
+            const remark = String((btn && btn.getAttribute('data-remark')) || '').trim();
+            const item = String((btn && btn.getAttribute('data-item')) || '').trim();
+            if (itemEl) itemEl.textContent = item || 'Line item';
+            bodyEl.textContent = remark || 'No remark.';
+            modal.hidden = false;
+        }
+
+        function closeBidLineRemark() {
+            const modal = document.getElementById('bid-remark-modal');
+            if (modal) modal.hidden = true;
+        }
+
+        function renderRemarkCell(line) {
+            const remark = String((line && line.remarks) || '').trim();
+            if (!remark) {
+                return '<td class="bid-td-remark"><span class="bid-remark-empty">—</span></td>';
+            }
+            const itemLabel = formatBidLineItem(line);
+            return `
+                <td class="bid-td-remark">
+                    <button type="button"
+                            class="bid-remark-btn"
+                            aria-label="View supplier remark"
+                            data-item="${esc(itemLabel)}"
+                            data-remark="${esc(remark)}"
+                            onclick="openBidLineRemark(this)">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path fill="currentColor" d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h4l4 4 4-4h4c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/>
+                        </svg>
+                        <span class="bid-remark-tooltip" role="tooltip">${esc(remark)}</span>
+                    </button>
+                </td>
+            `;
+        }
+
+        let bidsLoadedForId = 0;
+        let invitesLoadedForId = 0;
+
+        function primeBidsFromUrl() {
+            const { id, docno } = readBiddingUrlParams();
+            if (!(id > 0)) return;
+            activePr = {
+                id,
+                requestNumber: docno,
+                status: '',
+                supplierName: '',
+                udfStatus: '',
+            };
+            setSelectionUi();
+            loadBidsForActivePr();
+            loadInvitationsForActivePr();
+        }
+
         async function loadRequests() {
+
+            primeBidsFromUrl();
 
             msg('Loading purchase requests...');
 
-            const res = await fetch('/api/admin/procurement/purchase-requests?offset=0&limit=100');
+            prListGeneration += 1;
 
-            const body = await res.json();
+            prListLoading = false;
 
-            if (!res.ok || !body.success) {
+            requestsCache = [];
 
-                msg(body.error || 'Failed to load purchase requests', true);
+            prListNextOffset = 0;
 
-                return;
+            prListHasMore = true;
 
-            }
-
-            requestsCache = body.data || [];
+            const loaded = await fetchBiddingPrPage();
 
             renderRequests();
 
-            if (!supplierCache.length) {
-                fetch('/api/admin/procurement/suppliers')
-                    .then((supRes) => supRes.json())
-                    .then((supBody) => {
-                        if (supBody && supBody.success && Array.isArray(supBody.data)) {
-                            supplierCache = supBody.data;
-                            renderRequests();
-                        }
-                    })
-                    .catch(() => { /* API supplierName already applied server-side */ });
-            }
+            if (!loaded && !requestsCache.length) return;
 
             if (!selectPrFromUrlIfPresent()) {
                 syncBiddingPrToUrl();
@@ -473,39 +690,38 @@
 
             msg('Purchase requests loaded.');
 
+            if (hasBiddingUrlPr() && !findPrRowFromUrlParams()) {
+                await loadBiddingPrsUntilUrlMatch();
+                if (!selectPrFromUrlIfPresent({ force: true })) {
+                    syncBiddingPrToUrl();
+                }
+            }
+
         }
 
         function renderRequests() {
 
-            const filter = document.getElementById('pr-status-filter').value;
-
             const list = document.getElementById('pr-list');
 
-            const rows = requestsCache.filter((row) => {
-                if (filter === 'ALL') return true;
-                const docStatus = String(row.status || '').toUpperCase();
-                const udf = normalizePrUdfStatus(row.udfStatus);
-                if (filter === 'APPROVED') return udf === 'APPROVED';
-                if (filter === 'PENDING') return udf === 'PENDING' || docStatus === 'SUBMITTED';
-                if (filter === 'CANCELLED') return udf === 'CANCELLED';
-                return docStatus === filter;
-            }).sort((a, b) => {
+            const keepScroll = prListResetScroll ? 0 : list.scrollTop;
 
-                const da = Date.parse(a?.requestDate || '') || 0;
+            prListResetScroll = false;
 
-                const db = Date.parse(b?.requestDate || '') || 0;
+            const rows = visibleBiddingRequests();
 
-                if (db !== da) return db - da;
+            const countLabel = rows.length + (prListHasMore ? '+' : '') + ' rows';
 
-                return Number(b?.id || 0) - Number(a?.id || 0);
-
-            });
-
-            document.getElementById('pr-count').textContent = rows.length + ' rows';
+            document.getElementById('pr-count').textContent = '(' + countLabel + ')';
 
             if (!rows.length) {
 
-                list.innerHTML = '<div class="muted">No records</div>';
+                list.innerHTML = prListHasMore
+                    ? '<div class="muted">Loading...</div>'
+                    : '<div class="muted">No records</div>';
+
+                list.scrollTop = 0;
+
+                maybeFillPrListViewport();
 
                 return;
 
@@ -521,19 +737,23 @@
 
                 return `
 
-                    <div class="pr-item ${active}" onclick="selectPr(${Number(row.id)}, '${esc(row.requestNumber || '')}', '${esc(row.status || '')}', '${esc(row.supplierName || '')}')">
+                    <button type="button" class="pr-row ${active}" onclick="selectPr(${Number(row.id)}, '${esc(row.requestNumber || '')}', '${esc(row.status || '')}', '${esc(row.supplierName || '')}')">
 
-                        <div class="title">${esc(row.requestNumber || ('PR-' + row.id))}${newBadge}</div>
+                        <span class="pr-row__code">${esc(row.requestNumber || ('PR-' + row.id))}${newBadge}</span>
 
-                        <div class="muted">Status: ${esc(row.status || '-')}</div>
+                        <span class="pr-row__status">${esc(biddingPrStatusLabel(row))}</span>
 
-                        <div class="muted">Supplier: ${esc(prListSupplierLabel(row))}</div>
+                        <span class="pr-row__supplier">${esc(prListSupplierLabel(row))}</span>
 
-                    </div>
+                    </button>
 
                 `;
 
             }).join('');
+
+            list.scrollTop = keepScroll;
+
+            maybeFillPrListViewport();
 
         }
 
@@ -570,7 +790,7 @@
             }
             const udf = normalizePrUdfStatus(activePr.udfStatus);
             const lockNote = isLineAwardsLocked()
-                ? ' · Item awards locked (Approved/Cancelled on View e-PR)'
+                ? ' · Item awards locked (already saved or Cancelled)'
                 : '';
             const gate = lastBiddingGate || {};
             let splitNote = '';
@@ -684,7 +904,7 @@
 
         }
 
-        async function loadInvitationsForActivePr() {
+        async function loadInvitationsForActivePr(options) {
 
             if (!activePr) {
 
@@ -696,6 +916,11 @@
 
             }
 
+            const requestId = Number(activePr.id);
+            const force = !!(options && options.force);
+            if (!force && invitesLoadedForId === requestId) return;
+            invitesLoadedForId = requestId;
+
             const wrap = document.getElementById('invited-suppliers-table-wrap');
 
             if (wrap) wrap.innerHTML = '<div class="muted" style="padding:8px;">Loading invited suppliers-</div>';
@@ -705,6 +930,8 @@
             const body = await res.json();
 
             if (!res.ok || !body.success) {
+
+                if (invitesLoadedForId === requestId) invitesLoadedForId = 0;
 
                 activeInvitations = [];
 
@@ -925,13 +1152,13 @@
 
             msg(note);
 
-            await loadInvitationsForActivePr();
+            await loadInvitationsForActivePr({ force: true });
 
-            await loadBidsForActivePr();
+            await loadBidsForActivePr({ force: true });
 
         }
 
-        async function loadBidsForActivePr() {
+        async function loadBidsForActivePr(options) {
 
             const bidsWrap = document.getElementById('bids-cards-wrap');
 
@@ -945,6 +1172,11 @@
 
             }
 
+            const requestId = Number(activePr.id);
+            const force = !!(options && options.force);
+            if (!force && bidsLoadedForId === requestId) return;
+            bidsLoadedForId = requestId;
+
             const loading = '<div class="muted" style="padding:12px;">Loading-</div>';
 
             if (bidsWrap) bidsWrap.innerHTML = loading;
@@ -956,6 +1188,8 @@
             const body = await res.json();
 
             if (!res.ok || !body.success) {
+
+                if (bidsLoadedForId === requestId) bidsLoadedForId = 0;
 
                 const err = `<div class="bidding-placeholder" style="color:#8e2b2b;">${esc(body.error || 'Failed to load bids')}</div>`;
 
@@ -1034,23 +1268,36 @@
 
                 const onPrLines = Array.isArray(bid.lines) ? bid.lines : [];
 
+                const pricedOnPr = onPrLines.filter((line) => {
+                    if (!line) return false;
+                    if (line.isQuoted === true) return true;
+                    if (line.isQuoted === false) return false;
+                    const qty = Number(line.quantity || 0);
+                    const price = Number(line.unitPrice || 0);
+                    return qty > 0 && price > 0;
+                });
+
                 const totalAmount = Number(
 
                     bid.comparisonTotalAmount != null
 
                         ? bid.comparisonTotalAmount
 
-                        : onPrLines.reduce((sum, line) => sum + Number(line.amount || 0), 0)
+                        : pricedOnPr.reduce((sum, line) => sum + Number(line.amount || 0), 0)
 
                 );
 
                 const lineCount = Number(
 
-                    bid.comparisonLineCount != null ? bid.comparisonLineCount : onPrLines.length
+                    bid.comparisonLineCount != null
+                        ? bid.comparisonLineCount
+                        : pricedOnPr.length
 
                 );
 
-                const onPrLineCount = Number(bid.onPrLineCount != null ? bid.onPrLineCount : onPrLines.length);
+                const onPrLineCount = Number(
+                    bid.onPrLineCount != null ? bid.onPrLineCount : pricedOnPr.length
+                );
 
                 const supplierCode = String(bid.supplierCode || '').trim();
 
@@ -1087,8 +1334,8 @@
                 : '';
 
             const awardsLockNote = isLineAwardsLocked()
-                ? '<div class="compare-note compare-note--locked">Item awards are locked because this PR is <strong>Approved</strong> or <strong>Cancelled</strong> on View e-PR. Change status there first if you need to revise awards.</div>'
-                : '<div class="compare-note">Tick line checkboxes in Submitted bids, then click Save Item Awards. You can choose Item A from Supplier 1 and Item B from Supplier 2.</div>';
+                ? '<div class="compare-note compare-note--locked">Awards saved — this PR is <strong>Approved</strong> with awarded prices. Use View e-PR → Approved to transfer to PO. Save Item stays locked.</div>'
+                : '<div class="compare-note">Pending RFQ: tick line winners in Submitted bids, then <strong>Save Item</strong>. That writes awarded prices and moves the PR to <strong>Approved</strong>.</div>';
 
             const linesHeader = isSplitChild ? 'RFQ lines' : 'Lines';
 
@@ -1169,7 +1416,14 @@
 
                 const onPrLines = Array.isArray(bid.lines) ? bid.lines : [];
 
-                const rows = onPrLines.map((line) => `
+                const rows = onPrLines.map((line) => {
+                    const qty = Number(line.quantity || 0);
+                    const price = Number(line.unitPrice || 0);
+                    const isQuoted = line.isQuoted === true
+                        || (line.isQuoted !== false && qty > 0 && price > 0);
+                    const checked = Number(currentBidLineAwards.get(Number(line.detailId || 0)) || 0)
+                        === Number(bid.bidId || 0);
+                    return `
 
                     <tr>
 
@@ -1183,7 +1437,13 @@
 
                                    data-bid-id="${Number(bid.bidId || 0)}"
 
-                                   ${Number(currentBidLineAwards.get(Number(line.detailId || 0)) || 0) === Number(bid.bidId || 0) ? 'checked' : ''}
+                                   data-is-quoted="${isQuoted ? '1' : '0'}"
+
+                                   ${checked && isQuoted ? 'checked' : ''}
+
+                                   ${isQuoted && !isLineAwardsLocked() ? '' : 'disabled'}
+
+                                   title="${isQuoted ? '' : 'Remarks-only / unquoted line cannot be awarded'}"
 
                                    onchange="onLineAwardToggle(this)" />
 
@@ -1191,17 +1451,20 @@
 
                         <td class="bid-td-item" title="${esc(formatBidLineItem(line))}">${esc(formatBidLineItem(line))}</td>
 
-                        <td class="bid-td-num">${Number(line.quantity || 0).toFixed(2)}</td>
+                        <td class="bid-td-num">${isQuoted ? qty.toFixed(2) : '—'}</td>
 
-                        <td class="bid-td-num">${Number(line.unitPrice || 0).toFixed(2)}</td>
+                        <td class="bid-td-num">${isQuoted ? price.toFixed(2) : '—'}</td>
 
-                        <td class="bid-td-num">${Number(line.amount || 0).toFixed(2)}</td>
+                        <td class="bid-td-num">${isQuoted ? Number(line.amount || 0).toFixed(2) : '—'}</td>
 
                         <td class="bid-td-num">${Number(line.leadDays || 0)}</td>
 
+                        ${renderRemarkCell(line)}
+
                     </tr>
 
-                `).join('');
+                `;
+                }).join('');
 
                 const emptyLinesMsg = isSplitChild
                     ? 'No lines on this PR — see full RFQ totals in comparison'
@@ -1236,11 +1499,12 @@
                                 <col class="bid-col-price" />
                                 <col class="bid-col-amt" />
                                 <col class="bid-col-lead" />
+                                <col class="bid-col-remark" />
                             </colgroup>
 
-                            <thead><tr><th>Pick</th><th>Item</th><th>Qty</th><th>Unit Price</th><th>Amount</th><th>Lead</th></tr></thead>
+                            <thead><tr><th>Pick</th><th>Item</th><th>Qty</th><th>Unit Price</th><th>Amount</th><th>Lead</th><th>Remark</th></tr></thead>
 
-                            <tbody>${rows || `<tr><td colspan="6" class="muted">${emptyLinesMsg}</td></tr>`}</tbody>
+                            <tbody>${rows || `<tr><td colspan="7" class="muted">${emptyLinesMsg}</td></tr>`}</tbody>
 
                         </table>
 
@@ -1266,7 +1530,7 @@
 
             if (isLineAwardsLocked()) {
                 if (el) el.checked = false;
-                msg('Item awards are locked for Approved or Cancelled purchase requests.', true);
+                msg('Item awards are locked after Save Item (or when the PR is Cancelled).', true);
                 return;
             }
 
@@ -1306,7 +1570,7 @@
 
             if (isLineAwardsLocked()) {
 
-                msg('Item awards cannot be changed after this PR is Approved or Cancelled on View e-PR.', true);
+                msg('Item awards cannot be changed after they were saved (or when the PR is Cancelled).', true);
 
                 return;
 
@@ -1370,9 +1634,45 @@
 
             const supplierCount = Number(body?.data?.supplierCount || 0);
 
-            msg(`Item awards saved (${savedCount} item(s), ${supplierCount || 1} supplier group(s)). You can now transfer PR->PO by selected awarded lines.`);
+            const udfStatus = normalizePrUdfStatus(
+                body?.gate?.prUdfStatusLocal
+                || body?.gate?.prUdfStatus
+                || body?.data?.udfStatus
+                || 'APPROVED'
+            );
 
-            await loadBidsForActivePr();
+            const supplierNote = supplierCount > 1
+                ? ` ${supplierCount} suppliers stored on line items (one PR).`
+                : '';
+
+            // Keep list/cache/status tabs aligned with Save Item → Approved.
+            if (activePr) {
+                activePr.udfStatus = udfStatus || 'APPROVED';
+            }
+            const prId = Number(activePr?.id || 0);
+            if (prId > 0) {
+                const cached = requestsCache.find((row) => Number(row.id) === prId);
+                if (cached) {
+                    cached.udfStatus = udfStatus || 'APPROVED';
+                }
+            }
+            if (body.gate) {
+                lineAwardsLocked = !!body.gate.lineAwardsLocked;
+            } else {
+                lineAwardsLocked = true;
+            }
+
+            msg(
+                body.message
+                || `Item awards saved (${savedCount} item(s)).${supplierNote} Moved to Approved with awarded prices.`
+            );
+
+            // Show the PR on the Approved tab (same DOCNO; bidding + View e-PR both use UDF APPROVED).
+            setPrStatusFilter('APPROVED');
+            await loadBidsForActivePr({ force: true });
+            applyLineAwardsLockState();
+            setSelectionUi();
+            syncBiddingPrToUrl();
 
         }
 
@@ -1393,9 +1693,9 @@
             }
         });
 
-        loadRequests();
+        document.getElementById('pr-list')?.addEventListener('scroll', onPrListScroll);
 
-        loadSuppliers();
+        loadRequests();
 
     </script>
 

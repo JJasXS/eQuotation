@@ -353,6 +353,99 @@ def create_bid_invitations(  # noqa: too-many-locals
         con.close()
 
 
+def _blank_pr_card() -> dict[str, Any]:
+    return {
+        "requestDescription": "",
+        "project": "",
+        "docDate": None,
+        "requestDeliveryDate": None,
+        "lineCount": 0,
+        "firstItem": "",
+    }
+
+
+def _fill_pr_header_facts(cur: Any, uniq: list[int], facts: dict[int, dict[str, Any]]) -> None:
+    if not _table_exists(cur, "PH_PQ"):
+        return
+    cols = _get_table_columns(cur, "PH_PQ")
+    key_col = _pick_existing(cols, "DOCKEY", "PQKEY", "ID")
+    if not key_col:
+        return
+    desc_col = _pick_existing(cols, "DESCRIPTION", "JUSTIFICATION")
+    project_col = _pick_existing(cols, "PROJECT")
+    doc_col = _pick_existing(cols, "DOCDATE", "POSTDATE")
+    need_col = _pick_existing(cols, "REQUIREDDATE", "DELIVERYDATE", "DOCDATE")
+    parts = [
+        key_col,
+        f"{desc_col} AS DESCR" if desc_col else "CAST(NULL AS VARCHAR(255)) AS DESCR",
+        f"{project_col} AS PROJECT" if project_col else "CAST(NULL AS VARCHAR(60)) AS PROJECT",
+        f"{doc_col} AS DOCDATE" if doc_col else "CAST(NULL AS TIMESTAMP) AS DOCDATE",
+        f"{need_col} AS NEEDDATE" if need_col else "CAST(NULL AS TIMESTAMP) AS NEEDDATE",
+    ]
+    placeholders = ", ".join(["?"] * len(uniq))
+    cur.execute(
+        f"SELECT {', '.join(parts)} FROM PH_PQ WHERE {key_col} IN ({placeholders})",
+        tuple(uniq),
+    )
+    for row in cur.fetchall() or []:
+        if not row:
+            continue
+        try:
+            key = int(row[0])
+        except (TypeError, ValueError):
+            continue
+        fact = facts.get(key)
+        if not fact:
+            continue
+        fact["requestDescription"] = _clean_text(row[1])[:180]
+        fact["project"] = _clean_text(row[2])
+        fact["docDate"] = format_display_date(row[3]) if row[3] else None
+        fact["requestDeliveryDate"] = format_display_date(row[4]) if row[4] else None
+
+
+def _fill_pr_line_facts(cur: Any, uniq: list[int], facts: dict[int, dict[str, Any]]) -> None:
+    if not _table_exists(cur, "PH_PQDTL"):
+        return
+    cols = _get_table_columns(cur, "PH_PQDTL")
+    fk_col = _pick_existing(cols, "DOCKEY", "PQKEY", "REQUEST_ID", "HEADER_ID")
+    desc_col = _pick_existing(cols, "DESCRIPTION", "DESCRIPTION2", "ITEMCODE")
+    if not fk_col:
+        return
+    desc_sql = f"MIN({desc_col})" if desc_col else "CAST(NULL AS VARCHAR(255))"
+    placeholders = ", ".join(["?"] * len(uniq))
+    cur.execute(
+        f"SELECT {fk_col}, COUNT(*), {desc_sql} FROM PH_PQDTL WHERE {fk_col} IN ({placeholders}) GROUP BY {fk_col}",
+        tuple(uniq),
+    )
+    for row in cur.fetchall() or []:
+        if not row:
+            continue
+        try:
+            key = int(row[0])
+        except (TypeError, ValueError):
+            continue
+        fact = facts.get(key)
+        if not fact:
+            continue
+        fact["lineCount"] = int(row[1] or 0)
+        fact["firstItem"] = _clean_text(row[2])
+
+
+def _fetch_pr_card_facts(dockeys: list[int]) -> dict[int, dict[str, Any]]:
+    uniq = sorted({int(d) for d in dockeys if d})
+    if not uniq:
+        return {}
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        facts = {key: _blank_pr_card() for key in uniq}
+        _fill_pr_header_facts(cur, uniq, facts)
+        _fill_pr_line_facts(cur, uniq, facts)
+        return facts
+    finally:
+        con.close()
+
+
 def _fetch_pr_delivery_dates_by_dockey(dockeys: list[int]) -> dict[int, str | None]:
     uniq = sorted({int(d) for d in dockeys if d})
     if not uniq:
@@ -387,6 +480,33 @@ def _fetch_pr_delivery_dates_by_dockey(dockeys: list[int]) -> dict[int, str | No
             else:
                 out[key] = format_display_date(val)
         return out
+    finally:
+        con.close()
+
+
+def supplier_has_bid_invitation(request_dockey: int, supplier_code: str) -> bool:
+    """True if PR_BID_INVITE has any invitation (any status) for this supplier and PR dockey."""
+    code = _clean_text(supplier_code)
+    if not code or not request_dockey:
+        return False
+    ensure_bidding_schema()
+    con = _connect_db()
+    try:
+        cur = con.cursor()
+        if not _table_exists(cur, "PR_BID_INVITE"):
+            return False
+        cur.execute(
+            """
+            SELECT FIRST 1 1
+            FROM PR_BID_INVITE
+            WHERE REQUEST_DOCKEY = ?
+              AND SUPPLIER_CODE = ?
+            """,
+            (int(request_dockey), code),
+        )
+        return cur.fetchone() is not None
+    except Exception:
+        return False
     finally:
         con.close()
 
@@ -432,7 +552,7 @@ def _fetch_bid_amount_stats_by_bid_ids(bid_ids: list[int]) -> dict[int, dict[str
         for bid_id in ids:
             cur.execute(
                 """
-                SELECT BID_AMOUNT
+                SELECT BID_QTY, BID_UNITPRICE, BID_AMOUNT
                 FROM PR_BID_DTL
                 WHERE BID_ID = ?
                 """,
@@ -441,10 +561,17 @@ def _fetch_bid_amount_stats_by_bid_ids(bid_ids: list[int]) -> dict[int, dict[str
             rows = cur.fetchall() or []
             if not rows:
                 continue
-            total = sum(_as_decimal(row[0], "0") for row in rows)
+            priced_rows = [
+                row
+                for row in rows
+                if row is not None
+                and _as_decimal(row[0], "0") > 0
+                and _as_decimal(row[1], "0") > 0
+            ]
+            total = sum(_as_decimal(row[2], "0") for row in priced_rows)
             out[int(bid_id)] = {
                 "bidTotalAmount": float(_money(total)),
-                "bidLineCount": len(rows),
+                "bidLineCount": len(priced_rows),
             }
         return out
     finally:
@@ -513,17 +640,32 @@ def list_supplier_invitations(supplier_code: str) -> list[dict[str, Any]]:
                     "bidLineCount": bid_line_count,
                 }
             )
-        delivery_map: dict[int, str | None] = {}
+        facts: dict[int, dict[str, Any]] = {}
         if result:
             try:
-                delivery_map = _fetch_pr_delivery_dates_by_dockey(
+                facts = _fetch_pr_card_facts([int(r["requestDockey"]) for r in result])
+            except Exception as exc:
+                print(f"[SUPPLIER BIDDING INVITES] card facts fetch error: {exc}", flush=True)
+        udf_by_dockey: dict[int, str] = {}
+        if result:
+            try:
+                udf_by_dockey = map_pr_udf_status_local(
                     [int(r["requestDockey"]) for r in result]
                 )
             except Exception as exc:
-                print(f"[SUPPLIER BIDDING INVITES] delivery date fetch error: {exc}", flush=True)
+                print(f"[SUPPLIER BIDDING INVITES] udf status fetch error: {exc}", flush=True)
         for r in result:
             dk = int(r.get("requestDockey") or 0)
-            r["requestDeliveryDate"] = delivery_map.get(dk)
+            extra = facts.get(dk) or {}
+            r["requestDeliveryDate"] = extra.get("requestDeliveryDate")
+            r["requestDescription"] = extra.get("requestDescription") or ""
+            r["project"] = extra.get("project") or ""
+            r["docDate"] = extra.get("docDate")
+            r["lineCount"] = int(extra.get("lineCount") or 0)
+            r["firstItem"] = extra.get("firstItem") or ""
+            # PH_PQ.UDF_STATUS (CANCELLED / APPROVED / …); INACTIVE normalizes to CANCELLED.
+            r["requestUdfStatus"] = udf_by_dockey.get(dk) or ""
+            r["prCancelled"] = normalize_pr_udf_status(r["requestUdfStatus"]) == "CANCELLED"
         return result
     finally:
         con.close()
@@ -585,7 +727,40 @@ def list_invited_suppliers_for_request(request_dockey: int) -> list[dict[str, An
         con.close()
 
 
+BID_LINE_INCOMPLETE_MSG = (
+    "Please enter Bid Qty and Unit Price, or provide Remarks if you cannot supply this item."
+)
+
+
+def is_priced_bid_line(line: dict[str, Any] | None) -> bool:
+    """True when a bid line is a valid priced quotation (qty > 0 and unit price > 0)."""
+    if not isinstance(line, dict):
+        return False
+    qty = _as_decimal(line.get("quantity", line.get("qty", "0")), "0")
+    price = _as_decimal(line.get("unitPrice", line.get("unitprice", "0")), "0")
+    return qty > 0 and price > 0
+
+
+def _sum_priced_bid_amounts(lines: list[Any]) -> Decimal:
+    """Sum amounts for priced quotation lines only; remarks-only / unquoted lines are excluded."""
+    total = Decimal("0")
+    for ln in lines:
+        if not isinstance(ln, dict) or not is_priced_bid_line(ln):
+            continue
+        total += _as_decimal(ln.get("amount"), "0")
+    return _money(total)
+
+
 def _normalize_bid_lines(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Normalize supplier bid lines.
+
+    Each item must be either:
+    - Option A: Bid Qty > 0 and Unit Price > 0 (remarks optional), or
+    - Option B: nonempty Remarks (unquoted; qty/price/amount cleared to 0).
+
+    Completely empty or incomplete numeric fields without Remarks are rejected.
+    Prefill qty alone is not a valid quotation.
+    """
     normalized: list[dict[str, Any]] = []
     for row in lines:
         if not isinstance(row, dict):
@@ -601,13 +776,28 @@ def _normalize_bid_lines(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
         except Exception as exc:
             raise BiddingValidationError("each bid line requires a valid detailId") from exc
 
+        remarks = _clean_text(row.get("remarks"))
         bid_qty = _money(_as_decimal(row.get("quantity", row.get("qty", "0")), "0"))
         bid_price = _money(_as_decimal(row.get("unitPrice", row.get("unitprice", "0")), "0"))
         bid_tax = _money(_as_decimal(row.get("tax", row.get("taxamt", "0")), "0"))
-        if bid_qty <= 0:
-            raise BiddingValidationError(f"bid quantity must be > 0 for detail {source_dtl}")
+        lead_days = int(_as_decimal(row.get("leadDays"), "0"))
+
         if bid_price < 0:
             raise BiddingValidationError(f"bid unitPrice must be >= 0 for detail {source_dtl}")
+        if bid_qty < 0:
+            raise BiddingValidationError(f"bid quantity must be >= 0 for detail {source_dtl}")
+
+        is_quoted = bid_qty > 0 and bid_price > 0
+        if is_quoted:
+            amount = _money((bid_qty * bid_price) + bid_tax)
+        elif remarks:
+            # Unquoted / unable to supply — keep remarks; never persist misleading prices.
+            bid_qty = _money(Decimal("0"))
+            bid_price = _money(Decimal("0"))
+            bid_tax = _money(Decimal("0"))
+            amount = _money(Decimal("0"))
+        else:
+            raise BiddingValidationError(BID_LINE_INCOMPLETE_MSG)
 
         normalized.append(
             {
@@ -617,9 +807,10 @@ def _normalize_bid_lines(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "quantity": bid_qty,
                 "unitPrice": bid_price,
                 "taxAmt": bid_tax,
-                "amount": _money((bid_qty * bid_price) + bid_tax),
-                "leadDays": int(_as_decimal(row.get("leadDays"), "0")),
-                "remarks": _clean_text(row.get("remarks")),
+                "amount": amount,
+                "leadDays": lead_days,
+                "remarks": remarks,
+                "isQuoted": bool(is_quoted),
             }
         )
 
@@ -643,8 +834,6 @@ def submit_supplier_bid(
 
     from utils.sql_api_supplier import resolve_supplier_company_name
 
-    supplier_name = resolve_supplier_company_name(code, supplier_name)
-
     lines = _normalize_bid_lines(bid_lines)
     now = _utc_now()
 
@@ -653,7 +842,7 @@ def submit_supplier_bid(
         cur = con.cursor()
         cur.execute(
             """
-            SELECT FIRST 1 INVITE_ID, STATUS
+            SELECT FIRST 1 INVITE_ID, STATUS, SUPPLIER_NAME
             FROM PR_BID_INVITE
             WHERE REQUEST_DOCKEY = ? AND SUPPLIER_CODE = ?
             """,
@@ -666,6 +855,18 @@ def submit_supplier_bid(
         invite_status = _clean_text(invite_row[1]).upper() or "OPEN"
         if invite_status == "CLOSED":
             raise BiddingValidationError("bidding invitation is already closed")
+
+        pr_udf = normalize_pr_udf_status(get_pr_udf_status_local(int(request_dockey)))
+        if pr_udf == "CANCELLED":
+            raise BiddingValidationError("cannot bid on a cancelled purchase request")
+
+        # Prefer invite/local name; never block bid submit on SQL API supplier GET.
+        invite_name = _clean_text(invite_row[2] if len(invite_row) > 2 else "")
+        supplier_name = resolve_supplier_company_name(
+            code,
+            invite_name or supplier_name,
+            allow_remote=False,
+        )
 
         cur.execute(
             """
@@ -983,20 +1184,25 @@ def _bid_hdr_row_to_lines(cur: Any, bid_id: int) -> list[dict[str, Any]]:
         (bid_id,),
     )
     lines = cur.fetchall() or []
-    return [
-        {
-            "detailId": int(row[0]),
-            "itemCode": _clean_text(row[1]),
-            "description": _clean_text(row[2]),
-            "quantity": float(_as_decimal(row[3], "0")),
-            "unitPrice": float(_as_decimal(row[4], "0")),
-            "tax": float(_as_decimal(row[5], "0")),
-            "amount": float(_as_decimal(row[6], "0")),
-            "leadDays": int(_as_decimal(row[7], "0")),
-            "remarks": _clean_text(row[8]),
-        }
-        for row in lines
-    ]
+    result: list[dict[str, Any]] = []
+    for row in lines:
+        qty = float(_as_decimal(row[3], "0"))
+        price = float(_as_decimal(row[4], "0"))
+        result.append(
+            {
+                "detailId": int(row[0]),
+                "itemCode": _clean_text(row[1]),
+                "description": _clean_text(row[2]),
+                "quantity": qty,
+                "unitPrice": price,
+                "tax": float(_as_decimal(row[5], "0")),
+                "amount": float(_as_decimal(row[6], "0")),
+                "leadDays": int(_as_decimal(row[7], "0")),
+                "remarks": _clean_text(row[8]),
+                "isQuoted": qty > 0 and price > 0,
+            }
+        )
+    return result
 
 
 def _bid_hdr_row_to_dict(bid: tuple, lines: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1033,38 +1239,6 @@ def _parse_split_from_docno(description: Any) -> str:
     if re.fullmatch(r"PR-[\w-]+", text, flags=re.IGNORECASE):
         return text
     return ""
-
-
-def _infer_split_parent_from_bid_lines(
-    cur: Any,
-    child_dockey: int,
-    child_detail_ids: list[int],
-) -> tuple[int, str]:
-    """When split metadata was stripped from DESCRIPTION, infer parent via bid SOURCE_DTLKEY overlap."""
-    detail_ids = [int(x) for x in child_detail_ids if int(x) > 0]
-    if child_dockey <= 0 or not detail_ids or not _table_exists(cur, "PR_BID_HDR"):
-        return 0, ""
-    if not _table_exists(cur, "PR_BID_DTL"):
-        return 0, ""
-    placeholders = ", ".join(["?"] * len(detail_ids))
-    cur.execute(
-        f"""
-        SELECT FIRST 1 H.REQUEST_DOCKEY, H.REQUEST_NO
-        FROM PR_BID_HDR H
-        INNER JOIN PR_BID_DTL D ON D.BID_ID = H.BID_ID
-        WHERE H.REQUEST_DOCKEY <> ?
-          AND D.SOURCE_DTLKEY IN ({placeholders})
-        ORDER BY H.REQUEST_DOCKEY ASC
-        """,
-        tuple([int(child_dockey), *detail_ids]),
-    )
-    row = cur.fetchone()
-    if not row or row[0] is None:
-        return 0, ""
-    try:
-        return int(row[0]), _clean_text(row[1] if len(row) > 1 else "")
-    except (TypeError, ValueError):
-        return 0, ""
 
 
 def _ph_pq_dockey_by_docno(cur: Any, docno: str) -> int:
@@ -1165,21 +1339,15 @@ def resolve_bidding_context(request_dockey: int) -> dict[str, Any]:
             code_idx = 2 + (1 if docref_col else 0)
             descr_idx = code_idx + (1 if code_col else 0)
             ctx["awardedSupplierCode"] = _clean_text(row[code_idx] if len(row) > code_idx else "")
+            # Only explicit split metadata (DOCREF1, then legacy DESCRIPTION) may
+            # establish parentage. Never infer from SOURCE_DTLKEY overlap alone —
+            # Firebird reuses DTLKEYs after orphan RFQ parents are deleted.
             split_from = ""
             if docref_col and len(row) > 2:
                 split_from = _parse_split_from_docno(row[2])
             if not split_from and desc_col and len(row) > descr_idx:
                 split_from = _parse_split_from_docno(row[descr_idx])
-            if not split_from:
-                parent_key, parent_docno = _infer_split_parent_from_bid_lines(
-                    cur, dockey, ctx["prDetailIds"]
-                )
-                if parent_key > 0 and parent_key != dockey:
-                    ctx["isSplitChild"] = True
-                    ctx["splitFromDocno"] = parent_docno or _clean_text(parent_key)
-                    ctx["splitFromDockey"] = parent_key
-                    ctx["biddingSourceDockey"] = parent_key
-            elif split_from:
+            if split_from:
                 parent_key = _ph_pq_dockey_by_docno(cur, split_from)
                 if parent_key > 0 and parent_key != dockey:
                     ctx["isSplitChild"] = True
@@ -1199,6 +1367,14 @@ def list_bids_for_bidding_view(request_dockey: int) -> tuple[list[dict[str, Any]
     source_dockey = int(ctx.get("biddingSourceDockey") or request_dockey)
     detail_set = {int(x) for x in (ctx.get("prDetailIds") or []) if int(x) > 0}
     awarded_code = _clean_text(ctx.get("awardedSupplierCode")).upper()
+    # Line awards are source of truth for mixed-supplier Save Item (header supplier stays empty).
+    awarded_codes = {
+        _clean_text(row.get("supplierCode")).upper()
+        for row in (get_line_awards_for_request(int(request_dockey)) or [])
+        if isinstance(row, dict) and _clean_text(row.get("supplierCode"))
+    }
+    if awarded_code:
+        awarded_codes.add(awarded_code)
 
     raw_bids = list_bids_for_request(source_dockey)
     # Split child PRs move awarded lines off the RFQ parent; merge maps so item labels resolve.
@@ -1219,19 +1395,21 @@ def list_bids_for_bidding_view(request_dockey: int) -> tuple[list[dict[str, Any]
             for ln in all_lines
             if isinstance(ln, dict) and int(ln.get("detailId") or 0) in detail_set
         ]
-        comparison_total = sum(float(_as_decimal(ln.get("amount"), "0")) for ln in all_lines if isinstance(ln, dict))
-        on_pr_total = sum(float(_as_decimal(ln.get("amount"), "0")) for ln in on_pr_lines)
+        priced_all = [ln for ln in all_lines if isinstance(ln, dict) and is_priced_bid_line(ln)]
+        priced_on_pr = [ln for ln in on_pr_lines if is_priced_bid_line(ln)]
+        comparison_total = _sum_priced_bid_amounts(all_lines)
+        on_pr_total = _sum_priced_bid_amounts(on_pr_lines)
         supplier_code = _clean_text(bid.get("supplierCode"))
         display_bids.append(
             {
                 **bid,
                 "lines": on_pr_lines,
-                "comparisonLineCount": len(all_lines),
-                "comparisonTotalAmount": float(_money(_as_decimal(comparison_total, "0"))),
-                "onPrLineCount": len(on_pr_lines),
-                "onPrTotalAmount": float(_money(_as_decimal(on_pr_total, "0"))),
+                "comparisonLineCount": len(priced_all),
+                "comparisonTotalAmount": float(comparison_total),
+                "onPrLineCount": len(priced_on_pr),
+                "onPrTotalAmount": float(on_pr_total),
                 "isAwardedOnThisPr": bool(
-                    awarded_code and supplier_code.upper() == awarded_code
+                    supplier_code and supplier_code.upper() in awarded_codes
                 ),
             }
         )
@@ -1573,18 +1751,12 @@ def approve_bid(request_dockey: int, bid_id: int, actor: str, udf_reason: str = 
             ("CLOSED", now, request_dockey, supplier_code),
         )
 
-        con.commit()
+        # Keep header Supplier empty; line awards / whole-bid award use line-level fields.
         try:
-            from utils.procurement_purchase_request import set_purchase_request_header_supplier
-
-            set_purchase_request_header_supplier(
-                request_dockey,
-                supplier_code,
-                supplier_name,
-                actor=_clean_text(actor) or "admin",
-            )
-        except Exception as sync_exc:
-            print(f"[PROCUREMENT BIDDING] PR header supplier sync warning: {sync_exc}", flush=True)
+            _clear_header_supplier_local(cur, int(request_dockey), _clean_text(actor) or "admin")
+        except Exception as clear_exc:
+            print(f"[PROCUREMENT BIDDING] clear header supplier warning: {clear_exc}", flush=True)
+        con.commit()
         return {
             "requestDockey": request_dockey,
             "requestNumber": request_no,
@@ -1742,6 +1914,196 @@ def _apply_awarded_bid_pricing_to_pr_details(
     return touched_dockeys
 
 
+def _resolve_ph_pqdtl_supplier_udf_columns(cur: Any) -> tuple[str | None, str | None]:
+    """Return PH_PQDTL.UDF_SUPCODE / UDF_SUPNAME when present."""
+    if not _table_exists(cur, "PH_PQDTL"):
+        return None, None
+    detail_cols = _get_table_columns(cur, "PH_PQDTL")
+    return (
+        _pick_existing(detail_cols, "UDF_SUPCODE"),
+        _pick_existing(detail_cols, "UDF_SUPNAME"),
+    )
+
+
+def _ensure_line_supplier_udf_columns_ready() -> None:
+    """Add missing line supplier UDF columns on a dedicated connection (Firebird DDL)."""
+    con = None
+    try:
+        from db_initializer import _ensure_ph_pqdtl_supplier_udf_columns
+
+        con = _connect_db()
+        _ensure_ph_pqdtl_supplier_udf_columns(con)
+    except Exception as exc:
+        print(f"[PROCUREMENT BIDDING] ensure line supplier UDF columns warning: {exc}", flush=True)
+    finally:
+        if con is not None:
+            try:
+                con.close()
+            except Exception:
+                pass
+
+
+def _apply_awarded_suppliers_to_pr_details(
+    cur: Any,
+    normalized: list[tuple[int, int]],
+    bid_map: dict[int, dict[str, Any]],
+) -> int:
+    """Write awarded supplier code/name onto each PH_PQDTL line (one PR, multi-supplier)."""
+    if not normalized or not _table_exists(cur, "PH_PQDTL"):
+        return 0
+    code_col, name_col = _resolve_ph_pqdtl_supplier_udf_columns(cur)
+    if not code_col and not name_col:
+        return 0
+    detail_cols = _get_table_columns(cur, "PH_PQDTL")
+    dtl_col = _pick_existing(detail_cols, "DTLKEY", "PQDTLKEY", "ID")
+    if not dtl_col:
+        return 0
+
+    updated = 0
+    for detail_id, bid_id in normalized:
+        bid = bid_map.get(bid_id) if isinstance(bid_map, dict) else None
+        if not isinstance(bid, dict):
+            continue
+        supplier_code = _clean_text(bid.get("supplierCode"))
+        supplier_name = _clean_text(bid.get("supplierName"))
+        set_parts: list[str] = []
+        values: list[Any] = []
+        if code_col:
+            set_parts.append(f"{code_col} = ?")
+            values.append(supplier_code or None)
+        if name_col:
+            set_parts.append(f"{name_col} = ?")
+            values.append(supplier_name or None)
+        if not set_parts:
+            continue
+        values.append(int(detail_id))
+        cur.execute(
+            f"UPDATE PH_PQDTL SET {', '.join(set_parts)} WHERE {dtl_col} = ?",
+            tuple(values),
+        )
+        updated += 1
+    return updated
+
+
+def _first_award_supplier(
+    normalized: list[tuple[int, int]],
+    bid_map: dict[int, dict[str, Any]],
+) -> tuple[str, str]:
+    """First supplier by lowest detail id (header display / SQL sync only)."""
+    for detail_id, bid_id in sorted(normalized, key=lambda pair: pair[0]):
+        bid = bid_map.get(bid_id) if isinstance(bid_map, dict) else None
+        if not isinstance(bid, dict):
+            continue
+        code = _clean_text(bid.get("supplierCode"))
+        if not code:
+            continue
+        return code, _clean_text(bid.get("supplierName"))
+    return "", ""
+
+
+def _clear_header_supplier_local(cur: Any, request_dockey: int, actor: str) -> None:
+    """Leave PH_PQ header supplier empty — awards live on line UDF_SUPCODE / UDF_SUPNAME."""
+    if request_dockey <= 0:
+        return
+    header_cols = _get_table_columns(cur, "PH_PQ")
+    key_col = _pick_existing(header_cols, "DOCKEY", "PQKEY", "ID")
+    if not key_col:
+        return
+    updates: dict[str, Any] = {}
+    for col, val in (
+        ("CODE", ""),
+        ("SUPPLIERID", ""),
+        ("COMPANYNAME", ""),
+        ("COMPANYNAME2", ""),
+        ("UPDATEDBY", _clean_text(actor) or "admin"),
+    ):
+        if col in header_cols:
+            updates[col] = val
+    if not updates:
+        return
+    set_parts = [f"{col} = ?" for col in updates]
+    values = list(updates.values()) + [int(request_dockey)]
+    cur.execute(
+        f"UPDATE PH_PQ SET {', '.join(set_parts)} WHERE {key_col} = ?",
+        tuple(values),
+    )
+
+
+def _sync_line_awards_sql_api_background(
+    request_dockey: int,
+    detail_ids: set[int],
+) -> None:
+    """Best-effort create-or-update SQL Accounting PR after awards (same DOCNO/DOCKEY)."""
+    try:
+        from utils.procurement_sql_api_sync import sync_purchase_request_sql_api_after_awards
+
+        # Header supplier stays blank; line UDF_SUPCODE / UDF_SUPNAME carry awards.
+        sync_purchase_request_sql_api_after_awards(
+            int(request_dockey),
+            keep_dtlkeys=detail_ids if detail_ids else None,
+        )
+    except Exception as line_sync_exc:
+        print(f"[PROCUREMENT BIDDING] background awards SQL sync warning: {line_sync_exc}", flush=True)
+
+
+def _promote_pr_udf_approved_after_awards(cur: Any, dockeys: set[int] | list[int]) -> list[dict[str, Any]]:
+    """Force PH_PQ.UDF_STATUS to APPROVED after Save Item Awards.
+
+    Awards completion is authoritative: Pending/Awaiting/stuck Approved all become APPROVED.
+    Cancelled PRs cannot award (blocked earlier). Document STATUS stays SUBMITTED.
+    """
+    ids = sorted({int(d) for d in (dockeys or []) if int(d or 0) > 0})
+    if not ids:
+        return []
+
+    from api.routes.purchase_requests import _write_view_pr_header_status
+    from utils.procurement_purchase_request import _column_is_numeric
+
+    header_cols = _get_table_columns(cur, "PH_PQ")
+    key_col = _pick_existing(header_cols, "DOCKEY", "PQKEY", "ID")
+    udf_status_col = _pick_existing(header_cols, "UDF_STATUS")
+    if not key_col or not udf_status_col:
+        raise BiddingValidationError("PH_PQ UDF_STATUS column not found; cannot approve after awards")
+    status_col = _pick_existing(header_cols, "STATUS")
+    status_is_numeric = bool(status_col and _column_is_numeric(cur, "PH_PQ", status_col))
+
+    applied: list[dict[str, Any]] = []
+    for dockey in ids:
+        if status_col:
+            cur.execute(
+                f"SELECT FIRST 1 {udf_status_col}, {status_col} FROM PH_PQ WHERE {key_col} = ?",
+                (dockey,),
+            )
+        else:
+            cur.execute(
+                f"SELECT FIRST 1 {udf_status_col} FROM PH_PQ WHERE {key_col} = ?",
+                (dockey,),
+            )
+        row = cur.fetchone()
+        if not row:
+            raise BiddingValidationError(f"Purchase request {dockey} not found")
+        previous = normalize_pr_udf_status(row[0])
+        if previous == "CANCELLED":
+            raise BiddingValidationError(
+                f"Cannot approve awards for cancelled purchase request {dockey}"
+            )
+        previous_doc = row[1] if status_col and len(row) > 1 else None
+        _rowcount, change = _write_view_pr_header_status(
+            cur,
+            dockey,
+            previous=previous,
+            status_value="APPROVED",
+            previous_doc=previous_doc,
+            udf_status_col=udf_status_col,
+            status_col=status_col or "",
+            status_is_numeric=status_is_numeric,
+            key_col=key_col,
+        )
+        if isinstance(change, dict):
+            applied.append(change)
+    return applied
+
+
 def save_line_awards(
     request_dockey: int,
     awards: list[dict[str, Any]],
@@ -1774,6 +2136,7 @@ def save_line_awards(
     now = _utc_now()
     reason = _clean_text(udf_reason)
     who = _clean_text(actor) or "admin"
+    _ensure_line_supplier_udf_columns_ready()
     con = _connect_db()
     try:
         cur = con.cursor()
@@ -1810,16 +2173,26 @@ def save_line_awards(
         dtl_placeholders = ", ".join(["?"] * len(bid_ids))
         cur.execute(
             f"""
-            SELECT BID_ID, SOURCE_DTLKEY
+            SELECT BID_ID, SOURCE_DTLKEY, BID_QTY, BID_UNITPRICE
             FROM PR_BID_DTL
             WHERE BID_ID IN ({dtl_placeholders})
             """,
             tuple(bid_ids),
         )
+        dtl_rows = cur.fetchall() or []
         valid_pairs = {
             (int(row[1]), int(row[0]))
-            for row in (cur.fetchall() or [])
+            for row in dtl_rows
             if row and row[0] is not None and row[1] is not None
+        }
+        priced_pairs = {
+            (int(row[1]), int(row[0]))
+            for row in dtl_rows
+            if row
+            and row[0] is not None
+            and row[1] is not None
+            and _as_decimal(row[2], "0") > 0
+            and _as_decimal(row[3], "0") > 0
         }
 
         for detail_id, bid_id in normalized:
@@ -1830,6 +2203,10 @@ def save_line_awards(
                 raise BiddingValidationError(f"bid {bid_id} does not belong to request {request_dockey}")
             if (detail_id, bid_id) not in valid_pairs:
                 raise BiddingValidationError(f"detail {detail_id} is not present in bid {bid_id}")
+            if (detail_id, bid_id) not in priced_pairs:
+                raise BiddingValidationError(
+                    f"detail {detail_id} in bid {bid_id} is not a priced quotation and cannot be awarded"
+                )
 
         cur.execute("DELETE FROM PR_BID_LINE_AWARD WHERE REQUEST_DOCKEY = ?", (request_dockey,))
         saved = 0
@@ -1882,35 +2259,12 @@ def save_line_awards(
                 tuple(["AWARDED", now, request_dockey, *sorted(supplier_codes)]),
             )
 
-        split_result: dict[str, Any] | None = None
-        if len(supplier_codes) > 1:
-            try:
-                from utils.procurement_pr_split import (
-                    mixed_pr_split_enabled,
-                    split_purchase_request_for_mixed_awards,
-                )
-
-                if mixed_pr_split_enabled():
-                    split_result = split_purchase_request_for_mixed_awards(
-                        cur,
-                        request_dockey,
-                        normalized,
-                        bid_map,
-                        who,
-                    )
-            except Exception as split_exc:
-                con.rollback()
-                raise BiddingValidationError(f"Mixed-supplier PR split failed: {split_exc}") from split_exc
+        # Persist awarded suppliers on each PR line (one PR; no mixed-supplier split).
+        line_supplier_updates = _apply_awarded_suppliers_to_pr_details(cur, normalized, bid_map)
 
         # Persist awarded bid pricing on PR lines (unit price drives amount + header totals).
         touched_dockeys = _apply_awarded_bid_pricing_to_pr_details(cur, normalized)
         touched_dockeys.add(int(request_dockey))
-        if split_result and split_result.get("split"):
-            for child in split_result.get("childPrs") or []:
-                if isinstance(child, dict):
-                    child_dk = int(child.get("dockey") or 0)
-                    if child_dk > 0:
-                        touched_dockeys.add(child_dk)
         try:
             from utils.procurement_pr_split import _recalc_header_amounts
 
@@ -1924,74 +2278,39 @@ def save_line_awards(
                 flush=True,
             )
 
+        # Saving awards completes the RFQ: move View e-PR off Pending onto Approved.
+        approve_changes = _promote_pr_udf_approved_after_awards(cur, touched_dockeys)
+
+        # Header Supplier stays empty; line UDF_SUPCODE / UDF_SUPNAME hold awards.
+        _clear_header_supplier_local(cur, int(request_dockey), who)
+
         con.commit()
 
-        sql_sync: dict[str, Any] | None = None
-        sql_line_sync: dict[str, Any] | None = None
-        if split_result and split_result.get("split"):
-            try:
-                from utils.procurement_purchase_request import set_purchase_request_header_supplier
+        # One SQL Accounting create-or-update with line supplier remarks (same DOCNO).
+        detail_ids = {int(d) for d, _ in normalized if int(d) > 0}
+        import threading
 
-                set_purchase_request_header_supplier(
-                    int(split_result.get("existingPrDockey") or request_dockey),
-                    _clean_text(split_result.get("existingPrSupplierCode")),
-                    _clean_text(split_result.get("existingPrSupplierName")),
-                    actor=who,
-                )
-            except Exception as hdr_exc:
-                print(f"[PROCUREMENT BIDDING] PR header after split warning: {hdr_exc}", flush=True)
-            try:
-                from utils.procurement_pr_split import sync_split_prs_to_sql_api
-
-                sql_sync = sync_split_prs_to_sql_api(split_result, actor=who)
-            except Exception as sync_exc:
-                print(f"[PROCUREMENT BIDDING] PR split SQL API warning: {sync_exc}", flush=True)
-                sql_sync = {"synced": False, "error": str(sync_exc)}
-        elif len(supplier_codes) == 1:
-            only_code = next(iter(supplier_codes))
-            award_name = ""
-            for _bid in bid_map.values():
-                if _clean_text(_bid.get("supplierCode")) == only_code:
-                    award_name = _clean_text(_bid.get("supplierName"))
-                    break
-            from utils.sql_api_supplier import resolve_supplier_company_name
-
-            award_name = resolve_supplier_company_name(only_code, award_name)
-            try:
-                from utils.procurement_purchase_request import set_purchase_request_header_supplier
-
-                set_purchase_request_header_supplier(
-                    request_dockey,
-                    only_code,
-                    award_name,
-                    actor=who,
-                )
-            except Exception as sync_exc:
-                print(f"[PROCUREMENT BIDDING] PR header supplier sync warning: {sync_exc}", flush=True)
-            try:
-                from utils.procurement_sql_api_sync import put_purchaserequest_lines_and_supplier_sql_api
-
-                detail_ids = {int(d) for d, _ in normalized if int(d) > 0}
-                sql_line_sync = put_purchaserequest_lines_and_supplier_sql_api(
-                    request_dockey,
-                    only_code,
-                    keep_dtlkeys=detail_ids,
-                )
-            except Exception as line_sync_exc:
-                print(f"[PROCUREMENT BIDDING] PR line SQL API sync warning: {line_sync_exc}", flush=True)
-                sql_line_sync = {"synced": False, "error": str(line_sync_exc)}
+        threading.Thread(
+            target=_sync_line_awards_sql_api_background,
+            args=(int(request_dockey), detail_ids),
+            daemon=True,
+        ).start()
 
         out: dict[str, Any] = {
             "requestDockey": int(request_dockey),
             "savedCount": saved,
             "supplierCount": len(supplier_codes),
+            "lineSupplierUpdates": line_supplier_updates,
+            "udfStatus": "APPROVED",
+            "headerSupplierCleared": True,
+            "sqlSyncQueued": True,
+            "approvedRequestIds": [
+                int(c.get("requestId") or 0)
+                for c in approve_changes
+                if isinstance(c, dict) and int(c.get("requestId") or 0) > 0
+            ],
+            "udfStatusChanges": approve_changes,
         }
-        if split_result:
-            out["split"] = split_result
-            if sql_sync is not None:
-                out["sqlSync"] = sql_sync
-        elif len(supplier_codes) == 1 and sql_line_sync is not None:
-            out["sqlLineSync"] = sql_line_sync
         return out
     except Exception:
         con.rollback()
@@ -2273,8 +2592,21 @@ def normalize_pr_udf_status(value: Any) -> str:
     return text
 
 
-def is_pr_line_awards_locked(udf_status: Any) -> bool:
-    return normalize_pr_udf_status(udf_status) in {"APPROVED", "CANCELLED"}
+def is_pr_line_awards_locked(
+    udf_status: Any,
+    *,
+    has_line_awards: bool = False,
+) -> bool:
+    """Lock Save Item only after awards exist, or when the PR is Cancelled.
+
+    Save Item Awards is what promotes Pending → Approved and writes prices.
+    UDF APPROVED alone (with no line awards) must stay editable so a stuck/mis-set
+    header status cannot block the first award save.
+    """
+    status = normalize_pr_udf_status(udf_status)
+    if status == "CANCELLED":
+        return True
+    return bool(has_line_awards)
 
 
 def get_pr_udf_status_local(request_dockey: int) -> str:
@@ -2334,16 +2666,18 @@ def map_pr_udf_status_local(request_dockeys: list[int]) -> dict[int, str]:
 
 
 def assert_pr_line_awards_editable(request_dockey: int, udf_status: Any = "") -> None:
-    """Block item-award changes after View e-PR marks the PR Approved or Cancelled."""
-    statuses = []
-    if udf_status:
-        statuses.append(normalize_pr_udf_status(udf_status))
+    """Block revising item awards after they were saved, or when the PR is Cancelled."""
     local = get_pr_udf_status_local(request_dockey)
-    if local:
-        statuses.append(local)
-    if any(is_pr_line_awards_locked(s) for s in statuses):
+    status = normalize_pr_udf_status(local or udf_status)
+    has_awards = bool(get_line_awards_for_request(int(request_dockey or 0)))
+    if is_pr_line_awards_locked(status, has_line_awards=has_awards):
+        if status == "CANCELLED":
+            raise BiddingValidationError(
+                "Item awards cannot be changed after this purchase request is Cancelled."
+            )
         raise BiddingValidationError(
-            "Item awards cannot be changed after this purchase request is Approved or Cancelled on View e-PR."
+            "Item awards are already saved for this purchase request. "
+            "Revise awards only before the first Save Item."
         )
 
 
@@ -2370,11 +2704,13 @@ def _line_bool_flag(detail: dict[str, Any], *keys: str) -> bool | None:
 
 
 def _line_udf_explicitly_rejected(detail: dict[str, Any]) -> bool:
+    """True only when UDF_PQAPPROVED is explicitly false (user unchecked the line).
+
+    Do not treat Firebird TRANSFERABLE=0 default as a rejection — that blocked
+    Approved award lines from becoming transferable for PO.
+    """
     approved = _line_bool_flag(detail, "udfPqApproved", "udf_pqapproved", "UDF_PQAPPROVED")
-    if approved is False:
-        return True
-    transferable = _line_bool_flag(detail, "transferable", "TRANSFERABLE")
-    return transferable is False
+    return approved is False
 
 
 def _line_udf_explicitly_approved(detail: dict[str, Any]) -> bool:
@@ -2429,10 +2765,8 @@ def apply_transferable_flags_for_approved_pr(
 
     awarded_ids = _awarded_detail_ids_from_gate(gate)
     restrict_to_awards = bool(awarded_ids)
-    has_explicit_selection = any(
-        _line_udf_explicitly_approved(d) or _line_udf_explicitly_rejected(d)
-        for d in details
-        if isinstance(d, dict)
+    has_explicit_approve = any(
+        _line_udf_explicitly_approved(d) for d in details if isinstance(d, dict)
     )
 
     for detail in details:
@@ -2453,20 +2787,22 @@ def apply_transferable_flags_for_approved_pr(
         if remaining <= 0:
             detail["transferable"] = False
             continue
+        # Only an explicit UDF_PQAPPROVED=false reject blocks transfer. Bare TRANSFERABLE=0
+        # (common Firebird default) must not keep awarded Approved lines unselectable.
         if _line_udf_explicitly_rejected(detail):
             detail["transferable"] = False
             detail["udfPqApproved"] = False
             continue
         if restrict_to_awards:
             transferable = detail_id in awarded_ids
-        elif has_explicit_selection:
+        elif has_explicit_approve:
             transferable = _line_udf_explicitly_approved(detail)
         else:
             transferable = True
         detail["transferable"] = transferable
         if transferable:
             detail["udfPqApproved"] = True
-        elif has_explicit_selection:
+        elif has_explicit_approve:
             detail["udfPqApproved"] = False
 
 
@@ -2487,6 +2823,7 @@ def get_transfer_gate_state(request_dockey: int) -> dict[str, Any]:
         approved = get_approved_bid_for_request(request_dockey)
         line_awards = get_line_awards_for_request(request_dockey)
         pr_udf_status = get_pr_udf_status_local(request_dockey)
+        has_line_awards = bool(line_awards)
         return {
             "requestDockey": request_dockey,
             "hasInvitations": invite_count > 0,
@@ -2494,9 +2831,11 @@ def get_transfer_gate_state(request_dockey: int) -> dict[str, Any]:
             "bidCount": bid_count,
             "approvedBid": approved,
             "lineAwards": line_awards,
-            "hasLineAwards": bool(line_awards),
+            "hasLineAwards": has_line_awards,
             "prUdfStatus": pr_udf_status,
-            "lineAwardsLocked": is_pr_line_awards_locked(pr_udf_status),
+            "lineAwardsLocked": is_pr_line_awards_locked(
+                pr_udf_status, has_line_awards=has_line_awards
+            ),
             "biddingSourceDockey": source_dockey,
             "isSplitChild": bool(ctx.get("isSplitChild")),
             "splitFromDocno": _clean_text(ctx.get("splitFromDocno")),

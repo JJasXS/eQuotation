@@ -25,7 +25,16 @@ function handleAdminMenuAction(action) {
             showPendingApprovals();
             break;
         case 'logout':
-            window.location.href = '/logout';
+            if (typeof clearSensitiveSessionCachesLocal === 'function') {
+                clearSensitiveSessionCachesLocal();
+            } else if (window.EQCore && typeof window.EQCore.clearSensitiveSessionCaches === 'function') {
+                window.EQCore.clearSensitiveSessionCaches();
+            }
+            if (window.EQCore && typeof window.EQCore.logout === 'function') {
+                window.EQCore.logout();
+            } else {
+                window.location.href = '/logout';
+            }
             break;
         default:
             console.log('Unknown action:', action);

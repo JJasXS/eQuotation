@@ -1,3 +1,41 @@
+        function readProcurementJson(response) {
+
+            const reader = window.EQCore && window.EQCore.readJsonResponse;
+
+            const pending = typeof reader === 'function' ? reader(response) : response.json();
+
+            return Promise.resolve(pending).catch((error) => {
+
+                if (error && error.authExpired) {
+
+                    window.location.assign('/login');
+
+                }
+
+                throw error;
+
+            });
+
+        }
+
+        function isProcurementAuthExpired(error) {
+
+            return !!(error && error.authExpired);
+
+        }
+
+        function isRequestAbortError(error) {
+
+            if (!error) return false;
+
+            const name = String(error.name || '');
+
+            const message = String(error.message || '').toLowerCase();
+
+            return name === 'AbortError' || message.includes('aborted');
+
+        }
+
         const STOCK_CARD_VISIBLE_BODY_ROWS = 16;
 
         function afterStockCardTableRender() {
@@ -56,7 +94,7 @@
 
         }
 
-        /** Two-row thead: set --stock-card-hdr1-h to row1 height so sticky row2 has no visible seam/gap. */
+        /** Multi-row thead: measure row heights so sticky location / UOM rows sit under the group row. */
 
         function syncStockCardHeaderStickyOffset() {
 
@@ -64,29 +102,69 @@
 
             if (!thead) return;
 
-            const row1 = thead.querySelector('tr:first-child');
+            const rows = thead.querySelectorAll('tr');
 
-            if (!row1) return;
-
-            if (thead.querySelectorAll('tr').length < 2) {
+            if (rows.length < 2) {
 
                 thead.style.removeProperty('--stock-card-hdr1-h');
+
+                thead.style.removeProperty('--stock-card-hdr12-h');
 
                 return;
 
             }
 
-            const h = row1.offsetHeight;
+            const h1 = rows[0].offsetHeight || 0;
 
-            if (h > 0) {
+            if (h1 > 0) {
 
-                thead.style.setProperty('--stock-card-hdr1-h', `${h}px`);
+                thead.style.setProperty('--stock-card-hdr1-h', `${h1}px`);
+
+            }
+
+            if (rows.length >= 3) {
+
+                const h2 = rows[1].offsetHeight || 0;
+
+                thead.style.setProperty('--stock-card-hdr12-h', `${h1 + h2}px`);
+
+            } else {
+
+                thead.style.removeProperty('--stock-card-hdr12-h');
 
             }
 
         }
 
         let reportLoaded = false;
+
+        let createPrLookupsStarted = false;
+
+        let stockCardLastLoadedAt = 0;
+
+        let stockCardFetchController = null;
+
+        let stockCardHiddenSince = 0;
+
+        const STOCK_CARD_FRESH_MS = 60 * 1000;
+
+        const STOCK_CARD_IDLE_HIDDEN_MS = 15 * 60 * 1000;
+
+        function ensureCreatePrLookups() {
+
+            if (createPrLookupsStarted) return;
+
+            createPrLookupsStarted = true;
+
+            loadPrWarehouseLocations();
+
+            loadPurchaseRequestProducts();
+
+            loadSuppliers();
+
+            loadProjects();
+
+        }
 
         let stockCardVisibilityRefreshTimer = null;
 
@@ -176,9 +254,11 @@
 
         let viewPurchaseRequestsLoaded = false;
 
+        let viewPrListLoadSeq = 0;
+
         let viewPurchaseRequests = [];
 
-        const VIEW_PR_LIST_PAGE_SIZE = 15;
+        const VIEW_PR_LIST_PAGE_SIZE = 6;
 
         const VIEW_PR_LIST_CACHE_KEY = 'procurementViewPrFirstPageV3_page15';
 
@@ -199,6 +279,7 @@
         let viewDetailFetchControllers = new Map();
 
         let viewDetailFetchPromises = new Map();
+
         let viewDetailFetchStartedAtMs = new Map();
 
         let viewDetailCache = new Map();
@@ -224,1027 +305,1957 @@
             PENDING: 'Pending',
 
             CANCELLED: 'Cancelled',
+
             AWAITING: 'Awaiting Approval',
 
         };
 
         let viewStatusFilters = new Set(['PENDING']);
 
+        let viewPrServerStatusCounts = null;
+
         let viewBulkSelectedHeaderIds = new Set();
 
+        let viewPrBulkToPendingBusy = false;
+
+        function getActiveViewStatusFilter() {
+
+            if (viewStatusFilters instanceof Set && viewStatusFilters.size === 1) {
+
+                return String([...viewStatusFilters][0] || '').toUpperCase();
+
+            }
+
+            return 'PENDING';
+
+        }
+
+        function buildViewPrListQuery(offset) {
+
+            const off = Math.max(0, Number(offset) || 0);
+
+            const status = getActiveViewStatusFilter();
+
+            return `/api/admin/procurement/purchase-requests?offset=${off}&limit=${VIEW_PR_LIST_PAGE_SIZE}&fast=1&include_qty=0&view_status=${encodeURIComponent(status)}`;
+
+        }
+
         /** Bulk PR→PO consolidation workspace state */
+
         let viewBulkTransferOpen = false;
+
         let bulkTransferLines = [];
+
         let bulkTransferFilterOptions = { suppliers: [], locations: [], items: [] };
+
         let bulkTransferSelectedLines = new Map(); // key `${requestId}:${detailId}` -> { requestId, detailId, quantity, remainingQty, ... }
+
         let bulkTransferLoading = false;
+
         let bulkTransferSubmitting = false;
+
         let bulkTransferScopeAll = false; // true = show every eligible line
+
         let bulkTransferAllLines = []; // unscoped cache from last fetch
 
         function bulkTransferLineKey(requestId, detailId) {
+
             return `${Number(requestId) || 0}:${Number(detailId) || 0}`;
+
         }
 
         function setBulkTransferMessage(text, isError) {
+
             const el = document.getElementById('bulk-transfer-message');
+
             if (!el) return;
+
             const msg = String(text || '').trim();
+
             el.textContent = msg;
+
             el.classList.toggle('is-error', !!isError && !!msg);
+
             el.hidden = !msg;
+
         }
 
         let _procurementConfirmResolver = null;
 
         function resolveProcurementConfirmModal(ok) {
+
             const modal = document.getElementById('pr-confirm-modal');
+
             if (modal) {
+
                 modal.hidden = true;
+
                 modal.setAttribute('aria-hidden', 'true');
+
             }
+
             const resolver = _procurementConfirmResolver;
+
             _procurementConfirmResolver = null;
+
             if (typeof resolver === 'function') resolver(Boolean(ok));
+
         }
 
         function showProcurementConfirmModal(options) {
+
             const opts = options || {};
+
             const modal = document.getElementById('pr-confirm-modal');
+
             const titleEl = document.getElementById('pr-confirm-modal-title');
+
             const bodyEl = document.getElementById('pr-confirm-modal-body');
+
             const listEl = document.getElementById('pr-confirm-modal-list');
+
             const noteEl = document.getElementById('pr-confirm-modal-note');
+
             const okBtn = document.getElementById('pr-confirm-modal-ok');
+
             const cancelBtn = document.getElementById('pr-confirm-modal-cancel');
+
             if (!modal || !listEl) {
+
                 return Promise.resolve(window.confirm(String(opts.body || opts.title || 'Confirm?')));
+
             }
+
             if (titleEl) titleEl.textContent = String(opts.title || 'Confirm');
+
             if (bodyEl) bodyEl.textContent = String(opts.body || '');
+
             if (noteEl) noteEl.textContent = String(opts.note || '');
+
             if (okBtn) okBtn.textContent = String(opts.confirmLabel || 'Confirm');
+
             if (cancelBtn) cancelBtn.textContent = String(opts.cancelLabel || 'Cancel');
+
             const items = Array.isArray(opts.items) ? opts.items : [];
+
             listEl.className = 'pr-confirm-modal__list' + (items.some((it) => Array.isArray(it && it.children) && it.children.length) ? ' pr-confirm-modal__list--accordion' : '');
+
             listEl.innerHTML = items.map((item, idx) => {
+
                 const label = escapeHtml(String((item && item.label) || ''));
+
                 const meta = escapeHtml(String((item && item.meta) || ''));
+
                 const children = Array.isArray(item && item.children) ? item.children : [];
+
                 if (!children.length) {
+
                     return `<li class="pr-confirm-modal__row"><strong>${label}</strong><span>${meta}</span></li>`;
+
                 }
+
                 const hasTableCols = children.some((child) => child && (child.item || child.qty || child.description));
+
                 let childHtml = '';
+
                 if (hasTableCols) {
+
                     const rows = children.map((child) => {
+
                         const item = escapeHtml(String((child && (child.item || child.title || child.label)) || '-'));
+
                         const desc = escapeHtml(String((child && (child.description || child.detail || '')) || '-'));
+
                         const qty = escapeHtml(String((child && child.qty) || '-'));
+
                         const uom = escapeHtml(String((child && child.uom) || ''));
+
                         const price = escapeHtml(String((child && child.price) || '-'));
+
                         return `<tr>
+
                             <td class="col-item">${item}</td>
+
                             <td class="col-desc">${desc}</td>
+
                             <td class="col-qty">${qty}</td>
+
                             <td class="col-uom">${uom || '-'}</td>
+
                             <td class="col-price">${price}</td>
+
                         </tr>`;
+
                     }).join('');
+
                     childHtml = `<div class="pr-confirm-modal__table-wrap">
+
                         <table class="pr-confirm-modal__table">
+
                             <thead>
+
                                 <tr>
+
                                     <th>Item</th>
+
                                     <th>Description</th>
+
                                     <th>Qty</th>
+
                                     <th>UOM</th>
+
                                     <th>Unit price</th>
+
                                 </tr>
+
                             </thead>
+
                             <tbody>${rows}</tbody>
+
                         </table>
+
                     </div>`;
+
                 } else {
+
                     childHtml = children.map((child) => {
+
                         const title = escapeHtml(String((child && (child.title || child.label)) || '-'));
+
                         const detail = escapeHtml(String((child && (child.detail || child.meta)) || ''));
+
                         return `<div class="pr-confirm-modal__line">
+
                             <div class="pr-confirm-modal__line-title">${title}</div>
+
                             <div class="pr-confirm-modal__line-detail">${detail}</div>
+
                         </div>`;
+
                     }).join('');
+
                 }
+
                 const openAttr = idx === 0 ? ' open' : '';
+
                 return `<li class="pr-confirm-modal__group${openAttr === ' open' ? ' is-open' : ''}">
+
                     <button type="button" class="pr-confirm-modal__group-toggle" aria-expanded="${idx === 0 ? 'true' : 'false'}" onclick="toggleProcurementConfirmGroup(this)">
+
                         <span class="pr-confirm-modal__group-main">
+
                             <span class="pr-confirm-modal__chevron" aria-hidden="true"></span>
+
                             <strong>${label}</strong>
+
                         </span>
+
                         <span class="pr-confirm-modal__group-meta">${meta}</span>
+
                     </button>
+
                     <div class="pr-confirm-modal__group-body"${idx === 0 ? '' : ' hidden'}>
+
                         ${childHtml}
+
                     </div>
+
                 </li>`;
+
             }).join('');
+
             listEl.hidden = !items.length;
+
             modal.hidden = false;
+
             modal.setAttribute('aria-hidden', 'false');
+
             try { (okBtn || cancelBtn)?.focus(); } catch (e) {}
+
             return new Promise((resolve) => {
+
                 _procurementConfirmResolver = resolve;
+
             });
+
         }
 
         function toggleProcurementConfirmGroup(btn) {
+
             if (!btn) return;
+
             const group = btn.closest('.pr-confirm-modal__group');
+
             if (!group) return;
+
             const body = group.querySelector('.pr-confirm-modal__group-body');
+
             const willOpen = !group.classList.contains('is-open');
+
             group.classList.toggle('is-open', willOpen);
+
             btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+
             if (body) body.hidden = !willOpen;
+
         }
 
         function isViewApprovedTabActive() {
+
             return (
+
                 viewStatusFilters instanceof Set
+
                 && viewStatusFilters.size === 1
+
                 && viewStatusFilters.has('APPROVED')
+
             );
+
         }
 
-        /** Bulk Transfer / Consolidate only belong on the Approved tab. */
+        /** Bulk Transfer to PO sits beside Select all on the Approved list header. */
+
         function syncViewPrApprovedOnlyToolbarActions() {
+
             const approved = isViewApprovedTabActive();
+
+            const hideTransfer = document.body.classList.contains('procurement-hide-transfer');
+
             const transferToggle = document.getElementById('view-bulk-transfer-toggle');
-            const consolidateBtn = document.getElementById('view-bulk-consolidate-btn');
+
             if (transferToggle) {
-                transferToggle.hidden = !approved;
-                transferToggle.setAttribute('aria-hidden', approved ? 'false' : 'true');
+
+                const show = approved && !hideTransfer;
+
+                transferToggle.hidden = !show;
+
+                transferToggle.setAttribute('aria-hidden', show ? 'false' : 'true');
+
             }
-            if (consolidateBtn) {
-                consolidateBtn.hidden = !approved;
-                consolidateBtn.setAttribute('aria-hidden', approved ? 'false' : 'true');
-            }
+
             if (!approved && viewBulkTransferOpen) {
+
                 try { toggleViewBulkTransferPanel(false); } catch (e) { /* ignore */ }
+
             }
+
         }
 
         function onBulkTransferToolbarClick() {
+
             if (document.body.classList.contains('procurement-hide-transfer')) {
+
                 alert('Transfer is disabled for this account.');
+
                 return;
+
             }
+
             if (!isViewApprovedTabActive() && !viewBulkTransferOpen) {
+
                 alert('Bulk Transfer is only available on the Approved tab.');
+
                 return;
+
             }
+
             // If the advanced consolidate panel is open, Exit closes it.
+
             if (viewBulkTransferOpen) {
+
                 toggleViewBulkTransferPanel(false);
+
                 return;
+
             }
+
             runBulkTransferLikeDetailButton();
+
         }
 
         function getBulkTransferTargetHeaders() {
+
             const headers = [];
+
             const seen = new Set();
+
             const pushId = (rawId) => {
+
                 const id = Number(rawId || 0);
+
                 if (!id || seen.has(id)) return;
+
                 const row = (viewPurchaseRequests || []).find((r) => Number(r.id || 0) === id);
+
                 if (!row) return;
+
                 seen.add(id);
+
                 headers.push(row);
+
             };
+
             if (viewBulkSelectedHeaderIds && viewBulkSelectedHeaderIds.size) {
+
                 for (const id of viewBulkSelectedHeaderIds) pushId(id);
+
             } else if (viewSelectedHeaderId != null) {
+
                 pushId(viewSelectedHeaderId);
+
             }
+
             return headers;
+
         }
 
         async function runBulkTransferLikeDetailButton() {
+
             if (bulkTransferSubmitting) return;
+
             let headers = getBulkTransferTargetHeaders();
+
             if (!headers.length) {
+
                 alert('Open a purchase request (or tick PR checkboxes on the left), then click Bulk Transfer to PO.');
+
                 return;
+
             }
 
             bulkTransferSubmitting = true;
+
             try {
+
                 for (const header of headers) {
+
                     if (!Array.isArray(header.details) || !header.details.length) {
+
                         try {
+
                             await fetchViewPurchaseRequestDetail(header, false);
+
                         } catch (e) {
+
                             console.warn('[BULK TRANSFER] detail load failed', header && header.id, e);
+
                         }
+
                     }
+
                 }
+
                 // Refresh references after detail hydrate.
+
                 headers = getBulkTransferTargetHeaders();
 
                 const jobs = [];
+
                 for (const header of headers) {
+
                     const selectedRows = getSelectedTransferDetails(header)
+
                         .filter((detail) => Number(detail.id || 0) > 0 && isDetailChecked(detail) && getDetailTransferQuantity(detail) > 0);
+
                     if (!selectedRows.length) continue;
+
                     if (!isPurchaseRequestTransferReady(header)) continue;
+
                     const selectedDetails = selectedRows.map((detail) => ({
+
                         detailId: Number(detail.id || 0),
+
                         quantity: getDetailTransferQuantity(detail),
+
                         transferable: true,
+
                     }));
+
                     const displayLines = selectedRows.map((detail) => {
+
                         const qty = getDetailTransferQuantity(detail);
+
                         const code = String(detail.itemCode || detail.itemName || '-').trim() || '-';
+
                         const desc = String(detail.description || detail.itemName || '').trim() || '-';
+
                         const uom = String(detail.uom || '').trim();
+
                         const price = detail.unitPrice != null ? Number(detail.unitPrice) : null;
+
                         const priceText = Number.isFinite(price)
+
                             ? (typeof formatMoney === 'function' ? formatMoney(price) : String(price))
+
                             : '-';
+
                         return {
+
                             item: code,
+
                             description: desc,
+
                             qty: String(qty),
+
                             uom: uom || '-',
+
                             price: priceText,
+
                         };
+
                     });
+
                     jobs.push({
+
                         headerId: Number(header.id || 0),
+
                         requestNumber: String(header.requestNumber || ''),
+
                         selectedDetails,
+
                         displayLines,
+
                     });
+
                 }
 
                 if (!jobs.length) {
+
                     alert('No transferable selected lines on the chosen PR(s). Open the PR, keep approved lines selected with qty > 0, then try again.');
+
                     return;
+
                 }
 
                 const confirmItems = jobs.map((job) => ({
+
                     label: job.requestNumber || String(job.headerId),
+
                     meta: `${job.selectedDetails.length} line(s)`,
+
                     children: job.displayLines || [],
+
                 }));
+
                 const ok = await showProcurementConfirmModal({
+
                     title: 'Transfer to Purchase Order',
+
                     body: 'Transfer selected lines to Purchase Order?',
+
                     note: 'Same action as the detail Transfer to Purchase Order button.',
+
                     items: confirmItems,
+
                     confirmLabel: 'Transfer',
+
                     cancelLabel: 'Cancel',
+
                 });
+
                 if (!ok) return;
 
                 const poNumbers = [];
+
                 const errors = [];
+
                 for (const job of jobs) {
+
                     viewTransferSavingHeaderIds.add(Number(job.headerId));
+
                     try {
+
                         const res = await fetch('/api/admin/procurement/purchase-requests/transfer-to-po', {
+
                             method: 'POST',
+
                             headers: { 'Content-Type': 'application/json' },
+
                             body: JSON.stringify({
+
                                 requestId: Number(job.headerId),
+
                                 requestNumber: String(job.requestNumber || ''),
+
                                 transferLines: job.selectedDetails,
+
                             }),
+
                         });
-                        const data = await res.json().catch(() => ({}));
+
+                        const data = await readProcurementJson(res);
+
                         if (!res.ok || !data.success) {
+
                             throw new Error(data.error || `Transfer failed (HTTP ${res.status})`);
+
                         }
+
                         const nums = Array.isArray(data?.data?.poNumbers)
+
                             ? data.data.poNumbers.filter(Boolean)
+
                             : [];
+
                         if (nums.length) {
+
                             poNumbers.push(...nums);
+
                         } else if (data?.data?.poNumber) {
+
                             poNumbers.push(data.data.poNumber);
+
                         }
+
                         invalidateViewDetailCache(job.headerId);
+
                     } catch (err) {
+
                         errors.push(`${job.requestNumber || job.headerId}: ${err.message || 'failed'}`);
+
                     } finally {
+
                         viewTransferSavingHeaderIds.delete(Number(job.headerId));
+
                     }
+
                 }
 
                 try {
+
                     await loadViewPurchaseRequests(true, { bustCache: true });
+
                 } catch (e) {}
 
                 if (poNumbers.length) {
+
                     const uniquePos = Array.from(new Set(poNumbers.map((v) => String(v))));
+
                     let msg = `Transfer completed. Purchase Order(s): ${uniquePos.join(', ')}`;
+
                     if (errors.length) msg += `\n\nSome failed:\n${errors.join('\n')}`;
+
                     alert(msg);
+
                 } else {
+
                     alert(errors.length ? `Transfer failed.\n${errors.join('\n')}` : 'Transfer failed.');
+
                 }
+
             } finally {
+
                 bulkTransferSubmitting = false;
+
                 try { renderFilteredViewPurchaseRequests(); } catch (e) {}
+
             }
+
         }
 
         function toggleViewBulkTransferPanel(forceOpen) {
+
             if (document.body.classList.contains('procurement-hide-transfer')) {
+
                 setBulkTransferMessage('Transfer is disabled for this account.', true);
+
                 return;
+
             }
+
             const wasOpen = !!viewBulkTransferOpen;
+
             const open = typeof forceOpen === 'boolean' ? forceOpen : !wasOpen;
+
             if (open && !isViewApprovedTabActive()) {
-                setBulkTransferMessage('Consolidate / Bulk Transfer is only available on the Approved tab.', true);
-                alert('Consolidate / Bulk Transfer is only available on the Approved tab.');
+
+                setBulkTransferMessage('Bulk Transfer is only available on the Approved tab.', true);
+
+                alert('Bulk Transfer is only available on the Approved tab.');
+
                 return;
+
             }
+
             viewBulkTransferOpen = open;
+
             const split = document.getElementById('view-pr-split-workspace');
+
             const panel = document.getElementById('view-bulk-transfer-panel');
+
             const toggle = document.getElementById('view-bulk-transfer-toggle');
+
             const bulkBar = document.getElementById('view-pr-bulk-pending-bar');
+
             if (split) split.hidden = open;
+
             if (panel) panel.hidden = !open;
+
             if (toggle) {
+
                 toggle.textContent = open ? 'Exit bulk transfer' : 'Bulk Transfer to PO';
+
                 toggle.classList.toggle('is-active', open);
+
                 toggle.setAttribute('aria-pressed', open ? 'true' : 'false');
+
             }
+
             if (bulkBar && open) bulkBar.hidden = true;
+
             // Clear prior transfer summary only when opening from closed.
+
             if (open && !wasOpen) {
+
                 clearBulkTransferResultSummary();
+
                 // Default: scope to checked/open PR so one-PR transfer does not dump every eligible line.
+
                 bulkTransferScopeAll = false;
+
             }
+
             if (open) {
+
                 loadBulkTransferCandidates(false);
+
             } else {
+
                 setBulkTransferMessage('');
+
                 closeBulkTransferFilterPopup();
+
             }
+
         }
 
         function getBulkTransferScopeTargets() {
+
             const ids = new Set();
+
             const numbers = new Set();
+
             if (viewBulkSelectedHeaderIds && viewBulkSelectedHeaderIds.size) {
+
                 for (const rawId of viewBulkSelectedHeaderIds) {
+
                     const id = Number(rawId || 0);
+
                     if (!id) continue;
+
                     ids.add(id);
+
                     const row = (viewPurchaseRequests || []).find((r) => Number(r.id || 0) === id);
+
                     const num = String((row && row.requestNumber) || '').trim().toUpperCase();
+
                     if (num) numbers.add(num);
+
                 }
+
             } else if (viewSelectedHeaderId != null) {
+
                 const id = Number(viewSelectedHeaderId || 0);
+
                 if (id) {
+
                     ids.add(id);
+
                     const row = (viewPurchaseRequests || []).find((r) => Number(r.id || 0) === id);
+
                     const num = String((row && row.requestNumber) || '').trim().toUpperCase();
+
                     if (num) numbers.add(num);
+
                 }
+
             }
+
             return { ids, numbers };
+
         }
 
         function applyBulkTransferScope(lines) {
+
             const all = Array.isArray(lines) ? lines : [];
+
             bulkTransferAllLines = all.slice();
+
             if (bulkTransferScopeAll) {
+
                 bulkTransferLines = all.slice();
+
                 return { scoped: false, label: 'all eligible' };
+
             }
+
             const scope = getBulkTransferScopeTargets();
+
             if (!scope.ids.size && !scope.numbers.size) {
+
                 bulkTransferLines = all.slice();
+
                 return { scoped: false, label: 'all eligible' };
+
             }
+
             bulkTransferLines = all.filter((line) => {
+
                 const id = Number(line && line.requestId ? line.requestId : 0);
+
                 const num = String((line && line.requestNumber) || '').trim().toUpperCase();
+
                 return (id && scope.ids.has(id)) || (num && scope.numbers.has(num));
+
             });
+
             const labels = Array.from(scope.numbers);
+
             return {
+
                 scoped: true,
+
                 label: labels.length ? labels.join(', ') : `${scope.ids.size} selected PR(s)`,
+
             };
+
         }
 
         function setBulkTransferScopeAll(showAll) {
+
             bulkTransferScopeAll = !!showAll;
+
             const scopeInfo = applyBulkTransferScope(bulkTransferAllLines.length ? bulkTransferAllLines : bulkTransferLines);
+
             // Pre-select only currently visible scoped lines.
+
             bulkTransferSelectedLines.clear();
+
             bulkTransferSelectAllVisible();
+
             renderBulkTransferTable();
+
             updateBulkTransferSummary();
+
             updateBulkTransferScopeChip(scopeInfo);
+
             setBulkTransferMessage(
+
                 scopeInfo.scoped
+
                     ? `${bulkTransferLines.length} line(s) for ${scopeInfo.label}.`
+
                     : `${bulkTransferLines.length} eligible line(s) loaded.`
+
             );
+
         }
 
         function updateBulkTransferScopeChip(scopeInfo) {
+
             const chip = document.getElementById('bulk-transfer-scope-chip');
+
             const btn = document.getElementById('bulk-transfer-scope-toggle');
+
             if (!chip && !btn) return;
+
             const info = scopeInfo || { scoped: !bulkTransferScopeAll && (getBulkTransferScopeTargets().ids.size > 0), label: '' };
+
             if (chip) {
+
                 chip.textContent = info.scoped
+
                     ? `Scoped to ${info.label || 'selected PR(s)'}`
+
                     : 'Showing all eligible lines';
+
                 chip.classList.toggle('is-scoped', !!info.scoped);
+
             }
+
             if (btn) {
+
                 btn.hidden = false;
+
                 btn.textContent = info.scoped ? 'Show all eligible' : 'Use selected PR only';
+
                 btn.disabled = !info.scoped && !(getBulkTransferScopeTargets().ids.size || getBulkTransferScopeTargets().numbers.size);
+
             }
+
         }
 
         function updateBulkTransferFilterChip() {
+
             const chip = document.getElementById('bulk-transfer-filter-chip');
+
             const openBtn = document.getElementById('bulk-transfer-filter-open-btn');
+
             if (!chip) return;
+
             const filters = getBulkTransferFilterValues();
+
             const parts = [
+
                 filters.supplier || 'All suppliers',
+
                 filters.location || 'All locations',
+
                 filters.item || 'All items',
+
             ];
+
             chip.textContent = parts.join(' · ');
+
             const activeCount = [filters.supplier, filters.location, filters.item].filter(Boolean).length;
+
             chip.classList.toggle('is-active', activeCount > 0);
+
             if (openBtn) {
+
                 openBtn.textContent = activeCount > 0 ? `Filters (${activeCount})` : 'Filters';
+
                 openBtn.classList.toggle('is-active', activeCount > 0);
+
             }
+
         }
 
         function openBulkTransferFilterPopup() {
+
             const popup = document.getElementById('bulk-transfer-filter-popup');
+
             if (!popup) return;
+
             popup.hidden = false;
+
             try {
+
                 document.getElementById('bulk-transfer-filter-supplier')?.focus();
+
             } catch (e) {}
+
         }
 
         function closeBulkTransferFilterPopup() {
+
             const popup = document.getElementById('bulk-transfer-filter-popup');
+
             if (popup) popup.hidden = true;
+
         }
 
         function clearBulkTransferFilterPopup() {
+
             const supplier = document.getElementById('bulk-transfer-filter-supplier');
+
             const location = document.getElementById('bulk-transfer-filter-location');
+
             const item = document.getElementById('bulk-transfer-filter-item');
+
             if (supplier) supplier.value = '';
+
             if (location) location.value = '';
+
             if (item) item.value = '';
+
             updateBulkTransferFilterChip();
+
             loadBulkTransferCandidates(true);
+
             closeBulkTransferFilterPopup();
+
         }
 
         function applyBulkTransferFilterPopup() {
+
             updateBulkTransferFilterChip();
+
             loadBulkTransferCandidates(true);
+
             closeBulkTransferFilterPopup();
+
         }
 
         function getBulkTransferFilterValues() {
+
             return {
+
                 supplier: String(document.getElementById('bulk-transfer-filter-supplier')?.value || '').trim(),
+
                 location: String(document.getElementById('bulk-transfer-filter-location')?.value || '').trim(),
+
                 item: String(document.getElementById('bulk-transfer-filter-item')?.value || '').trim(),
+
                 search: String(document.getElementById('bulk-transfer-filter-search')?.value || '').trim(),
+
             };
+
         }
 
         function fillBulkTransferFilterSelect(selectId, values, selectedValue, allLabel) {
+
             const el = document.getElementById(selectId);
+
             if (!el) return;
+
             const selected = String(selectedValue || '');
+
             const opts = [`<option value="">${escapeHtml(allLabel)}</option>`];
+
             for (const value of values || []) {
+
                 const v = String(value || '').trim();
+
                 if (!v) continue;
+
                 opts.push(`<option value="${escapeHtml(v)}"${v === selected ? ' selected' : ''}>${escapeHtml(v)}</option>`);
+
             }
+
             el.innerHTML = opts.join('');
+
         }
 
         async function loadBulkTransferCandidates(force) {
+
             if (bulkTransferLoading) return;
+
             if (!viewBulkTransferOpen && !force) return;
+
             bulkTransferLoading = true;
+
             const host = document.getElementById('bulk-transfer-table-host');
+
             if (host) host.innerHTML = '<div class="view-bulk-transfer-empty">Loading eligible lines...</div>';
+
             setBulkTransferMessage('');
+
             try {
+
                 const filters = getBulkTransferFilterValues();
+
                 const params = new URLSearchParams();
+
                 params.set('limit', '1000');
+
                 if (filters.supplier) params.set('supplier', filters.supplier);
+
                 if (filters.location) params.set('location', filters.location);
+
                 if (filters.item) params.set('item', filters.item);
+
                 if (filters.search) params.set('search', filters.search);
+
                 const res = await fetch(`/api/admin/procurement/purchase-requests/transfer-candidates?${params.toString()}`, {
+
                     headers: { 'Accept': 'application/json' },
+
                 });
-                const body = await res.json().catch(() => ({}));
+
+                const body = await readProcurementJson(res);
+
                 if (!res.ok || !body.success) {
+
                     throw new Error(body.error || `Failed to load candidates (${res.status})`);
+
                 }
+
                 const data = body.data || {};
+
                 const fetchedLines = Array.isArray(data.lines) ? data.lines : [];
+
                 bulkTransferFilterOptions = data.filters || { suppliers: [], locations: [], items: [] };
+
                 fillBulkTransferFilterSelect('bulk-transfer-filter-supplier', bulkTransferFilterOptions.suppliers, filters.supplier, 'All suppliers');
+
                 fillBulkTransferFilterSelect('bulk-transfer-filter-location', bulkTransferFilterOptions.locations, filters.location, 'All locations');
+
                 fillBulkTransferFilterSelect('bulk-transfer-filter-item', bulkTransferFilterOptions.items, filters.item, 'All items');
+
                 updateBulkTransferFilterChip();
+
                 const scopeInfo = applyBulkTransferScope(fetchedLines);
+
                 // Prefer scoped lines as the working selection.
+
                 bulkTransferSelectedLines.clear();
+
                 const validKeys = new Set(
+
                     bulkTransferLines.map((line) => bulkTransferLineKey(line.requestId, line.detailId))
+
                 );
+
                 for (const line of bulkTransferLines) {
+
                     const key = bulkTransferLineKey(line.requestId, line.detailId);
+
                     if (!validKeys.has(key)) continue;
+
                     bulkTransferSelectedLines.set(key, {
+
                         requestId: Number(line.requestId),
+
                         detailId: Number(line.detailId),
+
                         quantity: Number(line.remainingQty || line.quantity || 0),
+
                         remainingQty: Number(line.remainingQty || line.quantity || 0),
+
                         requestNumber: line.requestNumber,
+
                         supplierCode: line.supplierCode,
+
                         supplierName: line.supplierName,
+
                         currencyCode: normalizeBulkTransferCurrency(line.currencyCode),
+
                         itemCode: line.itemCode,
+
                     });
+
                 }
+
                 renderBulkTransferTable();
+
                 updateBulkTransferSummary();
+
                 updateBulkTransferScopeChip(scopeInfo);
+
                 setBulkTransferMessage(
+
                     scopeInfo.scoped
+
                         ? `${bulkTransferLines.length} line(s) for ${scopeInfo.label}. Use Show all eligible to include every PR.`
+
                         : `${bulkTransferLines.length} eligible line(s) loaded.`
+
                 );
+
             } catch (err) {
+
                 bulkTransferLines = [];
+
                 if (host) host.innerHTML = `<div class="view-bulk-transfer-empty">${escapeHtml(err.message || 'Failed to load lines')}</div>`;
+
                 setBulkTransferMessage(err.message || 'Failed to load lines', true);
+
                 updateBulkTransferSummary();
+
             } finally {
+
                 bulkTransferLoading = false;
+
             }
+
         }
 
         function onBulkTransferFilterChange() {
+
             loadBulkTransferCandidates(true);
+
         }
 
         function getVisibleBulkTransferLines() {
+
             return Array.isArray(bulkTransferLines) ? bulkTransferLines : [];
+
         }
 
         function normalizeBulkTransferCurrency(value) {
+
             const text = String(value == null ? '' : value).trim().toUpperCase();
+
             if (!text || text === '----' || text === '-' || text === 'N/A' || text === 'NA' || text === 'NONE' || text === 'NULL') {
+
                 return 'MYR';
+
             }
+
             return text;
+
         }
 
         function cleanBulkTransferDisplayText(value) {
+
             if (value == null) return '';
+
             let text = String(value).trim();
+
             if ((text.startsWith("b'") && text.endsWith("'")) || (text.startsWith('b"') && text.endsWith('"'))) {
+
                 text = text.slice(2, -1);
+
             }
+
             return text;
+
         }
 
         function groupBulkTransferLines(lines) {
+
             const groups = new Map();
+
             for (const line of lines) {
+
                 const supplierCode = String(line.supplierCode || '').trim() || 'UNKNOWN';
+
                 const currencyCode = normalizeBulkTransferCurrency(line.currencyCode);
+
                 const key = `${supplierCode}||${currencyCode}`;
+
                 if (!groups.has(key)) {
+
                     groups.set(key, {
+
                         supplierCode,
+
                         supplierName: String(line.supplierName || supplierCode).trim() || supplierCode,
+
                         currencyCode,
+
                         lines: [],
+
                     });
+
                 }
+
                 groups.get(key).lines.push(line);
+
             }
+
             return Array.from(groups.values()).sort((a, b) => {
+
                 const left = `${a.supplierCode} ${a.currencyCode}`.toUpperCase();
+
                 const right = `${b.supplierCode} ${b.currencyCode}`.toUpperCase();
+
                 return left.localeCompare(right);
+
             });
+
         }
 
         function renderBulkTransferTable() {
+
             const host = document.getElementById('bulk-transfer-table-host');
+
             if (!host) return;
+
             const lines = getVisibleBulkTransferLines();
+
             if (!lines.length) {
+
                 host.innerHTML = '<div class="view-bulk-transfer-empty">No eligible approved lines match the current filters.</div>';
+
                 updateBulkTransferSummary();
+
                 return;
+
             }
+
             const groups = groupBulkTransferLines(lines);
+
             const parts = ['<div class="view-bulk-transfer-groups">'];
+
             for (const group of groups) {
+
                 const groupKey = `${group.supplierCode}||${group.currencyCode}`;
+
                 const selectedInGroup = group.lines.filter((line) => (
+
                     bulkTransferSelectedLines.has(bulkTransferLineKey(line.requestId, line.detailId))
+
                 )).length;
+
                 const allSelected = selectedInGroup === group.lines.length && group.lines.length > 0;
+
                 parts.push(`
+
                     <section class="view-bulk-transfer-group" data-group-key="${escapeHtml(groupKey)}">
+
                         <header class="view-bulk-transfer-group__head">
+
                             <label class="view-bulk-transfer-group__select">
+
                                 <input type="checkbox" ${allSelected ? 'checked' : ''} onchange="onBulkTransferGroupSelectAll(this.checked, '${escapeHtml(group.supplierCode)}', '${escapeHtml(group.currencyCode)}')" />
+
                                 <span>${escapeHtml(group.supplierName)} <span class="muted">(${escapeHtml(group.supplierCode)} · ${escapeHtml(group.currencyCode)})</span></span>
+
                             </label>
+
                             <span class="view-bulk-transfer-group__meta">${selectedInGroup}/${group.lines.length} selected · ${group.lines.length} line(s)</span>
+
                         </header>
+
                         <div class="view-bulk-transfer-table-scroll">
+
                             <table class="view-bulk-transfer-table">
+
                                 <thead>
+
                                     <tr>
+
                                         <th class="col-check"></th>
+
                                         <th>PR</th>
+
                                         <th>Item</th>
+
                                         <th>Description</th>
+
                                         <th>Location</th>
+
                                         <th>UOM</th>
+
                                         <th>Remaining</th>
+
                                         <th>Transfer qty</th>
+
                                         <th>Unit price</th>
+
                                     </tr>
+
                                 </thead>
+
                                 <tbody>
+
                 `);
+
                 for (const line of group.lines) {
+
                     const key = bulkTransferLineKey(line.requestId, line.detailId);
+
                     const selected = bulkTransferSelectedLines.get(key);
+
                     const checked = !!selected;
+
                     const remaining = Number(line.remainingQty || 0);
+
                     const qty = checked ? Number(selected.quantity || remaining) : remaining;
+
                     parts.push(`
+
                         <tr class="view-bulk-transfer-row${checked ? ' is-selected' : ''}" data-key="${escapeHtml(key)}">
+
                             <td class="col-check">
+
                                 <input type="checkbox" ${checked ? 'checked' : ''} onchange="onBulkTransferLineCheck(${Number(line.requestId)}, ${Number(line.detailId)}, this.checked)" />
+
                             </td>
+
                             <td>${escapeHtml(line.requestNumber || '-')}</td>
+
                             <td>${escapeHtml(line.itemCode || '-')}</td>
+
                             <td class="col-desc">${escapeHtml(cleanBulkTransferDisplayText(line.description) || '-')}</td>
+
                             <td>${escapeHtml(line.locationCode || '-')}</td>
+
                             <td>${escapeHtml(line.uom || 'UNIT')}</td>
+
                             <td>${escapeHtml(String(remaining))}</td>
+
                             <td>
+
                                 <input type="number" class="view-bulk-transfer-qty" min="0" step="any" max="${escapeHtml(String(remaining))}"
+
                                     value="${escapeHtml(String(qty))}"
+
                                     ${checked ? '' : 'disabled'}
+
                                     onchange="onBulkTransferQtyChange(${Number(line.requestId)}, ${Number(line.detailId)}, this.value)"
+
                                     oninput="onBulkTransferQtyChange(${Number(line.requestId)}, ${Number(line.detailId)}, this.value)" />
+
                             </td>
+
                             <td>${escapeHtml(String(line.unitPrice ?? 0))}</td>
+
                         </tr>
+
                     `);
+
                 }
+
                 parts.push('</tbody></table></div></section>');
+
             }
+
             parts.push('</div>');
+
             host.innerHTML = parts.join('');
+
             updateBulkTransferSummary();
+
         }
 
         function onBulkTransferLineCheck(requestId, detailId, checked) {
+
             const key = bulkTransferLineKey(requestId, detailId);
+
             const line = (bulkTransferLines || []).find((row) => (
+
                 Number(row.requestId) === Number(requestId) && Number(row.detailId) === Number(detailId)
+
             ));
+
             if (!line) return;
+
             if (checked) {
+
                 const remaining = Number(line.remainingQty || 0);
+
                 const existing = bulkTransferSelectedLines.get(key);
+
                 bulkTransferSelectedLines.set(key, {
+
                     requestId: Number(requestId),
+
                     detailId: Number(detailId),
+
                     quantity: existing ? Number(existing.quantity || remaining) : remaining,
+
                     remainingQty: remaining,
+
                     supplierCode: line.supplierCode,
+
                     currencyCode: line.currencyCode,
+
                     requestNumber: line.requestNumber,
+
                 });
+
             } else {
+
                 bulkTransferSelectedLines.delete(key);
+
             }
+
             renderBulkTransferTable();
+
         }
 
         function onBulkTransferQtyChange(requestId, detailId, rawValue) {
+
             const key = bulkTransferLineKey(requestId, detailId);
+
             const selected = bulkTransferSelectedLines.get(key);
+
             if (!selected) return;
+
             const remaining = Number(selected.remainingQty || 0);
+
             let qty = Number(rawValue);
+
             if (!Number.isFinite(qty) || qty < 0) qty = 0;
+
             if (qty > remaining) qty = remaining;
+
             selected.quantity = qty;
+
             bulkTransferSelectedLines.set(key, selected);
+
             updateBulkTransferSummary();
+
         }
 
         function onBulkTransferGroupSelectAll(checked, supplierCode, currencyCode) {
+
             const lines = getVisibleBulkTransferLines().filter((line) => (
+
                 String(line.supplierCode || '').trim() === String(supplierCode || '').trim()
+
                 && String(line.currencyCode || 'MYR').trim() === String(currencyCode || 'MYR').trim()
+
             ));
+
             for (const line of lines) {
+
                 const key = bulkTransferLineKey(line.requestId, line.detailId);
+
                 if (checked) {
+
                     const remaining = Number(line.remainingQty || 0);
+
                     const existing = bulkTransferSelectedLines.get(key);
+
                     bulkTransferSelectedLines.set(key, {
+
                         requestId: Number(line.requestId),
+
                         detailId: Number(line.detailId),
+
                         quantity: existing ? Number(existing.quantity || remaining) : remaining,
+
                         remainingQty: remaining,
+
                         supplierCode: line.supplierCode,
+
                         currencyCode: line.currencyCode,
+
                         requestNumber: line.requestNumber,
+
                     });
+
                 } else {
+
                     bulkTransferSelectedLines.delete(key);
+
                 }
+
             }
+
             renderBulkTransferTable();
+
         }
 
         function bulkTransferSelectAllVisible() {
+
             for (const line of getVisibleBulkTransferLines()) {
+
                 const key = bulkTransferLineKey(line.requestId, line.detailId);
+
                 const remaining = Number(line.remainingQty || 0);
+
                 const existing = bulkTransferSelectedLines.get(key);
+
                 bulkTransferSelectedLines.set(key, {
+
                     requestId: Number(line.requestId),
+
                     detailId: Number(line.detailId),
+
                     quantity: existing ? Number(existing.quantity || remaining) : remaining,
+
                     remainingQty: remaining,
+
                     supplierCode: line.supplierCode,
+
                     currencyCode: line.currencyCode,
+
                     requestNumber: line.requestNumber,
+
                 });
+
             }
+
             renderBulkTransferTable();
+
         }
 
         function bulkTransferClearSelection() {
+
             bulkTransferSelectedLines.clear();
+
             renderBulkTransferTable();
+
         }
 
         function summarizeBulkTransferSelection() {
+
             const selected = Array.from(bulkTransferSelectedLines.values()).filter((row) => Number(row.quantity) > 0);
+
             const prIds = new Set(selected.map((row) => Number(row.requestId)));
+
             const poKeys = new Set(selected.map((row) => `${String(row.supplierCode || '').toUpperCase()}||${String(row.currencyCode || 'MYR').toUpperCase()}`));
+
             return {
+
                 selected,
+
                 lineCount: selected.length,
+
                 prCount: prIds.size,
+
                 poCount: poKeys.size,
+
             };
+
         }
 
         function updateBulkTransferSummary() {
+
             const summary = document.getElementById('bulk-transfer-summary');
+
             const btn = document.getElementById('bulk-transfer-submit-btn');
+
             const info = summarizeBulkTransferSelection();
+
             const eligibleCount = (getVisibleBulkTransferLines() || []).length;
+
             const transferCount = info.lineCount || eligibleCount;
+
             if (summary) {
+
                 if (info.lineCount) {
+
                     summary.textContent = `${info.lineCount} line(s) selected from ${info.prCount} PR(s) → ${info.poCount} PO(s). Confirm before transfer.`;
+
                 } else if (eligibleCount) {
+
                     summary.textContent = `No lines ticked — Transfer to PO will use all ${eligibleCount} eligible line(s). Confirmation required.`;
+
                 } else {
+
                     summary.textContent = 'No eligible lines loaded.';
+
                 }
+
             }
+
             if (btn) {
+
                 btn.disabled = !transferCount || bulkTransferSubmitting || document.body.classList.contains('procurement-hide-transfer');
+
                 btn.textContent = info.lineCount
+
                     ? `Transfer selected to PO (${info.lineCount})`
+
                     : (eligibleCount ? `Transfer all eligible to PO (${eligibleCount})` : 'Transfer to PO');
+
             }
+
         }
 
         function clearBulkTransferResultSummary() {
+
             const box = document.getElementById('bulk-transfer-result');
+
             const body = document.getElementById('bulk-transfer-result-body');
+
             const lede = document.getElementById('bulk-transfer-result-lede');
+
             if (body) body.innerHTML = '';
+
             if (lede) lede.textContent = '';
+
             if (box) box.hidden = true;
+
         }
 
         function formatBulkTransferQty(value) {
+
             const n = Number(value);
+
             if (!Number.isFinite(n)) return '-';
+
             if (Math.abs(n - Math.round(n)) < 1e-9) return String(Math.round(n));
+
             return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+
         }
 
         function renderBulkTransferResultSummary(data) {
+
             const box = document.getElementById('bulk-transfer-result');
+
             const body = document.getElementById('bulk-transfer-result-body');
+
             const lede = document.getElementById('bulk-transfer-result-lede');
+
             if (!box || !body) return;
+
             const groups = Array.isArray(data && data.groups) ? data.groups : [];
+
             const poNumbers = Array.isArray(data && data.poNumbers)
+
                 ? data.poNumbers.map((v) => String(v || '').trim()).filter(Boolean)
+
                 : [];
+
             const totalLines = Number(data && data.lineCount);
+
             const totalQty = Number(data && data.transferredQty);
+
             const poCount = groups.length || poNumbers.length || 1;
+
             if (lede) {
+
                 const lineBit = Number.isFinite(totalLines) && totalLines > 0 ? ` · ${totalLines} line(s)` : '';
+
                 const qtyBit = Number.isFinite(totalQty) && totalQty > 0 ? ` · qty ${formatBulkTransferQty(totalQty)}` : '';
+
                 lede.textContent = `Created ${poCount} purchase order(s)${lineBit}${qtyBit}.`;
+
             }
 
             const rows = [];
+
             if (groups.length) {
+
                 groups.forEach((g, idx) => {
+
                     const po = String((g && g.poNumber) || poNumbers[idx] || '-').trim() || '-';
+
                     const supplierName = String((g && (g.supplierName || g.supplierCode)) || '').trim() || '-';
+
                     const supplierCode = String((g && g.supplierCode) || '').trim();
+
                     const currency = String((g && g.currencyCode) || 'MYR').trim() || 'MYR';
+
                     const prs = Array.isArray(g && g.requestNumbers)
+
                         ? g.requestNumbers.map((v) => String(v || '').trim()).filter(Boolean)
+
                         : [];
+
                     const lines = Number(g && g.lineCount);
+
                     const qty = Number(g && g.transferredQty);
+
                     const supplierLabel = supplierCode && supplierName && supplierName !== supplierCode
+
                         ? `${supplierName} (${supplierCode})`
+
                         : supplierName;
+
                     rows.push({
+
                         po,
+
                         supplierLabel,
+
                         currency,
+
                         lines: Number.isFinite(lines) ? String(lines) : '-',
+
                         qty: formatBulkTransferQty(qty),
+
                         prs: prs.length ? prs.join(', ') : '-',
+
                     });
+
                 });
+
             } else {
+
                 poNumbers.forEach((po) => {
+
                     rows.push({
+
                         po,
+
                         supplierLabel: '-',
+
                         currency: '-',
+
                         lines: '-',
+
                         qty: '-',
+
                         prs: '-',
+
                     });
+
                 });
+
             }
 
             body.innerHTML = rows.map((row) => (
+
                 `<tr>
+
                     <td class="view-bulk-transfer-result__po-cell">${escapeHtml(row.po)}</td>
+
                     <td>${escapeHtml(row.supplierLabel)}</td>
+
                     <td>${escapeHtml(row.currency)}</td>
+
                     <td>${escapeHtml(row.lines)}</td>
+
                     <td>${escapeHtml(row.qty)}</td>
+
                     <td>${escapeHtml(row.prs)}</td>
+
                 </tr>`
+
             )).join('');
 
             box.hidden = false;
+
             try { box.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) {}
+
         }
 
         async function confirmBulkTransferToPo() {
+
             if (document.body.classList.contains('procurement-hide-transfer')) {
+
                 alert('Transfer is disabled for this account.');
+
                 return;
+
             }
+
             if (bulkTransferSubmitting) return;
+
             let info = summarizeBulkTransferSelection();
+
             if (!info.lineCount) {
+
                 const eligible = getVisibleBulkTransferLines() || [];
+
                 if (!eligible.length) {
+
                     alert('No eligible lines to transfer.');
+
                     return;
+
                 }
+
                 bulkTransferSelectAllVisible();
+
                 info = summarizeBulkTransferSelection();
+
                 if (!info.lineCount) {
+
                     alert('No eligible lines to transfer.');
+
                     return;
+
                 }
+
             }
+
             const previewGroups = new Map();
+
             for (const row of info.selected) {
+
                 const key = `${row.supplierCode || ''}||${normalizeBulkTransferCurrency(row.currencyCode)}`;
+
                 if (!previewGroups.has(key)) {
+
                     previewGroups.set(key, {
+
                         supplierCode: row.supplierCode || '',
+
                         currencyCode: normalizeBulkTransferCurrency(row.currencyCode),
+
                         prs: new Set(),
+
                         lines: 0,
+
                     });
+
                 }
+
                 const g = previewGroups.get(key);
+
                 g.prs.add(row.requestNumber || String(row.requestId));
+
                 g.lines += 1;
+
             }
+
                         const confirmItems = Array.from(previewGroups.values()).map((g) => ({
+
                 label: `${g.supplierCode} (${g.currencyCode})`,
+
                 meta: `${g.lines} line(s)`,
+
                 children: Array.from(g.prs).map((pr) => ({
+
                     title: pr,
+
                     detail: 'Included in this purchase order',
+
                 })),
+
             }));
+
             const ok = await showProcurementConfirmModal({
+
                 title: 'Create purchase orders',
+
                 body: `Create ${info.poCount} purchase order(s) from ${info.lineCount} line(s) across ${info.prCount} PR(s)?`,
+
                 note: 'One purchase order is created per supplier and currency.',
+
                 items: confirmItems,
+
                 confirmLabel: 'Create POs',
+
                 cancelLabel: 'Cancel',
+
             });
+
             if (!ok) return;
 
             bulkTransferSubmitting = true;
+
             updateBulkTransferSummary();
+
             setBulkTransferMessage('Transferring selected lines...');
+
             try {
+
                 const res = await fetch('/api/admin/procurement/purchase-requests/bulk-transfer-to-po', {
+
                     method: 'POST',
+
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+
                     body: JSON.stringify({
+
                         lines: info.selected.map((row) => ({
+
                             requestId: Number(row.requestId),
+
                             detailId: Number(row.detailId),
+
                             quantity: Number(row.quantity),
+
                         })),
+
                     }),
+
                 });
-                const body = await res.json().catch(() => ({}));
+
+                const body = await readProcurementJson(res);
+
                 if (!res.ok || !body.success) {
+
                     throw new Error(body.error || `Bulk transfer failed (${res.status})`);
+
                 }
+
                 const data = body.data || {};
+
                 const poNumbers = Array.isArray(data.poNumbers) ? data.poNumbers.filter(Boolean) : [];
+
                 bulkTransferSelectedLines.clear();
+
                 renderBulkTransferResultSummary(data);
+
                 await loadBulkTransferCandidates(true);
+
                 try {
+
                     await loadViewPurchaseRequests(true, { bustCache: true });
+
                 } catch (e) {}
+
                 const poCount = poNumbers.length || (Array.isArray(data.groups) ? data.groups.length : 0) || 1;
+
                 setBulkTransferMessage(`Transfer complete — created ${poCount} purchase order(s). See summary below.`);
+
             } catch (err) {
+
                 setBulkTransferMessage(err.message || 'Bulk transfer failed', true);
-                alert(err.message || 'Bulk transfer failed');
+
+                if (!isProcurementAuthExpired(err)) alert(err.message || 'Bulk transfer failed');
+
             } finally {
+
                 bulkTransferSubmitting = false;
+
                 updateBulkTransferSummary();
+
             }
+
         }
 
         let viewPrSearchText = '';
@@ -1276,199 +2287,413 @@
         }
 
         function readViewStatusFromUrl() {
+
             try {
+
                 const raw = new URLSearchParams(window.location.search || '').get('status');
+
                 const s = String(raw || '').trim().toUpperCase();
+
                 return VIEW_STATUS_FILTER_OPTIONS.includes(s) ? s : null;
+
             } catch (e) {
+
                 return null;
+
             }
+
         }
 
         function readViewPrUrlParams() {
+
             try {
+
                 const params = new URLSearchParams(window.location.search || '');
+
                 const idRaw = params.get('id') || params.get('prId') || params.get('request_id') || '';
+
                 const id = Number(idRaw) || 0;
+
                 const docno = String(
+
                     params.get('docno') || params.get('pr') || params.get('requestNumber') || ''
+
                 ).trim();
+
                 const status = String(params.get('status') || '').trim().toUpperCase();
+
                 return {
+
                     id: id > 0 ? id : 0,
+
                     docno,
+
                     status: VIEW_STATUS_FILTER_OPTIONS.includes(status) ? status : null,
+
                 };
+
             } catch (e) {
+
                 return { id: 0, docno: '', status: null };
+
             }
+
         }
 
         function syncViewStatusToUrl() {
+
             syncViewPrToUrl();
+
         }
 
         function syncViewPrToUrl() {
+
             try {
+
                 const url = new URL(window.location.href);
+
                 const tab = String(url.searchParams.get('tab') || '').toLowerCase();
+
                 if (tab !== 'view') {
+
                     return;
+
                 }
+
                 const active = viewStatusFilters instanceof Set ? [...viewStatusFilters][0] : null;
+
                 if (active && VIEW_STATUS_FILTER_OPTIONS.includes(active)) {
+
                     url.searchParams.set('status', active.toLowerCase());
+
                 } else {
+
                     url.searchParams.delete('status');
+
                 }
+
                 const selectedId = viewSelectedHeaderId != null ? Number(viewSelectedHeaderId) : 0;
+
                 const record = selectedId > 0
+
                     ? (viewPurchaseRequests || []).find((row) => Number(row.id || 0) === selectedId)
+
                     : null;
+
                 if (record && selectedId > 0) {
+
                     url.searchParams.set('id', String(selectedId));
+
                     const docno = String(record.requestNumber || '').trim();
+
                     if (docno) {
+
                         url.searchParams.set('docno', docno);
+
                     } else {
+
                         url.searchParams.delete('docno');
+
                     }
+
                 } else {
+
                     url.searchParams.delete('id');
+
                     url.searchParams.delete('docno');
+
                 }
+
                 history.replaceState({ viewPrId: selectedId > 0 ? selectedId : null }, '', url);
+
             } catch (e) { /* ignore */ }
+
         }
 
         function findViewPrRowFromUrlParams() {
+
             const { id, docno } = readViewPrUrlParams();
+
             if (!(id > 0) && !docno) return null;
+
             const rows = viewPurchaseRequests || [];
+
             if (id > 0) {
+
                 const byId = rows.find((row) => Number(row.id || 0) === id);
+
                 if (byId) return byId;
+
             }
+
             if (docno) {
+
                 const key = docno.toUpperCase();
+
                 return rows.find(
+
                     (row) => String(row.requestNumber || '').trim().toUpperCase() === key
+
                 ) || null;
+
             }
+
             return null;
+
         }
 
         function selectViewPrFromUrlIfPresent(options) {
+
             const opts = options || {};
+
             const row = findViewPrRowFromUrlParams();
+
             if (!row) return false;
+
             const rowId = Number(row.id || 0);
+
             if (!rowId) return false;
+
             if (viewSelectedHeaderId != null && Number(viewSelectedHeaderId) === rowId && !opts.force) {
+
                 syncViewPrToUrl();
+
                 return true;
+
             }
+
             selectViewPurchaseRequest(rowId, { fromUrl: true });
+
             syncViewPrToUrl();
+
             return true;
+
         }
 
         function viewPrHeadersMarkedApprovedForSave() {
+
             const ids = new Set();
+
             viewHeaderStatusPendingChanges.forEach((change) => {
+
                 if (normalizeUdfStatus(change.udfStatus) === 'APPROVED') {
+
                     const rid = Number(change.requestId || 0);
+
                     if (rid > 0) {
+
                         ids.add(rid);
+
                     }
+
                 }
+
             });
+
             return ids;
+
         }
 
         function activateViewPrApprovedTabAfterSave(approvedHeaderIds) {
+
             const ids = approvedHeaderIds instanceof Set ? approvedHeaderIds : new Set();
+
             if (!ids.size) {
+
                 const selectedId = viewSelectedHeaderId != null ? Number(viewSelectedHeaderId) : 0;
+
                 if (selectedId > 0) {
+
                     const header = (viewPurchaseRequests || []).find((row) => Number(row.id || 0) === selectedId);
+
                     if (header && normalizeUdfStatus(header._originalUdfStatus || header.udfStatus) === 'APPROVED') {
+
                         ids.add(selectedId);
+
                     }
+
                 }
+
             }
+
             if (!ids.size) {
+
                 return false;
+
             }
+
             viewStatusFilters = new Set(['APPROVED']);
+
             syncViewStatusFilterTabClasses();
+
             syncViewPrToUrl();
+
             return true;
+
         }
 
         async function finalizeViewPrAfterApprovalSave(selectedHeaderId, options) {
+
             const opts = options && typeof options === 'object' ? options : {};
+
             const keepId = Number(selectedHeaderId || viewSelectedHeaderId || 0);
+
             const rawTarget = String(opts.targetUdfStatus || '').trim().toUpperCase();
+
             const targetUdf = rawTarget ? normalizeUdfStatus(rawTarget) : '';
+
             if (keepId > 0) {
+
                 viewSelectedHeaderId = keepId;
+
                 const record = (viewPurchaseRequests || []).find((row) => Number(row.id || 0) === keepId);
+
                 if (record) {
+
                     if (targetUdf === 'PENDING') {
+
                         record.udfStatus = 'PENDING';
+
                         record._originalUdfStatus = 'PENDING';
+
                         delete record._pendingUdfStatus;
+
                         invalidateViewDetailCache(keepId);
+
                         goToViewPrStatus('PENDING', { reload: true });
+
                         syncViewPrToUrl();
+
                         return;
+
                     }
+
                     if (targetUdf === 'CANCELLED') {
+
+                        const docBefore = viewPrDocStatus(record);
+
+                        const fromDraftPanel = opts.fromDraftPanel === true
+
+                            || (viewStatusFilters instanceof Set && viewStatusFilters.has('DRAFT'));
+
+                        const hideCancelledDraft = fromDraftPanel || docBefore === 'DRAFT' || docBefore === 'CANCELLED';
+
                         record.udfStatus = 'CANCELLED';
+
                         record._originalUdfStatus = 'CANCELLED';
+
                         delete record._pendingUdfStatus;
+
                         invalidateViewDetailCache(keepId);
-                        goToViewPrStatus('CANCELLED', { reload: true });
-                        syncViewPrToUrl();
-                        return;
-                    }
-                    if (targetUdf === 'APPROVED') {
-                        record.udfStatus = 'APPROVED';
-                        record._originalUdfStatus = 'APPROVED';
-                        delete record._pendingUdfStatus;
-                    }
-                    if (targetUdf === 'APPROVED' || !targetUdf) {
-                        invalidateViewDetailCache(keepId);
-                        viewLoadingDetailIds.add(keepId);
-                        renderFilteredViewPurchaseRequests();
-                        try {
-                            await fetchViewPurchaseRequestDetail(record, true);
-                        } catch (error) {
-                            console.warn('[View PR] Failed to refresh detail after approval:', error);
+
+                        if (hideCancelledDraft) {
+
+                            record.status = 'CANCELLED';
+
                         }
-                        viewLoadingDetailIds.delete(keepId);
+
+                        goToViewPrStatus('CANCELLED', { reload: true });
+
                         syncViewPrToUrl();
-                        renderFilteredViewPurchaseRequests();
-                        loadViewPurchaseRequests(false, { background: true });
+
                         return;
+
                     }
+
+                    if (targetUdf === 'AWAITING') {
+
+                        record.udfStatus = 'AWAITING';
+
+                        record._originalUdfStatus = 'AWAITING';
+
+                        if (String(record.status || '').trim().toUpperCase() === 'DRAFT') {
+
+                            record.status = 'SUBMITTED';
+
+                        }
+
+                        delete record._pendingUdfStatus;
+
+                        invalidateViewDetailCache(keepId);
+
+                        goToViewPrStatus('AWAITING', { reload: true });
+
+                        syncViewPrToUrl();
+
+                        return;
+
+                    }
+
+                    if (targetUdf === 'APPROVED') {
+
+                        record.udfStatus = 'APPROVED';
+
+                        record._originalUdfStatus = 'APPROVED';
+
+                        delete record._pendingUdfStatus;
+
+                    }
+
+                    if (targetUdf === 'APPROVED' || !targetUdf) {
+
+                        invalidateViewDetailCache(keepId);
+
+                        viewLoadingDetailIds.add(keepId);
+
+                        renderFilteredViewPurchaseRequests();
+
+                        try {
+
+                            await fetchViewPurchaseRequestDetail(record, true);
+
+                        } catch (error) {
+
+                            console.warn('[View PR] Failed to refresh detail after approval:', error);
+
+                        }
+
+                        viewLoadingDetailIds.delete(keepId);
+
+                        syncViewPrToUrl();
+
+                        renderFilteredViewPurchaseRequests();
+
+                        loadViewPurchaseRequests(false, { background: true });
+
+                        return;
+
+                    }
+
                 }
+
             }
+
             await loadViewPurchaseRequests(false, { background: true });
+
             if (!selectViewPrFromUrlIfPresent()) {
+
                 syncViewPrToUrl();
+
             }
+
             renderFilteredViewPurchaseRequests();
+
         }
 
         function applyViewStatusFromUrl() {
+
             const fromUrl = readViewStatusFromUrl();
+
             if (!fromUrl) {
+
                 return;
+
             }
+
             viewStatusFilters = new Set([fromUrl]);
+
             syncViewStatusFilterTabClasses();
+
         }
 
         function setProcurementUrlTab(tabName) {
@@ -1486,37 +2711,27 @@
         }
 
         function openStockReportSettingsDrawer() {
-            const panel = document.getElementById('stock-report-settings-panel');
-            const backdrop = document.getElementById('stock-report-settings-backdrop');
-            const openBtn = document.getElementById('stock-report-settings-open');
-            if (!panel) return;
-            panel.classList.add('is-open');
-            if (backdrop) {
-                backdrop.hidden = false;
-                backdrop.classList.add('is-open');
-            }
-            if (openBtn) openBtn.setAttribute('aria-expanded', 'true');
-            document.body.classList.add('stock-report-settings-drawer-open');
+
+            /* Filters are always visible on desktop; keep as no-op for callers. */
+
         }
 
         function closeStockReportSettingsDrawer() {
-            const panel = document.getElementById('stock-report-settings-panel');
-            const backdrop = document.getElementById('stock-report-settings-backdrop');
-            const openBtn = document.getElementById('stock-report-settings-open');
-            if (panel) panel.classList.remove('is-open');
-            if (backdrop) {
-                backdrop.classList.remove('is-open');
-                backdrop.hidden = true;
-            }
-            if (openBtn) openBtn.setAttribute('aria-expanded', 'false');
+
+            closeAllStockMultiSelects();
+
             document.body.classList.remove('stock-report-settings-drawer-open');
+
         }
 
         document.addEventListener('keydown', function (e) {
+
             if (e.key === 'Escape') closeStockReportSettingsDrawer();
+
         });
 
         function showTab(tabName) {
+
             try { closeStockReportSettingsDrawer(); } catch (e) {}
 
             const target = String(tabName || 'report').toLowerCase();
@@ -1534,6 +2749,7 @@
                 if (tabButton) {
 
                     tabButton.classList.toggle('is-active', name === selected);
+
                     tabButton.setAttribute('aria-selected', name === selected ? 'true' : 'false');
 
                 }
@@ -1556,11 +2772,11 @@
 
                 afterStockCardTableRender();
 
-                // Refetch when coming back to the dashboard (not the first paint: DOMContentLoaded
+                // Refresh only when data is missing or older than STOCK_CARD_FRESH_MS.
 
-                // already loads once while reportLoaded is still false).
+                const ageMs = stockCardLastLoadedAt ? (Date.now() - stockCardLastLoadedAt) : Infinity;
 
-                if (reportLoaded) {
+                if (!reportLoaded || ageMs >= STOCK_CARD_FRESH_MS) {
 
                     loadStockCardRows();
 
@@ -1568,9 +2784,7 @@
 
                 return;
 
-            }
-
-            if (selected === 'view') {
+            }            if (selected === 'view') {
 
                 loadViewPurchaseRequests(false);
 
@@ -1579,19 +2793,37 @@
             }
 
             if (selected === 'create') {
+
+                clearPurchaseRequestMessage();
+
+                ensureCreatePrLookups();
+
                 if (!Array.isArray(window.purchaseRequestItems) || !window.purchaseRequestItems.length) {
+
                     initPurchaseRequestForm();
+
                 }
+
                 if (Array.isArray(window.purchaseRequestItems)) {
+
                     window.purchaseRequestItems.forEach((it) => {
+
                         cachePrLineUdfWtp(it, null);
+
                         if (resolvePrLineUdfWeight(it) != null && Number(it.qtySqty || 0) > 0) {
+
                             applyPrLineSuomFromSqtyUdfWeight(it);
+
                             syncPrLineQuantityDerived(it);
+
                         }
+
                     });
+
                 }
+
                 renderPurchaseRequestLineItems();
+
             }
 
         }
@@ -1599,6 +2831,7 @@
         const STOCK_CARD_UOM_LS = 'procurementStockCardUomDisplay';
 
         const STOCK_CARD_SELECTED_LOCATIONS_LS = 'procurementStockCardSelectedLocations';
+
         const PURCHASE_REQUEST_DRAFT_LS_KEY = 'procurementCreatePrDraftItemsV1';
 
         let stockCardUomDisplayMode = 'suom_only';
@@ -1670,6 +2903,8 @@
             } catch (e) { /* ignore */ }
 
             stockCardBuySelections = {};
+
+            updateStockReportFilterSummary();
 
             if (reportLoaded) {
 
@@ -1744,7 +2979,9 @@
             if (!product) return null;
 
             const raw = product.UDF_WTP != null
+
                 ? product.UDF_WTP
+
                 : (product.udf_wtp != null ? product.udf_wtp : (product.UDF_WEIGHT != null ? product.UDF_WEIGHT : product.udf_weight));
 
             if (raw === null || raw === undefined || raw === '') return null;
@@ -1758,139 +2995,253 @@
         }
 
         const PR_LINE_STOCK_UDF_KEYS = [
+
             'udf_thickness', 'udf_width', 'udf_length', 'udf_dp', 'udf_dfp',
+
             'udf_wtp', 'udf_2uom', 'udf_formula', 'udf_costkg', 'udf_mtype',
+
             'udf_stdprice', 'udf_dleadtime', 'udf_moq', 'udf_bundle',
+
         ];
 
         function prCatalogUdfScalar(product, key) {
+
             const v = prCatalogScalar(product, key, key.toUpperCase());
+
             if (v == null || v === '') return null;
+
             if (String(v).trim() === '0') return null;
+
             return v;
+
         }
 
         const PR_LINE_DIM_UDF_KEYS = ['udf_thickness', 'udf_width', 'udf_length'];
 
         /** Prefer user-edited line dimension; else catalog product value. */
+
         function prLineDimValue(item, product, key) {
+
             if (item && item.dimsEdited && item.dimsEdited[key]) {
+
                 const edited = item[key];
+
                 if (edited != null && String(edited).trim() !== '') return String(edited).trim();
+
                 return '';
+
             }
+
             if (item && item[key] != null && String(item[key]).trim() !== '' && String(item[key]).trim() !== '0') {
+
                 return String(item[key]).trim();
+
             }
+
             return (typeof prCatalogUdfValue === 'function' ? prCatalogUdfValue(product, key) : '') || '';
+
         }
 
         function updatePurchaseRequestDimension(index, key, value) {
+
             if (!window.purchaseRequestItems || !window.purchaseRequestItems[index]) return;
+
             if (!PR_LINE_DIM_UDF_KEYS.includes(key)) return;
+
             const item = window.purchaseRequestItems[index];
+
             const raw = value == null ? '' : String(value).trim();
+
             item[key] = raw;
+
             item.dimsEdited = { ...(item.dimsEdited || {}), [key]: true };
+
             const detail = { ...(item.stockDetail || {}) };
+
             if (raw === '') {
+
                 delete detail[key];
+
                 delete detail[key.toUpperCase()];
+
             } else {
+
                 detail[key] = raw;
+
                 detail[key.toUpperCase()] = raw;
+
             }
+
             item.stockDetail = detail;
+
             if (typeof savePurchaseRequestDraftItems === 'function') {
+
                 savePurchaseRequestDraftItems();
+
             }
+
         }
 
         /** Copy ST_ITEM / catalog UDFs onto a PR line for display + SQL API submit. */
+
         function mergePrLineCatalogUdfs(item, product) {
+
             if (!item) return item;
+
             const src = product || (typeof findPrProductByCode === 'function' ? findPrProductByCode(item.itemCode) : null);
+
             if (!src || typeof src !== 'object') return item;
+
             const dimsEdited = (item.dimsEdited && typeof item.dimsEdited === 'object') ? item.dimsEdited : {};
+
             const detail = { ...(item.stockDetail || {}) };
+
             PR_LINE_STOCK_UDF_KEYS.forEach((key) => {
+
                 if (dimsEdited[key]) return;
+
                 const v = prCatalogUdfScalar(src, key);
+
                 if (v == null) return;
+
                 item[key] = v;
+
                 detail[key] = v;
+
                 detail[key.toUpperCase()] = v;
+
             });
+
             Object.keys(src).forEach((k) => {
+
                 const kl = String(k).toLowerCase();
+
                 if (!kl.startsWith('udf_')) return;
+
                 if (dimsEdited[kl]) return;
+
                 const v = src[k];
+
                 if (v == null || String(v).trim() === '') return;
+
                 item[kl] = v;
+
                 detail[kl] = v;
+
             });
+
             item.stockDetail = { ...src, ...detail };
+
             return item;
+
         }
 
         function prLineStockFieldsForPayload(item) {
+
             const out = {};
+
             if (!item || typeof item !== 'object') return out;
+
             PR_LINE_STOCK_UDF_KEYS.forEach((key) => {
+
                 const v = item[key];
+
                 if (v == null || String(v).trim() === '') return;
+
                 out[key] = v;
+
             });
+
             if (item.stockDetail && typeof item.stockDetail === 'object') {
+
                 out.stockDetail = item.stockDetail;
+
             }
+
             return out;
+
         }
 
         /** SUOMQTY = SQTY × UDF_WTP when the item has a positive WTP in ST_ITEM. */
+
         function cachePrLineUdfWtp(item, product) {
+
             if (!item) return null;
+
             const src = product || findPrProductByCode(item.itemCode);
+
             const w = prItemUdfWeight(src);
+
             if (w != null) item.udfWtp = w;
+
             return w;
+
         }
 
         function resolvePrLineUdfWeight(item) {
+
             if (!item) return null;
+
             if (item.udfWtp != null && item.udfWtp !== '') {
+
                 const n = Number(String(item.udfWtp).replace(/,/g, '').trim());
+
                 if (Number.isFinite(n) && n > 0) return n;
+
             }
+
             return cachePrLineUdfWtp(item, null);
+
         }
 
         function applyPrLineSuomFromSqtyUdfWeight(item) {
+
             if (!item) return;
+
             const w = resolvePrLineUdfWeight(item);
+
             if (w == null) return;
+
             const qs = Number(item.qtySqty || 0);
+
             item.qtySuomqty = Math.round(qs * w * 10000) / 10000;
+
         }
 
         function refreshPrLineSuomQtyDisplay(index, item, sqInputEl) {
+
             if (!item) return;
+
             applyPrLineSuomFromSqtyUdfWeight(item);
+
             syncPrLineQuantityDerived(item);
+
             const row = document.querySelector(`#pr-line-items-body tr[data-pr-index="${index}"]`);
+
             const w = resolvePrLineUdfWeight(item);
+
             if (!row || w == null) return;
+
             const suEl = row.querySelector('[data-pr-field="qtySuomqty"]');
+
             setTimeout(() => {
+
                 const active = sqInputEl && document.body && document.body.contains(sqInputEl) ? sqInputEl : null;
+
                 if (suEl && suEl.tagName === 'SPAN') {
+
                     suEl.textContent = formatStockCardNumber(Number(item.qtySuomqty || 0));
+
                 }
+
                 if (active && typeof active.focus === 'function') {
+
                     try { active.focus({ preventScroll: true }); } catch (_) { active.focus(); }
+
                 }
+
             }, 0);
+
         }
 
         /** Merge stock-card SQTY + SUOMQTY selections into one PR line per item + location (fixes duplicate rows / wrong qty). */
@@ -1964,6 +3315,7 @@
             { key: 'need_to_buy_by_location', label: 'Order', maps: { sqty: 'need_to_buy_sqty_by_location', suom: 'need_to_buy_suom_by_location' } },
 
             { key: 'pending_pr_by_location', label: 'Pending PR', maps: { sqty: 'pending_pr_sqty_by_location', suom: 'pending_pr_suom_by_location' } },
+
             { key: 'avg_sales_3m_by_location', label: 'Avg Sales 3M', maps: { sqty: 'avg_sales_3m_sqty_by_location', suom: 'avg_sales_3m_suom_by_location' } },
 
         ];
@@ -1971,6 +3323,7 @@
         const STOCK_METRIC_FILTER_LS_KEY = 'procurement-stock-card-metric-filter-v1';
 
         let stockCardMetricFilter = null;
+
         let stockCardAvgSales3mMonths = [];
 
         function loadStockMetricFilter() {
@@ -2063,17 +3416,139 @@
 
         }
 
+        function stockCardUomModeSummaryLabel() {
+
+            if (stockCardUomDisplayMode === 'sqty_only') return 'SQTY only';
+
+            if (stockCardUomDisplayMode === 'both') return 'SQTY + SUOMQTY';
+
+            return 'SUOMQTY only';
+
+        }
+
+        function stockCardLocationSummaryLabel() {
+
+            const all = Array.isArray(stockCardLocations) ? stockCardLocations : [];
+
+            const selected = Array.isArray(selectedStockCardLocations) ? selectedStockCardLocations : [];
+
+            const n = selected.length;
+
+            const total = all.length;
+
+            if (total > 0 && n === total) return `All locations (${total})`;
+
+            if (n === 0) return '0 locations selected';
+
+            if (n === 1) return '1 location selected';
+
+            return `${n} locations selected`;
+
+        }
+
+        function stockCardColumnSummaryLabel() {
+
+            ensureStockCardMetricFilterShape();
+
+            const total = stockCardMetricGroups.length;
+
+            const n = stockCardMetricGroups.filter((g) => isMetricGroupVisible(g.key)).length;
+
+            if (n === total) return `All column groups (${total})`;
+
+            if (n === 0) return '0 groups selected';
+
+            if (n === 1) return '1 group selected';
+
+            return `${n} groups selected`;
+
+        }
+
+        function updateStockReportFilterSummary() {
+
+            const locValue = document.getElementById('stock-location-ms-value');
+
+            const colValue = document.getElementById('stock-column-ms-value');
+
+            const locLabel = stockCardLocationSummaryLabel();
+
+            const colLabel = stockCardColumnSummaryLabel();
+
+            if (locValue) locValue.textContent = locLabel;
+
+            if (colValue) colValue.textContent = colLabel;
+
+        }
+
+        function closeAllStockMultiSelects() {
+
+            ['location', 'column'].forEach((kind) => {
+
+                const root = document.getElementById(kind === 'location' ? 'stock-location-ms' : 'stock-column-ms');
+
+                const trigger = document.getElementById(kind === 'location' ? 'stock-location-ms-trigger' : 'stock-column-ms-trigger');
+
+                const menu = document.getElementById(kind === 'location' ? 'stock-location-ms-menu' : 'stock-column-ms-menu');
+
+                if (root) root.classList.remove('is-open');
+
+                if (menu) menu.hidden = true;
+
+                if (trigger) trigger.setAttribute('aria-expanded', 'false');
+
+            });
+
+        }
+
+        function toggleStockMultiSelect(kind) {
+
+            const isLocation = kind === 'location';
+
+            const root = document.getElementById(isLocation ? 'stock-location-ms' : 'stock-column-ms');
+
+            const trigger = document.getElementById(isLocation ? 'stock-location-ms-trigger' : 'stock-column-ms-trigger');
+
+            const menu = document.getElementById(isLocation ? 'stock-location-ms-menu' : 'stock-column-ms-menu');
+
+            if (!root || !menu || !trigger) return;
+
+            const willOpen = menu.hidden;
+
+            closeAllStockMultiSelects();
+
+            if (!willOpen) return;
+
+            menu.hidden = false;
+
+            root.classList.add('is-open');
+
+            trigger.setAttribute('aria-expanded', 'true');
+
+        }
+
+        document.addEventListener('mousedown', function (ev) {
+
+            const t = ev.target;
+
+            if (!(t instanceof Element)) return;
+
+            if (t.closest('.stock-ms')) return;
+
+            closeAllStockMultiSelects();
+
+        });
+
         function renderStockColumnFilterPanel() {
 
             ensureStockCardMetricFilterShape();
 
             const host = document.getElementById('stock-column-filter-chips');
 
-            if (!host) {
+            if (!host) return;
 
-                return;
+            const colMenu = document.getElementById('stock-column-ms-menu');
 
-            }
+            const wasOpen = !!(colMenu && !colMenu.hidden);
 
             const parts = [];
 
@@ -2085,13 +3560,31 @@
 
                 parts.push(
 
-                    `<label class="stock-column-filter-chip"><input type="checkbox" id="stock-col-filter-${safeId}" ${on ? 'checked' : ''} onchange="onStockColumnMetricFilterChange('${escapeJs(g.key)}', this.checked)" /> ${escapeHtml(g.label)}</label>`,
+                    `<label class="stock-ms__option"><input type="checkbox" id="stock-col-filter-${safeId}" ${on ? 'checked' : ''} onchange="onStockColumnMetricFilterChange('${escapeJs(g.key)}', this.checked)" /> <span>${escapeHtml(g.label)}</span></label>`,
 
                 );
 
             });
 
             host.innerHTML = parts.join('');
+
+            updateStockReportFilterSummary();
+
+            if (wasOpen) {
+
+                const root = document.getElementById('stock-column-ms');
+
+                const trigger = document.getElementById('stock-column-ms-trigger');
+
+                const menu = document.getElementById('stock-column-ms-menu');
+
+                if (root) root.classList.add('is-open');
+
+                if (menu) menu.hidden = false;
+
+                if (trigger) trigger.setAttribute('aria-expanded', 'true');
+
+            }
 
         }
 
@@ -2100,6 +3593,38 @@
             ensureStockCardMetricFilterShape();
 
             stockCardMetricFilter[key] = !!checked;
+
+            saveStockMetricFilter();
+
+            syncStockCardTable();
+
+        }
+
+        function selectAllStockCardMetricGroups() {
+
+            ensureStockCardMetricFilterShape();
+
+            stockCardMetricGroups.forEach((g) => {
+
+                stockCardMetricFilter[g.key] = true;
+
+            });
+
+            saveStockMetricFilter();
+
+            syncStockCardTable();
+
+        }
+
+        function clearAllStockCardMetricGroups() {
+
+            ensureStockCardMetricFilterShape();
+
+            stockCardMetricGroups.forEach((g) => {
+
+                stockCardMetricFilter[g.key] = false;
+
+            });
 
             saveStockMetricFilter();
 
@@ -2198,8 +3723,56 @@
         }
 
         function canEditPrLineSelection(header) {
+
             const s = normalizeUdfStatus((header && (header._originalUdfStatus || header.udfStatus)) || '');
-            return s === 'AWAITING' || s === 'PENDING' || s === 'APPROVED';
+
+            // Line select + transfer qty only on Approved (Pending/Awaiting are bidding view-only).
+            return s === 'APPROVED';
+
+        }
+
+        function isPendingPurchaseRequestReadOnly(header) {
+
+            // Bidding in progress: view-only. Legacy AWAITING still allows Pending status update.
+            return normalizeUdfStatus((header && (header._originalUdfStatus || header.udfStatus)) || '') === 'PENDING';
+
+        }
+
+        function isProcurementApprovalEditsHidden() {
+            return document.body.classList.contains('procurement-hide-pr-approval-edits');
+        }
+
+        function isProcurementTransferHidden() {
+            return document.body.classList.contains('procurement-hide-transfer');
+        }
+
+        /**
+         * List bulk select / toolbar by tab:
+         * - AWAITING: Select All + to Pending need UDF_APPROVEPQ (or admin)
+         * - APPROVED: Select All + Bulk Transfer need UDF_APPROVEPO (or admin)
+         */
+        function canUseViewPrListBulkSelect() {
+            if (!(viewStatusFilters instanceof Set) || viewStatusFilters.size !== 1) {
+                return false;
+            }
+            if (viewStatusFilters.has('AWAITING')) {
+                return !isProcurementApprovalEditsHidden();
+            }
+            if (viewStatusFilters.has('APPROVED')) {
+                return !isProcurementTransferHidden();
+            }
+            return false;
+        }
+
+        /** Header status edits need UDF_APPROVEPQ (or admin) — same gate as line approvals. */
+        function canEditViewPrHeaderStatus(_header) {
+            return !isProcurementApprovalEditsHidden();
+        }
+
+        function isCancelledPurchaseRequest(header) {
+
+            return normalizeUdfStatus((header && (header._originalUdfStatus || header.udfStatus)) || '') === 'CANCELLED';
+
         }
 
         function toApprovalBool(value) {
@@ -2372,7 +3945,7 @@
 
             if (!btn) return;
 
-            const hideAppr = document.body.classList.contains('procurement-hide-pr-approval-edits');
+            const hideAppr = isProcurementApprovalEditsHidden();
 
             const hasChanges = viewApprovalPendingChanges.size > 0 || viewHeaderStatusPendingChanges.size > 0;
 
@@ -2400,32 +3973,56 @@
 
         }
 
+        function viewPrDocStatus(row) {
+
+            const raw = String(row?.status ?? '').trim().toUpperCase();
+
+            if (raw === '0') return 'DRAFT';
+
+            if (raw === '1') return 'SUBMITTED';
+
+            if (raw === '2') return 'APPROVED';
+
+            if (raw === '3') return 'REJECTED';
+
+            if (raw === '4') return 'CANCELLED';
+
+            return raw;
+
+        }
+
+        function isHiddenCancelledDraft(row) {
+
+            const udf = rowSavedUdfStatus(row);
+
+            const doc = viewPrDocStatus(row);
+
+            return udf === 'CANCELLED' && (doc === 'DRAFT' || doc === 'CANCELLED');
+
+        }
+
         function rowMatchesViewStatusFilter(row, statusFilter) {
 
             const f = String(statusFilter || '').toUpperCase();
 
+            // Draft cancels are hidden from Draft/other tabs, but still belong on Cancelled.
+            if (isHiddenCancelledDraft(row)) {
+
+                return f === 'CANCELLED';
+
+            }
+
             if (f === 'DRAFT') {
 
-                return rowPrStatusUpper(row) === 'DRAFT';
-
-            }
-
-            if (f === 'AWAITING') {
-                if (rowSavedUdfStatus(row) !== 'AWAITING') {
-                    return false;
-                }
-                return rowPrStatusUpper(row) === 'SUBMITTED';
-            }
-
-            if (f === 'PENDING') {
-
-                if (rowSavedUdfStatus(row) !== 'PENDING') {
+                if (rowPrStatusUpper(row) !== 'DRAFT') {
 
                     return false;
 
                 }
 
-                return rowPrStatusUpper(row) === 'SUBMITTED';
+                const udf = rowSavedUdfStatus(row);
+
+                return !udf || udf === 'DRAFT';
 
             }
 
@@ -2435,17 +4032,55 @@
 
         function getViewStatusFilterCounts() {
 
+            if (viewPrServerStatusCounts && typeof viewPrServerStatusCounts === 'object') {
+
+                const counts = {};
+
+                VIEW_STATUS_FILTER_OPTIONS.forEach((s) => {
+
+                    counts[s] = Number(viewPrServerStatusCounts[s] || 0);
+
+                });
+
+                return counts;
+
+            }
+
             const rows = viewPurchaseRequests || [];
 
             const counts = {};
 
             VIEW_STATUS_FILTER_OPTIONS.forEach((s) => {
 
-                counts[s] = rows.filter((row) => rowMatchesViewStatusFilter(row, s)).length;
+                counts[s] = rows.filter(
+
+                    (row) => rowMatchesViewStatusFilter(row, s) && purchaseRequestHasItemLines(row)
+
+                ).length;
 
             });
 
             return counts;
+
+        }
+
+        function purchaseRequestHasItemLines(row) {
+
+            if (!row) return false;
+
+            if (Array.isArray(row.details)) {
+
+                return row.details.some((d) => Number(d && d.id ? d.id : 0) > 0);
+
+            }
+
+            if (row.lineCount == null || row.lineCount === '') {
+
+                return true;
+
+            }
+
+            return Number(row.lineCount) > 0;
 
         }
 
@@ -2471,6 +4106,7 @@
 
             });
 
+            // Server already scopes by view_status; keep a light client filter for search / safety.
             let rows = viewPurchaseRequests || [];
 
             if (filters.size) {
@@ -2478,6 +4114,8 @@
                 rows = rows.filter((row) => Array.from(filters).some((f) => rowMatchesViewStatusFilter(row, f)));
 
             }
+
+            rows = rows.filter((row) => purchaseRequestHasItemLines(row));
 
             if (searchText) {
 
@@ -2510,6 +4148,7 @@
                 const on = viewStatusFilters.has(tabStatus);
 
                 tab.classList.toggle('is-active', on);
+
                 tab.setAttribute('aria-selected', on ? 'true' : 'false');
 
                 tab.classList.toggle('active', on);
@@ -2518,7 +4157,25 @@
 
                 const label = VIEW_PR_TAB_LABELS[tabStatus] || tabStatus;
 
-                tab.textContent = `${label} (${n})`;
+                let labelEl = tab.querySelector('.avq-status-tab__label');
+
+                let badgeEl = tab.querySelector('.avq-status-tab__badge, [data-pr-tab-count]');
+
+                if (!labelEl || !badgeEl) {
+
+                    tab.innerHTML =
+                        `<span class="avq-status-tab__label">${label}</span>` +
+                        `<span class="avq-status-tab__badge" data-pr-tab-count="${tabStatus}">${n}</span>`;
+
+                    return;
+
+                }
+
+                labelEl.textContent = label;
+
+                badgeEl.textContent = String(n);
+
+                badgeEl.setAttribute('data-pr-tab-count', tabStatus);
 
             });
 
@@ -2527,25 +4184,49 @@
         }
 
         function goToViewPrStatus(status, options) {
+
             const s = String(status || '').trim().toUpperCase();
+
             const opts = options && typeof options === 'object' ? options : {};
+
             if (VIEW_STATUS_FILTER_OPTIONS.includes(s)) {
+
                 viewStatusFilters = new Set([s]);
+
                 try {
+
                     const url = new URL(window.location.href);
+
                     url.searchParams.set('tab', 'view');
+
                     url.searchParams.set('status', s.toLowerCase());
+
                     history.replaceState({}, '', url);
+
                 } catch (e) { /* ignore */ }
+
             }
+
             showTab('view');
+
             try { syncViewStatusFilterTabClasses(); } catch (e) { /* ignore */ }
+
+            try { syncViewPrApprovedOnlyToolbarActions(); } catch (e) { /* ignore */ }
+
+            try { syncViewPendingBulkBar(); } catch (e) { /* ignore */ }
+
             try { syncViewStatusToUrl(); } catch (e) { /* ignore */ }
+
             if (opts.reload !== false) {
+
                 try { loadViewPurchaseRequests(true, { bustCache: true }); } catch (e) { /* ignore */ }
+
             } else {
+
                 try { renderFilteredViewPurchaseRequests(); } catch (e) { /* ignore */ }
+
             }
+
         }
 
         function toggleViewStatusFilter(status) {
@@ -2566,38 +4247,47 @@
 
             syncViewPrApprovedOnlyToolbarActions();
 
-            renderFilteredViewPurchaseRequests();
+            // Hide/show to Pending vs Bulk Transfer immediately — do not wait for list reload.
+            syncViewPendingBulkBar();
 
             syncViewStatusToUrl();
 
-            if (viewSelectedHeaderId != null) {
-
-                refreshSelectedViewPurchaseRequestDetail(true);
-
-            }
+            loadViewPurchaseRequests(true, { bustCache: true });
 
         }
 
         function isViewPendingBulkSelectMode() {
-            // List bulk select for Awaiting / Pending / Approved tabs.
+
+            // List bulk select for Awaiting (→ Pending) and Approved tabs. Pending is view-only.
+
             return (
+
                 viewStatusFilters instanceof Set
+
                 && viewStatusFilters.size === 1
-                && (viewStatusFilters.has('AWAITING') || viewStatusFilters.has('PENDING') || viewStatusFilters.has('APPROVED'))
+
+                && (viewStatusFilters.has('AWAITING') || viewStatusFilters.has('APPROVED'))
+
             );
+
         }
 
         function getViewListBulkTargetUdfStatus() {
+
             if (!(viewStatusFilters instanceof Set) || viewStatusFilters.size !== 1) {
+
                 return '';
+
             }
-            if (viewStatusFilters.has('PENDING')) {
-                return 'APPROVED';
-            }
+
             if (viewStatusFilters.has('AWAITING')) {
+
                 return 'PENDING';
+
             }
+
             return '';
+
         }
 
         function pruneViewBulkSelectionToFilteredList() {
@@ -2632,11 +4322,13 @@
 
             }
 
-            const hide = document.body.classList.contains('procurement-hide-pr-approval-edits');
+            try { syncViewPrApprovedOnlyToolbarActions(); } catch (e) { /* ignore */ }
 
-            if (!isViewPendingBulkSelectMode() || hide) {
+            // Awaiting → APPROVEPQ; Approved → APPROVEPO (see canUseViewPrListBulkSelect).
+            if (!canUseViewPrListBulkSelect()) {
 
                 bar.hidden = true;
+
                 syncViewListBulkMasterCheckbox();
 
                 return;
@@ -2651,7 +4343,9 @@
 
             if (hint) {
 
-                hint.textContent = n === 0 ? 'No PRs selected.' : `${n} selected`;
+                hint.hidden = true;
+
+                hint.textContent = n === 0 ? '0 selected' : `${n} selected`;
 
             }
 
@@ -2659,32 +4353,62 @@
 
             if (approveBtn) {
 
-                approveBtn.disabled = n === 0;
+                approveBtn.disabled = n === 0 || viewPrBulkToPendingBusy;
+
                 const targetUdf = getViewListBulkTargetUdfStatus();
-                if (targetUdf === 'APPROVED') {
-                    approveBtn.textContent = n === 0 ? 'Approve selected' : `Approve selected (${n})`;
+
+                // to Pending is Awaiting-only. Never flash it on Approved/other tabs.
+                if (targetUdf === 'PENDING') {
+
+                    approveBtn.textContent = viewPrBulkToPendingBusy ? 'Updating…' : 'to Pending';
+
+                    approveBtn.title = viewPrBulkToPendingBusy
+                        ? 'Updating selected PRs to Pending'
+                        : (n === 0
+                            ? 'Select PRs, then change status to Pending'
+                            : `Change ${n} selected PR(s) to Pending`);
+
                     approveBtn.hidden = false;
-                } else if (targetUdf === 'PENDING') {
-                    approveBtn.textContent = n === 0 ? 'Mark selected Pending' : `Mark selected Pending (${n})`;
-                    approveBtn.hidden = false;
+
                 } else {
-                    approveBtn.textContent = 'Update selected';
+
+                    approveBtn.textContent = 'to Pending';
+
+                    approveBtn.title = 'Change selected PRs to Pending';
+
                     approveBtn.hidden = true;
+
                 }
 
             }
 
-            const actions = bar.querySelector('.view-pr-bulk-pending-bar__actions');
-            if (actions && approveBtn) {
-                actions.hidden = !!approveBtn.hidden;
+            const transferToggle = document.getElementById('view-bulk-transfer-toggle');
+
+            if (transferToggle && isViewApprovedTabActive()) {
+
+                transferToggle.disabled = n === 0 && viewSelectedHeaderId == null;
+
             }
 
-                    syncViewListBulkMasterCheckbox();
+            const actions = bar.querySelector('.view-pr-bulk-pending-bar__actions');
+
+            if (actions) {
+
+                const transferVisible = !!(transferToggle && !transferToggle.hidden);
+
+                const approveVisible = !!(approveBtn && !approveBtn.hidden);
+
+                actions.hidden = !(transferVisible || approveVisible);
+
+            }
+
+            syncViewListBulkMasterCheckbox();
+
         }
 
         function onViewPrBulkCardCheckboxChange(event, headerId) {
 
-            if (document.body.classList.contains('procurement-hide-pr-approval-edits')) {
+            if (!canUseViewPrListBulkSelect()) {
 
                 if (event && event.target) {
 
@@ -2725,43 +4449,73 @@
         }
 
         function onViewPrListBulkSelectAllChange(el) {
+
             if (!el) {
+
                 return;
+
             }
+
             if (el.checked) {
+
                 viewPrBulkSelectAllPending();
+
             } else {
+
                 viewPrBulkClearSelection();
+
             }
+
         }
 
         function syncViewListBulkMasterCheckbox() {
+
             const wrap = document.getElementById('view-pr-list-bulk-select-wrap');
+
             const master = document.getElementById('view-pr-list-bulk-select-all');
+
             if (!wrap || !master) {
+
                 return;
+
             }
-            const hide = document.body.classList.contains('procurement-hide-pr-approval-edits');
-            const active = isViewPendingBulkSelectMode() && !hide;
+
+            // Awaiting → APPROVEPQ; Approved → APPROVEPO.
+            const active = canUseViewPrListBulkSelect();
+
             wrap.hidden = !active;
+
             if (!active) {
+
                 master.checked = false;
+
                 master.indeterminate = false;
+
                 return;
+
             }
+
             const visibleIds = getFilteredViewPurchaseRequests()
+
                 .map((r) => Number(r.id || 0))
+
                 .filter((id) => id > 0);
+
             const selectedVisible = visibleIds.filter((id) => viewBulkSelectedHeaderIds.has(id));
+
             const all = visibleIds.length > 0 && selectedVisible.length === visibleIds.length;
+
             const some = selectedVisible.length > 0 && !all;
+
             master.checked = all;
+
             master.indeterminate = some;
+
         }
 
         function viewPrBulkSelectAllPending() {
 
-            if (!isViewPendingBulkSelectMode()) {
+            if (!canUseViewPrListBulkSelect()) {
 
                 return;
 
@@ -2795,7 +4549,9 @@
 
         }
 
-        function queueHeaderUdfPendingFromSaved(requestId, value) {
+        function queueHeaderUdfPendingFromSaved(requestId, value, options) {
+
+            const opts = options && typeof options === 'object' ? options : {};
 
             const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(requestId));
 
@@ -2806,28 +4562,64 @@
             }
 
             const saved = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
+
             const normalizedTarget = normalizeUdfStatus(value);
+
             const allowedFrom = {
+
                 AWAITING: new Set(['AWAITING', 'PENDING', 'CANCELLED']),
-                PENDING: new Set(['PENDING', 'APPROVED', 'CANCELLED']),
+
+                // Pending is view-only in View e-PR (awards promote to Approved elsewhere).
+                PENDING: new Set(['PENDING']),
+
                 APPROVED: new Set(['APPROVED', 'CANCELLED']),
+
                 CANCELLED: new Set(['CANCELLED']),
+
                 DRAFT: new Set(['DRAFT', 'AWAITING', 'PENDING', 'CANCELLED']),
+
                 '': new Set(['', 'DRAFT', 'AWAITING', 'PENDING', 'CANCELLED']),
+
             };
+
             const allowed = allowedFrom[saved] || new Set([saved, 'CANCELLED']);
+
             if (!allowed.has(normalizedTarget)) {
+
                 return false;
-            }
-            if (saved === 'AWAITING' && normalizedTarget === 'PENDING') {
-                const suppliers = Array.isArray(header._suppliers) ? header._suppliers : [];
-                if (!suppliers.length) {
-                    alert('Select at least one supplier before moving to Pending (Awaiting RFQ).');
-                    return false;
-                }
+
             }
 
-            if (saved === 'APPROVED' || saved === 'CANCELLED') {
+            if (saved === 'PENDING') {
+
+                return false;
+
+            }
+
+            // Single-PR path keeps FE supplier check. Bulk to Pending skips it — Create e-PR
+            // already required suppliers; backend still enforces PR_SELECTED_SUPPLIER.
+            if (!opts.skipSupplierCheck && saved === 'AWAITING' && normalizedTarget === 'PENDING') {
+
+                const suppliers = Array.isArray(header._suppliers) ? header._suppliers : [];
+
+                if (!suppliers.length) {
+
+                    alert('Select at least one supplier before moving to Pending.');
+
+                    return false;
+
+                }
+
+            }
+
+            if (saved === 'CANCELLED') {
+
+                return false;
+
+            }
+
+            // Approved can only move to Cancelled (no Approve/Update status churn).
+            if (saved === 'APPROVED' && normalizedTarget !== 'CANCELLED') {
 
                 return false;
 
@@ -2837,7 +4629,13 @@
 
             const original = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
 
-            if (normalized === original) {
+            const unchanged = normalized === original
+
+                || (!normalized && (original === '' || original === 'DRAFT'))
+
+                || (normalized === 'DRAFT' && !original);
+
+            if (unchanged) {
 
                 viewHeaderStatusPendingChanges.delete(String(requestId));
 
@@ -2846,7 +4644,9 @@
                 viewHeaderStatusPendingChanges.set(String(requestId), {
 
                     requestId: Number(requestId),
+
                     requestNumber: String((header && (header.requestNumber || header.docNo || header.docno)) || '').trim(),
+
                     udfStatus: normalized,
 
                 });
@@ -2857,47 +4657,46 @@
 
         }
 
-        function viewPrBulkQueueApproveSelected() {
+        async function viewPrBulkQueueApproveSelected() {
 
-            if (document.body.classList.contains('procurement-hide-pr-approval-edits')) {
-
-                return;
-
-            }
-
-            if (!isViewPendingBulkSelectMode() || viewBulkSelectedHeaderIds.size === 0) {
+            // to Pending is Awaiting-only and needs UDF_APPROVEPQ (or admin).
+            if (!canUseViewPrListBulkSelect() || isProcurementApprovalEditsHidden()) {
                 return;
             }
-
+            if (viewPrBulkToPendingBusy || viewBulkSelectedHeaderIds.size === 0) {
+                return;
+            }
             const targetUdf = getViewListBulkTargetUdfStatus();
-            if (!targetUdf) {
+            if (targetUdf !== 'PENDING') {
                 return;
             }
 
-            let any = false;
+            viewPrBulkToPendingBusy = true;
+            syncViewPendingBulkBar();
 
-            for (const hid of viewBulkSelectedHeaderIds) {
-
-                if (queueHeaderUdfPendingFromSaved(hid, targetUdf)) {
-
-                    any = true;
-
+            try {
+                let any = false;
+                for (const hid of viewBulkSelectedHeaderIds) {
+                    // Skip FE supplier re-check; Create e-PR already required suppliers.
+                    // Backend header-status still enforces PR_SELECTED_SUPPLIER / invites.
+                    if (queueHeaderUdfPendingFromSaved(hid, targetUdf, { skipSupplierCheck: true })) {
+                        any = true;
+                    }
                 }
-
-            }
-
-            if (any) {
+                if (!any) {
+                    return;
+                }
 
                 updateViewApprovalButtonState();
-
                 renderFilteredViewPurchaseRequests();
-
                 if (typeof saveViewDetailApprovals === 'function') {
-                    Promise.resolve(saveViewDetailApprovals()).catch((err) => {
-                        console.warn('[VIEW PR] bulk approve save failed', err);
-                    });
+                    await saveViewDetailApprovals();
                 }
-
+            } catch (err) {
+                console.warn('[VIEW PR] bulk approve save failed', err);
+            } finally {
+                viewPrBulkToPendingBusy = false;
+                syncViewPendingBulkBar();
             }
 
         }
@@ -2984,6 +4783,12 @@
 
             if (!header) return false;
 
+            if (isCancelledPurchaseRequest(header)) return false;
+
+            if (isPendingPurchaseRequestReadOnly(header)) return false;
+
+            if (normalizeUdfStatus(header._originalUdfStatus || header.udfStatus) !== 'APPROVED') return false;
+
             if (hasPendingHeaderStatusChangesForHeader(header.id)) return false;
 
             const selectedDetails = getSelectedTransferDetails(header);
@@ -3042,7 +4847,13 @@
 
             const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(headerId));
 
-            if (!header) {
+            if (!header || isCancelledPurchaseRequest(header) || isPendingPurchaseRequestReadOnly(header)) {
+
+                if (header && isPendingPurchaseRequestReadOnly(header)) {
+
+                    alert('Pending e-PRs are view-only while suppliers bid. Transfer after Save Item Awards (Approved).');
+
+                }
 
                 return;
 
@@ -3065,6 +4876,7 @@
                     detailId: Number(detail.id || 0),
 
                     quantity: getDetailTransferQuantity(detail),
+
                     transferable: isDetailChecked(detail),
 
                 }))
@@ -3107,7 +4919,7 @@
 
                 });
 
-                const data = await res.json();
+                const data = await readProcurementJson(res);
 
                 if (!res.ok || !data.success) {
 
@@ -3127,7 +4939,7 @@
 
             } catch (error) {
 
-                alert(error.message || 'Transfer to Purchase Order failed.');
+                if (!isProcurementAuthExpired(error)) alert(error.message || 'Transfer to Purchase Order failed.');
 
             } finally {
 
@@ -3143,7 +4955,7 @@
 
             const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(headerId));
 
-            if (!header || !Array.isArray(header.details)) {
+            if (!header || !Array.isArray(header.details) || isCancelledPurchaseRequest(header) || isPendingPurchaseRequestReadOnly(header) || !canEditPrLineSelection(header)) {
 
                 return;
 
@@ -3160,6 +4972,17 @@
             const maxTransfer = getDetailMaxTransferQuantity(detail);
 
             detail.transferQty = clampTransferQuantity(rawValue, maxTransfer);
+
+            // Adjusting qty on Approved selects the line for PO transfer.
+            if (detail.transferQty > 0) {
+
+                detail.transferable = true;
+
+                detail.udfPqApproved = true;
+
+            }
+
+            updateViewApprovalButtonState();
 
             renderFilteredViewPurchaseRequests();
 
@@ -3189,7 +5012,15 @@
 
             const saved = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
 
-            if (saved === 'APPROVED' || saved === 'CANCELLED') {
+            if (saved === 'CANCELLED' || saved === 'PENDING') {
+
+                renderFilteredViewPurchaseRequests();
+
+                return;
+
+            }
+
+            if (saved === 'APPROVED' && normalizeUdfStatus(value) !== 'CANCELLED') {
 
                 renderFilteredViewPurchaseRequests();
 
@@ -3205,6 +5036,48 @@
 
         }
 
+        async function cancelApprovedPurchaseRequest(headerId) {
+
+            if (document.body.classList.contains('procurement-hide-pr-approval-edits')) {
+
+                return;
+
+            }
+
+            const id = Number(headerId || 0);
+
+            const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === id);
+
+            if (!header || normalizeUdfStatus(header._originalUdfStatus || header.udfStatus) !== 'APPROVED') {
+
+                return;
+
+            }
+
+            const docno = String(header.requestNumber || id || '').trim() || String(id);
+
+            const ok = window.confirm(`Cancel approved purchase request ${docno}? This moves it to the Cancelled tab.`);
+
+            if (!ok) {
+
+                return;
+
+            }
+
+            if (!queueHeaderUdfPendingFromSaved(id, 'CANCELLED')) {
+
+                alert('Unable to cancel this purchase request.');
+
+                return;
+
+            }
+
+            viewSelectedHeaderId = id;
+
+            await saveViewDetailApprovals();
+
+        }
+
         function onDetailApprovalChange(headerId, detailId, checked) {
 
             if (document.body.classList.contains('procurement-hide-pr-approval-edits')) {
@@ -3215,7 +5088,7 @@
 
             const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(headerId));
 
-            if (!header || !Array.isArray(header.details)) {
+            if (!header || !Array.isArray(header.details) || isCancelledPurchaseRequest(header) || isPendingPurchaseRequestReadOnly(header) || !canEditPrLineSelection(header)) {
 
                 return;
 
@@ -3232,6 +5105,7 @@
             const original = toApprovalBool(detail._originalApproved);
 
             detail.udfPqApproved = Boolean(checked);
+
             detail.transferable = Boolean(checked);
 
             if (Boolean(checked) === original) {
@@ -3258,165 +5132,302 @@
 
         }
 
-        function onDetailApprovalToggleAll(headerId, checked) {
-            if (document.body.classList.contains('procurement-hide-pr-approval-edits')) {
-                return;
+        function viewPrExplicitUdfIsCancelled(headerId) {
+
+            const sel = document.getElementById(`view-pr-detail-udf-${Number(headerId)}`);
+
+            if (sel) {
+
+                return normalizeUdfStatus(sel.value) === 'CANCELLED';
+
             }
-            const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(headerId));
-            if (!header || !Array.isArray(header.details)) {
+
+            const pending = viewHeaderStatusPendingChanges.get(String(headerId));
+
+            return !!(pending && normalizeUdfStatus(pending.udfStatus) === 'CANCELLED');
+
+        }
+
+        function onDetailApprovalToggleAll(headerId, checked) {
+
+            if (document.body.classList.contains('procurement-hide-pr-approval-edits')) {
+
                 return;
+
+            }
+
+            const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(headerId));
+
+            if (!header || !Array.isArray(header.details) || isPendingPurchaseRequestReadOnly(header) || !canEditPrLineSelection(header)) {
+
+                return;
+
             }
 
             const nextChecked = Boolean(checked);
+
             header.details.forEach((detail) => {
+
                 const detailId = Number(detail && detail.id ? detail.id : 0);
+
                 if (!detailId) {
+
                     return;
+
                 }
+
                 const original = toApprovalBool(detail._originalApproved);
+
                 detail.udfPqApproved = nextChecked;
+
                 detail.transferable = nextChecked;
+
                 if (nextChecked === original) {
+
                     viewApprovalPendingChanges.delete(String(detailId));
+
                 } else {
+
                     viewApprovalPendingChanges.set(String(detailId), {
+
                         detailId,
+
                         approved: nextChecked,
+
                         requestId: Number(headerId),
+
                     });
+
                 }
+
             });
 
             const selectable = header.details.filter((row) => Number(row && row.id ? row.id : 0) > 0);
-            const hasChecked = selectable.some((row) => isDetailChecked(row));
+
             header.selectedLineCount = selectable.filter((row) => isDetailChecked(row)).length;
+
             header.lineCount = selectable.length;
-            const savedUdf = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
-            // Only Pending auto-stages header → Approved; Awaiting keeps header UDF unchanged.
-            if (savedUdf === 'PENDING') {
-                queueHeaderUdfPendingFromSaved(headerId, hasChecked ? 'APPROVED' : 'PENDING');
-            }
+
+            // Pending is view-only; Approved/Awaiting line staging does not auto-change Pending → Approved here.
+
             updateViewApprovalButtonState();
+
             renderViewPurchaseRequestDetailPanel();
+
             renderFilteredViewPurchaseRequests();
+
         }
 
         function onDetailApprovalChangeStageOnly(headerId, detailId, checked) {
+
             onDetailApprovalChange(headerId, detailId, checked);
+
             const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(headerId));
+
             if (!header || !Array.isArray(header.details)) {
+
                 return;
+
             }
-            const savedUdf = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
+
             const selectable = header.details.filter((row) => Number(row && row.id ? row.id : 0) > 0);
-            const hasChecked = selectable.some((row) => isDetailChecked(row));
+
             header.selectedLineCount = selectable.filter((row) => isDetailChecked(row)).length;
+
             header.lineCount = selectable.length;
+
             // Stage only — Update button persists. Do not POST on checkbox click.
-            if (savedUdf === 'PENDING') {
-                queueHeaderUdfPendingFromSaved(headerId, hasChecked ? 'APPROVED' : 'PENDING');
-            }
+            // Pending → Approved happens via Save Item Awards, not View e-PR line ticks.
+
             syncAllLineApprovalsBeforeHeaderApprove(headerId);
+
             updateViewApprovalButtonState();
+
             renderViewPurchaseRequestDetailPanel();
+
             renderFilteredViewPurchaseRequests();
+
         }
 
         async function onDetailApprovalChangeAutoHeader(headerId, detailId, checked) {
+
             onDetailApprovalChangeStageOnly(headerId, detailId, checked);
+
         }
 
         async function persistSingleDetailApprovalChange(headerId, detailId, checked) {
+
             const headerNum = Number(headerId || 0);
+
             const detailNum = Number(detailId || 0);
+
             if (!headerNum || !detailNum) {
+
                 return;
+
             }
+
             try {
+
                 const res = await fetch('/api/admin/procurement/purchase-requests/details/approval', {
+
                     method: 'POST',
+
                     headers: {
+
                         'Content-Type': 'application/json',
+
                     },
+
                     body: JSON.stringify({
+
                         changes: [{
+
                             detailId: detailNum,
+
                             approved: Boolean(checked),
+
                             requestId: headerNum,
+
                         }],
+
                     }),
+
                 });
-                const data = await res.json();
+
+                const data = await readProcurementJson(res);
+
                 if (!res.ok || !data.success) {
+
                     throw new Error(data.error || `Failed to save line approval (HTTP ${res.status})`);
+
                 }
 
                 const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === headerNum);
+
                 if (header && Array.isArray(header.details)) {
+
                     const detail = header.details.find((row) => Number(row.id || 0) === detailNum);
+
                     if (detail) {
+
                         detail._originalApproved = Boolean(checked);
+
                         detail.udfPqApproved = Boolean(checked);
+
                         detail.transferable = Boolean(checked);
+
                     }
+
                 }
+
                 viewApprovalPendingChanges.delete(String(detailNum));
+
                 updateViewApprovalButtonState();
+
             } catch (error) {
+
                 console.warn('[View PR] Failed to auto-save line approval:', error);
+
             }
+
         }
 
         function syncAllLineApprovalsBeforeHeaderApprove(headerId) {
+
             const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(headerId));
+
             if (!header || !Array.isArray(header.details)) {
+
                 return;
+
             }
+
             const requestId = Number(header.id || headerId || 0);
+
             header.details.forEach((detail) => {
+
                 const detailId = Number(detail && detail.id ? detail.id : 0);
+
                 if (!detailId) return;
+
                 const checked = isDetailChecked(detail);
+
                 detail.udfPqApproved = checked;
+
                 detail.transferable = checked;
+
                 viewApprovalPendingChanges.set(String(detailId), {
+
                     detailId,
+
                     requestId,
+
                     approved: checked,
+
                 });
+
             });
+
         }
 
         async function saveViewDetailApprovals() {
-            if (document.body.classList.contains('procurement-hide-pr-approval-edits')) {
+
+            const selectedHeader = viewPurchaseRequests.find(
+                (row) => Number(row.id || 0) === Number(viewSelectedHeaderId)
+            );
+            if (isProcurementApprovalEditsHidden() || !canEditViewPrHeaderStatus(selectedHeader)) {
+
                 return;
+
             }
-            if (viewApprovalSaving) {
+
+            if (viewApprovalSaving || isCancelledPurchaseRequest(selectedHeader)) {
+
                 return;
+
             }
 
             try {
+
                 const selectedId = viewSelectedHeaderId != null ? Number(viewSelectedHeaderId) : 0;
+
                 if (selectedId > 0) {
+
                     const sel = document.getElementById(`view-pr-detail-udf-${selectedId}`);
+
                     if (sel && typeof onHeaderUdfStatusChange === 'function') {
-                        onHeaderUdfStatusChange(selectedId, sel.value);
+
+                        const pending = viewHeaderStatusPendingChanges.get(String(selectedId));
+
+                        const pendingUdf = pending ? normalizeUdfStatus(pending.udfStatus) : '';
+
+                        const selUdf = normalizeUdfStatus(sel.value);
+
+                        // Bulk "Mark selected Pending" already queued a target. The detail
+                        // dropdown still shows the saved status and would wipe that queue.
+                        if (!(pendingUdf && pendingUdf !== selUdf)) {
+
+                            onHeaderUdfStatusChange(selectedId, sel.value);
+
+                        }
+
                     }
+
                     // Always capture current checkbox state for the open PR.
+
                     syncAllLineApprovalsBeforeHeaderApprove(selectedId);
-                    const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === selectedId);
-                    const savedUdf = normalizeUdfStatus(header && (header._originalUdfStatus || header.udfStatus));
-                    const hasChecked = !!(header && Array.isArray(header.details)
-                        && header.details.some((row) => Number(row && row.id ? row.id : 0) > 0 && isDetailChecked(row)));
-                    if (savedUdf === 'PENDING' && hasChecked) {
-                        queueHeaderUdfPendingFromSaved(selectedId, 'APPROVED');
-                    }
+
                 }
+
             } catch (e) { /* ignore */ }
 
             if (viewApprovalPendingChanges.size === 0 && viewHeaderStatusPendingChanges.size === 0) {
+
                 alert('No changes to update. Select line items and/or change Status, then click Update.');
+
                 return;
+
             }
 
             viewApprovalSaving = true;
@@ -3424,39 +5435,67 @@
             updateViewApprovalButtonState();
 
             try {
+
                 let headerStatusSaveFailed = false;
+
                 let bidInvitationResults = [];
+
                 let headerStatusError = '';
 
-                
                 // When approving header, persist every line tick/untick so unchecked rows stay off.
+
                 viewHeaderStatusPendingChanges.forEach((change) => {
+
                     if (normalizeUdfStatus(change.udfStatus) === 'APPROVED') {
+
                         syncAllLineApprovalsBeforeHeaderApprove(change.requestId);
+
                     }
+
                 });
 
                 if (viewApprovalPendingChanges.size > 0) {
+
                     const detailPayloadEarly = { changes: Array.from(viewApprovalPendingChanges.values()) };
+
                     const detailResEarly = await fetch('/api/admin/procurement/purchase-requests/details/approval', {
+
                         method: 'POST',
+
                         headers: { 'Content-Type': 'application/json' },
+
                         body: JSON.stringify(detailPayloadEarly),
+
                     });
-                    const detailDataEarly = await detailResEarly.json();
+
+                    const detailDataEarly = await readProcurementJson(detailResEarly);
+
                     if (!detailResEarly.ok || !detailDataEarly.success) {
+
                         throw new Error(detailDataEarly.error || `Failed to update approval details (HTTP ${detailResEarly.status})`);
+
                     }
+
                     viewApprovalPendingChanges.forEach((change) => {
+
                         const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(change.requestId));
+
                         if (!header || !Array.isArray(header.details)) return;
+
                         const detail = header.details.find((row) => Number(row.id || 0) === Number(change.detailId));
+
                         if (!detail) return;
+
                         detail._originalApproved = Boolean(change.approved);
+
                         detail.udfPqApproved = Boolean(change.approved);
+
                         detail.transferable = Boolean(change.approved);
+
                     });
+
                     viewApprovalPendingChanges.clear();
+
                 }
 
 if (viewHeaderStatusPendingChanges.size > 0) {
@@ -3481,22 +5520,52 @@ if (viewHeaderStatusPendingChanges.size > 0) {
 
                     });
 
-                    const statusData = await statusRes.json();
+                    const statusData = await readProcurementJson(statusRes);
 
                     try {
+
                         const payloadData = statusData && statusData.data;
+
                         if (payloadData && Array.isArray(payloadData.bidInvitationResults)) {
+
                             bidInvitationResults = payloadData.bidInvitationResults;
+
                         }
+
+                        if (statusRes.ok && statusData.success && payloadData && Array.isArray(payloadData.changes)) {
+
+                            payloadData.changes.forEach((applied) => {
+
+                                const id = String(applied && applied.requestId || '');
+
+                                const pending = id ? viewHeaderStatusPendingChanges.get(id) : null;
+
+                                const docStatus = String(applied && applied.docStatus || '').trim().toUpperCase();
+
+                                if (pending && docStatus) {
+
+                                    pending.docStatus = docStatus;
+
+                                }
+
+                            });
+
+                        }
+
                     } catch (e) { /* ignore */ }
 
                     if (!statusRes.ok || !statusData.success) {
 
                         const statusErr = statusData.error || `Failed to update header status (HTTP ${statusRes.status})`;
+
                         if (viewApprovalPendingChanges.size === 0) {
+
                             throw new Error(statusErr);
+
                         }
+
                         headerStatusSaveFailed = true;
+
                         headerStatusError = statusErr;
 
                     }
@@ -3525,7 +5594,7 @@ if (viewHeaderStatusPendingChanges.size > 0) {
 
                     });
 
-                    const data = await res.json();
+                    const data = await readProcurementJson(res);
 
                     if (!res.ok || !data.success) {
 
@@ -3546,6 +5615,7 @@ if (viewHeaderStatusPendingChanges.size > 0) {
                         detail._originalApproved = Boolean(change.approved);
 
                         detail.udfPqApproved = Boolean(change.approved);
+
                         detail.transferable = Boolean(change.approved);
 
                     });
@@ -3553,6 +5623,7 @@ if (viewHeaderStatusPendingChanges.size > 0) {
                 }
 
                 if (!headerStatusSaveFailed) {
+
                     viewHeaderStatusPendingChanges.forEach((change) => {
 
                     const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === Number(change.requestId));
@@ -3563,9 +5634,16 @@ if (viewHeaderStatusPendingChanges.size > 0) {
 
                     header.udfStatus = normalizeUdfStatus(change.udfStatus);
 
+                    if (change.docStatus) {
+
+                        header.status = change.docStatus;
+
+                    }
+
                     delete header._pendingUdfStatus;
 
                     });
+
                 }
 
                 (() => {
@@ -3579,20 +5657,35 @@ if (viewHeaderStatusPendingChanges.size > 0) {
                     ]);
 
                     const approvedIdsForCache = viewPrHeadersMarkedApprovedForSave();
+
                     affectedIds.forEach((id) => {
+
                         if (!id) return;
+
                         const header = viewPurchaseRequests.find((row) => Number(row.id || 0) === id);
+
                         const headerApproved = approvedIdsForCache.has(id)
+
                             || (header && normalizeUdfStatus(header._originalUdfStatus || header.udfStatus) === 'APPROVED');
+
                         if (headerApproved) {
+
                             invalidateViewDetailCache(id);
+
                             return;
+
                         }
+
                         if (header && Array.isArray(header.details)) {
+
                             syncViewDetailCacheFromRecord(header);
+
                         } else {
+
                             invalidateViewDetailCache(id);
+
                         }
+
                     });
 
                 })();
@@ -3602,37 +5695,81 @@ if (viewHeaderStatusPendingChanges.size > 0) {
                 const approvedHeaderIdsForRefresh = viewPrHeadersMarkedApprovedForSave();
 
                 const pendingHeaderIdsForRefresh = new Set(
+
                     Array.from(viewHeaderStatusPendingChanges.values())
+
                         .filter((c) => normalizeUdfStatus(c.udfStatus) === 'PENDING')
+
                         .map((c) => Number(c.requestId || 0))
+
                         .filter((id) => id > 0)
+
                 );
+
                 const cancelledHeaderIdsForRefresh = new Set(
+
                     Array.from(viewHeaderStatusPendingChanges.values())
+
                         .filter((c) => normalizeUdfStatus(c.udfStatus) === 'CANCELLED')
+
                         .map((c) => Number(c.requestId || 0))
+
                         .filter((id) => id > 0)
+
                 );
+
+                const awaitingHeaderIdsForRefresh = new Set(
+
+                    Array.from(viewHeaderStatusPendingChanges.values())
+
+                        .filter((c) => normalizeUdfStatus(c.udfStatus) === 'AWAITING')
+
+                        .map((c) => Number(c.requestId || 0))
+
+                        .filter((id) => id > 0)
+
+                );
+
                 if (!headerStatusSaveFailed && typeof bidInvitationResults !== 'undefined' && bidInvitationResults.length) {
+
                     const notes = bidInvitationResults.map((r) => {
+
                         if (!r) return '';
+
                         if (r.skipped && r.reason === 'already_invited') {
+
                             return `RFQ already invited (${r.inviteCount || 0}).`;
+
                         }
+
                         if (r.skipped && r.reason === 'no_suppliers') {
+
                             return 'No selected suppliers; RFQ not sent.';
+
                         }
+
                         if (r.reason === 'missing_portal_url') {
+
                             return 'Invites saved but SUPPLIER_PORTAL_BASE_URL is missing; emails not sent.';
+
                         }
+
                         if (r.skipped) {
+
                             return `RFQ skipped: ${r.reason || 'unknown'}`;
+
                         }
+
                         return `RFQ: ${r.inviteCount || 0} invite(s), ${r.emailsQueued || 0} email(s) queued.`;
+
                     }).filter(Boolean);
+
                     if (notes.length) {
+
                         alert(notes.join('\n'));
+
                     }
+
                 }
 
                 viewApprovalPendingChanges.clear();
@@ -3648,23 +5785,46 @@ if (viewHeaderStatusPendingChanges.size > 0) {
                 updateViewApprovalButtonState();
 
                                 if (pendingHeaderIdsForRefresh && pendingHeaderIdsForRefresh.size) {
+
                     await finalizeViewPrAfterApprovalSave(keepSelectedId, { targetUdfStatus: 'PENDING' });
+
                 } else if (approvedHeaderIdsForRefresh && approvedHeaderIdsForRefresh.size) {
+
                     activateViewPrApprovedTabAfterSave(approvedHeaderIdsForRefresh);
+
                     goToViewPrStatus('APPROVED', { reload: true });
+
                     await finalizeViewPrAfterApprovalSave(keepSelectedId, { targetUdfStatus: 'APPROVED' });
+
                 } else if (cancelledHeaderIdsForRefresh && cancelledHeaderIdsForRefresh.size) {
-                    await finalizeViewPrAfterApprovalSave(keepSelectedId, { targetUdfStatus: 'CANCELLED' });
+
+                    await finalizeViewPrAfterApprovalSave(keepSelectedId, {
+
+                        targetUdfStatus: 'CANCELLED',
+
+                        fromDraftPanel: viewStatusFilters instanceof Set && viewStatusFilters.has('DRAFT'),
+
+                    });
+
+                } else if (awaitingHeaderIdsForRefresh && awaitingHeaderIdsForRefresh.size) {
+
+                    await finalizeViewPrAfterApprovalSave(keepSelectedId, { targetUdfStatus: 'AWAITING' });
+
                 } else {
+
                     await finalizeViewPrAfterApprovalSave(keepSelectedId, { targetUdfStatus: '' });
+
                 }
+
                 if (headerStatusSaveFailed) {
+
                     alert(`Line approvals saved, but header status update failed: ${headerStatusError || 'SQL API returned an error.'}`);
+
                 }
 
             } catch (error) {
 
-                alert(error.message || 'Failed to update approval details.');
+                if (!isProcurementAuthExpired(error)) alert(error.message || 'Failed to update approval details.');
 
             } finally {
 
@@ -3704,25 +5864,116 @@ if (viewHeaderStatusPendingChanges.size > 0) {
 
         }
 
-        
             function formatViewPrSupplierAddress(supplier) {
+
                 if (!supplier || typeof supplier !== 'object') return '';
+
                 const parts = [
+
                     supplier.address1, supplier.address2, supplier.address3, supplier.address4,
+
                     supplier.daddress1, supplier.daddress2, supplier.daddress3, supplier.daddress4,
+
                     supplier.city, supplier.state, supplier.postcode, supplier.country,
+
                 ].map((v) => String(v || '').trim()).filter((v) => v && v.toUpperCase() !== 'N/A' && v !== '-');
+
                 // de-dupe while preserving order
+
                 const seen = new Set();
+
                 const uniq = [];
+
                 parts.forEach((p) => {
+
                     const k = p.toUpperCase();
+
                     if (seen.has(k)) return;
+
                     seen.add(k);
+
                     uniq.push(p);
+
                 });
+
                 return uniq.join(', ');
+
             }
+
+        function viewPrUdfOption(value, label, picked) {
+
+            const selected = picked === value ? ' selected' : '';
+
+            return `<option value="${value}"${selected}>${label}</option>`;
+
+        }
+
+        function viewPrUdfStatusOptionsHtml(savedUdf, selectUdf, docStatus) {
+
+            const saved = normalizeUdfStatus(savedUdf);
+
+            const picked = normalizeUdfStatus(selectUdf);
+
+            const doc = String(docStatus || '').trim().toUpperCase();
+
+            if (saved === 'AWAITING') {
+
+                // Default the control to Pending so Update can move Awaiting → Pending in one click.
+                const effectivePicked = picked === 'CANCELLED' ? 'CANCELLED' : 'PENDING';
+
+                return [
+
+                    viewPrUdfOption('PENDING', 'Pending', effectivePicked),
+
+                    viewPrUdfOption('CANCELLED', 'Cancelled', effectivePicked),
+
+                ].join('');
+
+            }
+
+            if (saved === 'PENDING') {
+
+                // View-only while suppliers bid; awards promote to Approved outside this screen.
+                return [
+
+                    viewPrUdfOption('PENDING', 'Pending', 'PENDING'),
+
+                ].join('');
+
+            }
+
+            if (doc === 'DRAFT' || saved === 'DRAFT') {
+
+                const current = (picked === 'AWAITING' || picked === 'CANCELLED') ? picked : '';
+
+                return [
+
+                    viewPrUdfOption('', 'Draft', current),
+
+                    viewPrUdfOption('AWAITING', 'Awaiting Approval', current),
+
+                    viewPrUdfOption('CANCELLED', 'Cancelled', current),
+
+                ].join('');
+
+            }
+
+            // Approved detail uses Cancel e-PR button — no Approved/Update status control.
+            if (saved === 'APPROVED') {
+
+                return '';
+
+            }
+
+            return [
+
+                viewPrUdfOption('APPROVED', 'Approved', picked),
+
+                viewPrUdfOption('CANCELLED', 'Cancelled', picked),
+
+            ].join('');
+
+        }
 
 function buildViewPurchaseRequestDetailHtml(header) {
 
@@ -3732,9 +5983,15 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             const isTransferring = viewTransferSavingHeaderIds.has(headerId);
 
-            const canTransfer = isPurchaseRequestTransferReady(header);
+            const pendingReadOnly = isPendingPurchaseRequestReadOnly(header);
 
-            const transferTitle = getPurchaseRequestTransferTitle(header);
+            const canTransfer = !pendingReadOnly && isPurchaseRequestTransferReady(header);
+
+            const transferTitle = pendingReadOnly
+
+                ? 'Pending e-PRs are view-only while suppliers bid. Transfer after Save Item Awards (Approved).'
+
+                : getPurchaseRequestTransferTitle(header);
 
             const suppliers = Array.isArray(header._suppliers) && header._suppliers.length
 
@@ -3743,12 +6000,19 @@ function buildViewPurchaseRequestDetailHtml(header) {
                 : [{ name: header.supplierName || header.supplierId || '-', email: header.supplierEmail || '' }];
 
             const supplierCodeList = suppliers
+
                 .map((s) => String(s.code || s.supplierCode || s.supplierId || '').trim())
+
                 .filter(Boolean);
+
             const requesterDisplay = supplierCodeList.length
+
                 ? supplierCodeList.join(', ')
+
                 : (String(header._requesterSupplierCodes || header.supplierId || '').trim()
+
                     || String(header.requesterId || header.requester || '').trim()
+
                     || '-');
 
             let supplierPrimary = String(header.supplierName || '').trim();
@@ -3768,13 +6032,26 @@ function buildViewPurchaseRequestDetailHtml(header) {
             }
 
             const savedUdfDisplay = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
-            const udfLocked = ['APPROVED', 'CANCELLED'].includes(normalizeUdfStatus(header._originalUdfStatus || header.udfStatus));
+
+            const udfLocked = ['PENDING', 'APPROVED', 'CANCELLED'].includes(savedUdfDisplay);
+
             const selectUdfRaw = normalizeUdfStatus(getHeaderPendingUdfStatus(header) || savedUdfDisplay);
-            const selectUdf = (savedUdfDisplay === 'AWAITING' && !['AWAITING', 'PENDING', 'CANCELLED'].includes(selectUdfRaw))
-                ? 'AWAITING'
-                : selectUdfRaw;
-            const hideApprovalEdits = document.body.classList.contains('procurement-hide-pr-approval-edits');
-            const canEditLines = !hideApprovalEdits && savedUdfDisplay !== 'CANCELLED' && canEditPrLineSelection(header);
+
+            // On Awaiting, pre-select Pending (not Cancelled) unless user already queued Cancelled.
+            const selectUdf = (savedUdfDisplay === 'AWAITING' && selectUdfRaw !== 'CANCELLED')
+
+                ? 'PENDING'
+
+                : ((savedUdfDisplay === 'AWAITING' && !['AWAITING', 'PENDING', 'CANCELLED'].includes(selectUdfRaw))
+
+                    ? 'AWAITING'
+
+                    : selectUdfRaw);
+
+            const hideApprovalEdits = isProcurementApprovalEditsHidden();
+            const canEditAwaitingStatus = canEditViewPrHeaderStatus(header) && savedUdfDisplay === 'AWAITING';
+
+            const canEditLines = !hideApprovalEdits && !pendingReadOnly && savedUdfDisplay !== 'CANCELLED' && canEditPrLineSelection(header);
 
             const supplierRowsHtml = suppliers.map((supplier, idx) => {
 
@@ -3789,9 +6066,13 @@ function buildViewPurchaseRequestDetailHtml(header) {
                         <strong>${escapeHtml(label)}</strong>
 
                         <span>${escapeHtml(name)}</span>
+
                         ${(() => {
+
                             const addr = formatViewPrSupplierAddress(supplier);
+
                             return addr ? `<div class="view-pr-detail-supplier-address muted">${escapeHtml(addr)}</div>` : '';
+
                         })()}
 
                     </div>
@@ -3801,73 +6082,36 @@ function buildViewPurchaseRequestDetailHtml(header) {
             }).join('');
 
             const selectableDetailCount = details.filter((detail) => Number(detail.id || 0) > 0).length;
+
             const selectedDetailCount = details.filter((detail) => Number(detail.id || 0) > 0 && isDetailChecked(detail)).length;
+
             const allDetailsSelected = selectableDetailCount > 0 && selectedDetailCount === selectableDetailCount;
 
             const lineBulkHint = savedUdfDisplay === 'APPROVED'
+
                 ? 'Selected lines can be transferred'
-                : savedUdfDisplay === 'PENDING'
-                    ? 'Update to save · selected lines stage Approved'
-                    : 'Update to save selected lines';
+
+                : 'Update to save selected lines';
 
             const detailRows = details.length
 
                 ? details.map((detail, idx) => {
 
                 const { sqty: rowSqty, suomqty: rowSuom } = viewPrDetailSqtySuom(detail);
+
                 const rowSelected = isDetailChecked(detail);
+
+                const qtyEditable = canEditLines && savedUdfDisplay === 'APPROVED' && !!detail.id && getDetailMaxTransferQuantity(detail) > 0;
+
+                const qtyControlHtml = qtyEditable
+
+                    ? `<input type="number" class="view-pr-transfer-qty-input view-pr-transfer-qty-input--inline" min="0" max="${escapeHtml(String(getDetailMaxTransferQuantity(detail)))}" step="0.01" value="${escapeHtml(String(getDetailTransferQuantity(detail)))}" title="${escapeHtml(`Enter transfer quantity up to ${formatStockCardNumber(getDetailMaxTransferQuantity(detail))}; total quantity is ${formatStockCardNumber(detail.quantity || 0)}.`)}" onchange="onTransferQuantityChange(${headerId}, ${Number(detail.id || 0)}, this.value)" />`
+
+                    : `<span>${formatStockCardNumber(getDetailTransferQuantity(detail))}</span>`;
 
                 return `
 
             <tr class="view-pr-detail-line${rowSelected ? ' is-selected' : ''}">
-
-                <td class="col-line">${escapeHtml(detail.seq || (idx + 1))}</td>
-
-                <td class="col-item-name">${escapeHtml(detail.itemCode || detail.itemName || '-')}</td>
-
-                <td class="col-location col-batch">${escapeHtml(detail.locationCode || '-')}</td>
-
-                <td class="view-pr-num col-sqty">${formatStockCardNumber(rowSqty)}</td>
-
-                <td class="view-pr-num col-suomqty">${formatStockCardNumber(rowSuom)}</td>
-
-                <td class="col-delivery-date">${formatPrDate(detail.deliveryDate || detail.requiredDate || '-')}</td>
-
-                <td class="view-pr-num col-qty view-pr-transfer-ratio-cell">
-
-                    <input
-
-                        type="number"
-
-                        class="view-pr-transfer-qty-input view-pr-transfer-qty-input--inline"
-
-                        min="0"
-
-                        max="${escapeHtml(String(getDetailMaxTransferQuantity(detail)))}"
-
-                        step="0.01"
-
-                        value="${escapeHtml(String(getDetailTransferQuantity(detail)))}"
-
-                        ${isDetailChecked(detail) && detail.id ? '' : 'disabled'}
-
-                        title="${escapeHtml(isDetailChecked(detail) ? `Enter transfer quantity up to ${formatStockCardNumber(getDetailMaxTransferQuantity(detail))}; total quantity is ${formatStockCardNumber(detail.quantity || 0)}.` : 'Tick approval first before setting transfer quantity.')}"
-
-                        onchange="onTransferQuantityChange(${headerId}, ${Number(detail.id || 0)}, this.value)"
-
-                    />
-
-                    <span class="view-pr-transfer-ratio-sep">/</span>
-
-                    <span class="view-pr-transfer-ratio-total">${formatStockCardNumber(detail.quantity || 0)}</span>
-
-                </td>
-
-                <td class="view-pr-num col-unit-price${detail.isFinalChosenPrice ? ' is-approved-bid-price' : ''}">
-
-                    ${formatMoney(detail.unitPrice || 0)}
-
-                </td>
 
                 <td class="col-approved view-pr-approved-cell">
 
@@ -3884,6 +6128,34 @@ function buildViewPurchaseRequestDetailHtml(header) {
                         onchange="onDetailApprovalChangeStageOnly(${headerId}, ${Number(detail.id || 0)}, this.checked)"
 
                     />
+
+                </td>
+
+                <td class="col-line">${escapeHtml(detail.seq || (idx + 1))}</td>
+
+                <td class="col-item-name">${escapeHtml(detail.itemCode || detail.itemName || '-')}</td>
+
+                <td class="col-location col-batch">${escapeHtml(detail.locationCode || '-')}</td>
+
+                <td class="view-pr-num col-sqty">${formatStockCardNumber(rowSqty)}</td>
+
+                <td class="view-pr-num col-suomqty">${formatStockCardNumber(rowSuom)}</td>
+
+                <td class="col-delivery-date">${formatPrDate(detail.deliveryDate || detail.requiredDate || '-')}</td>
+
+                <td class="view-pr-num col-qty view-pr-transfer-ratio-cell">
+
+                    ${qtyControlHtml}
+
+                    <span class="view-pr-transfer-ratio-sep">/</span>
+
+                    <span class="view-pr-transfer-ratio-total">${formatStockCardNumber(detail.quantity || 0)}</span>
+
+                </td>
+
+                <td class="view-pr-num col-unit-price${detail.isFinalChosenPrice ? ' is-approved-bid-price' : ''}">
+
+                    ${formatMoney(detail.unitPrice || 0)}
 
                 </td>
 
@@ -3951,7 +6223,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 </div>
 
-                <div class="view-pr-detail-actions view-pr-detail-actions--toolbar">
+                ${(savedUdfDisplay === 'CANCELLED' || pendingReadOnly) ? '' : `<div class="view-pr-detail-actions view-pr-detail-actions--toolbar">
 
                     <div class="view-pr-detail-summary">
 
@@ -3959,6 +6231,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     </div>
 
+                    <div class="view-pr-detail-actions__btns">
                     <button
 
                         type="button"
@@ -3971,31 +6244,39 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                         title="${escapeHtml(transferTitle)}"
 
-                    >${isTransferring ? 'Transferring...' : (canTransfer ? 'Transfer to Purchase Order' : 'Awaiting Approval')}</button>
+                    >${isTransferring ? 'Transferring...' : (canTransfer ? 'Transfer to Purchase Order' : 'Enter transfer qty')}</button>
+                    ${savedUdfDisplay === 'APPROVED' && !hideApprovalEdits ? `
+                    <button type="button" class="view-pr-detail-cancel-btn" onclick="cancelApprovedPurchaseRequest(${headerId})" title="Cancel this approved e-PR">Cancel</button>
+                    ` : ''}
+                    </div>
 
-                </div>
-
-                ${canEditLines && selectableDetailCount ? `
-                <div class="view-pr-line-bulk-bar" role="group" aria-label="Bulk line selection">
-                    <label class="view-pr-line-bulk-bar__select">
-                        <input
-                            type="checkbox"
-                            class="view-pr-line-bulk-master"
-                            aria-label="Select all lines"
-                            ${allDetailsSelected ? 'checked' : ''}
-                            onchange="onDetailApprovalToggleAll(${headerId}, this.checked)"
-                        />
-                        <span class="view-pr-line-bulk-bar__label">Select all lines</span>
-                        <span class="view-pr-line-bulk-bar__count">${selectedDetailCount} of ${selectableDetailCount} selected</span>
-                    </label>
-                    <span class="view-pr-line-bulk-bar__hint">${escapeHtml(lineBulkHint)}</span>
-                </div>` : ''}
+                </div>`}
 
                 <div class="view-pr-detail-wrap view-pr-detail-wrap--unified">
+
+                    ${canEditLines && selectableDetailCount ? `
+                    <div class="view-pr-line-bulk-bar" role="group" aria-label="Bulk line selection">
+                        <label class="view-pr-line-bulk-bar__select">
+                            <input
+                                type="checkbox"
+                                class="view-pr-line-bulk-master"
+                                aria-label="Select all lines"
+                                ${allDetailsSelected ? 'checked' : ''}
+                                onchange="onDetailApprovalToggleAll(${headerId}, this.checked)"
+                            />
+                            <span class="view-pr-line-bulk-bar__label">Select all lines</span>
+                            <span class="view-pr-line-bulk-bar__count">${selectedDetailCount} of ${selectableDetailCount} selected</span>
+                        </label>
+                        <span class="view-pr-line-bulk-bar__hint">${escapeHtml(lineBulkHint)}</span>
+                    </div>` : ''}
+
+                    <div class="view-pr-detail-table-scroll">
 
                     <table class="view-pr-detail-table">
 
                         <colgroup>
+
+                            <col class="col-approved" />
 
                             <col class="col-line" />
 
@@ -4013,8 +6294,6 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                             <col class="col-unit-price" />
 
-                            <col class="col-approved" />
-
                             <col class="col-amount" />
 
                         </colgroup>
@@ -4023,34 +6302,23 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                             <tr>
 
+                                <th class="col-approved">Sel</th>
+
                                 <th class="col-line">#</th>
 
-                                <th class="col-item-name">Item code</th>
+                                <th class="col-item-name">Item</th>
 
-                                <th class="col-location col-batch">Location</th>
+                                <th class="col-location col-batch">Loc</th>
 
                                 <th class="view-pr-num col-sqty">SQTY</th>
 
-                                <th class="view-pr-num col-suomqty">SUOMQTY</th>
+                                <th class="view-pr-num col-suomqty">SUOM</th>
 
-                                <th class="col-delivery-date">Deliv.</th>
+                                <th class="col-delivery-date">Deliv</th>
 
-                                <th class="view-pr-num col-qty">Qty (x / total)</th>
+                                <th class="view-pr-num col-qty" title="Qty (x / total)">Qty</th>
 
                                 <th class="view-pr-num col-unit-price">Unit</th>
-
-                                <th class="col-approved">
-                                    <label class="view-pr-approved-head-toggle" title="Select or unselect all line items">
-                                        <input
-                                            type="checkbox"
-                                            aria-label="Select all line items"
-                                            ${allDetailsSelected ? 'checked' : ''}
-                                            ${(selectableDetailCount && canEditLines) ? '' : 'disabled'}
-                                            onchange="onDetailApprovalToggleAll(${headerId}, this.checked)"
-                                        />
-                                        <span class="view-pr-approved-head-toggle__text">Select</span>
-                                    </label>
-                                </th>
 
                                 <th class="view-pr-num col-amount">Amt</th>
 
@@ -4066,31 +6334,33 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     </table>
 
-                    <div class="view-pr-detail-total-row" aria-label="Purchase request total">
-                        <span class="view-pr-detail-total-row__label">Total</span>
-                        <span class="view-pr-detail-total-row__value">RM ${formatMoney(header.totalAmount || 0)}</span>
                     </div>
 
-                    ${hideApprovalEdits || savedUdfDisplay === 'CANCELLED' ? '' : `
+                    <div class="view-pr-detail-total-row" aria-label="Purchase request total amount">
+
+                        <span class="view-pr-detail-total-row__label">Total Amount</span>
+
+                        <span class="view-pr-detail-total-row__value">RM ${formatMoney(header.totalAmount || 0)}</span>
+
+                    </div>
+
+                    ${(!canEditAwaitingStatus && (hideApprovalEdits || savedUdfDisplay === 'CANCELLED' || pendingReadOnly || savedUdfDisplay === 'APPROVED')) ? '' : `
                     <div class="view-pr-detail-lines-footer">
+
                         <div class="view-pr-detail-status-actions">
+
                             <label class="view-pr-detail-status-label" for="view-pr-detail-udf-${headerId}">Status</label>
-                            <select id="view-pr-detail-udf-${headerId}" class="view-pr-udf-status view-pr-detail-udf-status" onchange="onHeaderUdfStatusChange(${headerId}, this.value)" title="Approval status" ${udfLocked && savedUdfDisplay === 'APPROVED' ? 'disabled' : ''}>
-                                ${savedUdfDisplay === 'AWAITING' ? `
-                                <option value="AWAITING" ${selectUdf === 'AWAITING' ? 'selected' : ''}>Awaiting Approval</option>
-                                <option value="PENDING" ${selectUdf === 'PENDING' ? 'selected' : ''}>Pending (Awaiting RFQ)</option>
-                                <option value="CANCELLED" ${selectUdf === 'CANCELLED' ? 'selected' : ''}>Cancelled</option>
-                                ` : savedUdfDisplay === 'PENDING' ? `
-                                <option value="PENDING" ${selectUdf === 'PENDING' ? 'selected' : ''}>Pending</option>
-                                <option value="APPROVED" ${selectUdf === 'APPROVED' ? 'selected' : ''}>Approved</option>
-                                <option value="CANCELLED" ${selectUdf === 'CANCELLED' ? 'selected' : ''}>Cancelled</option>
-                                ` : `
-                                <option value="APPROVED" ${selectUdf === 'APPROVED' ? 'selected' : ''}>Approved</option>
-                                <option value="CANCELLED" ${selectUdf === 'CANCELLED' ? 'selected' : ''}>Cancelled</option>
-                                `}
+
+                            <select id="view-pr-detail-udf-${headerId}" class="view-pr-udf-status view-pr-detail-udf-status" onchange="onHeaderUdfStatusChange(${headerId}, this.value)" title="Approval status">
+
+                                ${viewPrUdfStatusOptionsHtml(savedUdfDisplay, selectUdf, header.status)}
+
                             </select>
+
                             <button type="button" class="view-pr-refresh-btn view-pr-detail-update-btn" onclick="saveViewDetailApprovals()">Update</button>
+
                         </div>
+
                     </div>`}
 
                 </div>
@@ -4114,9 +6384,13 @@ function buildViewPurchaseRequestDetailHtml(header) {
             const selectedId = viewSelectedHeaderId != null ? Number(viewSelectedHeaderId) : null;
 
             if (!selectedId) {
+
                 document.body.classList.remove('view-pr-detail-drawer-open');
+
                 const _backdrop = document.getElementById('view-pr-detail-drawer-backdrop');
+
                 if (_backdrop) _backdrop.hidden = true;
+
                 panel.innerHTML = '<div class="view-pr-detail-panel-empty view-pr-detail-panel-empty--hero"><p><strong>No purchase request selected</strong></p><p class="view-pr-detail-empty-hint">Tap a purchase request card to open details.</p></div>';
 
                 return;
@@ -4142,14 +6416,21 @@ function buildViewPurchaseRequestDetailHtml(header) {
             }
 
             if (!Array.isArray(header.details)) {
+
                 const missingId = Number(header.id || 0);
+
                 if (viewLoadingDetailIds.has(missingId) || viewDetailFetchPromises.has(missingId)) {
 
                 panel.innerHTML = '<div class="view-pr-detail-empty view-pr-detail-empty--loading">Loading line items…</div>';
+
                 } else {
+
                     const detailError = String(header._detailError || '').trim();
+
                     const msg = detailError ? `Failed to load line items: ${escapeHtml(detailError)}` : 'Line items are not loaded yet.';
+
                     panel.innerHTML = `<div class="view-pr-detail-empty">${msg} <button type="button" class="view-pr-refresh-btn" onclick="retryViewPurchaseRequestDetails(${missingId})">Retry</button></div>`;
+
                 }
 
                 return;
@@ -4157,12 +6438,19 @@ function buildViewPurchaseRequestDetailHtml(header) {
             }
 
             try {
+
                 panel.innerHTML = buildViewPurchaseRequestDetailHtml(header);
+
             } catch (error) {
+
                 console.error('Failed to render request detail panel:', error);
+
                 const renderError = error && error.message ? String(error.message) : 'Unknown render error';
+
                 header._detailError = renderError;
+
                 panel.innerHTML = `<div class="view-pr-detail-empty">Failed to render line items: ${escapeHtml(renderError)} <button type="button" class="view-pr-refresh-btn" onclick="retryViewPurchaseRequestDetails(${Number(header.id || 0)})">Retry</button></div>`;
+
             }
 
         }
@@ -4216,49 +6504,72 @@ function buildViewPurchaseRequestDetailHtml(header) {
         }
 
         function isViewPrPhoneLayout() {
+
             try {
+
                 return window.matchMedia && window.matchMedia('(max-width: 900px)').matches;
+
             } catch (e) {
+
                 return window.innerWidth <= 900;
+
             }
+
         }
 
         function openViewPrDetailDrawer() {
+
             if (!isViewPrPhoneLayout()) {
+
                 document.body.classList.remove('view-pr-detail-drawer-open');
+
                 const backdrop = document.getElementById('view-pr-detail-drawer-backdrop');
+
                 if (backdrop) backdrop.hidden = true;
+
                 return;
+
             }
+
             document.body.classList.add('view-pr-detail-drawer-open');
+
             const backdrop = document.getElementById('view-pr-detail-drawer-backdrop');
+
             if (backdrop) backdrop.hidden = false;
+
             const panel = document.getElementById('view-pr-items-panel');
+
             if (panel) {
+
                 try { panel.scrollTop = 0; } catch (e) {}
+
             }
+
         }
 
         function closeViewPrDetailDrawer() {
+
             document.body.classList.remove('view-pr-detail-drawer-open');
+
             const backdrop = document.getElementById('view-pr-detail-drawer-backdrop');
+
             if (backdrop) backdrop.hidden = true;
+
             if (viewSelectedHeaderId != null) {
+
                 viewSelectedHeaderId = null;
+
                 try { renderFilteredViewPurchaseRequests(); } catch (e) {}
+
                 try { syncViewPrToUrl(); } catch (e) {}
+
             }
+
         }
 
         function onViewPrCardActivate(event, headerId) {
 
-            if (event && event.target && event.target.closest && event.target.closest('.pr-view-pr-card__controls')) {
-
-                return;
-
-            }
-
-            if (event && event.target && event.target.closest && event.target.closest('.pr-view-pr-card__bulk')) {
+            if (event && event.target && event.target.closest && event.target.closest('button, select, input, label, .pr-view-pr-row__bulk')) {
 
                 return;
 
@@ -4287,29 +6598,53 @@ function buildViewPurchaseRequestDetailHtml(header) {
         }
 
         function getViewPrEmptyListMessage() {
+
             const searchText = String(viewPrSearchText || '').trim();
+
             const filters = viewStatusFilters instanceof Set ? viewStatusFilters : new Set(['PENDING']);
+
             const active = VIEW_STATUS_FILTER_OPTIONS.filter((s) => filters.has(s));
+
             if (active.length === 1) {
+
                 const label = VIEW_PR_TAB_LABELS[active[0]] || active[0];
+
                 let msg = `No purchase requests under "${label}"`;
+
                 if (searchText) {
+
                     msg += ` matching "${searchText}"`;
+
                 }
+
                 return `${msg}.`;
+
             }
+
             if (active.length > 1) {
+
                 const quoted = active.map((s) => `"${VIEW_PR_TAB_LABELS[s] || s}"`).join(', ');
+
                 let msg = `No purchase requests under ${quoted}`;
+
                 if (searchText) {
+
                     msg += ` matching "${searchText}"`;
+
                 }
+
                 return `${msg}.`;
+
             }
+
             if (searchText) {
+
                 return `No purchase requests matching "${searchText}".`;
+
             }
+
             return 'No purchase requests.';
+
         }
 
         function renderViewPurchaseRequests(rows) {
@@ -4346,69 +6681,66 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 const prStatus = String(header.status || 'DRAFT').toUpperCase();
 
-                const canEditDraft = prStatus === 'DRAFT';
-
-                const isSelected = viewSelectedHeaderId != null && Number(viewSelectedHeaderId) === headerId;
-
-                const udfLocked = ['APPROVED', 'CANCELLED'].includes(normalizeUdfStatus(header._originalUdfStatus));
-
                 const savedUdf = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
 
                 const pendingUdf = getHeaderPendingUdfStatus(header);
 
                 const udf = savedUdf;
 
-                const selectUdf = pendingUdf || savedUdf;
+                // Edit only for true drafts (doc status DRAFT + UDF draft/empty). Pending/Awaiting/Approved keep status DRAFT on the doc.
+                const canEditDraft = prStatus === 'DRAFT' && (!udf || udf === 'DRAFT');
+
+                const isSelected = viewSelectedHeaderId != null && Number(viewSelectedHeaderId) === headerId;
 
                 const borderColor = udf === 'CANCELLED' ? '#a65c5c' : (udf === 'APPROVED' ? '#2d6a4f' : '#b0892f');
 
                 const badgeColor = borderColor;
 
-                const pendingStatusHtml = pendingUdf
+                const onAwaitingTab = viewStatusFilters instanceof Set
 
-                    ? `<span class="view-pr-pending-status" title="Pending status change. Press Update to save.">→ ${escapeHtml(pendingUdf)}</span>`
+                    && viewStatusFilters.size === 1
+
+                    && viewStatusFilters.has('AWAITING');
+
+                const pendingStatusHtml = !onAwaitingTab && pendingUdf && pendingUdf !== 'CANCELLED'
+
+                    ? `<span class="view-pr-pending-status" title="Pending status change. Press Update to save.">→ ${escapeHtml(formatUdfStatusLabel(pendingUdf) || pendingUdf)}</span>`
 
                     : '';
-
-                const showPrStatus = !(prStatus === 'SUBMITTED' && ['APPROVED', 'CANCELLED'].includes(udf));
-
-                const docStatusHtml = showPrStatus
-
-                    ? `<span class="pr-status-pill pr-view-pr-card__doc-pill">${escapeHtml(prStatus)}</span>`
-
-                    : '<span class="pr-view-pr-card__doc-muted">-</span>';
 
                 const editButtonHtml = canEditDraft
 
-                    ? `<button type="button" class="edit-button view-pr-edit-inline-btn" onclick="openPurchaseRequestEdit(${headerId});" title="Edit draft purchase request">Edit</button>`
+                    ? `<button type="button" class="edit-button view-pr-edit-inline-btn" onclick="openPurchaseRequestEdit(${headerId});" title="Edit draft purchase request"><svg class="view-pr-edit-inline-btn__icon" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" focusable="false"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82z"/></svg><span>Edit</span></button>`
 
                     : '';
 
-                
                 let cardSelectedCount = (header.selectedLineCount == null || header.selectedLineCount === '') ? null : Number(header.selectedLineCount);
+
                 let cardLineCount = (header.lineCount == null || header.lineCount === '') ? null : Number(header.lineCount);
+
                 if (Array.isArray(header.details) && header.details.length) {
+
                     const selectable = header.details.filter((d) => Number(d && d.id ? d.id : 0) > 0);
+
                     cardLineCount = selectable.length;
+
                     cardSelectedCount = selectable.filter((d) => isDetailChecked(d)).length;
+
                     header.selectedLineCount = cardSelectedCount;
+
                     header.lineCount = cardLineCount;
+
                 }
+
                 const selectionCardHtml = buildViewPrSelectionBadgeHtml(cardSelectedCount, cardLineCount);
 
-                const approvalBadgeHtml = udfLocked
-
-                    ? `<span class="pr-view-pr-card__udf-badge pr-view-pr-card__udf-badge--${String(selectUdf || 'PENDING').toLowerCase()}">${escapeHtml(formatUdfStatusLabel(selectUdf))}</span>`
-
-                    : '';
-
-                const bulkMode = isViewPendingBulkSelectMode() && !document.body.classList.contains('procurement-hide-pr-approval-edits');
+                const bulkMode = canUseViewPrListBulkSelect();
 
                 const bulkSlot = bulkMode
 
-                    ? `<div class="pr-view-pr-card__bulk" onclick="event.stopPropagation()">
+                    ? `<span class="pr-view-pr-row__bulk" onclick="event.stopPropagation()">
 
-                        <label class="pr-view-pr-card__bulk-label" title="Select for bulk approval">
+                        <label class="pr-view-pr-row__bulk-label" title="Select for bulk approval">
 
                             <input
 
@@ -4426,52 +6758,29 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                         </label>
 
-                    </div>`
+                    </span>`
 
                     : '';
 
                 cardParts.push(`
 
-            <div class="pr-view-pr-card${isSelected ? ' is-selected' : ''}" data-header-id="${headerId}" style="--pr-card-accent: ${borderColor}; --pr-card-badge: ${badgeColor};">
+            <div class="pr-view-pr-row${isSelected ? ' is-selected' : ''}${canEditDraft ? ' pr-view-pr-row--draft' : ''}" data-header-id="${headerId}" style="--pr-card-accent: ${borderColor}; --pr-card-badge: ${badgeColor};" role="button" tabindex="0" onclick="onViewPrCardActivate(event, ${headerId})" onkeydown="onViewPrCardKeydown(event, ${headerId})">
 
-                ${bulkSlot}
+                <span class="pr-view-pr-row__code">${bulkSlot}${escapeHtml(header.requestNumber || '-')}</span>
 
-                <div class="pr-view-pr-card__stack">
+                <span class="pr-view-pr-row__date">${escapeHtml(formatPrDate(header.requestDate || '-'))}</span>
 
-                <div class="pr-view-pr-card__main" role="button" tabindex="0" onclick="onViewPrCardActivate(event, ${headerId})" onkeydown="onViewPrCardKeydown(event, ${headerId})">
+                <span class="pr-view-pr-row__selected">
 
-                    <div class="pr-view-pr-card__topline">
+                    ${pendingStatusHtml}
 
-                        <span class="pr-view-pr-card__code">${escapeHtml(header.requestNumber || '-')}</span>
-
-                        <span class="pr-view-pr-card__amount"><span class="pr-view-amount-pill" style="background: ${badgeColor};">RM ${formatMoney(header.totalAmount || 0)}</span></span>
-
-                    </div>
-
-                    <div class="pr-view-pr-card__date">${formatPrDate(header.requestDate || '-')}</div>
                     ${selectionCardHtml}
 
-                </div>
+                </span>
 
-                <div class="pr-view-pr-card__controls">
+                <span class="pr-view-pr-row__actions">${editButtonHtml}</span>
 
-                    <div class="pr-view-pr-card__doc">${docStatusHtml}</div>
-
-                    <div class="pr-view-pr-card__approval">
-
-                        <span class="pr-view-pr-card__approval-label">Approval</span>
-
-                        ${udfLocked ? approvalBadgeHtml : `<span class="pr-view-pr-card__udf-badge pr-view-pr-card__udf-badge--${String(selectUdf || 'PENDING').toLowerCase()}">${escapeHtml(formatUdfStatusLabel(selectUdf))}</span>`}
-
-                        ${pendingStatusHtml}
-
-                        ${editButtonHtml}
-
-                    </div>
-
-                </div>
-
-                </div>
+                <span class="pr-view-pr-row__amount"><span class="pr-view-amount-pill">RM ${formatMoney(header.totalAmount || 0)}</span></span>
 
             </div>
 
@@ -4484,6 +6793,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
         }
 
         function selectViewPurchaseRequest(headerId, options) {
+
             const opts = options || {};
 
             if (!headerId) {
@@ -4503,36 +6813,59 @@ function buildViewPurchaseRequestDetailHtml(header) {
             }
 
             if (viewSelectedHeaderId != null && Number(viewSelectedHeaderId) === id) {
+
                 viewSelectedHeaderId = null;
+
                 renderFilteredViewPurchaseRequests();
+
                 if (!opts.fromUrl) {
+
                     syncViewPrToUrl();
+
                 }
+
                 if (isViewPrPhoneLayout()) {
+
                     document.body.classList.remove('view-pr-detail-drawer-open');
+
                     const _bd = document.getElementById('view-pr-detail-drawer-backdrop');
+
                     if (_bd) _bd.hidden = true;
+
                 }
+
                 return;
+
             }
+
             viewSelectedHeaderId = id;
+
             openViewPrDetailDrawer();
 
             const cached = viewDetailCache.get(id);
 
             if ((!Array.isArray(record.details) || !record.details.length) && shouldUseViewDetailCache(record, cached)) {
+
                 hydrateViewPurchaseRequestDetails(record, {
+
                     details: Array.isArray(cached.details) ? cached.details : [],
+
                     totalAmount: cached.totalAmount,
+
                     suppliers: Array.isArray(cached.suppliers) ? cached.suppliers : [],
+
                 });
+
             }
 
             if (Array.isArray(record.details) && record.details.length) {
 
                 renderFilteredViewPurchaseRequests();
+
                 if (!opts.fromUrl) {
+
                     syncViewPrToUrl();
+
                 }
 
                 return;
@@ -4542,20 +6875,26 @@ function buildViewPurchaseRequestDetailHtml(header) {
             viewLoadingDetailIds.add(id);
 
             renderFilteredViewPurchaseRequests();
+
             if (!opts.fromUrl) {
+
                 syncViewPrToUrl();
+
             }
 
             fetchViewPurchaseRequestDetail(record)
 
                 .catch((error) => {
 
-                    console.error('Failed to load request detail:', error);
-                    record._detailError = error && error.message ? String(error.message) : 'Failed to load detail rows';
+                    if (isProcurementAuthExpired(error)) {
 
-                    if (!Array.isArray(record.details)) {
-                        record.details = [];
+                        return;
+
                     }
+
+                    console.error('Failed to load request detail:', error);
+
+                    markViewPrDetailLoadFailed(record, error);
 
                 })
 
@@ -4569,27 +6908,58 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
         }
 
+        function markViewPrDetailLoadFailed(record, error) {
+            if (!record) return;
+            // Keep details unset so the panel shows Retry, not "No line items".
+            const aborted = isRequestAbortError(error);
+            record._detailError = aborted
+                ? 'Detail load timed out or was cancelled. Click Retry.'
+                : (error && error.message ? String(error.message) : 'Failed to load detail rows');
+            try {
+                delete record.details;
+            } catch (e) {
+                record.details = undefined;
+            }
+        }
+
         function narrowViewPrSuppliersForApproved(header, suppliers) {
+
             const rows = Array.isArray(suppliers) ? suppliers : [];
+
             if (!rows.length) return rows;
+
             const udf = normalizeUdfStatus(header?._originalUdfStatus || header?.udfStatus);
+
             if (udf !== 'APPROVED') return rows;
+
             const awardedCodes = String(header?.supplierId || '')
+
                 .split(',')
+
                 .map((s) => s.trim())
+
                 .filter((c) => c && c !== '----' && c !== '-');
+
             if (!awardedCodes.length) return rows;
+
             const wanted = new Set(awardedCodes.map((c) => c.toUpperCase()));
+
             const matched = rows.filter((s) => {
+
                 const code = String(s.code || s.supplierCode || s.supplierId || '').trim().toUpperCase();
+
                 return code && wanted.has(code);
+
             });
+
             return matched.length ? matched : rows;
+
         }
 
         function hydrateViewPurchaseRequestDetails(record, payload) {
 
             record._detailError = '';
+
             record.details = Array.isArray(payload.details) ? payload.details : [];
 
             record._suppliers = Array.isArray(payload.suppliers) ? payload.suppliers : [];
@@ -4611,10 +6981,15 @@ function buildViewPurchaseRequestDetailHtml(header) {
                     .filter(Boolean);
 
                 const supplierCodes = record._suppliers
+
                     .map((s) => String(s.code || s.supplierCode || s.supplierId || '').trim())
+
                     .filter(Boolean);
+
                 if (supplierCodes.length) {
+
                     record._requesterSupplierCodes = supplierCodes.join(', ');
+
                 }
 
                 if (supplierNames.length) {
@@ -4649,13 +7024,41 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             }
 
+            const savedUdf = normalizeUdfStatus(record._originalUdfStatus || record.udfStatus);
+
             record.details.forEach((detail) => {
+
+                // Approved: default remaining lines selected with full remaining qty for PO transfer.
+                if (savedUdf === 'APPROVED' && getDetailMaxTransferQuantity(detail) > 0 && !isDetailChecked(detail)) {
+
+                    const rejected = Object.prototype.hasOwnProperty.call(detail, 'udfPqApproved')
+
+                        && detail.udfPqApproved != null
+
+                        && String(detail.udfPqApproved).trim() !== ''
+
+                        && !toApprovalBool(detail.udfPqApproved);
+
+                    if (!rejected) {
+
+                        detail.transferable = true;
+
+                        detail.udfPqApproved = true;
+
+                    }
+
+                }
 
                 detail._originalApproved = isDetailChecked(detail);
 
                 detail.transferQty = detail._originalApproved
 
-                    ? clampTransferQuantity(detail.remainingQty, getDetailMaxTransferQuantity(detail))
+                    ? clampTransferQuantity(
+                        detail.transferQty != null && Number(detail.transferQty) > 0
+                            ? detail.transferQty
+                            : detail.remainingQty,
+                        getDetailMaxTransferQuantity(detail)
+                    )
 
                     : 0;
 
@@ -4678,120 +7081,245 @@ function buildViewPurchaseRequestDetailHtml(header) {
         }
 
         function fetchWithFallback(primaryUrl, fallbackUrl, signal, requestId) {
-            const fetchJson = (url) => fetch(url, { signal }).then((res) => res.json());
+
+            const fetchJson = (url) => fetch(url, { signal }).then((res) => readProcurementJson(res));
 
             return fetchJson(primaryUrl).then((payload) => {
+
                 if (payload && payload.success) return payload;
+
                 const firstError = payload && payload.error ? String(payload.error) : 'Failed to load detail rows';
+
                 return fetchJson(fallbackUrl).then((fallbackPayload) => {
+
                     if (fallbackPayload && fallbackPayload.success) {
+
                         console.warn(`[VIEW PR] detail fallback endpoint used for request_id=${requestId}: ${firstError}`);
+
                         return fallbackPayload;
+
                     }
+
                     const fallbackError = fallbackPayload && fallbackPayload.error ? String(fallbackPayload.error) : firstError;
+
                     throw new Error(fallbackError || 'Failed to load detail rows');
+
                 });
+
             });
+
         }
 
         function retryViewPurchaseRequestDetails(headerId) {
+
             const id = Number(headerId || viewSelectedHeaderId || 0);
+
             if (!id) return;
+
             const record = viewPurchaseRequests.find((row) => Number(row.id || 0) === id);
+
             if (!record) return;
 
+            try {
+                delete record.details;
+            } catch (e) {
+                record.details = undefined;
+            }
+            record._detailError = '';
+
             viewLoadingDetailIds.add(id);
+
             renderFilteredViewPurchaseRequests();
+
             fetchViewPurchaseRequestDetail(record, true)
+
                 .catch((error) => {
-                    console.error('Retry failed to load request detail:', error);
-                    record._detailError = error && error.message ? String(error.message) : 'Failed to load detail rows';
-                    if (!Array.isArray(record.details)) {
-                        record.details = [];
+
+                    if (isProcurementAuthExpired(error)) {
+
+                        return;
+
                     }
+
+                    console.error('Retry failed to load request detail:', error);
+
+                    markViewPrDetailLoadFailed(record, error);
+
                 })
+
                 .finally(() => {
+
                     viewLoadingDetailIds.delete(id);
+
                     renderFilteredViewPurchaseRequests();
+
                 });
+
         }
 
         function shouldUseViewDetailCache(header, cached) {
+
             if (!cached || Date.now() - Number(cached.at || 0) > VIEW_DETAIL_CACHE_TTL_MS) {
+
                 return false;
+
             }
+
             const details = Array.isArray(cached.details) ? cached.details : [];
+
             if (!details.length) {
+
                 return false;
+
             }
+
             const headerStatus = normalizeUdfStatus(header?._originalUdfStatus || header?.udfStatus);
+
             if (headerStatus === 'APPROVED') {
+
                 const hasTransferableLine = details.some((detail) => isDetailChecked(detail));
+
                 if (!hasTransferableLine) {
+
                     return false;
+
                 }
+
             }
+
             return true;
+
         }
 
         function invalidateViewDetailCache(headerId) {
+
             const id = Number(headerId || 0);
+
             if (!id) {
+
                 return;
+
             }
+
             viewDetailCache.delete(id);
+
             try {
+
                 const controller = viewDetailFetchControllers.get(id);
+
                 if (controller) {
+
                     controller.abort();
+
                 }
+
             } catch (e) { /* no-op */ }
+
             viewDetailFetchControllers.delete(id);
+
             viewDetailFetchPromises.delete(id);
+
             viewDetailFetchStartedAtMs.delete(id);
+
             const record = viewPurchaseRequests.find((row) => Number(row.id || 0) === id);
+
             if (record) {
+
                 record.details = null;
+
                 record._detailError = '';
+
             }
+
         }
 
         function syncViewDetailCacheFromRecord(record) {
+
             const id = Number(record?.id || 0);
+
             if (!id || !Array.isArray(record.details)) {
+
                 return;
+
             }
+
             viewDetailCache.set(id, {
+
                 at: Date.now(),
+
                 details: record.details,
+
                 totalAmount: record.totalAmount,
+
                 suppliers: record._suppliers,
+
             });
+
         }
 
         function refreshSelectedViewPurchaseRequestDetail(forceRefresh) {
+
             const selectedId = viewSelectedHeaderId != null ? Number(viewSelectedHeaderId) : 0;
+
             if (!selectedId) {
+
                 return Promise.resolve();
+
             }
+
             const record = viewPurchaseRequests.find((row) => Number(row.id || 0) === selectedId);
+
             if (!record) {
+
                 return Promise.resolve();
+
             }
+
             if (forceRefresh) {
+
                 invalidateViewDetailCache(selectedId);
+
             }
+
             viewLoadingDetailIds.add(selectedId);
+
             renderFilteredViewPurchaseRequests();
+
             return fetchViewPurchaseRequestDetail(record, Boolean(forceRefresh))
+
                 .catch((error) => {
+
+                    if (isProcurementAuthExpired(error)) {
+
+                        return;
+
+                    }
+
                     console.warn('[View PR] Failed to refresh selected detail:', error);
-                    record._detailError = error && error.message ? String(error.message) : 'Failed to load detail rows';
+
+                    // Keep prior good lines; only clear when nothing usable is loaded.
+                    if (!Array.isArray(record.details) || !record.details.length) {
+
+                        markViewPrDetailLoadFailed(record, error);
+
+                    } else {
+
+                        record._detailError = error && error.message
+                            ? String(error.message)
+                            : 'Failed to load detail rows';
+
+                    }
+
                 })
+
                 .finally(() => {
+
                     viewLoadingDetailIds.delete(selectedId);
+
                     renderFilteredViewPurchaseRequests();
+
                 });
+
         }
 
         function fetchViewPurchaseRequestDetail(record, forceRefresh) {
@@ -4815,17 +7343,29 @@ function buildViewPurchaseRequestDetailHtml(header) {
             if (!forceRefresh && viewDetailFetchPromises.has(id)) {
 
                 const startedAtMs = Number(viewDetailFetchStartedAtMs.get(id) || 0);
+
                 const requestAgeMs = Date.now() - startedAtMs;
+
                 if (startedAtMs > 0 && requestAgeMs > 12000) {
+
                     const staleController = viewDetailFetchControllers.get(id);
+
                     if (staleController) {
+
                         try { staleController.abort(); } catch (e) { /* no-op */ }
+
                     }
+
                     viewDetailFetchControllers.delete(id);
+
                     viewDetailFetchPromises.delete(id);
+
                     viewDetailFetchStartedAtMs.delete(id);
+
                 } else {
+
                     return viewDetailFetchPromises.get(id);
+
                 }
 
             }
@@ -4845,6 +7385,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
             const requestNo = encodeURIComponent(String(record.requestNumber || ''));
 
             const controller = new AbortController();
+
             const detailFetchTimeoutId = window.setTimeout(() => controller.abort(), 30000);
 
             viewDetailFetchControllers.set(id, controller);
@@ -4852,17 +7393,27 @@ function buildViewPurchaseRequestDetailHtml(header) {
             const startedAt = performance.now();
 
             const fetchPromise = fetchWithFallback(
+
                 `/api/admin/procurement/purchase-requests/details?request_id=${id}&request_no=${requestNo}`,
+
                 `/api/admin/procurement/purchase-requests/${id}`,
+
                 controller.signal,
+
                 id
+
             ).then((payload) => {
+
                 const elapsed = Math.round(performance.now() - startedAt);
+
                 console.log(`[VIEW PR PERF] detail request_id=${id} loaded in ${elapsed}ms`);
+
                 return hydrateViewPurchaseRequestDetails(record, payload);
+
             })
 
                 .finally(() => {
+
                     window.clearTimeout(detailFetchTimeoutId);
 
                     if (viewDetailFetchControllers.get(id) === controller) {
@@ -4874,6 +7425,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
                     if (viewDetailFetchPromises.get(id) === fetchPromise) {
 
                         viewDetailFetchPromises.delete(id);
+
                         viewDetailFetchStartedAtMs.delete(id);
 
                     }
@@ -4881,6 +7433,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
                 });
 
             viewDetailFetchStartedAtMs.set(id, Date.now());
+
             viewDetailFetchPromises.set(id, fetchPromise);
 
             return fetchPromise;
@@ -4964,9 +7517,11 @@ function buildViewPurchaseRequestDetailHtml(header) {
             if (Number.isFinite(sup)) {
 
                 parts.push(`supplier map ${sup} ms`);
+
             }
 
             if (Number.isFinite(supEnrich) && supEnrich > 0.05) {
+
                 parts.push(`supplier enrich ${supEnrich} ms`);
 
             }
@@ -5031,19 +7586,61 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             btn.disabled = viewPrListLoadingMore;
 
-            btn.textContent = viewPrListLoadingMore ? 'Loading…' : '… more (+5)';
+            const pageSize = VIEW_PR_LIST_PAGE_SIZE;
+
+            btn.textContent = viewPrListLoadingMore ? 'Loading…' : `… more (+${pageSize})`;
 
             if (show) {
 
                 btn.title = viewPrListTotal != null
 
-                    ? `Load 5 more (${viewPurchaseRequests.length} of ${viewPrListTotal} shown)`
+                    ? `Load ${pageSize} more (${viewPurchaseRequests.length} of ${viewPrListTotal} shown)`
 
-                    : 'Load 5 more purchase requests';
+                    : `Load ${pageSize} more purchase requests`;
 
             } else {
 
                 btn.removeAttribute('title');
+
+            }
+
+            bindViewPrListInfiniteScroll();
+
+            window.requestAnimationFrame(() => maybeLoadMoreViewPrForScreen());
+
+        }
+
+        function bindViewPrListInfiniteScroll() {
+
+            const list = document.getElementById('view-pr-list');
+
+            if (!list || list.dataset.infiniteScrollBound === '1') return;
+
+            list.dataset.infiniteScrollBound = '1';
+
+            list.addEventListener('scroll', () => {
+
+                maybeLoadMoreViewPrForScreen();
+
+            }, { passive: true });
+
+        }
+
+        function maybeLoadMoreViewPrForScreen() {
+
+            const list = document.getElementById('view-pr-list');
+
+            if (!list || !viewPrListHasMore || viewPrListLoadingMore) return;
+
+            if (list.clientHeight < 80) return;
+
+            const gap = list.scrollHeight - list.scrollTop - list.clientHeight;
+
+            const fillsScreen = list.scrollHeight > list.clientHeight + 8;
+
+            if (!fillsScreen || gap < 140) {
+
+                loadMoreViewPurchaseRequests();
 
             }
 
@@ -5058,6 +7655,8 @@ function buildViewPurchaseRequestDetailHtml(header) {
                 sessionStorage.setItem(VIEW_PR_LIST_CACHE_KEY, JSON.stringify({
 
                     at: Date.now(),
+
+                    viewStatus: getActiveViewStatusFilter(),
 
                     payload,
 
@@ -5077,6 +7676,12 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             const totalNum = Number(totalRaw);
 
+            if (payload.statusCounts && typeof payload.statusCounts === 'object') {
+
+                viewPrServerStatusCounts = payload.statusCounts;
+
+            }
+
             viewPurchaseRequests = rows;
 
             viewPurchaseRequests.forEach((row) => {
@@ -5084,10 +7689,15 @@ function buildViewPurchaseRequestDetailHtml(header) {
                 row.udfStatus = normalizeUdfStatus(row.udfStatus);
 
                 row._originalUdfStatus = row.udfStatus;
+
                 if (Array.isArray(row.suppliers) && row.suppliers.length) {
+
                     row._suppliers = row.suppliers;
+
                 } else if (!Array.isArray(row._suppliers)) {
+
                     row._suppliers = [];
+
                 }
 
             });
@@ -5104,7 +7714,11 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             viewLoadingDetailIds = new Set();
 
-            viewDetailFetchControllers.forEach((controller) => {
+            const keptIds = new Set(viewPurchaseRequests.map((row) => Number(row.id || 0)).filter(Boolean));
+
+            viewDetailFetchControllers.forEach((controller, requestId) => {
+
+                if (keptIds.has(Number(requestId))) return;
 
                 try {
 
@@ -5121,6 +7735,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
             viewDetailFetchControllers = new Map();
 
             viewDetailFetchPromises = new Map();
+
             viewDetailFetchStartedAtMs = new Map();
 
             viewTransferSavingHeaderIds = new Set();
@@ -5164,122 +7779,219 @@ function buildViewPurchaseRequestDetailHtml(header) {
             updateViewApprovalButtonState();
 
             renderFilteredViewPurchaseRequests();
+
             selectViewPrFromUrlIfPresent();
+
             syncViewPrLoadMoreUi();
+
             scheduleViewPrLineSelectionCountsEnrich(rows);
+
         }
 
         function buildViewPrListSkeletonHtml() {
+
             const n = Math.max(1, Math.min(Number(VIEW_PR_LIST_PAGE_SIZE) || 15, 15));
+
             let cards = '';
+
             for (let i = 0; i < n; i += 1) {
+
                 cards += `
-            <div class="pr-view-pr-card view-pr-card-skeleton" aria-hidden="true">
-                <div class="pr-view-pr-card__stack">
-                <div class="pr-view-pr-card__main">
-                    <div class="pr-view-pr-card__topline">
-                        <span class="view-pr-skel-bar view-pr-skel-bar--code"></span>
-                        <span class="view-pr-skel-bar view-pr-skel-bar--amt"></span>
-                    </div>
-                    <div class="view-pr-skel-bar view-pr-skel-bar--date"></div>
-                </div>
-                <div class="pr-view-pr-card__controls">
-                    <span class="view-pr-skel-bar view-pr-skel-bar--pill"></span>
-                    <span class="view-pr-skel-bar view-pr-skel-bar--pill"></span>
-                </div>
-                </div>
+
+            <div class="pr-view-pr-row view-pr-card-skeleton" aria-hidden="true">
+
+                <span class="view-pr-skel-bar view-pr-skel-bar--code"></span>
+
+                <span class="view-pr-skel-bar view-pr-skel-bar--date"></span>
+
+                <span class="view-pr-skel-bar view-pr-skel-bar--pill"></span>
+
+                <span class="view-pr-skel-bar view-pr-skel-bar--action"></span>
+
+                <span class="view-pr-skel-bar view-pr-skel-bar--amt"></span>
+
             </div>`;
+
             }
+
             return `<div class="view-pr-skeleton" aria-busy="true" aria-label="Loading purchase requests">${cards}</div>`;
+
         }
 
         function buildViewPrSelectionBadgeHtml(selected, total) {
+
             const selectedN = Number(selected);
+
             const totalN = Number(total);
+
             if (!(Number.isFinite(totalN) && totalN > 0)) {
+
                 return '';
+
             }
+
             const selectedSafe = Number.isFinite(selectedN) ? Math.max(0, selectedN) : 0;
+
             const cls = selectedSafe > 0
+
                 ? (selectedSafe >= totalN ? ' is-all' : ' is-partial')
+
                 : '';
-            return `<div class="pr-view-pr-card__selection${cls}" title="Selected line items">SELECTED ${selectedSafe}/${totalN}</div>`;
+
+            return `<span class="pr-view-pr-row__selection${cls}" title="Selected line items">SELECTED ${selectedSafe}/${totalN}</span>`;
+
         }
 
         function patchViewPrCardSelectionBadge(headerId, selected, total) {
+
             const id = Number(headerId || 0);
+
             if (!id) return;
-            const card = document.querySelector(`.pr-view-pr-card[data-header-id="${id}"]`);
-            if (!card) return;
-            const main = card.querySelector('.pr-view-pr-card__main');
-            if (!main) return;
-            let badge = main.querySelector('.pr-view-pr-card__selection');
+
+            const row = document.querySelector(`.pr-view-pr-row[data-header-id="${id}"]`);
+
+            if (!row) return;
+
+            const host = row.querySelector('.pr-view-pr-row__selected') || row;
+
+            let badge = host.querySelector('.pr-view-pr-row__selection');
+
             const html = buildViewPrSelectionBadgeHtml(selected, total);
+
             if (!html) {
+
                 if (badge) badge.remove();
+
                 return;
+
             }
+
             if (badge) {
+
                 badge.outerHTML = html;
+
             } else {
-                main.insertAdjacentHTML('beforeend', html);
+
+                host.insertAdjacentHTML('beforeend', html);
+
             }
+
         }
 
         function scheduleViewPrLineSelectionCountsEnrich(rows) {
+
             try {
+
                 const list = Array.isArray(rows) ? rows : (viewPurchaseRequests || []);
+
                 const missing = [];
+
                 list.forEach((row) => {
+
                     const id = Number(row && row.id ? row.id : 0);
+
                     if (!id) return;
+
                     if (row.lineCount == null || row.selectedLineCount == null) {
+
                         missing.push(id);
+
                     }
+
                 });
+
                 if (!missing.length) return Promise.resolve();
+
                 const url = `/api/admin/procurement/purchase-requests/line-selection-counts?ids=${missing.join(',')}`;
+
                 return fetch(url)
-                    .then((res) => res.json())
+
+                    .then((res) => readProcurementJson(res))
+
                     .then((payload) => {
+
                         if (!payload || !payload.success || !payload.data) return;
+
                         const data = payload.data || {};
+
                         (viewPurchaseRequests || []).forEach((row) => {
+
                             const id = Number(row && row.id ? row.id : 0);
+
                             if (!id) return;
+
                             const entry = data[String(id)] || data[id];
+
                             if (!entry) return;
+
                             const selected = Number(entry.selected || 0);
+
                             const total = Number(entry.total || 0);
+
                             row.selectedLineCount = selected;
+
                             row.lineCount = total;
+
                             patchViewPrCardSelectionBadge(id, selected, total);
+
                         });
+
                         try {
-                            const raw = sessionStorage.getItem(VIEW_PR_LIST_CACHE_KEY);
-                            if (raw) {
-                                const cached = JSON.parse(raw);
-                                if (cached && cached.payload && Array.isArray(cached.payload.data)) {
-                                    const byId = new Map((viewPurchaseRequests || []).map((r) => [Number(r.id || 0), r]));
-                                    cached.payload.data.forEach((row) => {
-                                        const live = byId.get(Number(row.id || 0));
-                                        if (!live) return;
-                                        if (live.selectedLineCount != null) row.selectedLineCount = live.selectedLineCount;
-                                        if (live.lineCount != null) row.lineCount = live.lineCount;
-                                    });
-                                    cached.at = Date.now();
-                                    sessionStorage.setItem(VIEW_PR_LIST_CACHE_KEY, JSON.stringify(cached));
-                                }
-                            }
+
+                            renderFilteredViewPurchaseRequests();
+
                         } catch (e) { /* ignore */ }
+
+                        try {
+
+                            const raw = sessionStorage.getItem(VIEW_PR_LIST_CACHE_KEY);
+
+                            if (raw) {
+
+                                const cached = JSON.parse(raw);
+
+                                if (cached && cached.payload && Array.isArray(cached.payload.data)) {
+
+                                    const byId = new Map((viewPurchaseRequests || []).map((r) => [Number(r.id || 0), r]));
+
+                                    cached.payload.data.forEach((row) => {
+
+                                        const live = byId.get(Number(row.id || 0));
+
+                                        if (!live) return;
+
+                                        if (live.selectedLineCount != null) row.selectedLineCount = live.selectedLineCount;
+
+                                        if (live.lineCount != null) row.lineCount = live.lineCount;
+
+                                    });
+
+                                    cached.at = Date.now();
+
+                                    sessionStorage.setItem(VIEW_PR_LIST_CACHE_KEY, JSON.stringify(cached));
+
+                                }
+
+                            }
+
+                        } catch (e) { /* ignore */ }
+
                     })
+
                     .catch((err) => {
+
                         console.warn('[VIEW PR] line-selection-counts enrich failed', err);
+
                     });
+
             } catch (e) {
+
                 console.warn('[VIEW PR] line-selection-counts schedule failed', e);
+
                 return Promise.resolve();
+
             }
+
         }
 
         function paintCachedViewPrListForInstantLoad() {
@@ -5296,7 +8008,15 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 const payload = cached?.payload;
 
-                if (!payload || !payload.success || !Array.isArray(payload.data) || ageMs > VIEW_PR_LIST_CACHE_TTL_MS) {
+                const cachedStatus = String(cached?.viewStatus || '').toUpperCase();
+
+                if (
+                    !payload
+                    || !payload.success
+                    || !Array.isArray(payload.data)
+                    || ageMs > VIEW_PR_LIST_CACHE_TTL_MS
+                    || (cachedStatus && cachedStatus !== getActiveViewStatusFilter())
+                ) {
 
                     sessionStorage.removeItem(VIEW_PR_LIST_CACHE_KEY);
 
@@ -5348,17 +8068,23 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             const startedAt = performance.now();
 
-            const url = `/api/admin/procurement/purchase-requests?offset=${offset}&limit=${VIEW_PR_LIST_PAGE_SIZE}&fast=1&include_qty=0`;
+            const url = buildViewPrListQuery(offset);
 
             return fetch(url)
 
-                .then((res) => res.json())
+                .then((res) => readProcurementJson(res))
 
                 .then((payload) => {
 
                     if (!payload.success) {
 
                         throw new Error(payload.error || 'Failed to load more');
+
+                    }
+
+                    if (payload.statusCounts && typeof payload.statusCounts === 'object') {
+
+                        viewPrServerStatusCounts = payload.statusCounts;
 
                     }
 
@@ -5393,10 +8119,15 @@ function buildViewPurchaseRequestDetailHtml(header) {
                         row.udfStatus = normalizeUdfStatus(row.udfStatus);
 
                         row._originalUdfStatus = row.udfStatus;
+
                 if (Array.isArray(row.suppliers) && row.suppliers.length) {
+
                     row._suppliers = row.suppliers;
+
                 } else if (!Array.isArray(row._suppliers)) {
+
                     row._suppliers = [];
+
                 }
 
                         viewPurchaseRequests.push(row);
@@ -5420,15 +8151,18 @@ function buildViewPurchaseRequestDetailHtml(header) {
                     updateViewPrListPerfBanner(clientMs, payload.perf, rows.length, viewPurchaseRequests.length, viewPrListTotal, true);
 
                     updateViewApprovalButtonState();
+
                     renderFilteredViewPurchaseRequests();
+
                     scheduleViewPrLineSelectionCountsEnrich(rows);
+
                 })
 
                 .catch((error) => {
 
                     console.error(error);
 
-                    alert(error.message || 'Failed to load more');
+                    if (!isProcurementAuthExpired(error) && !isRequestAbortError(error)) alert(error.message || 'Failed to load more');
 
                 })
 
@@ -5443,6 +8177,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
         }
 
         function loadViewPurchaseRequests(forceReload, options) {
+
             const loadOpts = options || {};
 
             if (viewPurchaseRequestsLoaded && !forceReload && !loadOpts.background) {
@@ -5456,7 +8191,9 @@ function buildViewPurchaseRequestDetailHtml(header) {
             const perfEl = document.getElementById('view-pr-list-perf');
 
             const hasExistingList = viewPurchaseRequestsLoaded && (viewPurchaseRequests || []).length > 0;
+
             const paintedFromCache = (!forceReload && paintCachedViewPrListForInstantLoad())
+
                 || (hasExistingList && (loadOpts.background || forceReload));
 
             if (list && !paintedFromCache) {
@@ -5481,15 +8218,23 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             const startedAt = performance.now();
 
+            const loadSeq = ++viewPrListLoadSeq;
+
             const cacheBust = loadOpts.bustCache ? '&no_cache=1' : '';
 
-            const url = `/api/admin/procurement/purchase-requests?offset=0&limit=${VIEW_PR_LIST_PAGE_SIZE}&fast=1&include_qty=0${cacheBust}`;
+            const url = `${buildViewPrListQuery(0)}${cacheBust}`;
 
             return fetch(url)
 
-                .then((res) => res.json())
+                .then((res) => readProcurementJson(res))
 
                 .then((payload) => {
+
+                    if (loadSeq !== viewPrListLoadSeq) {
+
+                        return;
+
+                    }
 
                     if (!payload.success) {
 
@@ -5508,6 +8253,18 @@ function buildViewPurchaseRequestDetailHtml(header) {
                 })
 
                 .catch((error) => {
+
+                    if (loadSeq !== viewPrListLoadSeq) {
+
+                        return;
+
+                    }
+
+                    if (isProcurementAuthExpired(error)) {
+
+                        return;
+
+                    }
 
                     if (paintedFromCache) {
 
@@ -5701,7 +8458,17 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             const prStatus = String(header.status || '').trim().toUpperCase();
 
-            if (prStatus !== 'DRAFT') {
+            const udf = normalizeUdfStatus(header._originalUdfStatus || header.udfStatus);
+
+            if (udf === 'CANCELLED') {
+
+                alert('Cancelled purchase requests cannot be edited.');
+
+                return;
+
+            }
+
+            if (prStatus !== 'DRAFT' || (udf && udf !== 'DRAFT')) {
 
                 alert('Only draft purchase requests can be edited.');
 
@@ -5727,7 +8494,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             } catch (error) {
 
-                alert(error.message || 'Failed to load PR details for edit');
+                if (!isProcurementAuthExpired(error) && !isRequestAbortError(error)) alert(error.message || 'Failed to load PR details for edit');
 
                 return;
 
@@ -5790,9 +8557,13 @@ function buildViewPurchaseRequestDetailHtml(header) {
                     locationCode: String(d.locationCode || ''),
 
                     description: resolvePrLineDescription({
+
                         itemCode: String(d.itemCode || ''),
+
                         itemName: String(d.itemName || ''),
+
                         description: String(d.description || ''),
+
                     }),
 
                     uom: String(d.uom || d.UOM || ''),
@@ -5851,10 +8622,6 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             renderProjectOptions(String(header.project || ''));
 
-            
-
-            
-
             window.purchaseRequestItems = lineItems;
 
             applyPurchaseRequestFormModeUI();
@@ -5862,7 +8629,9 @@ function buildViewPurchaseRequestDetailHtml(header) {
             renderPurchaseRequestLineItems();
 
             savePurchaseRequestDraftItems();
+
             savePurchaseRequestDraftItems();
+
             showTab('create');
 
             showPurchaseRequestMessage('Editing draft purchase request. Update line values and click Update Purchase Request.', 'info');
@@ -5985,7 +8754,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 });
 
-                const data = await res.json();
+                const data = await readProcurementJson(res);
 
                 if (!res.ok || !data.success) {
 
@@ -6001,7 +8770,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             } catch (error) {
 
-                _showPrEditMessage(error.message || 'Failed to update purchase request.', 'error');
+                if (!isProcurementAuthExpired(error)) _showPrEditMessage(error.message || 'Failed to update purchase request.', 'error');
 
             } finally {
 
@@ -6014,44 +8783,75 @@ function buildViewPurchaseRequestDetailHtml(header) {
         }
 
         function formatAvgSales3mMonthLabel(yyyyMm) {
+
             const raw = String(yyyyMm || '').trim();
+
             const m = raw.match(/^(\d{4})-(\d{2})$/);
+
             if (!m) return raw;
+
             const monthIdx = Math.max(1, Math.min(12, parseInt(m[2], 10) || 0)) - 1;
+
             const names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
             return names[monthIdx] || raw;
+
         }
 
         function stockCardAvgSales3mRangeLabel() {
+
             const months = Array.isArray(stockCardAvgSales3mMonths) ? stockCardAvgSales3mMonths.filter(Boolean) : [];
+
             if (!months.length) return '';
+
             if (months.length === 1) return formatAvgSales3mMonthLabel(months[0]);
+
             return formatAvgSales3mMonthLabel(months[0]) + '–' + formatAvgSales3mMonthLabel(months[months.length - 1]);
+
         }
 
         function stockCardMetricGroupLabel(group) {
+
             const base = String((group && group.label) || '').trim() || 'Metric';
+
             if (group && group.key === 'avg_sales_3m_by_location') {
+
                 const range = stockCardAvgSales3mRangeLabel();
+
                 return range ? (base + ' (' + range + ')') : base;
+
             }
+
             return base;
+
         }
 
         function stockCardPlainQtyCell(bgClass, value, titleText) {
+
             const title = titleText ? ` title="${escapeHtml(titleText)}"` : '';
+
             return `<td class="${bgClass}"${title}>${formatStockCardNumber(value)}</td>`;
+
         }
 
         function stockCardQtyCellForGroup(group, bgClass, value, itemCode, locationCode, qtyMode) {
+
             if (group && group.key === 'avg_sales_3m_by_location') {
+
                 const range = stockCardAvgSales3mRangeLabel();
+
                 const title = range
+
                     ? ('Avg invoiced sales / 3 (' + range + ')')
+
                     : 'Avg invoiced sales over last 3 full months';
+
                 return stockCardPlainQtyCell(bgClass, value, title);
+
             }
+
             return stockCardClickableQtyCell(bgClass, value, itemCode, locationCode, group.key, qtyMode);
+
         }
 
         function renderStockCardHeader(locations) {
@@ -6070,7 +8870,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     <tr>
 
-                        <th class="code-col stock-card-code-col--fixed" scope="col">ST_ITEM.CODE</th>
+                        <th class="code-col stock-card-code-col--fixed" scope="col">ITEM CODE</th>
 
                         <th class="stock-card-no-cols-msg stock-card-no-cols-msg--head" scope="col"></th>
 
@@ -6116,7 +8916,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     <tr>
 
-                        <th class="code-col stock-card-expand">ST_ITEM.CODE</th>
+                        <th class="code-col stock-card-expand">ITEM CODE</th>
 
                         ${defaultColumns}
 
@@ -6134,81 +8934,81 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             }
 
+            const L = locationColumns.length;
+
+            const both = sub === 2;
+
+            const headerRows = both ? 3 : 2;
+
             if (thead) {
 
-                thead.className = 'stock-card-thead stock-card-thead--one-row';
+                thead.className = both
+
+                    ? 'stock-card-thead stock-card-thead--three-row'
+
+                    : 'stock-card-thead stock-card-thead--two-row';
 
             }
 
-            const L = locationColumns.length;
+            const codeTh = `<th class="code-col" rowspan="${headerRows}" scope="col"><div class="stock-card-hdr-code">ITEM CODE</div></th>`;
 
-            /** One <tr>: ST_ITEM.CODE + each th stacks metric, location, and SQ/SU in the same cell. */
-
-            const buildCondensedTh = (group, locationCode, idx, uomKind) => {
-
-                const bg = (idx % 10) + 1;
-
-                const isFirstBandCol = idx === 0 && (sub !== 2 || uomKind === 'SQ');
-
-                const isLastBandCol = idx === L - 1 && (sub !== 2 || uomKind === 'SU');
-
-                const edge = `${isFirstBandCol ? ' location-first' : ''}${isLastBandCol ? ' location-last' : ''}`;
-
-                const uomHtml = uomKind === 'SQ'
-
-                    ? '<span class="stock-card-hdr-uom stock-card-hdr-uom--sq">SQTY</span>'
-
-                    : uomKind === 'SU'
-
-                        ? '<span class="stock-card-hdr-uom stock-card-hdr-uom--su">SUOMQTY</span>'
-
-                        : '';
-
-                return `<th class="qty-col location-bg-${bg}${edge} stock-card-header-cell stock-card-header-condensed" scope="col">
-
-                    <div class="stock-card-hdr-condensed">
-
-                        <span class="stock-card-hdr-condensed-metric">${escapeHtml(stockCardMetricGroupLabel(group))}</span>
-
-                        <span class="stock-card-hdr-loc">${escapeHtml(locationCode)}</span>
-
-                        ${uomHtml}
-
-                    </div>
-
-                </th>`;
-
-            };
-
-            let oneRow = `<th class="code-col" scope="col">
-
-                <div class="stock-card-hdr-code">ST_ITEM.CODE</div>
-
-            </th>`;
+            let groupRow = codeTh;
 
             visibleMetricGroups.forEach((group) => {
 
+                const colspan = L * sub;
+
+                groupRow += `<th class="qty-group-col stock-card-metric-group-th stock-card-group-sep" colspan="${colspan}" scope="colgroup"><span class="stock-card-metric-group-label">${escapeHtml(stockCardMetricGroupLabel(group))}</span></th>`;
+
+            });
+
+            let locationRow = '';
+
+            visibleMetricGroups.forEach(() => {
+
                 locationColumns.forEach((locationCode, idx) => {
 
-                    if (sub === 2) {
+                    const bg = (idx % 10) + 1;
 
-                        oneRow += buildCondensedTh(group, locationCode, idx, 'SQ');
+                    const edge = `${idx === 0 ? ' location-first' : ''}${idx === L - 1 ? ' location-last' : ''}`;
 
-                        oneRow += buildCondensedTh(group, locationCode, idx, 'SU');
+                    const colspanAttr = both ? ' colspan="2"' : '';
 
-                    } else {
-
-                        const uom1 = stockCardUomDisplayMode === 'suom_only' ? 'SU' : 'SQ';
-
-                        oneRow += buildCondensedTh(group, locationCode, idx, uom1);
-
-                    }
+                    locationRow += `<th class="qty-col location-bg-${bg}${edge} stock-card-header-cell" scope="col"${colspanAttr}><span class="stock-card-hdr-loc">${escapeHtml(locationCode)}</span></th>`;
 
                 });
 
             });
 
-            thead.innerHTML = `<tr>${oneRow}</tr>`;
+            let html = `<tr>${groupRow}</tr><tr>${locationRow}</tr>`;
+
+            if (both) {
+
+                let uomRow = '';
+
+                visibleMetricGroups.forEach(() => {
+
+                    locationColumns.forEach((_, idx) => {
+
+                        const bg = (idx % 10) + 1;
+
+                        const first = idx === 0 ? ' location-first' : '';
+
+                        const last = idx === L - 1 ? ' location-last' : '';
+
+                        uomRow += `<th class="qty-col location-bg-${bg}${first} stock-card-header-cell stock-card-hdr-uom-cell" scope="col"><span class="stock-card-hdr-uom stock-card-hdr-uom--sq">SQTY</span></th>`;
+
+                        uomRow += `<th class="qty-col location-bg-${bg}${last} stock-card-header-cell stock-card-hdr-uom-cell" scope="col"><span class="stock-card-hdr-uom stock-card-hdr-uom--su">SUOMQTY</span></th>`;
+
+                    });
+
+                });
+
+                html += `<tr>${uomRow}</tr>`;
+
+            }
+
+            thead.innerHTML = html;
 
             requestAnimationFrame(() => {
 
@@ -6220,45 +9020,65 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
         function renderLocationFilters() {
 
-            const selectedList = document.getElementById('selected-location-list');
+            const host = document.getElementById('stock-location-ms-options');
 
-            const availableList = document.getElementById('available-location-list');
+            const menu = document.getElementById('stock-location-ms-menu');
+
+            const wasOpen = !!(menu && !menu.hidden);
 
             const selected = Array.isArray(selectedStockCardLocations) ? selectedStockCardLocations : [];
 
-            const available = stockCardLocations.filter((locationCode) => !selected.includes(locationCode));
+            const all = Array.isArray(stockCardLocations) ? stockCardLocations : [];
 
-            if (!selected.length) {
+            if (host) {
 
-                selectedList.innerHTML = '<span class="location-empty">No locations selected.</span>';
+                if (!all.length) {
 
-            } else {
+                    host.innerHTML = '<span class="location-empty">No locations available.</span>';
 
-                selectedList.innerHTML = selected.map((locationCode) => `
+                } else {
 
-                    <span class="location-pill">
+                    host.innerHTML = all.map((locationCode, idx) => {
 
-                        <span>${escapeHtml(locationCode)}</span>
+                        const checked = selected.includes(locationCode) ? 'checked' : '';
 
-                        <button type="button" onclick="removeLocationFilter('${escapeJs(locationCode)}')">x</button>
+                        const safeId = `stock-loc-filter-${idx}`;
 
-                    </span>
+                        return `<label class="stock-ms__option"><input type="checkbox" id="${safeId}" ${checked} onchange="onStockLocationFilterChange('${escapeJs(locationCode)}', this.checked)" /> <span>${escapeHtml(locationCode)}</span></label>`;
 
-                `).join('');
+                    }).join('');
+
+                }
 
             }
 
-            if (!available.length) {
+            updateStockReportFilterSummary();
 
-                availableList.innerHTML = '<span class="location-empty">All selected</span>';
+            if (wasOpen) {
+
+                const root = document.getElementById('stock-location-ms');
+
+                const trigger = document.getElementById('stock-location-ms-trigger');
+
+                if (root) root.classList.add('is-open');
+
+                if (menu) menu.hidden = false;
+
+                if (trigger) trigger.setAttribute('aria-expanded', 'true');
+
+            }
+
+        }
+
+        function onStockLocationFilterChange(locationCode, checked) {
+
+            if (checked) {
+
+                addLocationFilter(locationCode);
 
             } else {
 
-                availableList.innerHTML = available.map((locationCode) => `
-
-                    <button type="button" class="location-add-btn" onclick="addLocationFilter('${escapeJs(locationCode)}')">+ ${escapeHtml(locationCode)}</button>
-
-                `).join('');
+                removeLocationFilter(locationCode);
 
             }
 
@@ -6290,84 +9110,174 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
         }
 
+        function selectAllStockCardLocations() {
+
+            selectedStockCardLocations = (Array.isArray(stockCardLocations) ? stockCardLocations : []).slice();
+
+            persistStockCardSelectedLocations();
+
+            syncStockCardTable();
+
+        }
+
+        function clearAllStockCardLocations() {
+
+            selectedStockCardLocations = [];
+
+            persistStockCardSelectedLocations();
+
+            syncStockCardTable();
+
+        }
+
         function savePurchaseRequestDraftItems() {
+
             try {
+
                 if (!Array.isArray(window.purchaseRequestItems) || !window.purchaseRequestItems.length) {
+
                     localStorage.removeItem(PURCHASE_REQUEST_DRAFT_LS_KEY);
+
                     return;
+
                 }
+
                 const items = window.purchaseRequestItems.map((item) => ({
+
                     itemCode: String(item?.itemCode || '').trim(),
+
                     itemName: String(item?.itemName || '').trim(),
+
                     locationCode: String(item?.locationCode || '').trim(),
+
                     description: String(item?.description || '').trim(),
+
                     uom: String(item?.uom || '').trim(),
+
                     udfReason: String(item?.udfReason || '').trim(),
+
                     project: String(item?.project || '').trim(),
+
                     qtySqty: Number(item?.qtySqty || 0),
+
                     qtySuomqty: Number(item?.qtySuomqty || 0),
+
                     quantity: Number(item?.quantity || 0),
+
                     unitPrice: Number(item?.unitPrice || 0),
+
                     deliveryDate: String(item?.deliveryDate || '').trim(),
+
                     stockQtyUom: String(item?.stockQtyUom || '').trim().toUpperCase(),
+
                 }));
+
                 localStorage.setItem(PURCHASE_REQUEST_DRAFT_LS_KEY, JSON.stringify(items));
+
             } catch (_) {}
+
         }
 
         function clearPurchaseRequestDraftItems() {
+
             try {
+
                 localStorage.removeItem(PURCHASE_REQUEST_DRAFT_LS_KEY);
+
             } catch (_) {}
+
         }
 
         function tryRestorePurchaseRequestDraftItems() {
+
             try {
+
                 const raw = localStorage.getItem(PURCHASE_REQUEST_DRAFT_LS_KEY);
+
                 if (!raw) return false;
+
                 const parsed = JSON.parse(raw);
+
                 if (!Array.isArray(parsed) || !parsed.length) return false;
+
                 const restored = parsed.map((item) => {
+
                     const row = {
+
                         itemCode: String(item?.itemCode || '').trim(),
+
                         itemName: String(item?.itemName || '').trim(),
+
                         locationCode: String(item?.locationCode || '').trim(),
+
                         description: String(item?.description || '').trim(),
+
                         uom: String(item?.uom || '').trim(),
+
                         udfReason: String(item?.udfReason || '').trim(),
+
                         project: String(item?.project || '').trim(),
+
                         qtySqty: Number(item?.qtySqty || 0),
+
                         qtySuomqty: Number(item?.qtySuomqty || 0),
+
                         quantity: Number(item?.quantity || 0),
+
                         unitPrice: Number(item?.unitPrice || 0),
+
                         deliveryDate: String(item?.deliveryDate || '').trim() || prTodayIso(),
+
                         stockQtyUom: String(item?.stockQtyUom || defaultPrStockQtyUom()).trim().toUpperCase(),
+
                     };
+
                     syncPrLineQuantityDerived(row);
+
                     return row;
+
                 });
+
                 window.purchaseRequestItems = restored;
+
                 return true;
+
             } catch (_) {
+
                 return false;
+
             }
+
         }
 
         function isDetailChecked(detail) {
+
             if (!detail || typeof detail !== 'object') return false;
+
             if (Object.prototype.hasOwnProperty.call(detail, 'transferable') && detail.transferable != null && String(detail.transferable).trim() !== '') {
+
                 return toApprovalBool(detail.transferable);
+
             }
+
             if (Object.prototype.hasOwnProperty.call(detail, 'TRANSFERABLE') && detail.TRANSFERABLE != null && String(detail.TRANSFERABLE).trim() !== '') {
+
                 return toApprovalBool(detail.TRANSFERABLE);
+
             }
+
             if (Object.prototype.hasOwnProperty.call(detail, 'udfPqApproved') && detail.udfPqApproved != null && String(detail.udfPqApproved).trim() !== '') {
+
                 return toApprovalBool(detail.udfPqApproved);
+
             }
+
             return false;
+
         }
 
         function goToCreateProcurement() {
+
             try { closeStockReportSettingsDrawer(); } catch (e) {}
 
             const selectedEntries = Object.entries(stockCardBuySelections)
@@ -6419,6 +9329,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
                 syncPrLineQuantityDerived(row);
 
                 window.purchaseRequestItems = [row];
+
                 savePurchaseRequestDraftItems();
 
                 showTab('create');
@@ -6482,10 +9393,15 @@ function buildViewPurchaseRequestDetailHtml(header) {
                 syncPrLineQuantityDerived(o);
 
                 cachePrLineUdfWtp(o, product);
+
                 mergePrLineCatalogUdfs(o, product);
+
                 if (resolvePrLineUdfWeight(o) != null && Number(o.qtySqty || 0) > 0) {
+
                     applyPrLineSuomFromSqtyUdfWeight(o);
+
                     syncPrLineQuantityDerived(o);
+
                 }
 
                 return o;
@@ -7202,7 +10118,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             fetch(`/api/admin/procurement/stock-card-breakdown?${params.toString()}`, { cache: 'no-store' })
 
-                .then((res) => res.json())
+                .then((res) => readProcurementJson(res))
 
                 .then((payload) => {
 
@@ -7247,6 +10163,12 @@ function buildViewPurchaseRequestDetailHtml(header) {
                 })
 
                 .catch((error) => {
+
+                    if (isProcurementAuthExpired(error)) {
+
+                        return;
+
+                    }
 
                     if (requestId !== stockCardBreakdownRequestId) {
 
@@ -7888,11 +10810,29 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 : '/api/admin/procurement/stock-card';
 
-            fetch(requestUrl, { cache: 'no-store' })
+            if (stockCardFetchController) {
 
-                .then((res) => res.json())
+                try { stockCardFetchController.abort(); } catch (e) { /* ignore */ }
+
+            }
+
+            const controller = new AbortController();
+
+            stockCardFetchController = controller;
+
+            const timeoutId = window.setTimeout(() => {
+
+                try { controller.abort(); } catch (e) { /* ignore */ }
+
+            }, 30000);
+
+            fetch(requestUrl, { cache: 'no-store', signal: controller.signal })
+
+                .then((res) => readProcurementJson(res))
 
                 .then((payload) => {
+
+                    if (controller.signal.aborted) return;
 
                     if (!payload.success) {
 
@@ -7903,10 +10843,15 @@ function buildViewPurchaseRequestDetailHtml(header) {
                     const locations = Array.isArray(payload.locations) ? payload.locations : [];
 
                     const avgMonthsRaw = Array.isArray(payload.avg_sales_3m_months)
+
                         ? payload.avg_sales_3m_months
+
                         : (payload.filters && Array.isArray(payload.filters.avg_sales_3m_months)
+
                             ? payload.filters.avg_sales_3m_months
+
                             : []);
+
                     stockCardAvgSales3mMonths = avgMonthsRaw.map((m) => String(m || '').trim()).filter(Boolean);
 
                     const previousSelected = Array.isArray(selectedStockCardLocations)
@@ -7943,8 +10888,6 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                         const preserved = previousSelected.filter((code) => locationSet.has(code));
 
-                        // Keep an intentional empty selection; otherwise fall back to all when none remain valid.
-
                         if (!previousSelected.length) {
 
                             selectedStockCardLocations = [];
@@ -7969,11 +10912,25 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     reportLoaded = true;
 
+                    stockCardLastLoadedAt = Date.now();
+
                     syncStockCardTable();
 
                 })
 
                 .catch((error) => {
+
+                    if (controller.signal.aborted || (error && error.name === 'AbortError')) {
+
+                        return;
+
+                    }
+
+                    if (isProcurementAuthExpired(error)) {
+
+                        return;
+
+                    }
 
                     console.error('Failed to load stock card rows:', error);
 
@@ -7995,11 +10952,28 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     setStockCardTableNoMetricColsClass();
 
+                })
+
+                .finally(() => {
+
+                    clearTimeout(timeoutId);
+
+                    if (stockCardFetchController === controller) {
+
+                        stockCardFetchController = null;
+
+                    }
+
                 });
 
         }
 
+
+
+
+
         function applyStockCardDateFilter() {
+
             try { closeStockReportSettingsDrawer(); } catch (e) {}
 
             loadStockCardRows();
@@ -8007,6 +10981,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
         }
 
         function clearStockCardDateFilter() {
+
             try { closeStockReportSettingsDrawer(); } catch (e) {}
 
             const fromDateInput = document.getElementById('stock-card-from-date');
@@ -8037,7 +11012,31 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
         }
 
+        function clearPurchaseRequestMessage() {
+
+            const el = document.getElementById('pr-form-message');
+
+            if (!el) return;
+
+            el.style.display = 'none';
+
+            el.textContent = '';
+
+            el.className = 'pr-form-message';
+
+        }
+
         function showPurchaseRequestMessage(message, kind) {
+
+            if (kind === 'error') {
+
+                clearPurchaseRequestMessage();
+
+                showPurchaseRequestErrorModal(message);
+
+                return;
+
+            }
 
             const el = document.getElementById('pr-form-message');
 
@@ -8048,6 +11047,88 @@ function buildViewPurchaseRequestDetailHtml(header) {
             el.className = `pr-form-message ${kind || 'info'}`;
 
             el.textContent = message;
+
+        }
+
+        let prErrorModalEscapeHandler = null;
+
+        function closePurchaseRequestErrorModal() {
+
+            const modal = document.getElementById('pr-error-modal');
+
+            if (modal) {
+
+                modal.style.display = 'none';
+
+                modal.setAttribute('aria-hidden', 'true');
+
+            }
+
+            if (prErrorModalEscapeHandler) {
+
+                document.removeEventListener('keydown', prErrorModalEscapeHandler);
+
+                prErrorModalEscapeHandler = null;
+
+            }
+
+        }
+
+        /**
+
+         * In-app error dialog (replaces inline error banner on Create e-PR submit).
+
+         * @param {string} message - Validation or submit error text
+
+         * @param {string} [title] - Optional heading (default Attention)
+
+         */
+
+        function showPurchaseRequestErrorModal(message, title) {
+
+            const modal = document.getElementById('pr-error-modal');
+
+            const titleEl = document.getElementById('pr-error-modal-title');
+
+            const bodyEl = document.getElementById('pr-error-modal-body');
+
+            const okBtn = document.getElementById('pr-error-modal-ok');
+
+            if (!modal || !titleEl || !bodyEl) return;
+
+            titleEl.textContent = title || 'Attention';
+
+            bodyEl.textContent = message || 'Something went wrong.';
+
+            modal.style.display = '';
+
+            modal.setAttribute('aria-hidden', 'false');
+
+            if (prErrorModalEscapeHandler) {
+
+                document.removeEventListener('keydown', prErrorModalEscapeHandler);
+
+            }
+
+            prErrorModalEscapeHandler = (e) => {
+
+                if (e.key === 'Escape') {
+
+                    e.preventDefault();
+
+                    closePurchaseRequestErrorModal();
+
+                }
+
+            };
+
+            document.addEventListener('keydown', prErrorModalEscapeHandler);
+
+            if (okBtn) {
+
+                setTimeout(() => okBtn.focus(), 0);
+
+            }
 
         }
 
@@ -8250,6 +11331,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
             const c = String(raw || '').trim();
 
             if (!c || c === '----' || c === '-') return '';
+
             return c;
 
         }
@@ -8260,7 +11342,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 const res = await fetch('/api/admin/procurement/locations');
 
-                const data = await res.json();
+                const data = await readProcurementJson(res);
 
                 if (data.success && Array.isArray(data.locations)) {
 
@@ -8363,9 +11445,13 @@ function buildViewPurchaseRequestDetailHtml(header) {
             if (!code) return null;
 
             const codeUpper = code.toUpperCase();
+
             return prCatalogProducts.find((p) => {
+
                 const c = String((p && (p.CODE != null ? p.CODE : p.code)) || '').trim();
+
                 return c.toUpperCase() === codeUpper;
+
             }) || null;
 
         }
@@ -8528,7 +11614,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 const res = await fetch(`/api/admin/procurement/stock-item-uoms?code=${encodeURIComponent(code)}`);
 
-                const data = await res.json();
+                const data = await readProcurementJson(res);
 
                 if (res.ok && data && data.success && Array.isArray(data.uoms) && data.uoms.length) {
 
@@ -8599,255 +11685,461 @@ function buildViewPurchaseRequestDetailHtml(header) {
         }
 
         function prCatalogLowerMap(obj) {
+
             const out = {};
+
             if (!obj || typeof obj !== 'object') return out;
+
             Object.keys(obj).forEach((k) => { out[String(k).toLowerCase()] = obj[k]; });
+
             return out;
+
         }
 
         function prCatalogScalar(product, ...keys) {
+
             if (!product || typeof product !== 'object') return '';
+
             const lower = prCatalogLowerMap(product);
+
             for (const key of keys) {
+
                 const k = String(key || '');
+
                 const v = product[k] != null
+
                     ? product[k]
+
                     : product[k.toUpperCase()] != null
+
                         ? product[k.toUpperCase()]
+
                         : lower[k.toLowerCase()];
+
                 if (v == null) continue;
+
                 const s = String(v).trim();
+
                 if (s) return s;
+
             }
+
             return '';
+
         }
 
         function resolvePrCatalogTradeUom(product) {
+
             const u2 = prCatalogScalar(product, 'udf_2uom', 'UDF_2UOM');
+
             if (u2) return u2;
+
             const su = prCatalogScalar(product, 'suom', 'SUOM');
+
             if (su) return su;
+
             let rows = product && (product.sdsuom || product.SDSUOM);
+
             if (typeof rows === 'string' && rows.trim()) {
+
                 try { rows = JSON.parse(rows); } catch (e) { rows = []; }
+
             }
+
             if (Array.isArray(rows)) {
+
                 const baseRow = rows.find((r) => r && (r.isbase === true || String(r.isbase || '').toLowerCase() === 'true'));
+
                 if (baseRow) {
+
                     const u = String((baseRow.uom != null ? baseRow.uom : baseRow.UOM) || '').trim();
+
                     if (u) return u;
+
                 }
+
                 for (const row of rows) {
+
                     const u = String((row && (row.uom != null ? row.uom : row.UOM)) || '').trim();
+
                     if (u) return u;
+
                 }
+
             }
+
             return prCatalogScalar(product, 'uom', 'UOM');
+
         }
 
         function prCatalogProductCode(p) {
+
             return prCatalogScalar(p, 'CODE', 'code');
+
         }
 
         function prCatalogProductDesc(p) {
+
             return prCatalogScalar(p, 'DESCRIPTION', 'description') || prCatalogProductCode(p);
+
         }
 
         function prProductLabel(product) {
+
             const code = prCatalogProductCode(product);
+
             const desc = prCatalogProductDesc(product);
+
             if (!code) return desc;
+
             return desc && desc !== code ? `${code} — ${desc}` : code;
+
         }
 
         function normalizePrProductSearchText(value) {
+
             return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
         }
 
         let prCatalogPickerActiveInput = null;
+
         let prCatalogPickerActiveLineIndex = null;
+
         let prCatalogPickerCloseTimer = null;
 
         function getPrCatalogPickerOptions() {
+
             const options = [];
+
             const seen = new Set();
+
             (prCatalogProducts || []).forEach((p) => {
+
                 const code = prCatalogProductCode(p);
+
                 const desc = prCatalogProductDesc(p);
+
                 if (!code) return;
+
                 const key = normalizePrProductSearchText(code);
+
                 if (seen.has(key)) return;
+
                 seen.add(key);
+
                 options.push({
+
                     code,
+
                     desc,
+
                     label: prProductLabel(p),
+
                 });
+
             });
+
             options.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+
             return options;
+
         }
 
         function ensurePrCatalogProductPicker() {
+
             let picker = document.getElementById('pr-catalog-product-picker');
+
             if (picker) return picker;
+
             picker = document.createElement('div');
+
             picker.id = 'pr-catalog-product-picker';
+
             picker.className = 'pr-catalog-product-picker';
+
             picker.hidden = true;
+
             picker.innerHTML = `
+
                 <div class="pr-catalog-product-picker-header">Choose product</div>
+
                 <input type="text" class="pr-catalog-product-picker-search" placeholder="Type to filter…" autocomplete="off" />
+
                 <ul class="pr-catalog-product-picker-list" role="listbox"></ul>`;
+
             document.body.appendChild(picker);
 
             const search = picker.querySelector('.pr-catalog-product-picker-search');
+
             search.addEventListener('input', () => {
+
                 if (prCatalogPickerActiveLineIndex != null) {
+
                     renderPrCatalogProductPickerList(prCatalogPickerActiveLineIndex, search.value);
+
                 }
+
             });
+
             search.addEventListener('keydown', (event) => {
+
                 if (event.key === 'Escape') hidePrCatalogProductPicker();
+
             });
+
             document.addEventListener('mousedown', (event) => {
+
                 if (picker.hidden) return;
+
                 if (picker.contains(event.target)) return;
+
                 if (event.target === prCatalogPickerActiveInput) return;
+
                 hidePrCatalogProductPicker();
+
             });
+
             return picker;
+
         }
 
         function positionPrCatalogProductPicker(input, picker) {
+
             const rect = input.getBoundingClientRect();
+
             const width = Math.max(rect.width, 380);
+
             let left = rect.left;
+
             let top = rect.bottom + 4;
+
             if (left + width > window.innerWidth - 8) {
+
                 left = Math.max(8, window.innerWidth - width - 8);
+
             }
+
             const maxHeight = 300;
+
             if (top + maxHeight > window.innerHeight - 8) {
+
                 top = Math.max(8, rect.top - maxHeight - 4);
+
             }
+
             picker.style.left = `${left}px`;
+
             picker.style.top = `${top}px`;
+
             picker.style.width = `${width}px`;
+
         }
 
         function renderPrCatalogProductPickerList(lineIndex, filterText) {
+
             const picker = ensurePrCatalogProductPicker();
+
             const list = picker.querySelector('.pr-catalog-product-picker-list');
+
             const query = normalizePrProductSearchText(filterText);
+
             const item = window.purchaseRequestItems && window.purchaseRequestItems[lineIndex];
+
             const currentCode = item ? normalizePrProductSearchText(item.itemCode) : '';
+
             const matches = getPrCatalogPickerOptions().filter((opt) => {
+
                 if (!query) return true;
+
                 const blob = normalizePrProductSearchText(`${opt.label} ${opt.code} ${opt.desc}`);
+
                 return blob.includes(query);
+
             });
 
             list.innerHTML = '';
+
             if (!matches.length) {
+
                 const empty = document.createElement('li');
+
                 empty.className = 'pr-catalog-product-picker-empty';
+
                 empty.textContent = 'No products match';
+
                 list.appendChild(empty);
+
                 return;
+
             }
 
             const limit = 150;
+
             matches.slice(0, limit).forEach((opt) => {
+
                 const row = document.createElement('li');
+
                 row.className = 'pr-catalog-product-picker-option';
+
                 row.setAttribute('role', 'option');
+
                 row.textContent = opt.label;
+
                 if (normalizePrProductSearchText(opt.code) === currentCode) {
+
                     row.classList.add('is-current');
+
                 }
+
                 row.addEventListener('mousedown', (event) => {
+
                     event.preventDefault();
+
                     applyPrCatalogProductSelection(lineIndex, opt.code);
+
                 });
+
                 list.appendChild(row);
+
             });
+
             if (matches.length > limit) {
+
                 const more = document.createElement('li');
+
                 more.className = 'pr-catalog-product-picker-more';
+
                 more.textContent = `Showing ${limit} of ${matches.length} — type to narrow`;
+
                 list.appendChild(more);
+
             }
+
         }
 
         function applyPrCatalogProductSelection(lineIndex, code) {
+
             hidePrCatalogProductPicker();
+
             onPurchaseRequestProductChange(lineIndex, code);
+
         }
 
         function showPrCatalogProductPicker(input, lineIndex) {
+
             if (!input || !Number.isFinite(lineIndex)) return;
+
             clearTimeout(prCatalogPickerCloseTimer);
+
             const picker = ensurePrCatalogProductPicker();
+
             prCatalogPickerActiveInput = input;
+
             prCatalogPickerActiveLineIndex = lineIndex;
+
             positionPrCatalogProductPicker(input, picker);
+
             const search = picker.querySelector('.pr-catalog-product-picker-search');
+
             search.value = '';
+
             renderPrCatalogProductPickerList(lineIndex, '');
+
             picker.hidden = false;
+
             requestAnimationFrame(() => search.focus());
+
         }
 
         function hidePrCatalogProductPicker() {
+
             const picker = document.getElementById('pr-catalog-product-picker');
+
             if (picker) picker.hidden = true;
+
             prCatalogPickerActiveInput = null;
+
             prCatalogPickerActiveLineIndex = null;
+
         }
 
         function bindPrCatalogProductInput(input) {
+
             if (!input || input.dataset.prCatalogPickerBound === '1') return;
+
             const lineIndex = parseInt(input.getAttribute('data-pr-index'), 10);
+
             if (!Number.isFinite(lineIndex)) return;
+
             input.dataset.prCatalogPickerBound = '1';
+
             input.setAttribute('autocomplete', 'off');
+
             input.setAttribute('spellcheck', 'false');
+
             if (!input.placeholder) {
+
                 input.placeholder = 'Search or pick product…';
+
             }
 
             const openPicker = () => showPrCatalogProductPicker(input, lineIndex);
+
             input.addEventListener('focus', openPicker);
+
             input.addEventListener('click', openPicker);
+
             input.addEventListener('input', () => {
+
                 if (prCatalogPickerActiveInput !== input) return;
+
                 const picker = document.getElementById('pr-catalog-product-picker');
+
                 const search = picker ? picker.querySelector('.pr-catalog-product-picker-search') : null;
+
                 if (search) {
+
                     search.value = input.value;
+
                     renderPrCatalogProductPickerList(lineIndex, input.value);
+
                 }
+
             });
+
             input.addEventListener('blur', () => {
+
                 prCatalogPickerCloseTimer = setTimeout(hidePrCatalogProductPicker, 200);
+
             });
 
             const cell = input.closest('td');
+
             if (cell) cell.classList.add('pr-catalog-product-cell');
+
         }
 
         function initPrCatalogProductPickers() {
+
             document.querySelectorAll('#pr-line-items-body .pr-catalog-product-input').forEach((input) => {
+
                 bindPrCatalogProductInput(input);
+
             });
+
         }
 
         function prCatalogUdfValue(product, key) {
+
             const v = prCatalogScalar(product, key, key.toUpperCase());
+
             if (!v) return '';
+
             if (String(v).trim() === '0') return '';
+
             return v;
+
         }
 
         function updatePurchaseRequestRowAmount(index) {
@@ -8873,27 +12165,47 @@ function buildViewPurchaseRequestDetailHtml(header) {
         }
 
         function isPlaceholderPrLineDescription(value) {
+
             const text = String(value || '').trim();
+
             return /^Auto-selected from Overall Report/i.test(text);
+
         }
 
         function resolvePrLineDescription(item) {
+
             if (!item || typeof item !== 'object') {
+
                 return '';
+
             }
+
             const code = String(item.itemCode || '').trim();
+
             const product = code && typeof findPrProductByCode === 'function' ? findPrProductByCode(code) : null;
+
             const catalogDesc = product
+
                 ? String((product.DESCRIPTION != null ? product.DESCRIPTION : product.description) || '').trim()
+
                 : '';
+
             const stored = String(item.description || item.itemName || '').trim();
+
             if (catalogDesc && (!stored || isPlaceholderPrLineDescription(stored))) {
+
                 return catalogDesc;
+
             }
+
             if (stored && !isPlaceholderPrLineDescription(stored)) {
+
                 return stored;
+
             }
+
             return catalogDesc || code || stored;
+
         }
 
         function onPurchaseRequestProductChange(index, itemCode) {
@@ -8921,9 +12233,13 @@ function buildViewPurchaseRequestDetailHtml(header) {
             }
 
             ensurePrLineUom(item, product);
+
             prefetchPrProductUoms(code);
+
             cachePrLineUdfWtp(item, product);
+
             mergePrLineCatalogUdfs(item, product);
+
             applyPrLineSuomFromSqtyUdfWeight(item);
 
             syncPrLineQuantityDerived(item);
@@ -8938,7 +12254,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 const response = await fetch('/api/get_stock_items');
 
-                const data = await response.json();
+                const data = await readProcurementJson(response);
 
                 if (data.success && Array.isArray(data.items)) {
 
@@ -8947,12 +12263,19 @@ function buildViewPurchaseRequestDetailHtml(header) {
                     if (window.purchaseRequestItems && window.purchaseRequestItems.length) {
 
                         window.purchaseRequestItems.forEach((it) => {
+
                         mergePrLineCatalogUdfs(it, null);
+
                         cachePrLineUdfWtp(it, null);
+
                         if (resolvePrLineUdfWeight(it) != null && Number(it.qtySqty || 0) > 0) {
+
                             applyPrLineSuomFromSqtyUdfWeight(it);
+
                             syncPrLineQuantityDerived(it);
+
                         }
+
                     });
 
                         renderPurchaseRequestLineItems();
@@ -9080,12 +12403,15 @@ function buildViewPurchaseRequestDetailHtml(header) {
                     if (dn) item.itemName = dn;
 
                     if (!String(item.description || '').trim() || isPlaceholderPrLineDescription(item.description)) {
+
                         item.description = dn;
+
                     }
 
                 }
 
                 ensurePrLineUom(item, product);
+
                 mergePrLineCatalogUdfs(item, product);
 
                 if (!isEditMode) {
@@ -9133,27 +12459,45 @@ function buildViewPurchaseRequestDetailHtml(header) {
                         <td class="pr-loc-cell">${locHtml}</td>
 
                         <td class="pr-item-code-cell">
+
                             <span class="pr-item-code-readonly" title="${escapeHtml(item.itemCode || '')}">${escapeHtml(item.itemCode || '-')}</span>
+
                         </td>
 
                         <td class="pr-code-cell">
+
                             ${isEditMode
+
                                 ? `<span class="pr-desc-readonly" title="${escapeHtml(item.itemCode || '')}">${escapeHtml(prCatalogProductDesc(product || { CODE: item.itemCode || '', DESCRIPTION: item.itemCode || '' }) || '-')}</span>`
+
                                 : `<input type="text" class="pr-catalog-product-input" data-pr-index="${idx}" value="${escapeHtml(prCatalogProductDesc(product || { CODE: item.itemCode || '', DESCRIPTION: item.itemCode || '' }))}" placeholder="Search or pick product…" autocomplete="off" spellcheck="false" />`}
+
                         </td>
 
                         <td class="pr-udf-cell">${isEditMode
+
                             ? `<span class="pr-udf-readonly">${escapeHtml(prLineDimValue(item, product, 'udf_thickness') || '-')}</span>`
+
                             : `<input type="number" class="pr-udf-input" min="0" step="0.01" data-pr-field="udf_thickness" value="${escapeHtml(prLineDimValue(item, product, 'udf_thickness'))}" oninput="updatePurchaseRequestDimension(${idx}, 'udf_thickness', this.value)" title="Thickness (mm)" />`}</td>
+
                         <td class="pr-udf-cell">${isEditMode
+
                             ? `<span class="pr-udf-readonly">${escapeHtml(prLineDimValue(item, product, 'udf_width') || '-')}</span>`
+
                             : `<input type="number" class="pr-udf-input" min="0" step="0.01" data-pr-field="udf_width" value="${escapeHtml(prLineDimValue(item, product, 'udf_width'))}" oninput="updatePurchaseRequestDimension(${idx}, 'udf_width', this.value)" title="Width (mm)" />`}</td>
+
                         <td class="pr-udf-cell">${isEditMode
+
                             ? `<span class="pr-udf-readonly">${escapeHtml(prLineDimValue(item, product, 'udf_length') || '-')}</span>`
+
                             : `<input type="number" class="pr-udf-input" min="0" step="0.01" data-pr-field="udf_length" value="${escapeHtml(prLineDimValue(item, product, 'udf_length'))}" oninput="updatePurchaseRequestDimension(${idx}, 'udf_length', this.value)" title="Length (mm)" />`}</td>
+
                         <td class="pr-udf-readonly">${escapeHtml(prCatalogUdfValue(product, 'udf_dp') || '-')}</td>
+
                         <td class="pr-udf-readonly">${escapeHtml(prCatalogUdfValue(product, 'udf_dfp') || '-')}</td>
+
                         <td class="pr-udf-readonly">${escapeHtml(prCatalogUdfValue(product, 'udf_costkg') || '-')}</td>
+
                         <td class="pr-udf-readonly">${escapeHtml(prCatalogUdfValue(product, 'udf_formula') || '-')}</td>
 
                         <td class="pr-stock-uom-cell"><span class="pr-stock-uom-readonly">${escapeHtml(resolvePrCatalogTradeUom(product) || '')}</span></td>
@@ -9181,7 +12525,9 @@ function buildViewPurchaseRequestDetailHtml(header) {
             }).join('');
 
             recalcPurchaseRequestTotals();
+
             initPrCatalogProductPickers();
+
             savePurchaseRequestDraftItems();
 
         }
@@ -9197,17 +12543,29 @@ function buildViewPurchaseRequestDetailHtml(header) {
                 window.purchaseRequestItems[index][key] = Number.isFinite(num) ? num : 0;
 
                 if (key === 'qtySqty' || key === 'qtySuomqty') {
+
                     const item = window.purchaseRequestItems[index];
+
                     if (key === 'qtySqty') {
+
                         const row = document.querySelector(`#pr-line-items-body tr[data-pr-index="${index}"]`);
+
                         const sqInputEl = row ? row.querySelector('[data-pr-field="qtySqty"]') : null;
+
                         refreshPrLineSuomQtyDisplay(index, item, sqInputEl);
+
                     } else {
+
                         syncPrLineQuantityDerived(item);
+
                     }
+
                     updatePurchaseRequestRowAmount(index);
+
                     recalcPurchaseRequestTotals();
+
                     return;
+
                 }
 
             } else {
@@ -9377,6 +12735,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
                     amount: Number((pq * up).toFixed(2)),
 
                     stockQtyUom: deriveStockQtyUomForPayload(item),
+
                     ...prLineStockFieldsForPayload(item),
 
                 };
@@ -9416,6 +12775,20 @@ function buildViewPurchaseRequestDetailHtml(header) {
             if (!Array.isArray(payload.lineItems) || !payload.lineItems.length) return 'At least one line item is required';
 
             const isSubmit = String(payload.status || '').toUpperCase() === 'SUBMITTED';
+
+            if (isSubmit) {
+
+                const suppliers = Array.isArray(payload.suppliers) ? payload.suppliers : [];
+
+                const hasSupplier = suppliers.some((s) => String((s && s.code) || '').trim());
+
+                if (!hasSupplier) {
+
+                    return 'Select at least one supplier to invite for bidding when submitting';
+
+                }
+
+            }
 
             for (let i = 0; i < payload.lineItems.length; i += 1) {
 
@@ -9492,6 +12865,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
                     deliveryDate: String(item.deliveryDate || '').trim(),
 
                     stockQtyUom: deriveStockQtyUomForPayload(item),
+
                     ...prLineStockFieldsForPayload(item),
 
                 }));
@@ -9505,6 +12879,26 @@ function buildViewPurchaseRequestDetailHtml(header) {
                 }
 
                 const isSubmitFromEdit = String(status || '').toUpperCase() === 'SUBMITTED';
+
+                if (isSubmitFromEdit) {
+
+                    const hasSupplier = selectedSuppliers.some((s) => String((s && s.code) || '').trim());
+
+                    if (!hasSupplier) {
+
+                        showPurchaseRequestMessage(
+
+                            'Select at least one supplier to invite for bidding when submitting',
+
+                            'error'
+
+                        );
+
+                        return;
+
+                    }
+
+                }
 
                 for (let i = 0; i < editLineItems.length; i += 1) {
 
@@ -9584,6 +12978,8 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     lineItems: editLineItems,
 
+                    ...(isSubmitFromEdit ? { submit: true } : {}),
+
                 };
 
                 try {
@@ -9620,45 +13016,11 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     });
 
-                    const data = await response.json();
+                    const data = await readProcurementJson(response);
 
                     if (!response.ok || !data.success) {
 
                         throw new Error(data.error || `Request failed with HTTP ${response.status}`);
-
-                    }
-
-                    if (isSubmitFromEdit) {
-
-                        const requestNumber = String(prFormEditState.requestNumber || document.getElementById('pr-request-number').value || '').trim();
-
-                        if (!requestNumber) {
-
-                            throw new Error('Missing request number for submit action.');
-
-                        }
-
-                        const statusResponse = await fetch(`/api/admin/procurement/purchase-requests/${encodeURIComponent(requestNumber)}/status`, {
-
-                            method: 'PATCH',
-
-                            headers: {
-
-                                'Content-Type': 'application/json',
-
-                            },
-
-                            body: JSON.stringify({ status: 'SUBMITTED' }),
-
-                        });
-
-                        const statusData = await statusResponse.json();
-
-                        if (!statusResponse.ok || !statusData.success) {
-
-                            throw new Error(statusData.error || `Submit failed with HTTP ${statusResponse.status}`);
-
-                        }
 
                     }
 
@@ -9667,8 +13029,6 @@ function buildViewPurchaseRequestDetailHtml(header) {
                         ? String((prFormEditState && prFormEditState.requestNumber) || document.getElementById('pr-request-number').value || '').trim()
 
                         : '';
-
-                    await loadViewPurchaseRequests(true);
 
                     prFormEditState = null;
 
@@ -9704,7 +13064,9 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 } catch (error) {
 
-                    showPurchaseRequestMessage(error.message || 'Failed to update purchase request.', 'error');
+                    clearPurchaseRequestMessage();
+
+                    if (!isProcurementAuthExpired(error)) showPurchaseRequestMessage(error.message || 'Failed to update purchase request.', 'error');
 
                 } finally {
 
@@ -9768,7 +13130,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 });
 
-                const data = await response.json();
+                const data = await readProcurementJson(response);
 
                 if (!response.ok || !data.success) {
 
@@ -9800,13 +13162,19 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     } catch (e) { /* ignore */ }
 
-                    loadStockCardRows();
+                    // Do not reload Stock Card here — user left Create for View PR.
+
+                    const syncPending = Boolean(data.data && data.data.sqlSyncPending);
 
                     showPurchaseRequestSuccessModal(
 
                         'Purchase request submitted',
 
-                        'Your purchase request was submitted successfully.',
+                        syncPending
+
+                            ? 'Saved. Accounting sync continues in the background.'
+
+                            : 'Your purchase request was submitted successfully.',
 
                         requestNumber !== 'N/A' ? requestNumber : null
 
@@ -9824,9 +13192,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                     _renderChips();
 
-                    loadStockCardRows();
-
-                    loadViewPurchaseRequests(true);
+                    // Stay on Create after draft: refresh PR number only (not Stock Card).
 
                     loadNextPurchaseRequestNumber();
 
@@ -9834,7 +13200,9 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             } catch (error) {
 
-                showPurchaseRequestMessage(error.message || 'Failed to submit purchase request.', 'error');
+                clearPurchaseRequestMessage();
+
+                if (!isProcurementAuthExpired(error)) showPurchaseRequestMessage(error.message || 'Failed to submit purchase request.', 'error');
 
             } finally {
 
@@ -9870,17 +13238,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             fetch('/api/admin/procurement/projects')
 
-                .then((res) => {
-
-                    if (!res.ok) {
-
-                        throw new Error(`Projects request failed (HTTP ${res.status})`);
-
-                    }
-
-                    return res.json();
-
-                })
+                .then((res) => readProcurementJson(res))
 
                 .then((payload) => {
 
@@ -9992,7 +13350,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             fetch('/api/admin/procurement/suppliers')
 
-                .then((res) => res.json())
+                .then((res) => readProcurementJson(res))
 
                 .then((payload) => {
 
@@ -10002,13 +13360,30 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                         console.log('[Suppliers] Loaded', supplierList.length, 'suppliers');
 
+                        const errEl = document.getElementById('pr-supplier-load-error');
+
+                        if (errEl) {
+
+                            errEl.textContent = '';
+
+                            errEl.style.display = 'none';
+
+                        }
+
                     } else {
 
                         supplierList = [];
+
                         console.warn('[Suppliers] Failed to load:', payload.error || payload);
-                        const hint = document.querySelector('.pr-supplier-invite-hint');
-                        if (hint) {
-                            hint.textContent = 'Supplier list could not be loaded. Check SQL API /supplier and refresh.';
+
+                        const errEl = document.getElementById('pr-supplier-load-error');
+
+                        if (errEl) {
+
+                            errEl.textContent = 'Supplier list could not be loaded. Check SQL API /supplier and refresh.';
+
+                            errEl.style.display = 'block';
+
                         }
 
                     }
@@ -10028,7 +13403,9 @@ function buildViewPurchaseRequestDetailHtml(header) {
             const dropdown = document.getElementById('pr-supplier-dropdown');
 
             if (!search || !dropdown) return;
+
             if (search.dataset.prSupplierPickerBound === '1') return;
+
             search.dataset.prSupplierPickerBound = '1';
 
             search.addEventListener('input', () => _renderDropdown(search.value.trim()));
@@ -10143,17 +13520,35 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
         }
 
+        function _updateSupplierSelectedCounts() {
+
+            const n = selectedSuppliers.length;
+
+            const badge = document.getElementById('pr-supplier-selected-badge');
+
+            const countEl = document.getElementById('pr-supplier-selected-count');
+
+            const selectedBlock = document.querySelector('.pr-supplier-block--selected');
+
+            if (badge) badge.textContent = n === 1 ? '1 selected' : `${n} selected`;
+
+            if (countEl) countEl.textContent = String(n);
+
+            if (selectedBlock) selectedBlock.dataset.count = String(n);
+
+        }
+
         function _renderSupplierTable() {
 
             const tbody = document.getElementById('pr-supplier-tbody');
 
             if (!tbody) return;
 
-            const emptyRow = document.getElementById('pr-supplier-empty-row');
+            _updateSupplierSelectedCounts();
 
             if (!selectedSuppliers.length) {
 
-                tbody.innerHTML = '<tr id="pr-supplier-empty-row"><td colspan="5" class="pr-supplier-empty">No suppliers added. Search and select above.</td></tr>';
+                tbody.innerHTML = '<tr id="pr-supplier-empty-row"><td colspan="5" class="pr-supplier-empty">No suppliers selected</td></tr>';
 
                 return;
 
@@ -10197,7 +13592,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 const response = await fetch('/api/admin/procurement/purchase-requests/next-number');
 
-                const data = await response.json();
+                const data = await readProcurementJson(response);
 
                 if (!response.ok || !data.success) {
 
@@ -10220,6 +13615,7 @@ function buildViewPurchaseRequestDetailHtml(header) {
         function initPurchaseRequestForm() {
 
             prFormEditState = null;
+
             clearPurchaseRequestDraftItems();
 
             renderProjectOptions('');
@@ -10282,45 +13678,57 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
             applyPurchaseRequestFormModeUI();
 
+            clearPurchaseRequestMessage();
+
         }
 
         document.addEventListener('DOMContentLoaded', function () {
 
                 initStockDashboardLayout();
 
-                loadStockCardRows();
-
                 afterStockCardTableRender();
 
                 bindPurchaseRequestDeliveryLocationSync();
-
-                loadPrWarehouseLocations();
-
-                if (!tryRestorePurchaseRequestDraftItems()) {
-                    initPurchaseRequestForm();
-                }
-                const prNoEl = document.getElementById('pr-request-number');
-                if (prNoEl && !String(prNoEl.value || '').trim()) {
-                    loadNextPurchaseRequestNumber();
-                }
-
-                loadPurchaseRequestProducts();
-
-                loadSuppliers();
-
-                loadProjects();
 
                 window.addEventListener('resize', afterStockCardTableRender);
 
                 document.addEventListener('visibilitychange', () => {
 
-                    if (document.visibilityState !== 'visible') return;
+                    if (document.visibilityState !== 'visible') {
+
+                        stockCardHiddenSince = Date.now();
+
+                        if (stockCardVisibilityRefreshTimer) {
+
+                            clearTimeout(stockCardVisibilityRefreshTimer);
+
+                            stockCardVisibilityRefreshTimer = null;
+
+                        }
+
+                        return;
+
+                    }
+
+                    const hiddenFor = stockCardHiddenSince ? (Date.now() - stockCardHiddenSince) : 0;
+
+                    stockCardHiddenSince = 0;
 
                     const panel = document.getElementById('panel-report');
 
                     if (!panel || panel.style.display === 'none') return;
 
                     if (!reportLoaded) return;
+
+                    if (hiddenFor >= STOCK_CARD_IDLE_HIDDEN_MS) {
+
+                        // Long idle: refresh only if still stale when user needs report.
+
+                    }
+
+                    const ageMs = stockCardLastLoadedAt ? (Date.now() - stockCardLastLoadedAt) : Infinity;
+
+                    if (ageMs < STOCK_CARD_FRESH_MS) return;
 
                     if (stockCardVisibilityRefreshTimer) {
 
@@ -10340,6 +13748,8 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 // Select initial view based on URL query param (e.g. ?tab=report|view|create)
 
+                // Stock card / create-PR lookups load only for the active tab via showTab.
+
                 try {
 
                     const params = new URLSearchParams(window.location.search || '');
@@ -10347,6 +13757,24 @@ function buildViewPurchaseRequestDetailHtml(header) {
                     const tab = String(params.get('tab') || 'report').trim();
 
                     applyViewStatusFromUrl();
+
+                    if (tab === 'create') {
+
+                        if (!tryRestorePurchaseRequestDraftItems()) {
+
+                            initPurchaseRequestForm();
+
+                        }
+
+                        const prNoEl = document.getElementById('pr-request-number');
+
+                        if (prNoEl && !String(prNoEl.value || '').trim()) {
+
+                            loadNextPurchaseRequestNumber();
+
+                        }
+
+                    }
 
                     showTab(tab);
 
@@ -10358,4 +13786,3 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
         });
 
-    

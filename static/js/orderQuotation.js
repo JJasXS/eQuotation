@@ -601,7 +601,7 @@ function formatCurrencyDisplayValue() {
 }
 
 /** Re-read currency/code from GET /api/get_user_info (same SQL API merge as initial load). */
-async function refreshSqlApiCustomerCurrencyFromGetUserInfo() {
+async function refreshSqlApiCustomerCurrencyFromGetUserInfo(options = {}) {
     const onQuotationForm =
         document.body.classList.contains('create-quotation-page')
         || document.getElementById('quotation-form')
@@ -609,19 +609,39 @@ async function refreshSqlApiCustomerCurrencyFromGetUserInfo() {
     if (!onQuotationForm) {
         return;
     }
+    const timeoutMs = Number(options.timeoutMs);
+    const preferSql = Boolean(options.preferSql);
+    const noCache = Boolean(options.noCache);
+    const qs = new URLSearchParams();
+    if (preferSql) qs.set('prefer_sql', '1');
+    if (noCache) qs.set('nocache', '1');
+    const url = qs.toString() ? `/api/get_user_info?${qs}` : '/api/get_user_info';
+    const controller = new AbortController();
+    const timer = window.setTimeout(
+        () => {
+            try { controller.abort(); } catch (_e) { /* ignore */ }
+        },
+        Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 3000,
+    );
     try {
-        const response = await fetch('/api/get_user_info');
+        const response = await fetch(url, { signal: controller.signal });
         if (!response.ok) {
-            return;
+            return null;
         }
         const envelope = await response.json();
         const source = envelope && envelope.data ? envelope.data : null;
         if (!envelope.success || !source) {
-            return;
+            return null;
         }
-        const picked = pickSqlApiCurrencyFromSource(source);
-        if (picked !== null) {
-            setSqlApiCustomerCurrencyDisplay(picked);
+        if (options.applyFullPayload) {
+            ingestCustomerApiPayload(source);
+            renderCustomerAllFields(source.displayFields);
+            syncProminentCustomerFields();
+        } else {
+            const picked = pickSqlApiCurrencyFromSource(source);
+            if (picked !== null) {
+                setSqlApiCustomerCurrencyDisplay(picked);
+            }
         }
         const apiCode = String(
             source.sqlApiCustomerCode || source.CODE || source.code || ''
@@ -634,9 +654,42 @@ async function refreshSqlApiCustomerCurrencyFromGetUserInfo() {
                 quotationForm.dataset.customerCode = apiCode;
             }
         }
+        return envelope;
     } catch (err) {
         console.warn('refreshSqlApiCustomerCurrencyFromGetUserInfo:', err);
+        return null;
+    } finally {
+        clearTimeout(timer);
     }
+}
+
+/** After local paint, upgrade customer fields from SQL Accounting without blocking UI. */
+function scheduleSqlCustomerOverlay() {
+    if (!document.body.classList.contains('create-quotation-page')) {
+        return;
+    }
+    window.setTimeout(() => {
+        refreshSqlApiCustomerCurrencyFromGetUserInfo({
+            preferSql: true,
+            noCache: false,
+            applyFullPayload: true,
+            timeoutMs: 4000,
+        }).catch(() => {});
+    }, 0);
+}
+
+/** Best-effort currency for UX; server still resolves from customer master on save.
+
+Do not block Submit/Draft on a slow SQL API GET /customer — that alone can add ~2.5s
+and does not change the authoritative server-side currency resolution.
+*/
+async function ensureCurrencyReadyForSave() {
+    if (currencyCodeForQuotationSave()) {
+        return true;
+    }
+    // Fire-and-forget refresh for display; save proceeds immediately.
+    refreshSqlApiCustomerCurrencyFromGetUserInfo({ timeoutMs: 2500 }).catch(() => {});
+    return Boolean(currencyCodeForQuotationSave());
 }
 
 function syncProminentCustomerFields() {
@@ -747,8 +800,15 @@ function writeQuotationCustomerField(id, displayText) {
     el.textContent = text.trim();
 }
 
+function isCreateQuotationColumnLines() {
+    return document.body.classList.contains('create-quotation-page')
+        && !document.body.classList.contains('update-quotation-page');
+}
+
 function getQuotationLineItemsBody() {
-    return document.getElementById('quotation-line-items')
+    return document.querySelector('#create-quotation-lines-wrap #quotation-line-items')
+        || document.querySelector('#quotation-form #quotation-line-items')
+        || document.getElementById('quotation-line-items')
         || document.querySelector('table.quotation-lines-table tbody#quotation-items-list');
 }
 
@@ -757,7 +817,7 @@ function getQuotationLineRows() {
     if (!tbody) {
         return [];
     }
-    return tbody.querySelectorAll('tr.quotation-line-row');
+    return tbody.querySelectorAll('.quotation-line-row');
 }
 
 function ensureDefaultQuotationLineRow() {
@@ -765,7 +825,7 @@ function ensureDefaultQuotationLineRow() {
     if (!tbody) {
         return;
     }
-    if (!tbody.querySelector('tr.quotation-line-row')) {
+    if (!tbody.querySelector('.quotation-line-row')) {
         appendQuotationLineRow(tbody);
     }
 }
@@ -843,9 +903,19 @@ function repairCreateQuotationLinesUi() {
         tbody.id = 'quotation-line-items';
     }
 
+    // Only reorder mini codes when wrap is a direct child of section.
+    // Nested panel layouts (create-quotation-lines-panel) must not call insertBefore
+    // with a non-child reference — that throws and aborts draft/line restore.
     const mini = section.querySelector('#quotation-mini-item-codes');
-    if (mini && mini.nextElementSibling !== wrap) {
-        section.insertBefore(mini, wrap);
+    const wrapParent = wrap.parentElement;
+    if (
+        mini
+        && wrapParent
+        && mini.parentElement === wrapParent
+        && mini.nextElementSibling !== wrap
+        && !mini.closest('.create-quotation-lines-header')
+    ) {
+        wrapParent.insertBefore(mini, wrap);
     }
 
     ensureDefaultQuotationLineRow();
@@ -860,7 +930,7 @@ function repairCreateQuotationLinesUi() {
 }
 
 function getQuotationLineRowFrom(el) {
-    return el ? el.closest('tr.quotation-line-row') : null;
+    return el ? el.closest('.quotation-line-row') : null;
 }
 
 function formatQuotationCellDisplay(value, useDash = true) {
@@ -954,8 +1024,23 @@ const QUOTATION_SOURCE_LABELS = {
     custom: 'Custom order',
 };
 
+const QUOTATION_LINE_TRASH_SVG =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"'
+    + ' fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"'
+    + ' stroke-linejoin="round" aria-hidden="true">'
+    + '<polyline points="3 6 5 6 21 6"></polyline>'
+    + '<path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>'
+    + '<path d="M10 11v6"></path><path d="M14 11v6"></path>'
+    + '<path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>'
+    + '</svg>';
+
+function quotationLineRemoveControlHtml() {
+    return '<button type="button" class="item-remove" title="Remove row" aria-label="Remove row"'
+        + ` onclick="removeQuotationItem(this)">${QUOTATION_LINE_TRASH_SVG}</button>`;
+}
+
 function readQuotationLineSource(row) {
-    const el = row ? row.querySelector('td.item-source') : null;
+    const el = row ? row.querySelector('.item-source') : null;
     if (!el) {
         return 'catalog';
     }
@@ -968,7 +1053,7 @@ function readQuotationLineSource(row) {
 }
 
 function writeQuotationLineSource(row, source) {
-    const el = row ? row.querySelector('td.item-source') : null;
+    const el = row ? row.querySelector('.item-source') : null;
     if (!el) {
         return;
     }
@@ -1185,17 +1270,31 @@ function scheduleRefreshQuotationLineUdfWts(row) {
     udfWtsRefreshTimer = setTimeout(() => applyQuotationLineSuomQtyPreview(row), 120);
 }
 
-function quotationLineStItemExtraCellsHtml(options = {}) {
+function cqLineField(label, innerHtml) {
+    return `<div class="cq-line-field"><span class="cq-line-field__label">${label}</span>${innerHtml}</div>`;
+}
+
+function quotationLineStItemExtraCellsHtml(options = {}, asColumns = false) {
     const thick = options.thickness != null ? String(options.thickness) : '';
     const width = options.width != null ? String(options.width) : '';
     const length = options.length != null ? String(options.length) : '';
-    return `
+    if (!asColumns) {
+        return `
         <td class="item-udf-moq">—</td>
         <td class="item-udf-dleadtime">—</td>
         <td class="item-udf-bundle">—</td>
         <td><input type="text" class="item-udf-thickness" placeholder="Thick" value="${escapeQuotationHtml(thick)}" autocomplete="off" inputmode="decimal"></td>
         <td><input type="text" class="item-udf-width" placeholder="Width" value="${escapeQuotationHtml(width)}" autocomplete="off" inputmode="decimal"></td>
         <td><input type="text" class="item-udf-length" placeholder="Length" value="${escapeQuotationHtml(length)}" autocomplete="off" inputmode="decimal"></td>`;
+    }
+    return [
+        cqLineField('MOQ', '<div class="item-udf-moq">—</div>'),
+        cqLineField('Lead', '<div class="item-udf-dleadtime">—</div>'),
+        cqLineField('Bundle', '<div class="item-udf-bundle">—</div>'),
+        cqLineField('Thick', `<input type="text" class="item-udf-thickness" placeholder="Thick" value="${escapeQuotationHtml(thick)}" autocomplete="off" inputmode="decimal">`),
+        cqLineField('Width', `<input type="text" class="item-udf-width" placeholder="Width" value="${escapeQuotationHtml(width)}" autocomplete="off" inputmode="decimal">`),
+        cqLineField('Length', `<input type="text" class="item-udf-length" placeholder="Length" value="${escapeQuotationHtml(length)}" autocomplete="off" inputmode="decimal">`),
+    ].join('');
 }
 
 function buildQuotationLineRowInnerHtml(options = {}) {
@@ -1207,47 +1306,70 @@ function buildQuotationLineRowInnerHtml(options = {}) {
     const disc = options.disc != null ? options.disc : 0;
     const refPrice = options.refPrice != null ? options.refPrice : 0;
     const unitPrice = options.unitPrice != null ? options.unitPrice : 0;
+    const asColumns = options.asColumns != null
+        ? Boolean(options.asColumns)
+        : isCreateQuotationColumnLines();
 
     const productClass = isCustom ? 'item-product-custom' : 'item-product';
     const productValue = isCustom ? escapeQuotationHtml(description) : '';
     const refDisplay = refPrice ? Number(refPrice).toFixed(2) : '—';
     const unitDisplay = unitPrice ? Number(unitPrice).toFixed(2) : '—';
+    const dims = {
+        thickness: options.thickness,
+        width: options.width,
+        length: options.length,
+    };
 
-    return `
+    if (!asColumns) {
+        return `
         <td class="item-source" data-source="${sourceKey}">${QUOTATION_SOURCE_LABELS[sourceKey]}</td>
         <td class="cq-product-cell"><input type="text" class="${productClass}" placeholder="Search or pick product…" value="${productValue}" autocomplete="off" spellcheck="false"></td>
-        ${quotationLineStItemExtraCellsHtml({
-            thickness: options.thickness,
-            width: options.width,
-            length: options.length,
-        })}
+        ${quotationLineStItemExtraCellsHtml(dims, false)}
         <td><input type="number" class="item-qty" min="0" step="any" value="${qty}"></td>
         <td class="item-udf-wts" title="udf_wts (SQL Accounting S/U Qty)">${formatUdfWtsDisplay(options.udfWts)}</td>
         <td><input type="number" class="item-discount" min="0" step="any" value="${disc}"></td>
         <td class="item-suggested-price">${refDisplay}</td>
         <td class="item-price">${unitDisplay}</td>
         <td><input type="date" class="item-delivery-date" value="${today}"></td>
-        <td class="item-remove">Remove</td>`;
+        <td class="cq-remove-cell">${quotationLineRemoveControlHtml()}</td>`;
+    }
+
+    return `
+        <div class="cq-line-top">
+            ${cqLineField('Source', `<button type="button" class="item-source" data-source="${sourceKey}">${QUOTATION_SOURCE_LABELS[sourceKey]}</button>`)}
+            ${cqLineField('Product', `<div class="cq-product-cell"><input type="text" class="${productClass}" placeholder="Search or pick product…" value="${productValue}" autocomplete="off" spellcheck="false"></div>`)}
+            ${quotationLineRemoveControlHtml(true)}
+        </div>
+        <div class="cq-line-cols">
+            ${quotationLineStItemExtraCellsHtml(dims, true)}
+            ${cqLineField('Qty', `<input type="number" class="item-qty" min="0" step="any" value="${qty}">`)}
+            ${cqLineField('S/U Qty', `<div class="item-udf-wts" title="udf_wts (SQL Accounting S/U Qty)">${formatUdfWtsDisplay(options.udfWts)}</div>`)}
+            ${cqLineField('Discount', `<input type="number" class="item-discount" min="0" step="any" value="${disc}">`)}
+            ${cqLineField('Ref. price', `<div class="item-suggested-price">${refDisplay}</div>`)}
+            ${cqLineField('Unit price', `<div class="item-price">${unitDisplay}</div>`)}
+            ${cqLineField('Delivery', `<input type="date" class="item-delivery-date" value="${today}">`)}
+        </div>`;
 }
 
 function appendQuotationLineRow(container, options = {}) {
-    const tr = document.createElement('tr');
-    tr.className = 'quotation-line-row';
-    tr.innerHTML = buildQuotationLineRowInnerHtml(options);
-    container.appendChild(tr);
-    const deliveryCell = tr.querySelector('.item-delivery-date');
-    if (deliveryCell && !readQuotationLineField(tr, '.item-delivery-date')) {
+    const asColumns = String(container.tagName || '').toUpperCase() !== 'TBODY';
+    const row = document.createElement(asColumns ? 'div' : 'tr');
+    row.className = 'quotation-line-row';
+    row.innerHTML = buildQuotationLineRowInnerHtml({ ...options, asColumns });
+    container.appendChild(row);
+    const deliveryCell = row.querySelector('.item-delivery-date');
+    if (deliveryCell && !readQuotationLineField(row, '.item-delivery-date')) {
         writeQuotationLineField(
-            tr,
+            row,
             '.item-delivery-date',
             new Date().toISOString().split('T')[0],
         );
     }
-    const productInput = tr.querySelector('input.item-product:not(.item-product-custom)');
+    const productInput = row.querySelector('input.item-product:not(.item-product-custom)');
     if (productInput) {
         bindCatalogProductInput(productInput);
     }
-    return tr;
+    return row;
 }
 
 // Add Quotation Item
@@ -1294,29 +1416,38 @@ function toggleQuotationLineSource(sourceCell) {
     setQuotationLineSourceMode(row, next);
 }
 
-function initQuotationLineTableEvents() {
-    const table =
-        document.querySelector('#quotation-form table.quotation-lines-table')
+function getQuotationLinesEventRoot() {
+    return document.querySelector('#quotation-form #create-quotation-lines-wrap')
+        || document.querySelector('#update-quotation-form #create-quotation-lines-wrap')
+        || document.querySelector('#create-quotation-lines-wrap')
+        || document.querySelector('#quotation-form table.quotation-lines-table')
         || document.querySelector('#update-quotation-form table.quotation-lines-table')
-        || document.querySelector('table.quotation-lines-table');
-    if (!table || table.dataset.lineEventsBound === '1') {
+        || document.querySelector('table.quotation-lines-table')
+        || document.getElementById('quotation-line-items');
+}
+
+function initQuotationLineTableEvents() {
+    const root = getQuotationLinesEventRoot();
+    if (!root || root.dataset.lineEventsBound === '1') {
         return;
     }
-    table.dataset.lineEventsBound = '1';
-    table.addEventListener('click', (e) => {
-        const td = e.target.closest('td');
-        if (!td || !table.contains(td)) {
+    root.dataset.lineEventsBound = '1';
+    root.addEventListener('click', (e) => {
+        const removeBtn = e.target.closest('.item-remove');
+        if (removeBtn && root.contains(removeBtn)) {
+            e.preventDefault();
+            e.stopPropagation();
+            removeQuotationItem(removeBtn);
             return;
         }
-        if (td.classList.contains('item-source')) {
-            toggleQuotationLineSource(td);
-        } else if (td.classList.contains('item-remove')) {
-            removeQuotationItem(td);
+        const sourceCell = e.target.closest('.item-source');
+        if (sourceCell && root.contains(sourceCell)) {
+            toggleQuotationLineSource(sourceCell);
         }
     });
-    table.addEventListener('change', (e) => {
+    root.addEventListener('change', (e) => {
         const el = e.target;
-        if (!el || !table.contains(el)) {
+        if (!el || !root.contains(el)) {
             return;
         }
         if (el.matches(
@@ -1326,9 +1457,9 @@ function initQuotationLineTableEvents() {
             onQuotationLineCellBlur(el);
         }
     });
-    table.addEventListener('input', (e) => {
+    root.addEventListener('input', (e) => {
         const el = e.target;
-        if (!el || !table.contains(el)) {
+        if (!el || !root.contains(el)) {
             return;
         }
         if (el.matches('.item-qty, .item-udf-thickness, .item-udf-width, .item-udf-length')) {
@@ -1338,11 +1469,11 @@ function initQuotationLineTableEvents() {
             }
         }
     });
-    table.addEventListener(
+    root.addEventListener(
         'blur',
         (e) => {
             const el = e.target;
-            if (!el || !table.contains(el)) {
+            if (!el || !root.contains(el)) {
                 return;
             }
             if (el.matches(
@@ -1358,14 +1489,18 @@ function initQuotationLineTableEvents() {
 
 // Remove Quotation Item
 function removeQuotationItem(button) {
+    const row = getQuotationLineRowFrom(button);
     const items = getQuotationLineRows();
-    if (items.length > 1) {
-        getQuotationLineRowFrom(button)?.remove();
-        calculateQuotationTotal();
-        refreshQuotationMiniItemCodes();
-    } else {
-        alert('At least one item is required');
+    if (!row) {
+        return;
     }
+    if (items.length <= 1) {
+        alert('At least one item is required');
+        return;
+    }
+    row.remove();
+    calculateQuotationTotal();
+    refreshQuotationMiniItemCodes();
 }
 
 // Calculate Order Total
@@ -1664,6 +1799,8 @@ function clearQuotationForm() {
 }
 
 // Fetch product price when a product is selected
+const _productPriceInFlight = new WeakMap();
+
 async function fetchProductPrice(input) {
     if (input.classList && input.classList.contains('item-product-custom')) {
         return;
@@ -1688,6 +1825,23 @@ async function fetchProductPrice(input) {
         return;
     }
 
+    const priceParams = inQuotationTable && row
+        ? buildProductPriceQueryParams(row)
+        : new URLSearchParams({ description: productName });
+    if (!priceParams.get('description')) {
+        priceParams.set('description', productName);
+    }
+    const priceKey = priceParams.toString();
+    const trackTarget = row || input;
+    const prior = _productPriceInFlight.get(trackTarget);
+    if (prior && prior.key === priceKey) {
+        // Same product already priced or in flight for this row (picker + blur double-fire).
+        return prior.promise;
+    }
+    if (prior && prior.controller) {
+        try { prior.controller.abort(); } catch (_e) { /* ignore */ }
+    }
+
     if (row && inQuotationTable) {
         applyQuotationLineStItemExtrasFromProduct(row, findCatalogProductByDescription(productName));
     }
@@ -1700,87 +1854,99 @@ async function fetchProductPrice(input) {
     if (orderItem) {
         orderItem.dataset.productDescription = productName;
     }
-    
-    try {
-        const priceParams = inQuotationTable && row
-            ? buildProductPriceQueryParams(row)
-            : new URLSearchParams({ description: productName });
-        if (!priceParams.get('description')) {
-            priceParams.set('description', productName);
-        }
-        const response = await fetch(`/api/get_product_price?${priceParams.toString()}`);
-        const data = await response.json();
 
-        if (data.success && data.price !== undefined && data.price !== null) {
-            if (row && inQuotationTable) {
-                if (data.suggestedPrice !== undefined && data.suggestedPrice !== null) {
-                    writeQuotationLineField(row, '.item-suggested-price', Number(data.suggestedPrice).toFixed(2));
-                } else {
-                    writeQuotationLineField(row, '.item-suggested-price', '');
-                    if (data.suggestedReason) {
-                        console.log('Suggested price unavailable:', data.suggestedReason, '| source:', data.source, '| rule:', data.matchedRuleCode);
-                    }
-                }
-                const stItemPrice = Number(data.stItemPrice);
-                if (Number.isFinite(stItemPrice)) {
-                    writeQuotationLineField(row, '.item-price', stItemPrice.toFixed(2));
-                } else {
-                    writeQuotationLineField(row, '.item-price', data.price.toFixed(2));
-                }
-            } else if (row) {
-                const suggestedPriceInput = row.querySelector('.item-suggested-price');
-                const unitPriceInput = row.querySelector('.item-price');
-                if (suggestedPriceInput) {
+    const controller = new AbortController();
+    const runPromise = (async () => {
+        try {
+            const response = await fetch(
+                `/api/get_product_price?${priceKey}`,
+                { signal: controller.signal },
+            );
+            const data = await response.json();
+
+            if (data.success && data.price !== undefined && data.price !== null) {
+                if (row && inQuotationTable) {
                     if (data.suggestedPrice !== undefined && data.suggestedPrice !== null) {
-                        suggestedPriceInput.value = Number(data.suggestedPrice).toFixed(2);
+                        writeQuotationLineField(row, '.item-suggested-price', Number(data.suggestedPrice).toFixed(2));
                     } else {
-                        suggestedPriceInput.value = '';
+                        writeQuotationLineField(row, '.item-suggested-price', '');
+                        if (data.suggestedReason) {
+                            console.log('Suggested price unavailable:', data.suggestedReason, '| source:', data.source, '| rule:', data.matchedRuleCode);
+                        }
+                    }
+                    const stItemPrice = Number(data.stItemPrice);
+                    if (Number.isFinite(stItemPrice)) {
+                        writeQuotationLineField(row, '.item-price', stItemPrice.toFixed(2));
+                    } else {
+                        writeQuotationLineField(row, '.item-price', data.price.toFixed(2));
+                    }
+                } else if (row) {
+                    const suggestedPriceInput = row.querySelector('.item-suggested-price');
+                    const unitPriceInput = row.querySelector('.item-price');
+                    if (suggestedPriceInput) {
+                        if (data.suggestedPrice !== undefined && data.suggestedPrice !== null) {
+                            suggestedPriceInput.value = Number(data.suggestedPrice).toFixed(2);
+                        } else {
+                            suggestedPriceInput.value = '';
+                        }
+                    }
+                    if (unitPriceInput) {
+                        const stItemPrice = Number(data.stItemPrice);
+                        unitPriceInput.value = Number.isFinite(stItemPrice)
+                            ? stItemPrice.toFixed(2)
+                            : data.price.toFixed(2);
                     }
                 }
-                if (unitPriceInput) {
-                    const stItemPrice = Number(data.stItemPrice);
-                    unitPriceInput.value = Number.isFinite(stItemPrice)
-                        ? stItemPrice.toFixed(2)
-                        : data.price.toFixed(2);
+                // Trigger total recalculation
+                const isOrder = input.closest && input.closest('#order-items-list') !== null;
+                if (isOrder) {
+                    calculateOrderTotal();
+                } else {
+                    calculateQuotationTotal();
                 }
+                if (row && inQuotationTable) {
+                    const savedDims = {
+                        t: readQuotationLineField(row, '.item-udf-thickness'),
+                        w: readQuotationLineField(row, '.item-udf-width'),
+                        l: readQuotationLineField(row, '.item-udf-length'),
+                    };
+                    applyQuotationLineStItemExtras(row, data);
+                    if (savedDims.t) {
+                        writeQuotationLineField(row, '.item-udf-thickness', savedDims.t);
+                    }
+                    if (savedDims.w) {
+                        writeQuotationLineField(row, '.item-udf-width', savedDims.w);
+                    }
+                    if (savedDims.l) {
+                        writeQuotationLineField(row, '.item-udf-length', savedDims.l);
+                    }
+                    applyQuotationLineSuomQtyPreview(row);
+                }
+            } else if (row && inQuotationTable) {
+                clearQuotationLineStItemExtras(row);
             }
-            // Trigger total recalculation
-            const isOrder = input.closest && input.closest('#order-items-list') !== null;
-            if (isOrder) {
-                calculateOrderTotal();
-            } else {
-                calculateQuotationTotal();
+        } catch (error) {
+            if (error && error.name === 'AbortError') {
+                return;
             }
+            console.error('Failed to fetch product price:', error);
             if (row && inQuotationTable) {
-                const savedDims = {
-                    t: readQuotationLineField(row, '.item-udf-thickness'),
-                    w: readQuotationLineField(row, '.item-udf-width'),
-                    l: readQuotationLineField(row, '.item-udf-length'),
-                };
-                applyQuotationLineStItemExtras(row, data);
-                if (savedDims.t) {
-                    writeQuotationLineField(row, '.item-udf-thickness', savedDims.t);
-                }
-                if (savedDims.w) {
-                    writeQuotationLineField(row, '.item-udf-width', savedDims.w);
-                }
-                if (savedDims.l) {
-                    writeQuotationLineField(row, '.item-udf-length', savedDims.l);
-                }
-                applyQuotationLineSuomQtyPreview(row);
+                clearQuotationLineStItemExtras(row);
             }
-        } else if (row && inQuotationTable) {
-            clearQuotationLineStItemExtras(row);
+        } finally {
+            const current = _productPriceInFlight.get(trackTarget);
+            if (current && current.controller === controller) {
+                // Keep key so a duplicate blur for the same product is skipped.
+                _productPriceInFlight.set(trackTarget, { key: priceKey, controller: null, promise: Promise.resolve() });
+            }
+            if (inQuotationTable) {
+                refreshQuotationMiniItemCodes();
+            }
         }
-    } catch (error) {
-        console.error('Failed to fetch product price:', error);
-        if (row && inQuotationTable) {
-            clearQuotationLineStItemExtras(row);
-        }
-    }
-    if (inQuotationTable) {
-        refreshQuotationMiniItemCodes();
-    }
+    })();
+
+    _productPriceInFlight.set(trackTarget, { key: priceKey, controller, promise: runPromise });
+    return runPromise;
 }
 
 // Store products globally
@@ -1793,25 +1959,8 @@ let sqlApiCustomerCurrencyCode = null;
 
 // Load Products for Autocomplete
 async function loadProducts() {
-    try {
-        const response = await fetch('/api/get_stock_items');
-        const data = await response.json();
-        
-        if (data.success && data.items) {
-            availableProducts = data.items;
-            syncProductDatalist();
-
-            // Legacy rows may still use <select>; create-quotation uses searchable <input list="product-list">.
-            document.querySelectorAll('.item-product').forEach((el) => {
-                if (el.tagName === 'SELECT') {
-                    populateProductSelect(el);
-                }
-            });
-            refreshQuotationMiniItemCodes();
-        }
-    } catch (error) {
-        console.error('Failed to load products:', error);
-    }
+    availableProducts = [];
+    initQuotationCatalogProductPickers();
 }
 
 function syncProductDatalist() {
@@ -1842,6 +1991,10 @@ function syncProductDatalist() {
 
 let cqProductPickerActiveInput = null;
 let cqProductPickerCloseTimer = null;
+let cqProductSearchTimer = null;
+let cqProductSearchSeq = 0;
+let cqProductSearchState = 'idle';
+let cqProductSearchController = null;
 
 function normalizeProductSearchText(value) {
     return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -1890,7 +2043,7 @@ function ensureCatalogProductPicker() {
     const search = picker.querySelector('.cq-product-picker-search');
     search.addEventListener('input', () => {
         if (cqProductPickerActiveInput) {
-            renderCatalogProductPickerList(cqProductPickerActiveInput, search.value);
+            scheduleCatalogProductSearch(cqProductPickerActiveInput, search.value);
         }
     });
     search.addEventListener('keydown', (event) => {
@@ -1930,6 +2083,58 @@ function positionCatalogProductPicker(input, picker) {
     picker.style.width = `${width}px`;
 }
 
+function scheduleCatalogProductSearch(input, filterText) {
+    clearTimeout(cqProductSearchTimer);
+    const query = String(filterText || '').trim();
+    availableProducts = [];
+    cqProductSearchState = query ? 'loading' : 'idle';
+    renderCatalogProductPickerList(input, query);
+    if (query.length < 1) {
+        return;
+    }
+    cqProductSearchTimer = setTimeout(() => {
+        searchCatalogProducts(input, query);
+    }, 250);
+}
+
+async function searchCatalogProducts(input, query) {
+    const seq = ++cqProductSearchSeq;
+    if (cqProductSearchController) {
+        try { cqProductSearchController.abort(); } catch (_e) { /* ignore */ }
+    }
+    const controller = new AbortController();
+    cqProductSearchController = controller;
+    const timeoutId = window.setTimeout(() => {
+        try { controller.abort(); } catch (_e) { /* ignore */ }
+    }, 12000);
+    try {
+        const response = await fetch(
+            `/api/search_stock_items?q=${encodeURIComponent(query)}`,
+            { signal: controller.signal },
+        );
+        const data = await response.json();
+        if (seq !== cqProductSearchSeq) {
+            return;
+        }
+        availableProducts = data.success && Array.isArray(data.items) ? data.items : [];
+        cqProductSearchState = 'done';
+        renderCatalogProductPickerList(input, query);
+    } catch (error) {
+        if (seq !== cqProductSearchSeq || (error && error.name === 'AbortError')) {
+            return;
+        }
+        availableProducts = [];
+        cqProductSearchState = 'done';
+        renderCatalogProductPickerList(input, query);
+        console.error('Product search failed:', error);
+    } finally {
+        clearTimeout(timeoutId);
+        if (cqProductSearchController === controller) {
+            cqProductSearchController = null;
+        }
+    }
+}
+
 function renderCatalogProductPickerList(input, filterText) {
     const picker = ensureCatalogProductPicker();
     const list = picker.querySelector('.cq-product-picker-list');
@@ -1938,19 +2143,22 @@ function renderCatalogProductPickerList(input, filterText) {
     const current = normalizeProductSearchText(
         row ? readQuotationLineField(row, '.item-product') : input.value,
     );
+    list.innerHTML = '';
+    if (!query) {
+        const hint = document.createElement('li');
+        hint.className = 'cq-product-picker-empty';
+        hint.textContent = 'Type a code or description';
+        list.appendChild(hint);
+        return;
+    }
     const matches = getCatalogProductPickerOptions().filter((opt) => {
-        if (!query) {
-            return true;
-        }
         const blob = normalizeProductSearchText(`${opt.label} ${opt.code} ${opt.value}`);
         return blob.includes(query);
     });
-
-    list.innerHTML = '';
     if (!matches.length) {
         const empty = document.createElement('li');
         empty.className = 'cq-product-picker-empty';
-        empty.textContent = 'No products match';
+        empty.textContent = cqProductSearchState === 'loading' ? 'Searching…' : 'No products match';
         list.appendChild(empty);
         return;
     }
@@ -1998,6 +2206,7 @@ function showCatalogProductPicker(input) {
     positionCatalogProductPicker(input, picker);
     const search = picker.querySelector('.cq-product-picker-search');
     search.value = '';
+    availableProducts = [];
     renderCatalogProductPickerList(input, '');
     picker.hidden = false;
     requestAnimationFrame(() => search.focus());
@@ -2185,15 +2394,9 @@ if (updateQuotationForm) {
     updateQuotationForm.addEventListener('submit', async function(e) {
         e.preventDefault();
         const dockey = updateQuotationForm.dataset.dockey;
-        await refreshSqlApiCustomerCurrencyFromGetUserInfo();
+        await ensureCurrencyReadyForSave();
         const quotationData = buildQuotationPayload();
-        if (!applySqlApiCurrencyForSubmit(quotationData)) {
-            alert(
-                'Customer currency was not loaded from SQL API. Wait for Customer details to finish loading, ' +
-                    'or fix SQL API keys and restart the server.'
-            );
-            return;
-        }
+        applySqlApiCurrencyForSubmit(quotationData);
         if (!quotationData.items || quotationData.items.length === 0) {
             alert('Please add at least one valid item');
             return;
@@ -2232,29 +2435,58 @@ if (updateQuotationForm) {
     });
 }
 
+function quotationSaveResultFromResponse(status, bodyText) {
+    const trimmed = String(bodyText || '').trim();
+    const looksHtml = trimmed.startsWith('<') || /^<!doctype/i.test(trimmed);
+    if (!looksHtml && trimmed) {
+        try {
+            const payload = JSON.parse(trimmed);
+            if (payload && typeof payload === 'object') {
+                return payload;
+            }
+        } catch (error) {
+            /* Non-JSON body is handled below. */
+        }
+    }
+    if (status === 504) {
+        return {
+            success: false,
+            errorCode: 'SQL_API_TIMEOUT',
+            error: 'Saving the quotation timed out. Check Sales Quotation for this document before submitting again. A second submit can create a duplicate.'
+        };
+    }
+    if (status === 502 || status === 503) {
+        return {
+            success: false,
+            error: 'The quotation service is unavailable right now. Check Sales Quotation before submitting again.'
+        };
+    }
+    return {
+        success: false,
+        error: 'The server returned an unexpected response (HTTP ' + status + '). Check Sales Quotation before submitting again.'
+    };
+}
+
 const quotationForm = document.getElementById('quotation-form');
 if (quotationForm) {
     const saveDraftButton = document.getElementById('save-draft-btn');
 
     if (saveDraftButton) {
         saveDraftButton.addEventListener('click', async function() {
-            await refreshSqlApiCustomerCurrencyFromGetUserInfo();
-            const quotationData = buildQuotationPayload();
-            if (!applySqlApiCurrencyForSubmit(quotationData)) {
-                alert(
-                    'Customer currency was not loaded from SQL API. Wait for Customer details to finish loading, ' +
-                        'or fix SQL API keys and restart the server.'
-                );
-                return;
-            }
-            const draftDockey = quotationForm.dataset.draftDockey;
-
-            if (draftDockey) {
-                quotationData.dockey = draftDockey;
-            }
-
+            const originalLabel = saveDraftButton.textContent;
+            saveDraftButton.disabled = true;
+            saveDraftButton.textContent = 'Saving…';
             try {
-                saveDraftButton.disabled = true;
+                await ensureCurrencyReadyForSave();
+                const quotationData = buildQuotationPayload();
+                // Server resolves currency from customer master; do not soft-block draft on display miss.
+                applySqlApiCurrencyForSubmit(quotationData);
+                const draftDockey = quotationForm.dataset.draftDockey;
+
+                if (draftDockey) {
+                    quotationData.dockey = draftDockey;
+                }
+
                 const response = await fetch('/api/save_draft_quotation', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -2274,14 +2506,14 @@ if (quotationForm) {
                     }
                     window.location.href = '/view-quotation?tab=drafts';
                     return;
-                } else {
-                    alert('Failed to save draft: ' + (result.error || 'Unknown error'));
                 }
+                alert('Failed to save draft: ' + (result.error || 'Unknown error'));
             } catch (error) {
                 console.error('Error saving draft quotation:', error);
                 alert('Failed to save draft. Please try again.');
             } finally {
                 saveDraftButton.disabled = false;
+                saveDraftButton.textContent = originalLabel;
             }
         });
     }
@@ -2289,50 +2521,56 @@ if (quotationForm) {
     quotationForm.addEventListener('submit', async function(e) {
         e.preventDefault();
 
-        await refreshSqlApiCustomerCurrencyFromGetUserInfo();
-        const quotationData = buildQuotationPayload();
-        if (!applySqlApiCurrencyForSubmit(quotationData)) {
-            alert(
-                'Customer currency was not loaded from SQL API. Wait for Customer details to finish loading, ' +
-                    'or fix SQL API keys and restart the server.'
-            );
-            return;
+        const submitBtn = quotationForm.querySelector('button[type="submit"]');
+        const originalSubmitLabel = submitBtn ? submitBtn.textContent : '';
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Submitting…';
         }
-        if (quotationData.items.length === 0) {
-            alert('Please add at least one valid item');
-            return;
+        if (saveDraftButton) {
+            saveDraftButton.disabled = true;
         }
 
-        const missingStockCodes = quotationData.items.filter(
-            (it) => it.source === 'catalog' && !it.itemCode
-        );
-        if (missingStockCodes.length) {
-            const ok = window.confirm(
-                'Some catalog lines have no stock item code (try reloading the page so products load, then pick again from the dropdown). ' +
-                    'Submitting without codes may be very slow or fail. Continue anyway?'
-            );
-            if (!ok) {
+        let quotationSaved = false;
+        try {
+            await ensureCurrencyReadyForSave();
+            const quotationData = buildQuotationPayload();
+            // Server resolves currency from customer master on submit.
+            applySqlApiCurrencyForSubmit(quotationData);
+            if (quotationData.items.length === 0) {
+                alert('Please add at least one valid item');
                 return;
             }
-        }
 
-        const items = quotationData.items;
-        const dockey = quotationForm.dataset.dockey;
-        const draftDockey = quotationForm.dataset.draftDockey;
-        
-        // DEBUG: Log the data being sent
-        console.log('Quotation Data being sent:', quotationData);
-        
-        // Include dockey if editing existing SL_QT quotation
-        if (dockey) {
-            quotationData.dockey = dockey;
-        }
-        // Pass draftDockey so server can delete the draft after successful submission
-        if (draftDockey) {
-            quotationData.draftDockey = draftDockey;
-        }
-        
-        try {
+            const missingStockCodes = quotationData.items.filter(
+                (it) => it.source === 'catalog' && !it.itemCode
+            );
+            if (missingStockCodes.length) {
+                const ok = window.confirm(
+                    'Some catalog lines have no stock item code (try reloading the page so products load, then pick again from the dropdown). ' +
+                        'Submitting without codes may be very slow or fail. Continue anyway?'
+                );
+                if (!ok) {
+                    return;
+                }
+            }
+
+            const items = quotationData.items;
+            const dockey = quotationForm.dataset.dockey;
+            const draftDockey = quotationForm.dataset.draftDockey;
+            const previewDocno = String(quotationForm.dataset.previewDocno || '').trim();
+
+            if (dockey) {
+                quotationData.dockey = dockey;
+            }
+            if (draftDockey) {
+                quotationData.draftDockey = draftDockey;
+            }
+            // Reuse the previewed QT number so submit skips DOCNO re-scan/retry when possible.
+            if (!dockey && previewDocno && !quotationData.docno && !quotationData.docNo) {
+                quotationData.docno = previewDocno;
+            }
+
             const response = await fetch('/api/create_quotation', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -2344,18 +2582,14 @@ if (quotationForm) {
                 window.location.href = '/login';
                 return;
             }
-            
-            const result = await response.json();
-            
-            // DEBUG: Log the API response
-            console.log('API Response:', result);
-            
+
+            const result = quotationSaveResultFromResponse(response.status, await response.text());
+
             if (result.success) {
+                quotationSaved = true;
                 const displayDocNo = result.docno || result.quotationid || result.dockey;
 
-                // Send quotation pending approval email
                 try {
-                    // Calculate total amount (accounting for discount)
                     let totalAmount = 0;
                     items.forEach(item => {
                         const unitPrice = item.price || 0;
@@ -2363,24 +2597,20 @@ if (quotationForm) {
                         const discountAmount = item.discount > 0 ? item.discount : 0;
                         totalAmount += Math.max(0, lineSubtotal - discountAmount);
                     });
-                    
-                    const emailData = {
-                        docno: displayDocNo,
-                        dockey: result.dockey,
-                        totalAmount: totalAmount,
-                        items: items,
-                        companyName: quotationData.companyName
-                    };
-                    
+
                     fetch('/api/send_quotation_email', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(emailData)
+                        body: JSON.stringify({
+                            docno: displayDocNo,
+                            dockey: result.dockey,
+                            totalAmount: totalAmount,
+                            items: items,
+                            companyName: quotationData.companyName
+                        })
                     }).then(emailResponse => emailResponse.json())
                       .then(emailResult => {
-                          if (emailResult.success) {
-                              console.log('Email sent successfully:', emailResult.message);
-                          } else {
+                          if (!emailResult.success) {
                               console.warn('Email sending failed:', emailResult.error);
                           }
                       }).catch(emailError => {
@@ -2394,10 +2624,10 @@ if (quotationForm) {
             } else {
                 const err = result.error || 'Unknown error';
                 if (result.errorCode === 'SQL_API_TIMEOUT') {
-                    alert(
-                        err + '\n\n(HTTP 504: accounting service did not answer in time. ' +
-                        'Check SQL Accounting for a duplicate before trying again.)'
-                    );
+                    if (result.draftDockey) {
+                        quotationForm.dataset.draftDockey = String(result.draftDockey);
+                    }
+                    alert(err);
                 } else if (result.errorCode === 'SQL_API_UNAUTHORIZED') {
                     alert(
                         err + '\n\nThis is not a login/session problem. Ask your admin to verify SQL API keys ' +
@@ -2409,7 +2639,15 @@ if (quotationForm) {
             }
         } catch (error) {
             console.error('Error saving quotation:', error);
-            alert('Failed to save quotation. Please try again.');
+            alert('Failed to save quotation. Check Sales Quotation before submitting again.');
+        } finally {
+            if (submitBtn && !quotationSaved) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalSubmitLabel;
+            }
+            if (saveDraftButton && !quotationSaved) {
+                saveDraftButton.disabled = false;
+            }
         }
     });
 }
@@ -2417,7 +2655,14 @@ if (quotationForm) {
 // Load user info (customer info including company, address, phone, and credit term) for quotation form
 async function loadUserInfo() {
     try {
-        const response = await fetch('/api/get_user_info');
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        let response;
+        try {
+            response = await fetch('/api/get_user_info', { signal: controller.signal });
+        } finally {
+            clearTimeout(timeoutId);
+        }
         if (!response.ok) {
             console.warn('Customer info lookup failed with status:', response.status);
             setDefaultCustomerInfo();
@@ -2446,7 +2691,10 @@ async function loadUserInfo() {
             if (pickedCurrency !== null) {
                 setSqlApiCustomerCurrencyDisplay(pickedCurrency);
             } else {
-                await refreshSqlApiCustomerCurrencyFromGetUserInfo();
+                await refreshSqlApiCustomerCurrencyFromGetUserInfo({ timeoutMs: 2500 });
+            }
+            if (String(data.source || '') === 'local_firebird_ar') {
+                scheduleSqlCustomerOverlay();
             }
 
             const pickFrom = (obj, keys) => {
@@ -2620,6 +2868,18 @@ async function loadAdminQuotationForEdit(dockey) {
         writeQuotationCustomerField('quotation-area', quotation.AREA || '');
         const docCurrency = String(quotation.CURRENCYCODE || '').trim();
         writeQuotationCustomerField('quotation-currency', docCurrency || '—');
+        const dept = String(quotation.DEPARTMENT || quotation.UDF_DEPARTMENT || '').trim();
+        const deptRow = document.getElementById('quotation-department-row');
+        const deptEl = document.getElementById('quotation-department');
+        if (deptRow && deptEl) {
+            if (dept) {
+                deptEl.textContent = dept;
+                deptRow.style.display = '';
+            } else {
+                deptEl.textContent = '';
+                deptRow.style.display = 'none';
+            }
+        }
 
         quotationCustomerScalars = {
             companyname: String(quotation.COMPANYNAME || '').trim(),
@@ -2671,14 +2931,95 @@ async function loadAdminQuotationForEdit(dockey) {
     }
 }
 
+function ensureQuotationLinesTbody() {
+    let container = getQuotationLineItemsBody();
+    if (container) {
+        return container;
+    }
+    try {
+        repairCreateQuotationLinesUi();
+    } catch (err) {
+        console.error('ensureQuotationLinesTbody repair:', err);
+    }
+    container = getQuotationLineItemsBody();
+    if (container) {
+        return container;
+    }
+    const wrap = document.querySelector('#create-quotation-lines-wrap')
+        || document.querySelector('.create-quotation-section--lines');
+    if (!wrap) {
+        return null;
+    }
+    wrap.innerHTML = CREATE_QUOTATION_LINES_TABLE_HTML;
+    return getQuotationLineItemsBody();
+}
+
+function appendDraftLineWithoutCatalogLookup(container, item) {
+    const description = (item.DESCRIPTION || item.description || '').toString();
+    const itemCode = item.ITEMCODE != null ? String(item.ITEMCODE).trim() : '';
+    const isCustom = !itemCode || itemCode.toUpperCase() === 'CUSTOM';
+    const today = new Date().toISOString().split('T')[0];
+    const row = appendQuotationLineRow(container, {
+        isCustom,
+        description,
+        qty: item.QTY || item.qty || 1,
+        disc: item.DISC || item.discount || 0,
+        refPrice: item.UDF_STDPRICE || item.udfStdprice || 0,
+        unitPrice: item.UNITPRICE || item.unitPrice || item.price || 0,
+        deliveryDate: item.DELIVERYDATE || item.deliveryDate || today,
+        thickness: item.udfThickness || item.UDF_THICKNESS || '',
+        width: item.udfWidth || item.UDF_WIDTH || '',
+        length: item.udfLength || item.UDF_LENGTH || '',
+        udfWts: item.udfWts || item.SUOMQTY || item.udf_wts || '',
+        asColumns: false,
+    });
+    if (item.DTLKEY != null && item.DTLKEY !== '') {
+        row.dataset.dtlkey = String(item.DTLKEY);
+    }
+    if (itemCode) {
+        row.dataset.itemCode = itemCode;
+    }
+    if (!isCustom && description) {
+        writeQuotationLineField(row, '.item-product', description);
+    }
+    applyQuotationLineDimensionOverrides(row, {
+        udfThickness: item.udfThickness || item.UDF_THICKNESS,
+        udfWidth: item.udfWidth || item.UDF_WIDTH,
+        udfLength: item.udfLength || item.UDF_LENGTH,
+    });
+    const wtsVal = item.SUOMQTY ?? item.udfWts ?? item.udf_wts;
+    if (wtsVal != null && String(wtsVal).trim() !== '') {
+        writeQuotationLineUdfWts(row, wtsVal);
+    }
+    return row;
+}
+
 // Load a SL_QTDRAFT draft into the quotation form for editing
 async function loadSlQtDraftForEdit(draftDockey) {
     if (!draftDockey) return;
     try {
-        const response = await fetch(`/api/get_draft_quotation_details?dockey=${draftDockey}`);
-        const data = await response.json();
-        if (!data.success || !data.data) {
-            console.error('Failed to load SL_QTDRAFT draft:', data.error);
+        const response = await fetch(
+            `/api/get_draft_quotation_details?dockey=${encodeURIComponent(draftDockey)}`
+        );
+        if (response.status === 401) {
+            alert('Your session expired. Please log in again to edit this draft.');
+            window.location.href = '/login';
+            return;
+        }
+        const raw = await response.text();
+        let data = null;
+        try {
+            data = raw ? JSON.parse(raw) : null;
+        } catch (parseErr) {
+            console.error('Draft details not JSON:', raw.slice(0, 200));
+            alert('Failed to load draft details (invalid server response).');
+            ensureDefaultQuotationLineRow();
+            return;
+        }
+        if (!data || !data.success || !data.data) {
+            console.error('Failed to load SL_QTDRAFT draft:', data && data.error);
+            alert('Failed to load draft: ' + ((data && data.error) || 'Unknown error'));
+            ensureDefaultQuotationLineRow();
             return;
         }
         const draft = data.data;
@@ -2694,69 +3035,54 @@ async function loadSlQtDraftForEdit(draftDockey) {
         };
         fillField('quotation-description', draft.DESCRIPTION);
         if (draft.VALIDITY) {
-            fillField('quotation-validity', draft.VALIDITY.split(' ')[0]);
+            fillField('quotation-validity', String(draft.VALIDITY).split(' ')[0]);
         }
-        await loadUserInfo();
+        try {
+            await loadUserInfo();
+        } catch (userErr) {
+            console.warn('loadUserInfo during draft restore:', userErr);
+        }
 
-        if (draft.items && draft.items.length > 0) {
-            const container = getQuotationLineItemsBody();
-            if (!container) {
-                ensureDefaultQuotationLineRow();
-                return;
+        const items = Array.isArray(draft.items) ? draft.items : [];
+        const container = ensureQuotationLinesTbody();
+        if (!container) {
+            console.error('No quotation line container for draft restore');
+            alert('Draft loaded but the lines table was missing. Refresh and try again.');
+            return;
+        }
+        container.innerHTML = '';
+        let restored = 0;
+        for (const item of items) {
+            try {
+                appendDraftLineWithoutCatalogLookup(container, item);
+                restored += 1;
+            } catch (lineErr) {
+                console.error('Draft line restore failed:', lineErr, item);
             }
-            container.innerHTML = '';
-            draft.items.forEach(item => {
-                const explicitSource = (item.SOURCE || '').toString().toLowerCase();
-                const description = (item.DESCRIPTION || '').toString();
-                const hasCatalogMatch = !description || !availableProducts.length || availableProducts.some(product => {
-                    const candidate = (product.DESCRIPTION || product.CODE || '').toString();
-                    return candidate === description;
-                });
-                const source = explicitSource || (hasCatalogMatch ? 'catalog' : 'custom');
-                const isCustom = source !== 'catalog';
-                const newItem = appendQuotationLineRow(container, {
-                    isCustom,
-                    description,
-                    qty: item.QTY || 1,
-                    disc: item.DISC || 0,
-                    refPrice: item.UDF_STDPRICE || 0,
-                    unitPrice: item.UNITPRICE || 0,
-                    deliveryDate: item.DELIVERYDATE || new Date().toISOString().split('T')[0],
-                });
-                syncProductDatalist();
-
-                const productField = newItem.querySelector('.item-product');
-                const savedCode = (item.ITEMCODE != null && String(item.ITEMCODE).trim())
-                    ? String(item.ITEMCODE).trim()
-                    : '';
-                if (!isCustom && item.DESCRIPTION && productField) {
-                    let rowLabel = String(item.DESCRIPTION).trim();
-                    if (savedCode && availableProducts && availableProducts.length) {
-                        const byCode = availableProducts.find(
-                            (p) => String(p.CODE || '').trim() === savedCode
-                        );
-                        if (byCode) {
-                            rowLabel = String(byCode.DESCRIPTION || byCode.CODE || rowLabel).trim();
-                        }
-                    }
-                    writeQuotationLineField(newItem, '.item-product', rowLabel);
-                    fetchProductPrice(productField);
-                }
-            });
-            calculateQuotationTotal();
-            refreshQuotationMiniItemCodes();
+        }
+        syncProductDatalist();
+        calculateQuotationTotal();
+        refreshQuotationMiniItemCodes();
+        console.info(
+            `[draft restore] dockey=${draftDockey} docno=${draft.DOCNO || ''} `
+            + `apiItems=${items.length} restored=${restored}`
+        );
+        if (items.length > 0 && restored === 0) {
+            alert('Draft has ' + items.length + ' line(s) but none could be shown. Check console.');
         }
 
         const quotationForm = document.getElementById('quotation-form');
-        if (quotationForm) quotationForm.dataset.draftDockey = draftDockey;
+        if (quotationForm) quotationForm.dataset.draftDockey = String(draftDockey);
 
-        const pageTitle = document.querySelector('.header-title');
+        const pageTitle = document.querySelector('.header-title')
+            || document.querySelector('h2.app-page-header__title');
         if (pageTitle) pageTitle.textContent = 'Edit Draft Quotation';
-        const formTitle = document.querySelector('#quotation-form').previousElementSibling;
-        if (formTitle && formTitle.tagName === 'H3') formTitle.textContent = `Edit Draft - ${draft.DOCNO || ''}`;
+        const formTitle = document.querySelector('.form-container h3');
+        if (formTitle) formTitle.textContent = `Edit Draft - ${draft.DOCNO || ''}`;
         ensureDefaultQuotationLineRow();
     } catch (error) {
         console.error('Error loading SL_QTDRAFT draft:', error);
+        alert('Error loading draft: ' + (error && error.message ? error.message : error));
         ensureDefaultQuotationLineRow();
     }
 }
@@ -2814,6 +3140,9 @@ async function refreshQuotationNextDocnoPreview() {
             return;
         }
         valueEl.textContent = data.nextDocno || '—';
+        if (quotationForm && data.nextDocno && !data.isUpdate) {
+            quotationForm.dataset.previewDocno = String(data.nextDocno).trim();
+        }
         if (data.isUpdate) {
             hintEl.textContent = data.note || 'This quotation already has a number; it will not change on save.';
         } else {
@@ -2834,7 +3163,11 @@ async function refreshQuotationNextDocnoPreview() {
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', async function() {
-    repairCreateQuotationLinesUi();
+    try {
+        repairCreateQuotationLinesUi();
+    } catch (err) {
+        console.error('repairCreateQuotationLinesUi (pre-load):', err);
+    }
 
     const quotationForm = getActiveQuotationForm();
     const isAdminUpdatePage = document.body.classList.contains('update-quotation-page');
@@ -2842,11 +3175,22 @@ document.addEventListener('DOMContentLoaded', async function() {
     const draftDockey = urlParams.get('draftDockey');
     const dockey = quotationForm ? quotationForm.dataset.dockey : null;
 
+    const nextDocnoRefresh = document.getElementById('quotation-next-docno-refresh');
+    if (nextDocnoRefresh) {
+        nextDocnoRefresh.addEventListener('click', () => refreshQuotationNextDocnoPreview());
+    }
+    // Start next-docno preview in parallel with customer/product load (do not wait on get_user_info).
+    const nextDocnoPromise = (!isAdminUpdatePage)
+        ? refreshQuotationNextDocnoPreview()
+        : Promise.resolve();
+
     if (isAdminUpdatePage && dockey) {
         await loadProducts();
         await loadAdminQuotationForEdit(dockey);
     } else if (draftDockey) {
         await loadProducts();
+        // Defer one tick so inline ensureCreateQuotationLinesTable finishes first.
+        await new Promise((resolve) => setTimeout(resolve, 0));
         await loadSlQtDraftForEdit(draftDockey);
     } else if (dockey) {
         await loadProducts();
@@ -2864,17 +3208,24 @@ document.addEventListener('DOMContentLoaded', async function() {
         input.addEventListener('change', calculateOrderTotal);
     });
 
+    try {
+        // Never rebuild the lines table after a draft/edit restore — that wiped rows.
+        if (!draftDockey && !dockey) {
+            repairCreateQuotationLinesUi();
+        }
+    } catch (err) {
+        console.error('repairCreateQuotationLinesUi (post-load):', err);
+    }
+    if (!draftDockey) {
+        ensureDefaultQuotationLineRow();
+    }
     initQuotationLineTableEvents();
-    repairCreateQuotationLinesUi();
-    ensureDefaultQuotationLineRow();
     initQuotationCatalogProductPickers();
 
-    const nextDocnoRefresh = document.getElementById('quotation-next-docno-refresh');
-    if (nextDocnoRefresh) {
-        nextDocnoRefresh.addEventListener('click', () => refreshQuotationNextDocnoPreview());
-    }
-    if (!isAdminUpdatePage) {
-        await refreshQuotationNextDocnoPreview();
+    try {
+        await nextDocnoPromise;
+    } catch (err) {
+        console.warn('next_docno preview failed:', err);
     }
 });
 
@@ -2917,7 +3268,12 @@ function escapeChatHtml(value) {
 function escapeInlineJsString(value) {
     return String(value ?? '')
         .replace(/\\/g, '\\\\')
-        .replace(/'/g, "\\'");
+        .replace(/'/g, "\\'")
+        .replace(/"/g, '\\"')
+        .replace(/\r/g, '\\r')
+        .replace(/\n/g, '\\n')
+        .replace(/</g, '\\u003c')
+        .replace(/>/g, '\\u003e');
 }
 
 function sendQuickChatMessage(message, sourceButton = null) {
@@ -3235,10 +3591,13 @@ function sendChatMessage(messageOverride = null) {
     
     if (!message || !quotationChatId) return;
     
-    // Add user message to chat
+    // Add user message to chat (textContent — never interpolate raw user input into HTML)
     const userMsgDiv = document.createElement('div');
     userMsgDiv.className = 'chat-message user-message';
-    userMsgDiv.innerHTML = `<div class="chat-popup-message-content">${message}</div>`;
+    const userMsgContent = document.createElement('div');
+    userMsgContent.className = 'chat-popup-message-content';
+    userMsgContent.textContent = message;
+    userMsgDiv.appendChild(userMsgContent);
     messagesContainer.appendChild(userMsgDiv);
     
     // Clear input
