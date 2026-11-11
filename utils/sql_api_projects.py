@@ -56,8 +56,17 @@ def fetch_projects_from_sql_api() -> list[dict[str, Any]]:
     """
     Load active projects from SQL Accounting SigV4 GET ``/project/*`` only.
 
-    Raises ``SqlApiProjectsError`` when keys are missing or the API does not return HTTP 200.
+    Raises ``SqlApiProjectsError`` when keys are missing, paid REST is blocked, or the API
+    does not return HTTP 200. Callers in Firebird master-read mode should use the local
+    Firebird loader instead of this function.
     """
+    from api.config.sql_accounting_master_read import master_read_allows_paid_rest
+
+    if not master_read_allows_paid_rest():
+        raise SqlApiProjectsError(
+            "Paid SQL API project GET blocked (master-read Firebird / BLOCK_REST_HTTP)."
+        )
+
     settings = load_sql_accounting_api_settings()
     if not settings.access_key or not settings.secret_key:
         raise SqlApiProjectsError(

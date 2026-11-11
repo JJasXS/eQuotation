@@ -58,6 +58,11 @@ def fetch_sql_api_customer_row(customer_code: str) -> tuple[dict[str, Any] | Non
     if not code:
         return None, None
 
+    from api.config.sql_accounting_master_read import master_read_allows_paid_rest
+
+    if not master_read_allows_paid_rest():
+        return None, None
+
     settings = load_sql_accounting_api_settings()
     if not settings.access_key or not settings.secret_key:
         return None, None

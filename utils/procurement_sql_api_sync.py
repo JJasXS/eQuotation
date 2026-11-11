@@ -384,6 +384,46 @@ def sync_linked_purchase_orders_for_request(
     return results
 
 
+def _sync_purchase_order_local_only(
+    *,
+    dockey: int,
+    po_number: str,
+    supplier_code: str,
+    company_database: str,
+) -> dict[str, Any]:
+    """
+    Local PH_PO / PH_PODTL / ST_XTRANS already committed — skip paid REST and SDK.
+
+    Paid PUT /purchaseorder only overlaid supplier headers onto a cloud document
+    that already existed; it never created the PO. SDK Create would risk a second
+    DOCNO/DOCKEY and could wipe Firebird-only detail UDFs (same class of issue as PH_PQ).
+    """
+    from api.config.sql_accounting_po_sync import PO_SYNC_LOCAL_ONLY
+
+    print(
+        f"[PROCUREMENT] LocalOnly PO sync dockey={dockey} docno={po_number} "
+        f"supplier={supplier_code} company={company_database} (paid REST skipped)",
+        flush=True,
+    )
+    return {
+        "synced": True,
+        "mode": "localOnly",
+        "write_provider": PO_SYNC_LOCAL_ONLY,
+        "localAuthoritative": True,
+        "skippedPaidRest": True,
+        "skippedSdkRewrite": True,
+        "httpStatus": 0,
+        "dockey": dockey,
+        "poNumber": _clean_text(po_number),
+        "supplierCode": supplier_code,
+        "companyDatabase": company_database,
+        "reason": (
+            "Local Firebird PH_PO transfer is company-book authoritative; "
+            "paid /purchaseorder PUT mirror skipped (LocalOnly)."
+        ),
+    }
+
+
 def sync_purchase_order_supplier_sql_api(
     po_dockey: int,
     supplier_code: str,
@@ -391,12 +431,45 @@ def sync_purchase_order_supplier_sql_api(
     po_number: str = "",
 ) -> dict[str, Any]:
     """
-    PUT ``/purchaseorder/:DOCKEY`` with supplier master from GET ``/supplier``.
+    Optional paid PUT ``/purchaseorder/:DOCKEY`` supplier-header overlay.
+
+    Prefer ``SQL_ACCOUNTING_PO_SYNC_MODE=LocalOnly`` when company Firebird already
+    holds the transfer. Never creates a second PO via SDK. Never falls back to
+    REST after a failure when ``SQL_ACCOUNTING_BLOCK_REST_HTTP`` is true.
     """
     code = _clean_text(supplier_code)
     dockey = int(po_dockey or 0)
     if not code or dockey <= 0:
         return {"skipped": True, "reason": "missing supplier or PO dockey"}
+
+    from api.config.sql_accounting_po_sync import (
+        load_sql_accounting_po_sync_settings,
+        verify_po_local_only_company_identity,
+    )
+    from api.config.sql_accounting_write import load_sql_accounting_write_settings
+
+    po_sync = load_sql_accounting_po_sync_settings()
+    if po_sync.is_local_only:
+        identity = verify_po_local_only_company_identity()
+        if not identity.ok:
+            raise RuntimeError(
+                "LocalOnly PO sync refused: " + identity.reason
+                + " Rollback: SQL_ACCOUNTING_PO_SYNC_MODE=Rest."
+            )
+        return _sync_purchase_order_local_only(
+            dockey=dockey,
+            po_number=po_number,
+            supplier_code=code,
+            company_database=identity.local_database,
+        )
+
+    write = load_sql_accounting_write_settings()
+    if write.block_rest_http:
+        raise RuntimeError(
+            "SQL_ACCOUNTING_BLOCK_REST_HTTP is true; paid /purchaseorder PUT refused. "
+            "Set SQL_ACCOUNTING_PO_SYNC_MODE=LocalOnly (verified company) "
+            "or disable the block to roll back to Rest."
+        )
 
     settings = load_sql_accounting_api_settings()
     if not settings.access_key or not settings.secret_key:
@@ -1087,23 +1160,153 @@ def _blank_header_supplier_fields(document: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _sync_purchase_request_after_awards_via_sdk(
+    body: dict[str, Any],
+    *,
+    dockey: int,
+    docno: str,
+) -> dict[str, Any]:
+    """Sdk create-or-update for awards sync. Never falls back to REST after an attempt."""
+    from api.adapters.sqlacc_purchase_request_writer import (
+        assert_award_supplier_udfs_preservable,
+        find_purchase_request_key_by_docno,
+    )
+    from api.adapters.sqlacc_session import get_sqlacc_session_manager
+    from api.clients import SqlAccountingApiError
+    from api.config.sql_accounting_pr_write import PROVIDER_SDK, load_sql_accounting_pr_write_settings
+    from api.services.purchase_request_write import (
+        PurchaseRequestConfigurationError,
+        build_purchase_request_write_adapter,
+    )
+
+    # Fail closed before any COM Login/New/Edit/Save when awards cannot be preserved.
+    assert_award_supplier_udfs_preservable(body)
+
+    write = load_sql_accounting_pr_write_settings()
+
+    def _rest_forbidden() -> dict[str, Any]:
+        raise PurchaseRequestConfigurationError(
+            "Internal error: REST attempt invoked while PR write provider is Sdk."
+        )
+
+    adapter = build_purchase_request_write_adapter(
+        write_settings=write,
+        rest_attempt=_rest_forbidden,
+    )
+
+    manager = get_sqlacc_session_manager()
+
+    def _resolve_existing(app: Any) -> dict[str, Any]:
+        biz = app.BizObjects.Find("PH_PQ")
+        key = find_purchase_request_key_by_docno(biz, docno)
+        if key is None:
+            return {"exists": False, "dockey": 0}
+        try:
+            remote_dockey = int(float(key))
+        except (TypeError, ValueError):
+            remote_dockey = int(dockey or 0)
+        return {"exists": True, "dockey": remote_dockey if remote_dockey > 0 else int(dockey)}
+
+    try:
+        existing = manager.run(_resolve_existing)
+        is_update = bool(existing.get("exists"))
+        put_dockey = int(existing.get("dockey") or dockey or 0)
+        result = adapter.write_purchase_request(
+            body,
+            is_update=is_update,
+            dockey=put_dockey if is_update else 0,
+        )
+    except (SqlAccountingApiError, PurchaseRequestConfigurationError):
+        raise
+    except Exception as exc:
+        raise RuntimeError(f"SDK purchase request awards sync failed: {exc}") from exc
+
+    mode = "put" if is_update else "post"
+    print(
+        f"[PROCUREMENT] SDK PR {mode} after awards dockey={result.get('dockey') or put_dockey} "
+        f"docno={docno} provider={PROVIDER_SDK}",
+        flush=True,
+    )
+    return {
+        "synced": True,
+        "mode": mode,
+        "httpStatus": 0,
+        "dockey": int(result.get("dockey") or put_dockey or dockey),
+        "docno": result.get("docno") or docno,
+        "lineCount": len(body.get("sdsdocdetail") or []),
+        "write_provider": PROVIDER_SDK,
+    }
+
+
+def _sync_purchase_request_after_awards_local_only(
+    body: dict[str, Any],
+    *,
+    dockey: int,
+    docno: str,
+    company_database: str,
+) -> dict[str, Any]:
+    """
+    Awards already committed to Firebird — skip paid REST and PH_PQ SDK rewrite.
+
+    Preserves local UDF_SUPCODE / UDF_SUPNAME / prices / UDF_STATUS by not touching them.
+    """
+    from api.config.sql_accounting_pr_award_sync import AWARD_SYNC_LOCAL_ONLY
+
+    lines = body.get("sdsdocdetail") if isinstance(body.get("sdsdocdetail"), list) else []
+    award_lines = [
+        ln
+        for ln in lines
+        if isinstance(ln, dict)
+        and (
+            _clean_text(ln.get("udf_supcode") or ln.get("UDF_SUPCODE"))
+            or _clean_text(ln.get("udf_supname") or ln.get("UDF_SUPNAME"))
+        )
+    ]
+    print(
+        f"[PROCUREMENT] LocalOnly award sync dockey={dockey} docno={docno} "
+        f"company={company_database} awardLines={len(award_lines)} (paid REST skipped)",
+        flush=True,
+    )
+    return {
+        "synced": True,
+        "mode": "localOnly",
+        "httpStatus": 0,
+        "dockey": dockey,
+        "docno": docno,
+        "lineCount": len(lines),
+        "awardLineCount": len(award_lines),
+        "write_provider": AWARD_SYNC_LOCAL_ONLY,
+        "skippedPaidRest": True,
+        "skippedSdkRewrite": True,
+        "companyDatabase": company_database,
+        "udfStatus": body.get("udf_status"),
+        "docamt": body.get("docamt"),
+    }
+
+
 def sync_purchase_request_sql_api_after_awards(
     request_dockey: int,
     *,
     keep_dtlkeys: set[int] | None = None,
 ) -> dict[str, Any]:
     """
-    After Save Item Awards: one SQL Accounting create-or-update for the same DOCNO/DOCKEY.
+    After Save Item Awards: optional SQL Accounting create-or-update for the same DOCNO/DOCKEY.
 
     Header supplier stays blank; line UDF_SUPCODE / UDF_SUPNAME (and awarded prices) come from local PH_PQDTL.
+
+    Award sync mode: ``SQL_ACCOUNTING_PR_AWARD_SYNC_MODE`` Rest (default) | LocalOnly.
+    LocalOnly skips paid /purchaserequest and never runs PH_PQ SDK detail rewrite.
+    PR write provider: ``SQL_ACCOUNTING_PR_WRITE_PROVIDER`` Rest | Sdk (Sdk still fail-closed for awards).
     """
+    from api.config.sql_accounting_pr_award_sync import (
+        load_sql_accounting_pr_award_sync_settings,
+        verify_local_only_company_identity,
+    )
+    from api.config.sql_accounting_pr_write import PROVIDER_REST, load_sql_accounting_pr_write_settings
+
     dockey = int(request_dockey or 0)
     if dockey <= 0:
         return {"skipped": True, "reason": "missing request dockey"}
-
-    settings = load_sql_accounting_api_settings()
-    if not settings.access_key or not settings.secret_key:
-        return {"skipped": True, "reason": "SQL API not configured"}
 
     keep = {int(k) for k in (keep_dtlkeys or set()) if int(k) > 0}
     if not keep:
@@ -1112,6 +1315,36 @@ def sync_purchase_request_sql_api_after_awards(
     docno, body = _build_purchaserequest_body_from_local(dockey, keep_dtlkeys=keep or None)
     if not body:
         return {"skipped": True, "reason": "local purchase request not found"}
+
+    award_sync = load_sql_accounting_pr_award_sync_settings()
+    if award_sync.is_local_only:
+        identity = verify_local_only_company_identity()
+        if not identity.ok:
+            raise RuntimeError(
+                "LocalOnly award sync refused: " + identity.reason
+                + " Rollback: SQL_ACCOUNTING_PR_AWARD_SYNC_MODE=Rest."
+            )
+        return _sync_purchase_request_after_awards_local_only(
+            body,
+            dockey=dockey,
+            docno=docno,
+            company_database=identity.local_database,
+        )
+
+    write = load_sql_accounting_pr_write_settings()
+    if write.is_sdk:
+        # Award UDFs are still not COM-safe; writer fail-closes before rewrite.
+        return _sync_purchase_request_after_awards_via_sdk(body, dockey=dockey, docno=docno)
+
+    settings = load_sql_accounting_api_settings()
+    if not settings.access_key or not settings.secret_key:
+        return {"skipped": True, "reason": "SQL API not configured"}
+    if write.block_rest_http:
+        raise RuntimeError(
+            "SQL_ACCOUNTING_BLOCK_REST_HTTP is true; REST purchase request awards sync refused. "
+            "Set SQL_ACCOUNTING_PR_AWARD_SYNC_MODE=LocalOnly (verified company) "
+            "or SQL_ACCOUNTING_PR_WRITE_PROVIDER=Sdk or disable the block."
+        )
 
     client = SqlAccountingApiClient(settings)
     timeout = min(60.0, settings.timeout_seconds + 15.0)
@@ -1142,6 +1375,7 @@ def sync_purchase_request_sql_api_after_awards(
             "dockey": dockey,
             "docno": docno,
             "lineCount": len(body.get("sdsdocdetail") or []),
+            "write_provider": PROVIDER_REST,
         }
 
     put_dockey = int(existing.get("dockey") or dockey)
@@ -1191,4 +1425,5 @@ def sync_purchase_request_sql_api_after_awards(
         "dockey": put_dockey,
         "docno": docno,
         "lineCount": len(put_body.get("sdsdocdetail") or []),
+        "write_provider": PROVIDER_REST,
     }

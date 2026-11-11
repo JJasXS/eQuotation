@@ -623,19 +623,23 @@ def get_current_customer_code(*, resolve_missing=False):
     con = None
     cur = None
     try:
+        from utils.customer_email_lookup import lookup_customer_by_email
+
         con = get_db_connection()
         cur = con.cursor()
-        for sql in (
-            'SELECT CODE FROM AR_CUSTOMERBRANCH WHERE UPPER(TRIM(EMAIL)) = UPPER(TRIM(?))',
-            'SELECT CODE FROM AR_CUSTOMER WHERE UPPER(TRIM(EMAIL)) = UPPER(TRIM(?))',
-        ):
-            cur.execute(sql, (user_email,))
-            row = cur.fetchone()
-            customer_code = _strip_customer_code(row[0] if row else None)
-            if customer_code:
-                session.pop('customer_company_name', None)
-                session['customer_code'] = customer_code
-                return customer_code
+        result = lookup_customer_by_email(cur, user_email)
+        if result.ambiguous_codes:
+            print(
+                f"[AUTH] resolve_missing customer email ambiguous for {user_email!r}: "
+                f"{list(result.ambiguous_codes)}",
+                flush=True,
+            )
+            return None
+        customer_code = _strip_customer_code(result.customer_code)
+        if customer_code:
+            session.pop('customer_company_name', None)
+            session['customer_code'] = customer_code
+            return customer_code
         return None
     finally:
         if cur:
@@ -1351,6 +1355,23 @@ app = Flask(__name__, template_folder="templates", static_folder="static", stati
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.jinja_env.auto_reload = True
 
+# Register before any route/blueprint renders templates (Jinja global, not only context).
+from utils.static_assets import register_css_url_helper as _register_css_url_helper
+
+_CSS_URL = _register_css_url_helper(app)
+
+# If Flask ever rebuilds the Jinja environment, keep css_url on the new env.
+_eq_prev_create_jinja_environment = app.create_jinja_environment
+
+
+def _eq_create_jinja_environment_with_css_url():
+    env = _eq_prev_create_jinja_environment()
+    env.globals['css_url'] = _CSS_URL
+    return env
+
+
+app.create_jinja_environment = _eq_create_jinja_environment_with_css_url
+
 
 @app.before_request
 def _eq_mark_request_start():
@@ -1382,6 +1403,12 @@ def _eq_log_slow_api(response):
     except Exception:
         pass
     return response
+
+
+@app.context_processor
+def inject_static_asset_helpers():
+    """Also expose css_url via context processor (belt-and-suspenders with Jinja global)."""
+    return {"css_url": _CSS_URL}
 
 
 @app.context_processor
@@ -2643,7 +2670,15 @@ def create_signin_user_minimal():
 
 def _is_duplicate_customer_code_error(reason: str) -> bool:
     text = (reason or '').upper()
-    return 'GL_ACC_CODE' in text and 'PROBLEMATIC KEY VALUE' in text and '"CODE"' in text
+    # REST SQL Accounting unique-key style (observed on guest code collisions).
+    if 'GL_ACC_CODE' in text and 'PROBLEMATIC KEY VALUE' in text and '"CODE"' in text:
+        return True
+    # SDK / generic duplicate CODE messages from customer create.
+    if 'ALREADY EXISTS' in text and ('CUSTOMER' in text or 'CODE' in text):
+        return True
+    if 'DUPLICATE' in text and 'CODE' in text:
+        return True
+    return False
 
 
 def _increment_guest_customer_code(code: str) -> str:
@@ -4680,7 +4715,18 @@ def _fetch_all_suppliers_from_sql_api_uncached():
     """Walk the paginated /supplier API once. Used through the TTL cache below.
 
     On upstream/auth failure return [] so Firebird merge can still populate Create e-PR.
+    Skips paid GET when master-read is Firebird or BLOCK_REST_HTTP is set.
     """
+    from api.config.sql_accounting_master_read import master_read_allows_paid_rest
+
+    if not master_read_allows_paid_rest():
+        print(
+            "[PROCUREMENT SUPPLIERS] Skipping paid SQL API "
+            "(master-read Firebird / BLOCK_REST_HTTP)",
+            flush=True,
+        )
+        return []
+
     print(
         f"[PROCUREMENT SUPPLIERS] Fetching from {FASTAPI_BASE_URL}/supplier (cache miss) ...",
         flush=True,
@@ -4802,7 +4848,7 @@ def api_admin_procurement_suppliers():
 @app.route('/api/admin/procurement/supplier/sql_api_currency', methods=['GET'])
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_procurement_supplier_sql_api_currency():
-    """Currency for create e-PR from SQL API GET /supplier (not currency master list)."""
+    """Currency for create e-PR from supplier master (paid GET /supplier or Firebird)."""
     supplier_code = str(request.args.get('code') or '').strip()
     if not supplier_code:
         return jsonify({'success': False, 'error': 'code query parameter is required'}), 400
@@ -4813,7 +4859,7 @@ def api_admin_procurement_supplier_sql_api_currency():
         'success': True,
         'sqlApiSupplierCode': fields.get('code') or supplier_code,
         'sqlApiCurrencyCode': fields.get('currencycode', ''),
-        'source': 'sql_api_supplier_get',
+        'source': fields.get('source') or 'sql_api_supplier_get',
         'httpStatus': fields.get('httpStatus', ''),
     })
 
@@ -4925,8 +4971,22 @@ def _load_projects_from_env_fallback():
 
 
 def _fetch_procurement_projects_uncached() -> list[dict]:
-    """Project dropdown — SQL API GET /project/* only (no Firebird/env fallbacks)."""
-    from utils.sql_api_projects import SqlApiProjectsError, fetch_projects_from_sql_api
+    """
+    Project dropdown for Create e-PR.
+
+    Default (master-read Firebird): company DB via ``_load_projects_from_firebird_fallback``.
+    Rollback (master-read Rest): paid SQL API GET ``/project/*`` only.
+    """
+    from api.config.sql_accounting_master_read import master_read_allows_paid_rest
+    from utils.sql_api_projects import fetch_projects_from_sql_api
+
+    if not master_read_allows_paid_rest():
+        rows = _load_projects_from_firebird_fallback() or []
+        return [
+            row
+            for row in rows
+            if isinstance(row, dict) and bool(row.get("isactive") if row.get("isactive") is not None else True)
+        ]
 
     return fetch_projects_from_sql_api()
 
@@ -5065,23 +5125,30 @@ def _fetch_procurement_projects_via_http_proxy() -> list[dict]:
 @app.route('/api/admin/procurement/projects')
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_procurement_projects():
-    """Active project codes for PR dropdown — SQL API GET /project/* only."""
+    """Active project codes for PR dropdown (Firebird default; Rest rollback)."""
+    from api.config.sql_accounting_master_read import master_read_allows_paid_rest
     from utils.sql_api_projects import SqlApiProjectsError
 
     try:
         # Drop legacy cache entries that may hold env-fallback P1–P5 from older builds.
         for legacy_key in (
+            ('procurement', 'projects', 'v4_sqlapi_only'),
             ('procurement', 'projects', 'v2'),
             ('procurement', 'projects', 'v1'),
             ('sql_api', 'project', 'all_v1'),
         ):
             sql_api_master_cache.invalidate(legacy_key)
         data = sql_api_master_cache.get_or_load(
-            ('procurement', 'projects', 'v4_sqlapi_only'),
+            ('procurement', 'projects', 'v5_master_read'),
             _fetch_procurement_projects_uncached,
             ttl_seconds=_sql_api_master_cache_ttl_seconds(),
         )
-        resp = jsonify({'success': True, 'data': data or [], 'source': 'sql_api_project_get'})
+        source = (
+            'sql_api_project_get'
+            if master_read_allows_paid_rest()
+            else 'firebird_project'
+        )
+        resp = jsonify({'success': True, 'data': data or [], 'source': source})
         resp.headers['Cache-Control'] = 'no-store'
         return resp
     except SqlApiProjectsError as exc:
@@ -12187,11 +12254,16 @@ if __name__ == "__main__":
                 response = await call_next(request)
                 path = request.url.path or ''
                 if path.startswith('/static/'):
-                    # Versioned URLs (?v=…) make long-lived caching safe for JS/CSS.
-                    response.headers.setdefault(
-                        'Cache-Control',
-                        'public, max-age=604800, immutable',
-                    )
+                    # Long cache only when URL carries an explicit bust token (?v=…).
+                    # Unversioned assets (e.g. CSS @import) must revalidate.
+                    if request.url.query and 'v=' in request.url.query:
+                        response.headers['Cache-Control'] = (
+                            'public, max-age=604800, immutable'
+                        )
+                    else:
+                        response.headers['Cache-Control'] = (
+                            'no-cache, must-revalidate'
+                        )
                 return response
 
         unified_asgi = Starlette(routes=_unified_routes)

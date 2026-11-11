@@ -1,16 +1,31 @@
-"""Services for SQL Account integration (REST API + COM read helpers)."""
+"""Services for SQL Account integration (REST API + COM SDK create + COM read helpers)."""
 from __future__ import annotations
 
 import logging
 from typing import Any
 
 from api.adapters import COMConnectionError, COMConnectionHandler
-from api.clients import SqlAccountingApiClient, SqlAccountingApiError
+from api.clients import SqlAccountingApiClient
 from api.config import load_sql_accounting_api_settings
 from api.config.sql_accounting_api import redact_settings_for_log
+from api.config.sql_accounting_write import (
+    PROVIDER_REST,
+    PROVIDER_SDK,
+    load_sql_accounting_write_settings,
+)
 from api.models import CustomerRequest, CustomerResponse
 from api.services.customer_payload import build_customer_create_payload
-from api.services.local_customer_sync import LocalCustomerSyncRequest, read_local_customer_fields, sync_local_customer_fields
+from api.services.customer_write import (
+    CustomerConfigurationError,
+    CustomerWriteAdapter,
+    SelectingCustomerWriteAdapter,
+    build_customer_write_adapter,
+)
+from api.services.local_customer_sync import (
+    LocalCustomerSyncRequest,
+    read_local_customer_fields,
+    sync_local_customer_fields,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -19,33 +34,51 @@ class COMOperationError(Exception):
     """Raised when SQL Account COM operations fail."""
 
 
-class CustomerConfigurationError(Exception):
-    """Raised when SQL Accounting API environment is incomplete for a live create."""
-
-
 class CustomerService:
-    """Customer operations: create via SQL Accounting API (SigV4); read metadata via COM."""
+    """Customer operations: create via REST or COM SDK; read metadata via COM."""
 
     def __init__(
         self,
         com_handler: COMConnectionHandler | None = None,
         api_settings: Any | None = None,
         api_client: SqlAccountingApiClient | None = None,
+        write_adapter: CustomerWriteAdapter | SelectingCustomerWriteAdapter | None = None,
     ) -> None:
         self.com_handler = com_handler or COMConnectionHandler()
         self._api_settings = api_settings if api_settings is not None else load_sql_accounting_api_settings()
         self._api_client = api_client or SqlAccountingApiClient(self._api_settings)
+        self._write_adapter = write_adapter or build_customer_write_adapter(
+            self._api_settings,
+            api_client=self._api_client,
+        )
 
     def create_customer(self, customer_request: CustomerRequest) -> CustomerResponse:
-        """Create customer in SQL Accounting via signed REST API (no COM / no direct SQL)."""
+        """Create customer via configured write provider (default Rest)."""
         settings = self._api_settings
         payload = build_customer_create_payload(customer_request)
-        url = settings.resolved_create_url()
+        write_settings = load_sql_accounting_write_settings()
+        provider = getattr(self._write_adapter, "provider", None) or write_settings.provider
 
         if settings.dry_run:
+            url = settings.resolved_create_url()
+            preview: dict[str, Any]
+            if provider == PROVIDER_SDK:
+                preview = {
+                    "method": "COM",
+                    "url": "SQLAcc.BizApp/AR_CUSTOMER",
+                    "body": payload,
+                    "provider": PROVIDER_SDK,
+                }
+            else:
+                preview = {
+                    "method": "POST",
+                    "url": url,
+                    "body": payload,
+                    "provider": PROVIDER_REST,
+                }
             logger.info(
-                "SQL_API_DRY_RUN enabled: skipping HTTP POST. Target URL would be %s. Settings=%s",
-                url,
+                "SQL_API_DRY_RUN enabled: skipping live create (provider=%s). Settings=%s",
+                provider,
                 redact_settings_for_log(settings),
             )
             return CustomerResponse(
@@ -54,53 +87,13 @@ class CustomerService:
                 credit_term=customer_request.credit_term,
                 saved=True,
                 dry_run=True,
-                request_preview={
-                    "method": "POST",
-                    "url": url,
-                    "body": payload,
-                },
+                request_preview=preview,
                 upstream_response=None,
+                write_provider=provider,
             )
 
-        if not settings.access_key or not settings.secret_key:
-            raise CustomerConfigurationError(
-                "SQL_API_ACCESS_KEY and SQL_API_SECRET_KEY must be set for live customer creation."
-            )
-        if not settings.customer_create_path.strip():
-            raise CustomerConfigurationError(
-                "SQL_API_CUSTOMER_CREATE_PATH must be set to the documented API path (TODO: configure in .env)."
-            )
-
-        logger.info(
-            "Creating customer via SQL Accounting API: code=%s url=%s",
-            customer_request.code,
-            url,
-        )
-
-        try:
-            status, parsed, raw = self._api_client.post_json(url, payload)
-        except SqlAccountingApiError:
-            raise
-
-        if status >= 400:
-            detail = raw
-            if parsed is not None:
-                detail = str(parsed.get("message") or parsed.get("error") or parsed)
-            raise SqlAccountingApiError(
-                f"SQL Accounting API returned HTTP {status}: {detail}",
-                status_code=status,
-                response_body=raw,
-            )
-
-        if parsed is None:
-            raw_preview = (raw or "").strip().replace("\n", " ")[:240]
-            raise SqlAccountingApiError(
-                "SQL Accounting API returned non-JSON success response; insert cannot be confirmed. "
-                f"Preview: {raw_preview or '(empty body)'}",
-                status_code=502,
-                response_body=raw,
-            )
-        response = self._customer_response_from_api(parsed, customer_request, raw)
+        # Selecting adapter never REST-retries after SDK; REST path unchanged when Provider=Rest.
+        response = self._write_adapter.create_customer(customer_request, payload)
 
         sync_request = LocalCustomerSyncRequest(
             code=response.code,
@@ -139,45 +132,6 @@ class CustomerService:
 
         return response
 
-    @staticmethod
-    def _customer_response_from_api(
-        parsed: dict[str, Any] | None,
-        request: CustomerRequest,
-        raw: str,
-    ) -> CustomerResponse:
-        """
-        TODO(sql-accounting-api): Map the real success JSON to ``CustomerResponse`` using API docs.
-        """
-        code = request.code
-        company_name = request.company_name
-        if parsed:
-            # TODO: Confirm response keys (e.g. data.code, customer.code, CustomerCode).
-            code = (
-                parsed.get("code")
-                or parsed.get("customerCode")
-                or (parsed.get("data") or {}).get("code")
-                or (parsed.get("customer") or {}).get("code")
-                or code
-            )
-            company_name = (
-                parsed.get("company_name")
-                or parsed.get("companyName")
-                or parsed.get("companyname")
-                or (parsed.get("customer") or {}).get("company_name")
-                or (parsed.get("customer") or {}).get("companyname")
-                or company_name
-            )
-        return CustomerResponse(
-            code=str(code),
-            company_name=str(company_name),
-            credit_term=request.credit_term,
-            saved=True,
-            dry_run=False,
-            request_preview=None,
-            raw_response_snippet=raw[:2000] if raw else None,
-            upstream_response=parsed,
-        )
-
     def get_customer_state(self, customer_code: str) -> dict[str, Any]:
         """Read customer status/submission state from SQL Account via COM."""
         try:
@@ -195,7 +149,6 @@ class CustomerService:
                 submission_type = self._get_field_as_string(main_dataset, "SUBMISSIONTYPE")
 
                 normalized_submission = submission_type.strip() if submission_type is not None else ""
-                # In this environment, editable records are Active and typically use SUBMISSIONTYPE 0/empty.
                 is_editable = status == "A" and normalized_submission in ("", "0", "NULL")
 
                 return {
@@ -215,8 +168,9 @@ class CustomerService:
             raise COMOperationError(str(exc)) from exc
 
     def health_check(self) -> dict[str, Any]:
-        """Report API configuration and optional COM availability for read helpers."""
+        """Report API configuration, write provider, and optional COM availability."""
         settings = self._api_settings
+        write_settings = load_sql_accounting_write_settings()
         api_ready = bool(
             settings.access_key
             and settings.secret_key
@@ -225,7 +179,9 @@ class CustomerService:
         result: dict[str, Any] = {
             "status": "healthy",
             "customer_create": {
-                "backend": "sql_accounting_api",
+                "backend": "sql_accounting_api" if write_settings.is_rest else "sql_acc_sdk",
+                "write_provider": write_settings.provider,
+                "block_rest_http": write_settings.block_rest_http,
                 "dry_run": settings.dry_run,
                 "api_configured": api_ready or settings.dry_run,
                 "host": settings.host,
