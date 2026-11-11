@@ -26,6 +26,11 @@ Dynamo / JSON sections (case-insensitive names, Dynamo ``M`` / ``S`` / ``N`` unw
     same aliases as ProAccScanner); else ``smtpAppPasswordSecretRef`` → ``SMTP_PASSWORD`` (plaintext or JSON with
     ``password`` / ``smtpPassword`` / …).
     ``license``: ``expiryDate`` (YYYY-MM-DD), ``licenseStatus`` — stored for the in-app subscription countdown.
+  ``sdk`` (optional): ``sdkConnectionsSecretRef`` — Secrets Manager JSON
+    ``{ "companies": [ { "name", "dcfPath", "database", "username", "password" } ] }``
+    (same shape as SqlAccountSync ``proacc/tenant/{TENANT}/sdkConnections``). After ``DB_PATH`` is set from Dynamo,
+    the company whose ``database`` (or ``name``) matches the FDB basename fills empty ``SQLACC_SDK_*`` login fields.
+    Override secret id with ``SQLACC_SDK_SECRET_ID``. Skip with ``TENANT_BOOTSTRAP_SKIP_SECRETS=1``.
 
 Optional refresh: ``TENANT_BOOTSTRAP_REFRESH_SECONDS`` / ``TenantBootstrap__ConfigRefreshSeconds``
   (default ``86400`` = 24h). Set ``0`` to disable the background re-fetch worker.
@@ -804,17 +809,149 @@ def apply_tenant_env_overrides() -> bool:
 
     _apply_merged_tenant_smtp_to_environ(root, tenant_code=code, sql_region=sql_region, oi_region=oi_region)
     _apply_license_snapshot(root, tenant_code=code)
+    _apply_sdk_connections_from_secrets(root, tenant_code=code, db_path=db_path.strip())
 
     has_openai = bool((os.getenv("OPENAI_API_KEY") or "").strip())
+    has_sdk = bool((os.getenv("SQLACC_SDK_PASSWORD") or "").strip())
     print(
         f"[tenant_bootstrap] Applied tenant {code!r}: DB_HOST={os.environ['DB_HOST']!r} "
         f"DB_PATH={os.environ['DB_PATH']!r} has_sql_keys="
         f"{bool((os.getenv('SQL_API_ACCESS_KEY') or '').strip() and (os.getenv('SQL_API_SECRET_KEY') or '').strip())} "
-        f"has_openai_key={has_openai} "
+        f"has_openai_key={has_openai} has_sdk_password={has_sdk} "
         f"license_expiry={os.environ.get('TENANT_LICENSE_EXPIRY')!r}",
         flush=True,
     )
     return True
+
+
+def _fdb_basename(path_or_name: str | None) -> str:
+    text = (path_or_name or "").strip().replace("/", "\\")
+    if not text:
+        return ""
+    name = text.rsplit("\\", 1)[-1].strip()
+    return name
+
+
+def _pick_sdk_company(companies: list[Any], db_path: str) -> dict[str, Any] | None:
+    """Prefer company whose database/name matches Dynamo DB_PATH basename; else first row."""
+    want = _fdb_basename(db_path).upper()
+    rows = [c for c in companies if isinstance(c, dict)]
+    if not rows:
+        return None
+    if want:
+        for c in rows:
+            db_name = _fdb_basename(
+                str(c.get("database") or c.get("Database") or c.get("name") or c.get("Name") or "")
+            )
+            if db_name.upper() == want:
+                return c
+    return rows[0]
+
+
+def _set_env_if_empty(name: str, value: str) -> None:
+    if (os.getenv(name) or "").strip():
+        return
+    text = (value or "").strip()
+    if text:
+        os.environ[name] = text
+
+
+def _apply_sdk_connections_from_secrets(
+    root: Mapping[str, Any],
+    *,
+    tenant_code: str,
+    db_path: str,
+) -> None:
+    """
+    Load COM SDK login from Secrets Manager ``sdkConnections`` (SqlAccountSync-compatible).
+
+    Fills empty ``SQLACC_SDK_DCF_PATH`` / ``DATABASE_FILE`` / ``USER`` / ``PASSWORD`` only —
+    feature flags stay in ``.env``.
+    """
+    if _truthy_env("TENANT_BOOTSTRAP_SKIP_SECRETS"):
+        return
+
+    sdk_sec = _find_section_recursive(root, "sdk") or {}
+    secret_id = (
+        (os.getenv("SQLACC_SDK_SECRET_ID") or "").strip()
+        or _get_scalar_map(sdk_sec, "sdkConnectionsSecretRef")
+        or _get_scalar_map(sdk_sec, "sdkSecretRef")
+        or f"proacc/tenant/{tenant_code}/sdkConnections"
+    )
+    if not secret_id:
+        return
+
+    try:
+        raw = _fetch_secret_string(secret_id, _secrets_manager_region())
+    except NoCredentialsError as exc:
+        if (os.getenv("SQLACC_SDK_PASSWORD") or "").strip():
+            print(
+                f"[tenant_bootstrap] No AWS credentials; skipping SDK secret {secret_id!r} — "
+                "using SQLACC_SDK_* already in environment.",
+                flush=True,
+            )
+            return
+        print(
+            f"[tenant_bootstrap] No AWS credentials; skipping SDK secret {secret_id!r} "
+            f"({exc}). Set SQLACC_SDK_PASSWORD locally or configure AWS.",
+            flush=True,
+        )
+        return
+    except Exception as exc:
+        if (os.getenv("SQLACC_SDK_PASSWORD") or "").strip():
+            print(
+                f"[tenant_bootstrap] SDK secret {secret_id!r} failed ({exc}); "
+                "keeping existing SQLACC_SDK_*.",
+                flush=True,
+            )
+            return
+        print(
+            f"[tenant_bootstrap] SDK secret {secret_id!r} failed ({exc}); "
+            "continuing without SQLACC_SDK_PASSWORD.",
+            flush=True,
+        )
+        return
+
+    raw = (raw or "").strip()
+    if not raw:
+        return
+
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        print(
+            f"[tenant_bootstrap] SDK secret {secret_id!r} is not JSON; expected companies[].",
+            flush=True,
+        )
+        return
+
+    companies = payload.get("companies") if isinstance(payload, dict) else None
+    if not isinstance(companies, list):
+        print(
+            f"[tenant_bootstrap] SDK secret {secret_id!r} missing companies[].",
+            flush=True,
+        )
+        return
+
+    company = _pick_sdk_company(companies, db_path)
+    if company is None:
+        return
+
+    dcf = str(company.get("dcfPath") or company.get("DcfPath") or "")
+    database = str(company.get("database") or company.get("Database") or company.get("name") or "")
+    username = str(company.get("username") or company.get("Username") or company.get("user") or "")
+    password = str(company.get("password") or company.get("Password") or "")
+
+    _set_env_if_empty("SQLACC_SDK_DCF_PATH", dcf)
+    _set_env_if_empty("SQLACC_SDK_DATABASE_FILE", _fdb_basename(database) or _fdb_basename(db_path))
+    _set_env_if_empty("SQLACC_SDK_USER", username or "ADMIN")
+    _set_env_if_empty("SQLACC_SDK_PASSWORD", password)
+    print(
+        f"[tenant_bootstrap] SDK login from {secret_id!r}: "
+        f"database={os.getenv('SQLACC_SDK_DATABASE_FILE')!r} "
+        f"has_password={bool((os.getenv('SQLACC_SDK_PASSWORD') or '').strip())}",
+        flush=True,
+    )
 
 
 def _parse_iso_date(raw: str | None) -> date | None:
