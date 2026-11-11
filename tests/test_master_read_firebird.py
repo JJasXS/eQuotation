@@ -200,8 +200,9 @@ def test_auth_supplier_external_skipped_when_firebird(monkeypatch):
     mock_get.assert_not_called()
 
 
-def test_batch_attach_skips_paid_when_firebird(monkeypatch):
+def test_batch_attach_uses_firebird_when_blocked(monkeypatch):
     monkeypatch.setenv("SQL_ACCOUNTING_MASTER_READ_PROVIDER", "Firebird")
+    monkeypatch.setenv("SQL_ACCOUNTING_BLOCK_REST_HTTP", "true")
     from utils.sql_api_batch import attach_batch_codes_to_lines
 
     lines = [
@@ -212,21 +213,34 @@ def test_batch_attach_skips_paid_when_firebird(monkeypatch):
             "udf_length": "500",
         }
     ]
-    with patch("utils.sql_api_batch.fetch_batches") as mock_fetch:
+    with patch(
+        "utils.sql_api_batch.fetch_batches",
+        return_value=[{"code": "12mm*100mm*500mm", "udf_thickness": "12"}],
+    ) as mock_fetch:
         with patch("utils.sql_api_batch.create_batch") as mock_create:
-            out = attach_batch_codes_to_lines(lines)
-    assert out[0].get("batch") in (None, "")
-    mock_fetch.assert_not_called()
+            with patch("utils.sql_api_batch.SqlAccountingApiClient") as mock_client:
+                out = attach_batch_codes_to_lines(lines)
+    assert out[0].get("batch") == "12mm*100mm*500mm"
+    mock_fetch.assert_called_once()
     mock_create.assert_not_called()
+    mock_client.assert_not_called()
 
 
-def test_batch_fetch_raises_when_blocked(monkeypatch):
+def test_batch_fetch_uses_firebird_when_blocked(monkeypatch):
     monkeypatch.setenv("SQL_ACCOUNTING_MASTER_READ_PROVIDER", "Rest")
     monkeypatch.setenv("SQL_ACCOUNTING_BLOCK_REST_HTTP", "true")
-    from utils.sql_api_batch import SqlApiBatchError, fetch_batches
+    from utils import sql_api_batch as batch_mod
 
-    with pytest.raises(SqlApiBatchError, match="blocked"):
-        fetch_batches(force_refresh=True)
+    batch_mod._invalidate_batch_cache()
+    with patch(
+        "utils.sql_api_batch.fetch_batches_from_firebird",
+        return_value=[{"code": "12mm*100mm*500mm"}],
+    ) as mock_fb:
+        with patch("utils.sql_api_batch.SqlAccountingApiClient") as mock_client:
+            rows = batch_mod.fetch_batches(force_refresh=True)
+    assert rows == [{"code": "12mm*100mm*500mm"}]
+    mock_fb.assert_called_once()
+    mock_client.assert_not_called()
 
 
 def test_currency_sql_api_skipped_when_firebird(monkeypatch):

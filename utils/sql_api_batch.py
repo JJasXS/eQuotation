@@ -1,15 +1,21 @@
-"""SQL Accounting GET /batch/* + POST /batch — resolve stock batch codes for e-PR lines."""
+"""Stock batch master — SQL Accounting GET/POST ``/batch`` with Firebird fallback.
+
+When ``master_read_allows_paid_rest()`` is true, uses paid SigV4 ``/batch``.
+Otherwise reads/writes ``ST_BATCH`` (+ ``ST_ITEM_BATCH``) on the company Firebird
+database (ACC-ANOZ local profile). Never silently falls back to paid REST.
+"""
 from __future__ import annotations
 
 import logging
 import os
 import re
 import time
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from api.clients import SqlAccountingApiClient, SqlAccountingApiError
 from api.config import load_sql_accounting_api_settings
-from utils.firebird_helpers import _clean_text
+from utils.firebird_helpers import _clean_text, _get_table_columns, _table_exists
 
 logger = logging.getLogger(__name__)
 
@@ -17,9 +23,38 @@ _BATCH_CACHE_TTL_SECONDS = 60.0
 _batch_cache: list[dict[str, Any]] | None = None
 _batch_cache_at: float = 0.0
 
+_ST_BATCH_REST_FIELDS = (
+    "AUTOKEY",
+    "CODE",
+    "DESCRIPTION",
+    "EXPDATE",
+    "MFGDATE",
+    "REMARK1",
+    "REMARK2",
+    "ISACTIVE",
+    "ATTACHMENTS",
+    "ROWVER",
+    "UDF_THICKNESS",
+    "UDF_WIDTH",
+    "UDF_LENGTH",
+    "UDF_DS",
+    "UDF_DP",
+    "UDF_DSYS",
+    "UDF_DFS",
+    "UDF_DFP",
+    "UDF_DFSYS",
+    "UDF_WTS",
+    "UDF_WTP",
+    "UDF_WTSYS",
+    "UDF_FORMULA",
+    "UDF_2UOM",
+    "UDF_MTYPE",
+    "UDF_FULL",
+)
+
 
 class SqlApiBatchError(RuntimeError):
-    """SQL API batch list/create could not complete."""
+    """SQL API / Firebird batch list/create could not complete."""
 
 
 def _normalize_dim_part(value: Any) -> str:
@@ -35,7 +70,6 @@ def _normalize_dim_part(value: Any) -> str:
         return ""
     if num == int(num):
         return str(int(num))
-    # Strip trailing zeros from decimals (e.g. 12.50 -> 12.5)
     text = f"{num:.6f}".rstrip("0").rstrip(".")
     return text or ""
 
@@ -103,6 +137,320 @@ def _invalidate_batch_cache() -> None:
     _batch_cache_at = 0.0
 
 
+def _rest_scalar(value: Any) -> Any:
+    """Map Firebird cell values toward the REST ``/batch`` JSON shape."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, Decimal):
+        if value == value.to_integral_value():
+            return str(int(value))
+        text = format(value, "f").rstrip("0").rstrip(".")
+        return text or "0"
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace").strip() or None
+    if isinstance(value, str):
+        return value.strip() or None
+    return value
+
+
+def _fb_row_to_rest(
+    colnames: list[str],
+    row: tuple[Any, ...],
+    *,
+    batchitem: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for idx, name in enumerate(colnames):
+        out[name.lower()] = _rest_scalar(row[idx] if idx < len(row) else None)
+    out["batchitem"] = list(batchitem or [])
+    out.setdefault("docnosetkey", None)
+    return out
+
+
+def _open_batch_connection() -> Any:
+    """Company Firebird connection (``set_db_config`` or process env)."""
+    from utils.db_utils import build_firebird_dsn, get_db_connection
+
+    try:
+        return get_db_connection()
+    except Exception:
+        pass
+
+    import fdb
+
+    db_path = (os.getenv("DB_PATH") or "").strip()
+    if not db_path:
+        raise SqlApiBatchError(
+            "Firebird DB_PATH is not configured for batch master (ST_BATCH)."
+        )
+    return fdb.connect(
+        dsn=build_firebird_dsn(db_path, os.getenv("DB_HOST")),
+        user=(os.getenv("DB_USER") or "sysdba").strip(),
+        password=(os.getenv("DB_PASSWORD") or "").strip(),
+        charset="UTF8",
+    )
+
+
+def _allocate_autokey(cur: Any, table_name: str, generator_name: str) -> int:
+    """Next AUTOKEY from named generator, catching up past MAX when needed."""
+    cur.execute(f"SELECT COALESCE(MAX(AUTOKEY), 0) FROM {table_name}")
+    max_row = cur.fetchone()
+    max_existing = int(max_row[0] if max_row and max_row[0] is not None else 0)
+    cur.execute(f"SELECT GEN_ID({generator_name}, 1) FROM RDB$DATABASE")
+    probe_row = cur.fetchone()
+    if probe_row is None or probe_row[0] is None:
+        raise SqlApiBatchError(f"Generator {generator_name} returned no value.")
+    key = int(probe_row[0])
+    if key > max_existing:
+        return key
+    jump = (max_existing + 1) - key
+    cur.execute(f"SELECT GEN_ID({generator_name}, {int(jump)}) FROM RDB$DATABASE")
+    catch_row = cur.fetchone()
+    if catch_row is None or catch_row[0] is None:
+        raise SqlApiBatchError(f"Generator {generator_name} catch-up failed.")
+    return int(catch_row[0])
+
+
+def _to_fb_number(value: Any, default: Any = None) -> Any:
+    text = _clean_text(value)
+    if not text:
+        return default
+    try:
+        return Decimal(text)
+    except (InvalidOperation, TypeError, ValueError):
+        return default
+
+
+def _load_batchitems_by_parent(cur: Any) -> dict[int, list[dict[str, Any]]]:
+    if not _table_exists(cur, "ST_ITEM_BATCH"):
+        return {}
+    cols = _get_table_columns(cur, "ST_ITEM_BATCH")
+    if "PARENTKEY" not in cols or "ITEMCODE" not in cols:
+        return {}
+    cur.execute("SELECT PARENTKEY, ITEMCODE FROM ST_ITEM_BATCH")
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    for parent, itemcode in cur.fetchall() or []:
+        if parent is None:
+            continue
+        code = _clean_text(itemcode)
+        if not code:
+            continue
+        grouped.setdefault(int(parent), []).append({"itemcode": code})
+    return grouped
+
+
+def fetch_batches_from_firebird() -> list[dict[str, Any]]:
+    """Load batch master rows from ``ST_BATCH`` (+ linked ``ST_ITEM_BATCH``)."""
+    con = None
+    cur = None
+    try:
+        con = _open_batch_connection()
+        cur = con.cursor()
+        if not _table_exists(cur, "ST_BATCH"):
+            raise SqlApiBatchError("Firebird table ST_BATCH was not found.")
+        cols = _get_table_columns(cur, "ST_BATCH")
+        select_cols = [c for c in _ST_BATCH_REST_FIELDS if c in cols]
+        if "CODE" not in select_cols:
+            raise SqlApiBatchError("ST_BATCH.CODE column is missing.")
+        cur.execute(f"SELECT {', '.join(select_cols)} FROM ST_BATCH ORDER BY AUTOKEY")
+        raw_rows = cur.fetchall() or []
+        items_by_parent = _load_batchitems_by_parent(cur)
+        out: list[dict[str, Any]] = []
+        for row in raw_rows:
+            mapped = _fb_row_to_rest(select_cols, tuple(row))
+            autokey = mapped.get("autokey")
+            try:
+                parent = int(autokey) if autokey is not None else None
+            except (TypeError, ValueError):
+                parent = None
+            if parent is not None:
+                mapped["batchitem"] = list(items_by_parent.get(parent) or [])
+            out.append(mapped)
+        return out
+    except SqlApiBatchError:
+        raise
+    except Exception as exc:
+        raise SqlApiBatchError(f"Firebird ST_BATCH list failed: {exc}") from exc
+    finally:
+        try:
+            if cur is not None:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if con is not None:
+                con.close()
+        except Exception:
+            pass
+
+
+def _fetch_st_batch_by_code(cur: Any, code: str) -> dict[str, Any] | None:
+    cols = _get_table_columns(cur, "ST_BATCH")
+    select_cols = [c for c in _ST_BATCH_REST_FIELDS if c in cols]
+    if "CODE" not in select_cols:
+        return None
+    cur.execute(
+        f"SELECT FIRST 1 {', '.join(select_cols)} FROM ST_BATCH "
+        f"WHERE TRIM(UPPER(CODE)) = ?",
+        (code.upper(),),
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    mapped = _fb_row_to_rest(select_cols, tuple(row))
+    items_by_parent = _load_batchitems_by_parent(cur)
+    try:
+        parent = int(mapped["autokey"]) if mapped.get("autokey") is not None else None
+    except (TypeError, ValueError):
+        parent = None
+    if parent is not None:
+        mapped["batchitem"] = list(items_by_parent.get(parent) or [])
+    return mapped
+
+
+def _st_batch_insert_values(payload: dict[str, Any], *, autokey: int, code: str) -> dict[str, Any]:
+    return {
+        "AUTOKEY": autokey,
+        "CODE": code,
+        "DESCRIPTION": payload.get("description"),
+        "EXPDATE": payload.get("expdate"),
+        "MFGDATE": payload.get("mfgdate"),
+        "REMARK1": payload.get("remark1"),
+        "REMARK2": payload.get("remark2"),
+        "ISACTIVE": bool(payload.get("isactive", True)),
+        "ATTACHMENTS": payload.get("attachments"),
+        "ROWVER": int(payload.get("rowver") or 0),
+        "UDF_THICKNESS": _to_fb_number(payload.get("udf_thickness"), Decimal("0")),
+        "UDF_WIDTH": _to_fb_number(payload.get("udf_width"), Decimal("0")),
+        "UDF_LENGTH": _to_fb_number(payload.get("udf_length"), Decimal("0")),
+        "UDF_DS": _to_fb_number(payload.get("udf_ds")),
+        "UDF_DP": _to_fb_number(payload.get("udf_dp")),
+        "UDF_DSYS": _to_fb_number(payload.get("udf_dsys")),
+        "UDF_DFS": _to_fb_number(payload.get("udf_dfs")),
+        "UDF_DFP": _to_fb_number(payload.get("udf_dfp")),
+        "UDF_DFSYS": _to_fb_number(payload.get("udf_dfsys")),
+        "UDF_WTS": _to_fb_number(payload.get("udf_wts")),
+        "UDF_WTP": _to_fb_number(payload.get("udf_wtp")),
+        "UDF_WTSYS": _to_fb_number(payload.get("udf_wtsys")),
+        "UDF_FORMULA": payload.get("udf_formula"),
+        "UDF_2UOM": payload.get("udf_2uom"),
+        "UDF_MTYPE": payload.get("udf_mtype"),
+        "UDF_FULL": bool(payload.get("udf_full", False)),
+    }
+
+
+def _insert_st_batch_row(cur: Any, payload: dict[str, Any], *, code: str) -> int:
+    cols = _get_table_columns(cur, "ST_BATCH")
+    autokey = _allocate_autokey(cur, "ST_BATCH", "ST_BATCH")
+    insert_values = _st_batch_insert_values(payload, autokey=autokey, code=code)
+    use_cols = [c for c in insert_values if c in cols]
+    placeholders = ", ".join("?" for _ in use_cols)
+    cur.execute(
+        f"INSERT INTO ST_BATCH ({', '.join(use_cols)}) VALUES ({placeholders})",
+        [insert_values[c] for c in use_cols],
+    )
+    return autokey
+
+
+def _insert_st_item_batch_link(cur: Any, *, parent_key: int, item_code: str) -> None:
+    if not item_code or not _table_exists(cur, "ST_ITEM_BATCH"):
+        return
+    item_cols = _get_table_columns(cur, "ST_ITEM_BATCH")
+    if not {"AUTOKEY", "PARENTKEY", "ITEMCODE"} <= item_cols:
+        return
+    item_key = _allocate_autokey(cur, "ST_ITEM_BATCH", "ST_ITEM_BATCH")
+    cur.execute(
+        "INSERT INTO ST_ITEM_BATCH (AUTOKEY, PARENTKEY, ITEMCODE) VALUES (?, ?, ?)",
+        (item_key, parent_key, item_code),
+    )
+
+
+def _payload_item_code(payload: dict[str, Any]) -> str:
+    batchitem = payload.get("batchitem") if isinstance(payload.get("batchitem"), list) else []
+    if not batchitem or not isinstance(batchitem[0], dict):
+        return ""
+    return _clean_text(batchitem[0].get("itemcode") or batchitem[0].get("ITEMCODE"))
+
+
+def create_batch_in_firebird(
+    code: str,
+    *,
+    thickness: Any,
+    width: Any,
+    length: Any,
+    stock: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Insert ``ST_BATCH`` (+ optional ``ST_ITEM_BATCH``) matching POST ``/batch`` semantics."""
+    payload = build_create_batch_payload(
+        code,
+        thickness=thickness,
+        width=width,
+        length=length,
+        stock=stock,
+    )
+    want_code = _clean_text(payload.get("code") or code)
+    if not want_code:
+        raise SqlApiBatchError("Batch code is required for Firebird create.")
+    if len(want_code) > 30:
+        raise SqlApiBatchError(
+            f"Batch code exceeds ST_BATCH.CODE length 30: {want_code!r}"
+        )
+
+    con = None
+    cur = None
+    try:
+        con = _open_batch_connection()
+        cur = con.cursor()
+        if not _table_exists(cur, "ST_BATCH"):
+            raise SqlApiBatchError("Firebird table ST_BATCH was not found.")
+
+        existing = _fetch_st_batch_by_code(cur, want_code)
+        if existing:
+            return existing
+
+        autokey = _insert_st_batch_row(cur, payload, code=want_code)
+        _insert_st_item_batch_link(
+            cur, parent_key=autokey, item_code=_payload_item_code(payload)
+        )
+        con.commit()
+        created = _fetch_st_batch_by_code(cur, want_code)
+        return created or {**payload, "autokey": autokey, "code": want_code}
+    except SqlApiBatchError:
+        if con is not None:
+            try:
+                con.rollback()
+            except Exception:
+                pass
+        raise
+    except Exception as exc:
+        if con is not None:
+            try:
+                con.rollback()
+            except Exception:
+                pass
+        try:
+            if cur is not None:
+                raced = _fetch_st_batch_by_code(cur, want_code)
+                if raced:
+                    return raced
+        except Exception:
+            pass
+        raise SqlApiBatchError(f"Firebird ST_BATCH create failed: {exc}") from exc
+    finally:
+        try:
+            if cur is not None:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if con is not None:
+                con.close()
+        except Exception:
+            pass
+
+
 def _paged_batch_rows(
     client: SqlAccountingApiClient,
     settings: Any,
@@ -152,37 +500,7 @@ def _paged_batch_rows(
     return all_rows
 
 
-def fetch_batches(*, force_refresh: bool = False) -> list[dict[str, Any]]:
-    """
-    Load batches from SQL Accounting SigV4 GET ``/batch`` (paginated).
-
-    Note: ``GET /batch/*`` often returns a truncated single-row sample and must not be
-    preferred over the paginated ``/batch`` list.
-
-    No Firebird batch-master equivalent exists in eQuotation — this remains a paid REST
-    dependency when master-read Rest is enabled. Firebird / BLOCK_REST_HTTP modes raise
-    so callers fail soft without hitting api.sql.my.
-
-    Raises ``SqlApiBatchError`` when keys are missing, paid REST is blocked, or the API
-    does not return HTTP 200.
-    """
-    global _batch_cache, _batch_cache_at
-
-    if (
-        not force_refresh
-        and _batch_cache is not None
-        and (time.monotonic() - _batch_cache_at) < _BATCH_CACHE_TTL_SECONDS
-    ):
-        return list(_batch_cache)
-
-    from api.config.sql_accounting_master_read import master_read_allows_paid_rest
-
-    if not master_read_allows_paid_rest():
-        raise SqlApiBatchError(
-            "Paid SQL API batch GET blocked (master-read Firebird / BLOCK_REST_HTTP). "
-            "No Firebird batch-master fallback is implemented."
-        )
-
+def _fetch_batches_via_rest() -> list[dict[str, Any]]:
     path = _batch_path()
     if not path:
         raise SqlApiBatchError("SQL_API_BATCH_PATH is empty (batch resolution disabled).")
@@ -199,7 +517,6 @@ def fetch_batches(*, force_refresh: bool = False) -> list[dict[str, Any]]:
         configured = configured[:-2] or "/batch"
     configured = configured.rstrip("/") or "/batch"
 
-    # Prefer plain /batch (paginated). Keep /batch/* only as a last-resort fallback.
     path_candidates: list[str] = [configured]
     for alt in ("/batch", "/batch/*"):
         if alt not in path_candidates:
@@ -225,26 +542,50 @@ def fetch_batches(*, force_refresh: bool = False) -> list[dict[str, Any]]:
             last_snippet = str(exc)
             continue
 
-        # Ignore truncated /* sample responses when a fuller list is expected.
         if list_path.endswith("/*") and len(rows) <= 1:
             last_snippet = f"{list_path} returned {len(rows)} row(s); preferring paginated /batch"
             continue
 
         if rows:
-            _batch_cache = rows
-            _batch_cache_at = time.monotonic()
             return list(rows)
 
-        # Empty but successful paginated list is valid.
         if not list_path.endswith("/*"):
-            _batch_cache = []
-            _batch_cache_at = time.monotonic()
             return []
 
     hint = f" (last HTTP {last_status})" if last_status is not None else ""
     raise SqlApiBatchError(
         f"SQL API batch list returned no usable response from {path_candidates!r}{hint}: {last_snippet}"
     )
+
+
+def fetch_batches(*, force_refresh: bool = False) -> list[dict[str, Any]]:
+    """
+    Load batches from Firebird ``ST_BATCH`` or paid SigV4 GET ``/batch``.
+
+    Note: ``GET /batch/*`` often returns a truncated single-row sample and must not be
+    preferred over the paginated ``/batch`` list when Rest is enabled.
+
+    Raises ``SqlApiBatchError`` when the active provider cannot return a usable list.
+    """
+    global _batch_cache, _batch_cache_at
+
+    if (
+        not force_refresh
+        and _batch_cache is not None
+        and (time.monotonic() - _batch_cache_at) < _BATCH_CACHE_TTL_SECONDS
+    ):
+        return list(_batch_cache)
+
+    from api.config.sql_accounting_master_read import master_read_allows_paid_rest
+
+    if master_read_allows_paid_rest():
+        rows = _fetch_batches_via_rest()
+    else:
+        rows = fetch_batches_from_firebird()
+
+    _batch_cache = rows
+    _batch_cache_at = time.monotonic()
+    return list(rows)
 
 
 def find_batch_by_code(code: str, batches: list[dict[str, Any]] | None = None) -> dict[str, Any] | None:
@@ -342,7 +683,7 @@ def build_create_batch_payload(
     }
 
 
-def create_batch(
+def _create_batch_via_rest(
     code: str,
     *,
     thickness: Any,
@@ -350,14 +691,6 @@ def create_batch(
     length: Any,
     stock: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    """POST a new stock batch to SQL Accounting. Invalidates the in-process list cache."""
-    from api.config.sql_accounting_master_read import master_read_allows_paid_rest
-
-    if not master_read_allows_paid_rest():
-        raise SqlApiBatchError(
-            "Paid SQL API batch POST blocked (master-read Firebird / BLOCK_REST_HTTP)."
-        )
-
     path = _batch_path()
     if not path:
         raise SqlApiBatchError("SQL_API_BATCH_PATH is empty (batch resolution disabled).")
@@ -393,10 +726,32 @@ def create_batch(
         snippet = (raw or "")[:300].replace("\n", " ")
         raise SqlApiBatchError(f"SQL API POST /batch returned HTTP {status}: {snippet}")
 
-    _invalidate_batch_cache()
     if isinstance(parsed, dict):
         return parsed
     return {"code": code, **payload}
+
+
+def create_batch(
+    code: str,
+    *,
+    thickness: Any,
+    width: Any,
+    length: Any,
+    stock: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Create a stock batch via Firebird or paid POST ``/batch``. Invalidates list cache."""
+    from api.config.sql_accounting_master_read import master_read_allows_paid_rest
+
+    if master_read_allows_paid_rest():
+        result = _create_batch_via_rest(
+            code, thickness=thickness, width=width, length=length, stock=stock
+        )
+    else:
+        result = create_batch_in_firebird(
+            code, thickness=thickness, width=width, length=length, stock=stock
+        )
+    _invalidate_batch_cache()
+    return result
 
 
 def _line_dim(item: dict[str, Any], *keys: str) -> str:
@@ -417,10 +772,11 @@ def _line_dim(item: dict[str, Any], *keys: str) -> str:
 def attach_batch_codes_to_lines(line_items: Any) -> list[dict[str, Any]]:
     """
     For each PR line with thickness/width/length, resolve ``batch`` to
-    ``{T}mm*{W}mm*{L}mm`` via GET /batch/* (create via POST /batch when missing).
+    ``{T}mm*{W}mm*{L}mm`` via batch master (create when missing).
 
-    Fail-soft: logs warnings and leaves ``batch`` unset on API errors so e-PR submit
-    is never blocked. Short-circuits with no network when keys are absent or path disabled.
+    Fail-soft: logs warnings and leaves ``batch`` unset on errors so e-PR submit
+    is never blocked. Short-circuits when path disabled. Paid REST keys are only
+    required when master-read Rest is enabled.
     """
     if not isinstance(line_items, list):
         return []
@@ -431,17 +787,11 @@ def attach_batch_codes_to_lines(line_items: Any) -> list[dict[str, Any]]:
 
     from api.config.sql_accounting_master_read import master_read_allows_paid_rest
 
-    if not master_read_allows_paid_rest():
-        logger.warning(
-            "SQL API batch resolution skipped: master-read Firebird / BLOCK_REST_HTTP "
-            "(no Firebird batch-master fallback)"
-        )
-        return [item for item in line_items if isinstance(item, dict)]
-
-    settings = load_sql_accounting_api_settings()
-    if not settings.access_key or not settings.secret_key:
-        logger.warning("SQL API batch resolution skipped: keys not configured")
-        return [item for item in line_items if isinstance(item, dict)]
+    if master_read_allows_paid_rest():
+        settings = load_sql_accounting_api_settings()
+        if not settings.access_key or not settings.secret_key:
+            logger.warning("SQL API batch resolution skipped: keys not configured")
+            return [item for item in line_items if isinstance(item, dict)]
 
     batches: list[dict[str, Any]] | None = None
     created_codes: set[str] = set()
@@ -491,9 +841,15 @@ def attach_batch_codes_to_lines(line_items: Any) -> list[dict[str, Any]]:
             )
             created_codes.add(code.lower())
             item["batch"] = code
-            # Keep local cache in sync for subsequent lines in this request.
             if batches is not None:
-                batches.append({"code": code, "udf_thickness": thickness, "udf_width": width, "udf_length": length})
+                batches.append(
+                    {
+                        "code": code,
+                        "udf_thickness": thickness,
+                        "udf_width": width,
+                        "udf_length": length,
+                    }
+                )
         except Exception as exc:
             logger.warning(
                 "SQL API batch resolve failed for code=%r item=%r: %s",

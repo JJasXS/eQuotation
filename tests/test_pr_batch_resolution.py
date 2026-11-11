@@ -1,6 +1,11 @@
 """Stock batch resolution for Create e-PR dimensions (GET/POST /batch)."""
 from __future__ import annotations
 
+from decimal import Decimal
+from unittest.mock import MagicMock, patch
+
+import pytest
+
 from utils.procurement_pr_sql_api import build_sdsdocdetail_line
 from utils.sql_api_batch import (
     attach_batch_codes_to_lines,
@@ -205,3 +210,154 @@ def test_edited_thickness_beats_catalog_in_sdsdocdetail(monkeypatch):
     assert row.get("udf_width") == "100"
     assert row.get("udf_length") == "500"
     assert row.get("batch") == "12mm*100mm*500mm"
+
+
+def test_fb_row_to_rest_maps_decimals_and_batchitem():
+    from utils.sql_api_batch import _fb_row_to_rest
+
+    mapped = _fb_row_to_rest(
+        ["AUTOKEY", "CODE", "UDF_THICKNESS", "ISACTIVE"],
+        (12, "12mm*100mm*500mm", Decimal("12"), True),
+        batchitem=[{"itemcode": "AL-1"}],
+    )
+    assert mapped["autokey"] == 12
+    assert mapped["code"] == "12mm*100mm*500mm"
+    assert mapped["udf_thickness"] == "12"
+    assert mapped["isactive"] is True
+    assert mapped["batchitem"] == [{"itemcode": "AL-1"}]
+    assert mapped["docnosetkey"] is None
+
+
+def test_fetch_batches_routes_to_firebird_under_block(monkeypatch):
+    monkeypatch.setenv("SQL_ACCOUNTING_MASTER_READ_PROVIDER", "Firebird")
+    monkeypatch.setenv("SQL_ACCOUNTING_BLOCK_REST_HTTP", "true")
+    from utils import sql_api_batch as batch_mod
+
+    batch_mod._invalidate_batch_cache()
+    with patch(
+        "utils.sql_api_batch.fetch_batches_from_firebird",
+        return_value=[{"code": "9mm*9mm*9mm"}],
+    ) as mock_fb:
+        with patch("utils.sql_api_batch.SqlAccountingApiClient") as mock_client:
+            rows = batch_mod.fetch_batches(force_refresh=True)
+    assert rows[0]["code"] == "9mm*9mm*9mm"
+    mock_fb.assert_called_once()
+    mock_client.assert_not_called()
+
+
+def test_create_batch_routes_to_firebird_under_block(monkeypatch):
+    monkeypatch.setenv("SQL_ACCOUNTING_MASTER_READ_PROVIDER", "Firebird")
+    monkeypatch.setenv("SQL_ACCOUNTING_BLOCK_REST_HTTP", "true")
+    from utils import sql_api_batch as batch_mod
+
+    with patch(
+        "utils.sql_api_batch.create_batch_in_firebird",
+        return_value={"code": "9mm*9mm*9mm", "autokey": 99},
+    ) as mock_create:
+        with patch("utils.sql_api_batch.SqlAccountingApiClient") as mock_client:
+            out = batch_mod.create_batch(
+                "9mm*9mm*9mm",
+                thickness="9",
+                width="9",
+                length="9",
+                stock={"CODE": "AL-1", "DESCRIPTION": "AL-1"},
+            )
+    assert out["code"] == "9mm*9mm*9mm"
+    mock_create.assert_called_once()
+    mock_client.assert_not_called()
+
+
+def test_attach_creates_via_firebird_when_missing(monkeypatch):
+    monkeypatch.setenv("SQL_ACCOUNTING_MASTER_READ_PROVIDER", "Firebird")
+    monkeypatch.setenv("SQL_ACCOUNTING_BLOCK_REST_HTTP", "true")
+    monkeypatch.setenv("SQL_API_ACCESS_KEY", "")
+    monkeypatch.setenv("SQL_API_SECRET_KEY", "")
+
+    posts: list[str] = []
+    monkeypatch.setattr(
+        "utils.sql_api_batch.fetch_batches",
+        lambda force_refresh=False: [],
+    )
+
+    def _fake_create(code, *, thickness, width, length, stock):
+        posts.append(code)
+        return {"code": code}
+
+    monkeypatch.setattr("utils.sql_api_batch.create_batch", _fake_create)
+
+    lines = [
+        {
+            "itemCode": "AL-1",
+            "udf_thickness": "12",
+            "udf_width": "100",
+            "udf_length": "500",
+            "stockDetail": {"CODE": "AL-1", "DESCRIPTION": "AL-1"},
+        }
+    ]
+    attach_batch_codes_to_lines(lines)
+    assert lines[0]["batch"] == "12mm*100mm*500mm"
+    assert posts == ["12mm*100mm*500mm"]
+
+
+def test_create_batch_in_firebird_reuses_existing(monkeypatch):
+    from utils.sql_api_batch import create_batch_in_firebird
+
+    existing = {
+        "autokey": 12,
+        "code": "12mm*100mm*500mm",
+        "batchitem": [],
+        "docnosetkey": None,
+    }
+    con = MagicMock()
+    cur = MagicMock()
+    con.cursor.return_value = cur
+    monkeypatch.setattr("utils.sql_api_batch._open_batch_connection", lambda: con)
+    monkeypatch.setattr("utils.sql_api_batch._table_exists", lambda _c, _t: True)
+    monkeypatch.setattr(
+        "utils.sql_api_batch._fetch_st_batch_by_code",
+        lambda _c, _code: existing,
+    )
+
+    out = create_batch_in_firebird(
+        "12mm*100mm*500mm",
+        thickness="12",
+        width="100",
+        length="500",
+        stock={"CODE": "AL-1"},
+    )
+    assert out == existing
+    cur.execute.assert_not_called()
+
+
+def test_create_batch_in_firebird_rejects_overlong_code():
+    from utils.sql_api_batch import SqlApiBatchError, create_batch_in_firebird
+
+    with pytest.raises(SqlApiBatchError, match="length 30"):
+        create_batch_in_firebird(
+            "1234567890123456789012345678901",
+            thickness="1",
+            width="2",
+            length="3",
+            stock=None,
+        )
+
+
+def test_attach_fail_soft_on_fetch_error(monkeypatch):
+    monkeypatch.setenv("SQL_ACCOUNTING_MASTER_READ_PROVIDER", "Firebird")
+    monkeypatch.setenv("SQL_ACCOUNTING_BLOCK_REST_HTTP", "true")
+    from utils.sql_api_batch import SqlApiBatchError
+
+    monkeypatch.setattr(
+        "utils.sql_api_batch.fetch_batches",
+        lambda force_refresh=False: (_ for _ in ()).throw(SqlApiBatchError("boom")),
+    )
+    lines = [
+        {
+            "itemCode": "AL-1",
+            "udf_thickness": "12",
+            "udf_width": "100",
+            "udf_length": "500",
+        }
+    ]
+    out = attach_batch_codes_to_lines(lines)
+    assert out[0].get("batch") in (None, "")
