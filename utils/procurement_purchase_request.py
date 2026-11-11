@@ -295,6 +295,14 @@ def list_view_pr_headers_for_status(
         has_lines_sql = _view_pr_has_detail_lines_sql(key_col, _ph_pqdtl_header_fk_col(cur))
         if has_lines_sql:
             where_sql = f"({where_sql}) AND {has_lines_sql}"
+        # Active APPROVED list: hide PRs whose transferable qty is fully on PO via ST_XTRANS.
+        if tab == "APPROVED":
+            from utils.procurement_pr_transfer_completion import sql_exclude_fully_transferred_pr
+
+            where_sql = (
+                f"({where_sql}) AND "
+                f"{sql_exclude_fully_transferred_pr(cur, header_alias='H', header_key_col=key_col)}"
+            )
         order_col = docdate_col or key_col
         order_sql = f"H.{order_col} DESC"
         if key_col.upper() != (order_col or "").upper():
@@ -414,6 +422,13 @@ def map_view_pr_status_counts() -> dict[str, int]:
             return counts
         status_is_numeric = _column_is_numeric(cur, "PH_PQ", status_col)
         has_lines_sql = _view_pr_has_detail_lines_sql(key_col or "", _ph_pqdtl_header_fk_col(cur))
+        exclude_full_sql = ""
+        if key_col:
+            from utils.procurement_pr_transfer_completion import sql_exclude_fully_transferred_pr
+
+            exclude_full_sql = sql_exclude_fully_transferred_pr(
+                cur, header_alias="H", header_key_col=key_col
+            )
         for tab in counts:
             where_sql, where_params = _view_pr_tab_where_sql(
                 tab,
@@ -423,6 +438,8 @@ def map_view_pr_status_counts() -> dict[str, int]:
             )
             if has_lines_sql:
                 where_sql = f"({where_sql}) AND {has_lines_sql}"
+            if tab == "APPROVED" and exclude_full_sql:
+                where_sql = f"({where_sql}) AND {exclude_full_sql}"
             cur.execute(f"SELECT COUNT(*) FROM PH_PQ H WHERE {where_sql}", tuple(where_params))
             counts[tab] = int((cur.fetchone() or [0])[0] or 0)
         return counts
