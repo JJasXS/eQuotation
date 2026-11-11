@@ -102,11 +102,17 @@ _to_bool_or_none = to_bool_or_none
 
 
 def resolve_supplier_master(selected_code: str, fallback_name: str = "") -> dict[str, Any]:
+    """Supplier flat fields for PO/PR transfer.
+
+    Prefer paid SQL API when master-read Rest is allowed; otherwise company
+    Firebird ``AP_SUPPLIER`` / ``AP_SUPPLIERBRANCH`` (zero paid REST).
+    """
     code = str(selected_code or "").strip()
     if not code:
         return {}
     try:
         from utils.sql_api_supplier import (
+            fetch_firebird_supplier_master_fields,
             fetch_supplier_row_by_code,
             supplier_master_document_fields,
         )
@@ -114,6 +120,11 @@ def resolve_supplier_master(selected_code: str, fallback_name: str = "") -> dict
         row = fetch_supplier_row_by_code(code)
         if row:
             return supplier_master_document_fields(row)
+        local = fetch_firebird_supplier_master_fields(code)
+        if local:
+            if fallback_name and not str(local.get("companyname") or "").strip():
+                local["companyname"] = str(fallback_name).strip()
+            return local
     except Exception:
         pass
     name = str(fallback_name or "").strip()

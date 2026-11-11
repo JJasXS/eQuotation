@@ -34,6 +34,8 @@ def test_build_batch_code_missing_dimension():
 
 def test_attach_reuses_existing_batch_without_post(monkeypatch):
     posts: list[dict] = []
+    monkeypatch.setenv("SQL_ACCOUNTING_MASTER_READ_PROVIDER", "Rest")
+    monkeypatch.setenv("SQL_ACCOUNTING_BLOCK_REST_HTTP", "false")
 
     monkeypatch.setattr(
         "utils.sql_api_batch.load_sql_accounting_api_settings",
@@ -80,6 +82,8 @@ def test_attach_reuses_existing_batch_without_post(monkeypatch):
 
 def test_attach_creates_missing_batch(monkeypatch):
     posts: list[dict] = []
+    monkeypatch.setenv("SQL_ACCOUNTING_MASTER_READ_PROVIDER", "Rest")
+    monkeypatch.setenv("SQL_ACCOUNTING_BLOCK_REST_HTTP", "false")
 
     monkeypatch.setattr(
         "utils.sql_api_batch.load_sql_accounting_api_settings",
@@ -138,7 +142,10 @@ def test_build_sdsdocdetail_line_emits_batch(monkeypatch):
         lambda **kwargs: {"CODE": kwargs.get("code") or "", "DESCRIPTION": kwargs.get("description") or ""},
     )
     monkeypatch.setattr("utils.stock_items_catalog.fetch_stock_item_sql_api_by_code", lambda _c: None)
-    monkeypatch.setattr("utils.stock_items_catalog._firebird_stock_row_for_code", lambda _c: {})
+    monkeypatch.setattr(
+        "utils.stock_items_catalog._firebird_stock_row_for_code",
+        lambda _c, db_cur=None: {},
+    )
 
     row = build_sdsdocdetail_line(
         {
@@ -173,7 +180,10 @@ def test_edited_thickness_beats_catalog_in_sdsdocdetail(monkeypatch):
         lambda **kwargs: {"CODE": kwargs.get("code") or ""},
     )
     monkeypatch.setattr("utils.stock_items_catalog.fetch_stock_item_sql_api_by_code", _fake_detail)
-    monkeypatch.setattr("utils.stock_items_catalog._firebird_stock_row_for_code", lambda _c: {})
+    monkeypatch.setattr(
+        "utils.stock_items_catalog._firebird_stock_row_for_code",
+        lambda _c, db_cur=None: {},
+    )
 
     row = build_sdsdocdetail_line(
         {

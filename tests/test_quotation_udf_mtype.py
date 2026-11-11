@@ -6,6 +6,8 @@ def test_build_salesquotation_payload_includes_udf_mtype_after_itemcode(monkeypa
     """Enrich runs after item code resolution so catalog UDF_MTYPE reaches sdsdocdetail."""
     from utils import quotation_api as qa
 
+    monkeypatch.setenv("SQL_ACCOUNTING_MASTER_READ_PROVIDER", "Rest")
+    monkeypatch.setenv("SQL_ACCOUNTING_BLOCK_REST_HTTP", "false")
     monkeypatch.setattr(qa, "_resolve_item_code_from_local_db", lambda _desc: "1050-H0 320MMx0.7MM")
     monkeypatch.setattr(qa, "_quotation_fallback_item_code", lambda: "")
     monkeypatch.setattr(qa, "_lookup_st_item_uom_irbm", lambda _code, _memo: ("", ""))
@@ -22,6 +24,13 @@ def test_build_salesquotation_payload_includes_udf_mtype_after_itemcode(monkeypa
     monkeypatch.setattr(
         "utils.stock_items_catalog.find_catalog_stock_item_prefer_sql_api",
         _fake_catalog,
+    )
+    monkeypatch.setattr(
+        "utils.stock_items_catalog._firebird_stock_row_for_code",
+        lambda _c, db_cur=None: {
+            "CODE": "1050-H0 320MMx0.7MM",
+            "UDF_MTYPE": "AL",
+        },
     )
 
     payload = qa._build_salesquotation_payload(

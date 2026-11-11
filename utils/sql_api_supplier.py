@@ -62,6 +62,11 @@ def fetch_sql_api_supplier_row(supplier_code: str) -> tuple[dict[str, Any] | Non
     if not code:
         return None, None
 
+    from api.config.sql_accounting_master_read import master_read_allows_paid_rest
+
+    if not master_read_allows_paid_rest():
+        return None, None
+
     settings = load_sql_accounting_api_settings()
     if not settings.access_key or not settings.secret_key:
         return None, None
@@ -116,6 +121,11 @@ def fetch_supplier_row_by_code(supplier_code: str) -> dict[str, Any] | None:
     if row and _supplier_row_has_billing_branch(row):
         return row
     header_only = row
+
+    from api.config.sql_accounting_master_read import master_read_allows_paid_rest
+
+    if not master_read_allows_paid_rest():
+        return header_only
 
     settings = load_sql_accounting_api_settings()
     if not settings.access_key or not settings.secret_key:
@@ -234,8 +244,166 @@ def looks_like_email(value: Any) -> bool:
     return bool(local.strip()) and "." in domain
 
 
+def fetch_firebird_supplier_master_fields(supplier_code: str) -> dict[str, Any]:
+    """
+    Flat supplier + billing branch from company Firebird (AP_SUPPLIER / BRANCH).
+
+    Same shape as ``supplier_master_document_fields`` so PO transfer can fill
+    addresses / terms / tax ids when paid GET ``/supplier`` is blocked.
+    """
+    code = _supplier_clean(supplier_code)
+    if not code:
+        return {}
+    try:
+        from utils.db_utils import get_db_connection
+        from utils.firebird_helpers import _get_table_columns, _pick_existing, _table_exists
+    except Exception:
+        return {}
+
+    con = None
+    try:
+        try:
+            con = get_db_connection()
+        except Exception:
+            # Standalone / pre-main: use process env (same company book as LocalOnly).
+            import os
+
+            import fdb
+            from utils.db_utils import build_firebird_dsn
+
+            db_path = (os.getenv("DB_PATH") or "").strip()
+            if not db_path:
+                return {}
+            con = fdb.connect(
+                dsn=build_firebird_dsn(db_path, os.getenv("DB_HOST")),
+                user=(os.getenv("DB_USER") or "sysdba").strip(),
+                password=(os.getenv("DB_PASSWORD") or "").strip(),
+                charset="UTF8",
+            )
+        cur = con.cursor()
+        if not _table_exists(cur, "AP_SUPPLIER"):
+            return {}
+        hdr_cols = _get_table_columns(cur, "AP_SUPPLIER")
+        code_col = _pick_existing(hdr_cols, "CODE")
+        if not code_col:
+            return {}
+
+        want_hdr = [
+            "CODE",
+            "COMPANYNAME",
+            "COMPANYNAME2",
+            "CONTROLACCOUNT",
+            "COMPANYCATEGORY",
+            "AREA",
+            "AGENT",
+            "CURRENCYCODE",
+            "CREDITTERM",
+            "CREDITLIMIT",
+            "OVERDUELIMIT",
+            "STATEMENTTYPE",
+            "TAXEXEMPTNO",
+            "TAXEXPDATE",
+            "BRN",
+            "BRN2",
+            "GSTNO",
+            "SALESTAXNO",
+            "SERVICETAXNO",
+            "TIN",
+            "IDTYPE",
+            "IDNO",
+            "TOURISMNO",
+            "SIC",
+            "SUBMISSIONTYPE",
+            "IRBM_CLASSIFICATION",
+            "PEPPOLID",
+            "BUSINESSUNIT",
+            "TAXAREA",
+            "BIZNATURE",
+        ]
+        select_hdr = [c for c in want_hdr if c in hdr_cols]
+        if "CODE" not in select_hdr:
+            return {}
+        cur.execute(
+            f"SELECT FIRST 1 {', '.join(select_hdr)} FROM AP_SUPPLIER "
+            f"WHERE TRIM(UPPER({code_col})) = ?",
+            (code.upper(),),
+        )
+        hdr_row = cur.fetchone()
+        if not hdr_row:
+            return {}
+        header = {
+            select_hdr[i].lower(): hdr_row[i]
+            for i in range(len(select_hdr))
+        }
+
+        branch: dict[str, Any] = {}
+        if _table_exists(cur, "AP_SUPPLIERBRANCH"):
+            br_cols = _get_table_columns(cur, "AP_SUPPLIERBRANCH")
+            br_code = _pick_existing(br_cols, "CODE")
+            want_br = [
+                "DTLKEY",
+                "BRANCHTYPE",
+                "BRANCHNAME",
+                "ADDRESS1",
+                "ADDRESS2",
+                "ADDRESS3",
+                "ADDRESS4",
+                "POSTCODE",
+                "CITY",
+                "STATE",
+                "COUNTRY",
+                "ATTENTION",
+                "PHONE1",
+                "PHONE2",
+                "MOBILE",
+                "FAX1",
+                "FAX2",
+                "EMAIL",
+            ]
+            select_br = [c for c in want_br if c in br_cols]
+            if br_code and select_br:
+                cur.execute(
+                    f"SELECT {', '.join(select_br)} FROM AP_SUPPLIERBRANCH "
+                    f"WHERE TRIM(UPPER({br_code})) = ? ORDER BY DTLKEY",
+                    (code.upper(),),
+                )
+                rows = cur.fetchall() or []
+                picked = None
+                for raw in rows:
+                    mapped = {
+                        select_br[i].lower(): raw[i]
+                        for i in range(len(select_br))
+                    }
+                    bt = _supplier_clean(mapped.get("branchtype")).upper()
+                    bn = _supplier_clean(mapped.get("branchname")).upper()
+                    if bt == "B" or bn == "BILLING":
+                        picked = mapped
+                        break
+                    if picked is None:
+                        picked = mapped
+                branch = picked or {}
+
+        synthetic = {
+            **header,
+            "sdsbranch": [branch] if branch else [],
+        }
+        return supplier_master_document_fields(synthetic)
+    except Exception:
+        return {}
+    finally:
+        if con is not None:
+            try:
+                con.close()
+            except Exception:
+                pass
+
+
 def _local_supplier_company_name(supplier_code: str) -> str:
     """Company name from local Firebird AP_SUPPLIER / AR_SUPPLIER (no SQL API)."""
+    fields = fetch_firebird_supplier_master_fields(supplier_code)
+    company = _supplier_clean(fields.get("companyname"))
+    if company and not looks_like_email(company):
+        return company
     code = _supplier_clean(supplier_code)
     if not code:
         return ""

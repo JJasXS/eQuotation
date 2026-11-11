@@ -39,6 +39,16 @@ def _lookup_supplier_via_external_api(normalized_email: str):
     if not target:
         return None, None
 
+    from api.config.sql_accounting_master_read import master_read_allows_paid_rest
+
+    if not master_read_allows_paid_rest():
+        print(
+            "[AUTH] Skipping paid supplier email scan "
+            "(master-read Firebird / BLOCK_REST_HTTP)",
+            flush=True,
+        )
+        return None, None
+
     url = _external_supplier_url()
     offset = 0
     limit = 500
@@ -251,98 +261,17 @@ def _lookup_supplier_by_email(cur, normalized_email: str):
 
 def _lookup_customer_by_email(cur, normalized_email: str):
     """
-    AR_CUSTOMERBRANCH (EMAIL), then AR_CUSTOMER dynamic ``UDF_EMAIL`` / ``UDF_EMAIL2`` / … with paired
-    ``UDF_DEPARTMENT`` / ``UDF_DEPARTMENT2`` / … when those columns exist, then AR_CUSTOMER.EMAIL.
+    AR_CUSTOMERBRANCH (EMAIL), then AR_CUSTOMER ``UDF_EMAIL*``, then AR_CUSTOMER.EMAIL.
 
-    UDF email columns are discovered from ``RDB$RELATION_FIELDS`` so numbering is open-ended.
+    Case-insensitive + trimmed. Ambiguous multi-CODE matches return ``(None, None)`` and set
+    ``cur._eq_customer_lookup_error`` for the route to surface (no silent wrong CODE).
     """
-    user = None
-    customer_code = None
-    cur.execute(
-        """
-        SELECT CODE, EMAIL
-        FROM AR_CUSTOMERBRANCH
-        WHERE UPPER(TRIM(EMAIL)) = UPPER(TRIM(?))
-        """,
-        [normalized_email],
-    )
-    user_row = cur.fetchone()
-    if user_row:
-        user = {
-            "code": user_row[0],
-            "email": user_row[1],
-            "source": "AR_CUSTOMERBRANCH.EMAIL",
-            "matched_udf_email_column": None,
-            "udf_email_suffix": "",
-        }
-        customer_code = user_row[0]
-        return user, customer_code
+    from utils.customer_email_lookup import lookup_customer_user_dict
 
-    table = "AR_CUSTOMER"
-    for email_col in _sorted_ar_customer_udf_email_columns(cur):
-        if not _table_has_column(cur, table, email_col):
-            continue
-        dept_col = _department_column_for_udf_email(email_col)
-        has_dept = _table_has_column(cur, table, dept_col)
-        ec = email_col.upper()
-        try:
-            if has_dept:
-                dc = dept_col.upper()
-                cur.execute(
-                    f"""
-                    SELECT CODE, {ec}, {dc}
-                    FROM {table}
-                    WHERE UPPER(TRIM({ec})) = UPPER(TRIM(?))
-                    """,
-                    [normalized_email],
-                )
-            else:
-                cur.execute(
-                    f"""
-                    SELECT CODE, {ec}
-                    FROM {table}
-                    WHERE UPPER(TRIM({ec})) = UPPER(TRIM(?))
-                    """,
-                    [normalized_email],
-                )
-            user_row = cur.fetchone()
-            if user_row:
-                suf = _udf_email_column_suffix(email_col)
-                user = {
-                    "code": user_row[0],
-                    "email": user_row[1],
-                    "source": f"{table}.{email_col}",
-                    "matched_udf_email_column": email_col,
-                    "udf_email_suffix": suf,
-                }
-                if has_dept and len(user_row) > 2:
-                    user["department"] = user_row[2]
-                customer_code = user_row[0]
-                return user, customer_code
-        except Exception as exc:
-            print(f"[AUTH] customer lookup failed on {table}.{email_col}: {exc}", flush=True)
-
-    try:
-        cur.execute(
-            """
-            SELECT CODE, EMAIL
-            FROM AR_CUSTOMER
-            WHERE UPPER(TRIM(EMAIL)) = UPPER(TRIM(?))
-            """,
-            [normalized_email],
-        )
-        user_row = cur.fetchone()
-        if user_row:
-            user = {
-                "code": user_row[0],
-                "email": user_row[1],
-                "source": "AR_CUSTOMER.EMAIL",
-                "matched_udf_email_column": "EMAIL",
-                "udf_email_suffix": "",
-            }
-            customer_code = user_row[0]
-    except Exception:
-        pass
+    user, customer_code, err = lookup_customer_user_dict(cur, normalized_email)
+    setattr(cur, "_eq_customer_lookup_error", err)
+    if err and not user:
+        print(f"[AUTH] customer email lookup: {err}", flush=True)
     return user, customer_code
 
 
@@ -400,9 +329,15 @@ def lookup_email_identity(
             supplier, supplier_code = _lookup_supplier_by_email(cur, normalized_email)
         elif mode == "customer":
             user, customer_code = _lookup_customer_by_email(cur, normalized_email)
+            amb_err = getattr(cur, "_eq_customer_lookup_error", None)
+            if amb_err and "multiple customer codes" in str(amb_err).lower():
+                raise HTTPException(status_code=409, detail=str(amb_err))
         elif mode == "admin" and not sy_user_profile:
             # Admin tab: also try customer directory so shared emails still resolve.
             user, customer_code = _lookup_customer_by_email(cur, normalized_email)
+            amb_err = getattr(cur, "_eq_customer_lookup_error", None)
+            if amb_err and "multiple customer codes" in str(amb_err).lower():
+                raise HTTPException(status_code=409, detail=str(amb_err))
 
         is_admin_sy = bool(admin)
         is_user = bool(user)

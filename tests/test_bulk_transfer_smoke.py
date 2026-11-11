@@ -76,7 +76,7 @@ class BulkTransferSmokeTests(unittest.TestCase):
                 "ADDRESS1", "AREA", "AGENT", "PROJECT", "TERMS", "CURRENCYCODE", "CURRENCYRATE",
                 "SHIPPER", "DESCRIPTION", "CANCELLED", "STATUS", "DOCAMT", "LOCALDOCAMT",
                 "BUSINESSUNIT", "TRANSFERABLE", "UPDATECOUNT", "PRINTCOUNT", "LASTMODIFIED",
-                "IDTYPE", "SUBMISSIONTYPE",
+                "IDTYPE", "SUBMISSIONTYPE", "UDF_POSTATUS",
             },
             "PH_PODTL": {
                 "DTLKEY", "DOCKEY", "SEQ", "ITEMCODE", "LOCATION", "PROJECT", "DESCRIPTION",
@@ -137,6 +137,7 @@ class BulkTransferSmokeTests(unittest.TestCase):
         self.assertEqual(len(inserted["PH_PO"]), 1)
         self.assertEqual(len(inserted["PH_PODTL"]), 1)
         self.assertEqual(len(inserted["ST_XTRANS"]), 1)
+        self.assertEqual(inserted["PH_PO"][0].get("UDF_POSTATUS"), "PENDING")
 
         po_line = inserted["PH_PODTL"][0]
         self.assertEqual(po_line["FROMDOCTYPE"], "PQ")

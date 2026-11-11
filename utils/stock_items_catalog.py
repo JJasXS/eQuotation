@@ -174,6 +174,10 @@ def fetch_stock_item_sql_api_by_code(code: str) -> dict[str, Any] | None:
     cached = _STOCK_DETAIL_CACHE.get(cache_key)
     if cached and (time.monotonic() - cached[0]) < _STOCK_CACHE_SECONDS:
         return cached[1]
+    from api.config.sql_accounting_master_read import master_read_allows_paid_rest
+
+    if not master_read_allows_paid_rest():
+        return None
     settings = load_sql_accounting_api_settings()
     if settings.dry_run or not settings.access_key or not settings.secret_key:
         return None
@@ -217,6 +221,10 @@ def _try_fetch_stock_items_sql_api() -> list[dict[str, Any]] | None:
     cached = _STOCK_LIST_CACHE
     if cached and (time.monotonic() - cached[0]) < _STOCK_CACHE_SECONDS:
         return cached[1]
+    from api.config.sql_accounting_master_read import master_read_allows_paid_rest
+
+    if not master_read_allows_paid_rest():
+        return None
     settings = load_sql_accounting_api_settings()
     if settings.dry_run:
         return None
@@ -678,13 +686,8 @@ def _local_stock_by_description(description: str) -> dict[str, Any] | None:
     return None
 
 
-def fetch_stock_items_catalog_uncached() -> list[dict[str, Any]]:
-    """Load catalog rows for dropdowns / chat; SQL Accounting list GET when configured, else Firebird."""
-    sql_items = _try_fetch_stock_items_sql_api()
-    # ``[]`` means SQL API responded successfully with no rows — do not replace with Firebird.
-    if sql_items is not None:
-        return sql_items
-
+def _fetch_stock_items_from_firebird() -> list[dict[str, Any]]:
+    """Company-scoped ST_ITEM catalog (single connection)."""
     from utils.db_utils import get_db_connection
 
     con = None
@@ -704,3 +707,23 @@ def fetch_stock_items_catalog_uncached() -> list[dict[str, Any]]:
                 con.close()
         except Exception:
             pass
+
+
+def fetch_stock_items_catalog_uncached() -> list[dict[str, Any]]:
+    """
+    Load catalog rows for dropdowns / chat.
+
+    Default (master-read Firebird): ST_ITEM only.
+    Rollback (master-read Rest): SQL Accounting list GET when configured, else Firebird.
+    """
+    from api.config.sql_accounting_master_read import master_read_allows_paid_rest
+
+    if not master_read_allows_paid_rest():
+        return _fetch_stock_items_from_firebird()
+
+    sql_items = _try_fetch_stock_items_sql_api()
+    # ``[]`` means SQL API responded successfully with no rows — do not replace with Firebird.
+    if sql_items is not None:
+        return sql_items
+
+    return _fetch_stock_items_from_firebird()

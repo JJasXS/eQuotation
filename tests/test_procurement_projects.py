@@ -1,4 +1,4 @@
-"""Procurement project dropdown must use SQL API GET /project/* only."""
+"""Procurement project dropdown: Firebird default + REST rollback."""
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -10,7 +10,9 @@ from utils.sql_api_projects import SqlApiProjectsError, fetch_projects_from_sql_
 
 @patch("utils.sql_api_projects.SqlAccountingApiClient")
 @patch("utils.sql_api_projects.load_sql_accounting_api_settings")
-def test_fetch_projects_from_sql_api_project_star(mock_settings, mock_client_cls):
+def test_fetch_projects_from_sql_api_project_star(mock_settings, mock_client_cls, monkeypatch):
+    monkeypatch.setenv("SQL_ACCOUNTING_MASTER_READ_PROVIDER", "Rest")
+    monkeypatch.setenv("SQL_ACCOUNTING_BLOCK_REST_HTTP", "false")
     settings = mock_settings.return_value
     settings.access_key = "ak"
     settings.secret_key = "sk"
@@ -31,14 +33,18 @@ def test_fetch_projects_from_sql_api_project_star(mock_settings, mock_client_cls
 
 
 @patch("utils.sql_api_projects.load_sql_accounting_api_settings")
-def test_fetch_projects_raises_without_keys(mock_settings):
+def test_fetch_projects_raises_without_keys(mock_settings, monkeypatch):
+    monkeypatch.setenv("SQL_ACCOUNTING_MASTER_READ_PROVIDER", "Rest")
+    monkeypatch.setenv("SQL_ACCOUNTING_BLOCK_REST_HTTP", "false")
     mock_settings.return_value.access_key = ""
     mock_settings.return_value.secret_key = ""
     with pytest.raises(SqlApiProjectsError, match="not configured"):
         fetch_projects_from_sql_api()
 
 
-def test_main_uncached_does_not_use_env_fallback():
+def test_main_uncached_rest_rollback_uses_sql_api(monkeypatch):
+    monkeypatch.setenv("SQL_ACCOUNTING_MASTER_READ_PROVIDER", "Rest")
+    monkeypatch.setenv("SQL_ACCOUNTING_BLOCK_REST_HTTP", "false")
     from main import _fetch_procurement_projects_uncached
 
     with patch("utils.sql_api_projects.fetch_projects_from_sql_api") as mock_fetch:
@@ -46,3 +52,16 @@ def test_main_uncached_does_not_use_env_fallback():
         rows = _fetch_procurement_projects_uncached()
     assert rows[0]["code"] == "NON-PROJECT"
     mock_fetch.assert_called_once()
+
+
+def test_main_uncached_firebird_default_skips_sql_api(monkeypatch):
+    monkeypatch.setenv("SQL_ACCOUNTING_MASTER_READ_PROVIDER", "Firebird")
+    from main import _fetch_procurement_projects_uncached
+
+    with patch("main._load_projects_from_firebird_fallback") as mock_fb:
+        mock_fb.return_value = [{"code": "NON-PROJECT", "description": "NON-PROJECT", "isactive": True}]
+        with patch("utils.sql_api_projects.fetch_projects_from_sql_api") as mock_fetch:
+            rows = _fetch_procurement_projects_uncached()
+    assert rows[0]["code"] == "NON-PROJECT"
+    mock_fb.assert_called_once()
+    mock_fetch.assert_not_called()

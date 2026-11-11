@@ -623,19 +623,23 @@ def get_current_customer_code(*, resolve_missing=False):
     con = None
     cur = None
     try:
+        from utils.customer_email_lookup import lookup_customer_by_email
+
         con = get_db_connection()
         cur = con.cursor()
-        for sql in (
-            'SELECT CODE FROM AR_CUSTOMERBRANCH WHERE UPPER(TRIM(EMAIL)) = UPPER(TRIM(?))',
-            'SELECT CODE FROM AR_CUSTOMER WHERE UPPER(TRIM(EMAIL)) = UPPER(TRIM(?))',
-        ):
-            cur.execute(sql, (user_email,))
-            row = cur.fetchone()
-            customer_code = _strip_customer_code(row[0] if row else None)
-            if customer_code:
-                session.pop('customer_company_name', None)
-                session['customer_code'] = customer_code
-                return customer_code
+        result = lookup_customer_by_email(cur, user_email)
+        if result.ambiguous_codes:
+            print(
+                f"[AUTH] resolve_missing customer email ambiguous for {user_email!r}: "
+                f"{list(result.ambiguous_codes)}",
+                flush=True,
+            )
+            return None
+        customer_code = _strip_customer_code(result.customer_code)
+        if customer_code:
+            session.pop('customer_company_name', None)
+            session['customer_code'] = customer_code
+            return customer_code
         return None
     finally:
         if cur:
@@ -2666,7 +2670,15 @@ def create_signin_user_minimal():
 
 def _is_duplicate_customer_code_error(reason: str) -> bool:
     text = (reason or '').upper()
-    return 'GL_ACC_CODE' in text and 'PROBLEMATIC KEY VALUE' in text and '"CODE"' in text
+    # REST SQL Accounting unique-key style (observed on guest code collisions).
+    if 'GL_ACC_CODE' in text and 'PROBLEMATIC KEY VALUE' in text and '"CODE"' in text:
+        return True
+    # SDK / generic duplicate CODE messages from customer create.
+    if 'ALREADY EXISTS' in text and ('CUSTOMER' in text or 'CODE' in text):
+        return True
+    if 'DUPLICATE' in text and 'CODE' in text:
+        return True
+    return False
 
 
 def _increment_guest_customer_code(code: str) -> str:
@@ -4703,7 +4715,18 @@ def _fetch_all_suppliers_from_sql_api_uncached():
     """Walk the paginated /supplier API once. Used through the TTL cache below.
 
     On upstream/auth failure return [] so Firebird merge can still populate Create e-PR.
+    Skips paid GET when master-read is Firebird or BLOCK_REST_HTTP is set.
     """
+    from api.config.sql_accounting_master_read import master_read_allows_paid_rest
+
+    if not master_read_allows_paid_rest():
+        print(
+            "[PROCUREMENT SUPPLIERS] Skipping paid SQL API "
+            "(master-read Firebird / BLOCK_REST_HTTP)",
+            flush=True,
+        )
+        return []
+
     print(
         f"[PROCUREMENT SUPPLIERS] Fetching from {FASTAPI_BASE_URL}/supplier (cache miss) ...",
         flush=True,
@@ -4948,8 +4971,22 @@ def _load_projects_from_env_fallback():
 
 
 def _fetch_procurement_projects_uncached() -> list[dict]:
-    """Project dropdown — SQL API GET /project/* only (no Firebird/env fallbacks)."""
-    from utils.sql_api_projects import SqlApiProjectsError, fetch_projects_from_sql_api
+    """
+    Project dropdown for Create e-PR.
+
+    Default (master-read Firebird): company DB via ``_load_projects_from_firebird_fallback``.
+    Rollback (master-read Rest): paid SQL API GET ``/project/*`` only.
+    """
+    from api.config.sql_accounting_master_read import master_read_allows_paid_rest
+    from utils.sql_api_projects import fetch_projects_from_sql_api
+
+    if not master_read_allows_paid_rest():
+        rows = _load_projects_from_firebird_fallback() or []
+        return [
+            row
+            for row in rows
+            if isinstance(row, dict) and bool(row.get("isactive") if row.get("isactive") is not None else True)
+        ]
 
     return fetch_projects_from_sql_api()
 
@@ -5088,23 +5125,30 @@ def _fetch_procurement_projects_via_http_proxy() -> list[dict]:
 @app.route('/api/admin/procurement/projects')
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_procurement_projects():
-    """Active project codes for PR dropdown — SQL API GET /project/* only."""
+    """Active project codes for PR dropdown (Firebird default; Rest rollback)."""
+    from api.config.sql_accounting_master_read import master_read_allows_paid_rest
     from utils.sql_api_projects import SqlApiProjectsError
 
     try:
         # Drop legacy cache entries that may hold env-fallback P1–P5 from older builds.
         for legacy_key in (
+            ('procurement', 'projects', 'v4_sqlapi_only'),
             ('procurement', 'projects', 'v2'),
             ('procurement', 'projects', 'v1'),
             ('sql_api', 'project', 'all_v1'),
         ):
             sql_api_master_cache.invalidate(legacy_key)
         data = sql_api_master_cache.get_or_load(
-            ('procurement', 'projects', 'v4_sqlapi_only'),
+            ('procurement', 'projects', 'v5_master_read'),
             _fetch_procurement_projects_uncached,
             ttl_seconds=_sql_api_master_cache_ttl_seconds(),
         )
-        resp = jsonify({'success': True, 'data': data or [], 'source': 'sql_api_project_get'})
+        source = (
+            'sql_api_project_get'
+            if master_read_allows_paid_rest()
+            else 'firebird_project'
+        )
+        resp = jsonify({'success': True, 'data': data or [], 'source': source})
         resp.headers['Cache-Control'] = 'no-store'
         return resp
     except SqlApiProjectsError as exc:

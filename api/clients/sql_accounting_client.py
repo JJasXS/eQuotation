@@ -58,6 +58,22 @@ class SqlAccountingApiError(Exception):
         self.response_body = response_body
 
 
+def _paid_rest_http_blocked() -> bool:
+    """True when lab/local lock forbids any paid SigV4 SQL Accounting HTTP."""
+    from api.config.sql_accounting_write import load_sql_accounting_write_settings
+
+    return bool(load_sql_accounting_write_settings().block_rest_http)
+
+
+def _refuse_if_paid_rest_blocked() -> None:
+    if _paid_rest_http_blocked():
+        raise SqlAccountingApiError(
+            "SQL_ACCOUNTING_BLOCK_REST_HTTP is true; paid SQL Accounting REST is refused. "
+            "Use Sdk/Firebird/LocalOnly providers or disable the block to roll back.",
+            status_code=503,
+        )
+
+
 class SqlAccountingApiClient:
     """SigV4-signed JSON HTTP calls to SQL Accounting API Gateway (POST and GET)."""
 
@@ -93,6 +109,7 @@ class SqlAccountingApiClient:
         *,
         timeout_seconds: float | None = None,
     ) -> requests.Response:
+        _refuse_if_paid_rest_blocked()
         creds = Credentials(self._settings.access_key, self._settings.secret_key)
         aws_request = AWSRequest(
             method=method.upper(),
@@ -133,6 +150,7 @@ class SqlAccountingApiClient:
         timeout_seconds: float | None = None,
         retry_transport: bool = True,
     ) -> requests.Response:
+        _refuse_if_paid_rest_blocked()
         creds = Credentials(self._settings.access_key, self._settings.secret_key)
         aws_request = AWSRequest(method="GET", url=url)
         SigV4Auth(creds, self._settings.service, self._settings.region).add_auth(aws_request)

@@ -12,6 +12,15 @@ import requests
 
 from api.clients import SqlAccountingApiClient, SqlAccountingApiError
 from api.config import load_sql_accounting_api_settings
+from api.config.sql_accounting_quotation_write import (
+    PROVIDER_REST,
+    PROVIDER_SDK,
+    load_sql_accounting_quotation_write_settings,
+)
+from api.services.quotation_write import (
+    QuotationConfigurationError,
+    SdkQuotationWriteAdapter,
+)
 from utils.firebird_helpers import _as_decimal, _safe_float as _safe_float_quotation_email
 
 
@@ -1622,11 +1631,14 @@ def create_or_update_quotation(base_api_url, customer_code, data):
         return {"success": False, "error": "At least one item is required"}
 
     settings = load_sql_accounting_api_settings()
+    qwrite = load_sql_accounting_quotation_write_settings()
     quote_path = (os.getenv("SQL_API_SALES_QUOTATION_PATH") or settings.quotation_create_path or "").strip()
-    if not quote_path:
-        return {"success": False, "error": "SQL_API_SALES_QUOTATION_PATH is not configured in .env"}
-    if not settings.access_key or not settings.secret_key:
-        return {"success": False, "error": "SQL API keys are not configured"}
+    # REST path / SigV4 keys are required only when Provider=Rest. Sdk uses COM Login.
+    if qwrite.is_rest:
+        if not quote_path:
+            return {"success": False, "error": "SQL_API_SALES_QUOTATION_PATH is not configured in .env"}
+        if not settings.access_key or not settings.secret_key:
+            return {"success": False, "error": "SQL API keys are not configured"}
 
     provided_docno = str(data.get("docno") or data.get("docNo") or "").strip()
     is_update = upd_dockey > 0 and bool(provided_docno)
@@ -1692,6 +1704,68 @@ def create_or_update_quotation(base_api_url, customer_code, data):
                     "detail": "Local Firebird pre-check failed; SQL Accounting API was not called.",
                 }
 
+        # SQL_API_DRY_RUN blocks paid REST only. Sdk has AllowLiveCom + CUD gates.
+        if qwrite.is_rest and getattr(settings, "dry_run", False):
+            return {
+                "success": True,
+                "dockey": 0,
+                "docno": doc_no,
+                "message": "SQL_API_DRY_RUN: quotation not written",
+                "dry_run": True,
+                "write_provider": PROVIDER_REST,
+                "upstream": {
+                    "payloadPreview": {
+                        "docno": doc_no,
+                        "lineCount": len(payload.get("sdsdocdetail") or []),
+                    }
+                },
+            }
+
+        # Phase 2.3b: Sdk path — never fall through to REST after an attempt.
+        if qwrite.is_sdk:
+            try:
+                sdk_adapter = SdkQuotationWriteAdapter(cud_enabled=qwrite.cud_enabled)
+                sdk_result = sdk_adapter.write_quotation(
+                    payload,
+                    is_update=is_update,
+                    dockey=upd_dockey,
+                )
+                return sdk_result
+            except QuotationConfigurationError as exc:
+                return {
+                    "success": False,
+                    "errorCode": "QUOTATION_WRITE_CONFIG",
+                    "error": str(exc),
+                    "write_provider": PROVIDER_SDK,
+                }
+            except SqlAccountingApiError as exc:
+                err_text = str(exc)
+                if (
+                    not is_update
+                    and "already exists" in err_text.lower()
+                    and "docno" in err_text.lower()
+                ):
+                    last_error = err_text
+                    continue
+                return {
+                    "success": False,
+                    "errorCode": "SQL_API_ERROR",
+                    "error": err_text,
+                    "write_provider": PROVIDER_SDK,
+                    "detail": getattr(exc, "response_body", None),
+                }
+
+        if qwrite.block_rest_http:
+            return {
+                "success": False,
+                "errorCode": "QUOTATION_WRITE_CONFIG",
+                "error": (
+                    "SQL_ACCOUNTING_BLOCK_REST_HTTP is true; REST quotation write is refused. "
+                    "Set SQL_ACCOUNTING_QUOTATION_WRITE_PROVIDER=Sdk or disable the block."
+                ),
+                "write_provider": PROVIDER_REST,
+            }
+
         try:
             if is_update:
                 update_url = settings.resolved_quotation_update_url(upd_dockey)
@@ -1731,6 +1805,7 @@ def create_or_update_quotation(base_api_url, customer_code, data):
                 "docno": response_dict.get("docno") or data_obj.get("docno") or data_obj.get("docNo") or doc_no,
                 "message": response_dict.get("message") or "Quotation created successfully",
                 "upstream": response_dict or {"raw": raw},
+                "write_provider": PROVIDER_REST,
             }
 
         if status >= 400 and (os.getenv("SQL_API_QUOTATION_LOG_UPSTREAM") or "").strip().lower() in (

@@ -98,8 +98,12 @@ def _row_is_active(row: dict[str, Any]) -> bool:
 def fetch_area_codes_sql_api() -> list[str] | None:
     """
     Return area ``code`` values from GET ``/area`` (or ``SQL_API_AREA_PATH``), or ``None`` if SQL API
-    is not used (no keys, dry-run, path disabled, or request failed).
+    is not used (no keys, dry-run, path disabled, master-read Firebird mode, or request failed).
     """
+    from api.config.sql_accounting_master_read import master_read_allows_paid_rest
+
+    if not master_read_allows_paid_rest():
+        return None
     settings = load_sql_accounting_api_settings()
     if settings.dry_run or not settings.access_key or not settings.secret_key:
         return None
@@ -128,8 +132,12 @@ def fetch_area_codes_sql_api() -> list[str] | None:
 def fetch_currency_codes_sql_api() -> list[str] | None:
     """
     Return currency ``code`` values from GET ``/currency`` (or ``SQL_API_CURRENCY_PATH``), or ``None``
-    if SQL API is not used or the request failed.
+    if SQL API is not used, master-read Firebird mode, or the request failed.
     """
+    from api.config.sql_accounting_master_read import master_read_allows_paid_rest
+
+    if not master_read_allows_paid_rest():
+        return None
     settings = load_sql_accounting_api_settings()
     if settings.dry_run or not settings.access_key or not settings.secret_key:
         return None

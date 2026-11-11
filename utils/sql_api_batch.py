@@ -159,7 +159,12 @@ def fetch_batches(*, force_refresh: bool = False) -> list[dict[str, Any]]:
     Note: ``GET /batch/*`` often returns a truncated single-row sample and must not be
     preferred over the paginated ``/batch`` list.
 
-    Raises ``SqlApiBatchError`` when keys are missing or the API does not return HTTP 200.
+    No Firebird batch-master equivalent exists in eQuotation — this remains a paid REST
+    dependency when master-read Rest is enabled. Firebird / BLOCK_REST_HTTP modes raise
+    so callers fail soft without hitting api.sql.my.
+
+    Raises ``SqlApiBatchError`` when keys are missing, paid REST is blocked, or the API
+    does not return HTTP 200.
     """
     global _batch_cache, _batch_cache_at
 
@@ -169,6 +174,14 @@ def fetch_batches(*, force_refresh: bool = False) -> list[dict[str, Any]]:
         and (time.monotonic() - _batch_cache_at) < _BATCH_CACHE_TTL_SECONDS
     ):
         return list(_batch_cache)
+
+    from api.config.sql_accounting_master_read import master_read_allows_paid_rest
+
+    if not master_read_allows_paid_rest():
+        raise SqlApiBatchError(
+            "Paid SQL API batch GET blocked (master-read Firebird / BLOCK_REST_HTTP). "
+            "No Firebird batch-master fallback is implemented."
+        )
 
     path = _batch_path()
     if not path:
@@ -338,6 +351,13 @@ def create_batch(
     stock: dict[str, Any] | None,
 ) -> dict[str, Any]:
     """POST a new stock batch to SQL Accounting. Invalidates the in-process list cache."""
+    from api.config.sql_accounting_master_read import master_read_allows_paid_rest
+
+    if not master_read_allows_paid_rest():
+        raise SqlApiBatchError(
+            "Paid SQL API batch POST blocked (master-read Firebird / BLOCK_REST_HTTP)."
+        )
+
     path = _batch_path()
     if not path:
         raise SqlApiBatchError("SQL_API_BATCH_PATH is empty (batch resolution disabled).")
@@ -407,6 +427,15 @@ def attach_batch_codes_to_lines(line_items: Any) -> list[dict[str, Any]]:
 
     path = _batch_path()
     if not path:
+        return [item for item in line_items if isinstance(item, dict)]
+
+    from api.config.sql_accounting_master_read import master_read_allows_paid_rest
+
+    if not master_read_allows_paid_rest():
+        logger.warning(
+            "SQL API batch resolution skipped: master-read Firebird / BLOCK_REST_HTTP "
+            "(no Firebird batch-master fallback)"
+        )
         return [item for item in line_items if isinstance(item, dict)]
 
     settings = load_sql_accounting_api_settings()

@@ -1,4 +1,10 @@
 """SQL API supplier overlay for purchase order / request PUT payloads."""
+import pytest
+
+from api.config.sql_accounting_pr_award_sync import (
+    AWARD_SYNC_REST,
+    SqlAccountingPrAwardSyncSettings,
+)
 from utils.procurement_sql_api_sync import (
     _blank_header_supplier_fields,
     build_supplier_put_payload,
@@ -6,6 +12,15 @@ from utils.procurement_sql_api_sync import (
     sql_api_header_fields_from_supplier,
     sync_purchase_request_sql_api_after_awards,
 )
+
+
+@pytest.fixture(autouse=True)
+def _force_rest_award_sync_mode(monkeypatch):
+    """Existing Rest-path tests must not pick up LocalOnly from process env."""
+    monkeypatch.setattr(
+        "api.config.sql_accounting_pr_award_sync.load_sql_accounting_pr_award_sync_settings",
+        lambda: SqlAccountingPrAwardSyncSettings(mode=AWARD_SYNC_REST),
+    )
 
 
 def test_sql_api_header_fields_from_supplier():

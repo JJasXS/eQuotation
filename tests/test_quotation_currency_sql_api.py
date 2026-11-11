@@ -45,11 +45,15 @@ def test_resolve_ignores_payload_myr_uses_sql_api_only(mock_sql_api):
     assert _resolve_quotation_currency_code(data, CUSTOMER) == "----"
 
 
+@patch("utils.quotation_api.get_db_connection", create=True)
 @patch("utils.sql_api_customer.sql_api_currency_and_code")
-def test_resolve_raises_when_sql_api_empty(mock_sql_api):
+def test_resolve_raises_when_sql_api_empty(mock_sql_api, mock_db):
     mock_sql_api.return_value = {"code": CUSTOMER, "currencycode": "", "httpStatus": "401"}
-    with pytest.raises(ValueError, match="SQL API GET /customer"):
-        _resolve_quotation_currency_code(_minimal_quotation_data(), CUSTOMER)
+    # Isolate from shared company DB: Firebird path must also be empty.
+    mock_db.side_effect = RuntimeError("no db in unit test")
+    with patch("utils.db_utils.get_db_connection", side_effect=RuntimeError("no db in unit test")):
+        with pytest.raises(ValueError, match="Currency not found"):
+            _resolve_quotation_currency_code(_minimal_quotation_data(), CUSTOMER)
 
 
 @patch("utils.sql_api_customer.sql_api_currency_and_code")

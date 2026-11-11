@@ -55,7 +55,7 @@ def _create_customer_impl(
     _: None = Depends(verify_api_keys),
     include_state: bool = Query(False, description="Run COM post-create state lookup before responding."),
 ):
-    """Create customer via SQL Accounting REST API (AWS SigV4), not COM or direct SQL."""
+    """Create customer via configured write provider (default REST SigV4; optional COM SDK)."""
     try:
         customer = customer_service.create_customer(customer_data)
         if customer.dry_run:

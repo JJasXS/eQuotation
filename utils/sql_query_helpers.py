@@ -24,12 +24,13 @@ ST_ITEM_WANTED_COLUMNS = [
 
 
 def find_customer_code_by_email(cur: Any, user_email: str) -> str | None:
-    """Return AR_CUSTOMERBRANCH code for email, if found."""
-    cur.execute("SELECT FIRST 1 CODE FROM AR_CUSTOMERBRANCH WHERE EMAIL = ?", (user_email,))
-    row = cur.fetchone()
-    if row and row[0]:
-        return _clean_str(row[0])
-    return None
+    """Return unique AR_CUSTOMER code for email (branch + UDF_EMAIL* + EMAIL)."""
+    from utils.customer_email_lookup import lookup_customer_by_email
+
+    result = lookup_customer_by_email(cur, user_email)
+    if result.ambiguous_codes or not result.match:
+        return None
+    return _clean_str(result.match.code)
 
 
 def has_user_draft_orders(cur: Any, user_email: str, customer_code: str) -> bool:

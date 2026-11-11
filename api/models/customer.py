@@ -188,3 +188,7 @@ class CustomerResponse(BaseModel):
         default=None,
         description="Verified local Firebird values after post-create sync.",
     )
+    write_provider: Optional[str] = Field(
+        default=None,
+        description="Rest or Sdk — which write adapter performed the create (None for dry-run preview).",
+    )

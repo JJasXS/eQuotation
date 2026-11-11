@@ -22,6 +22,17 @@ _supplier_session = requests.Session()
 
 def _make_sigv4_get(url: str, params: dict) -> requests.Response:
     """Send a SigV4-signed GET request to the SQL Accounting external API."""
+    from api.config.sql_accounting_master_read import master_read_allows_paid_rest
+
+    if not master_read_allows_paid_rest():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Paid SQL Accounting supplier GET refused "
+                "(master-read Firebird / SQL_ACCOUNTING_BLOCK_REST_HTTP)."
+            ),
+        )
+
     access_key = (os.getenv("SQL_API_ACCESS_KEY") or os.getenv("API_ACCESS_KEY") or "").strip()
     secret_key = (os.getenv("SQL_API_SECRET_KEY") or os.getenv("API_SECRET_KEY") or "").strip()
     region = (os.getenv("SQL_API_REGION") or "ap-southeast-1").strip()
@@ -88,6 +99,18 @@ def list_suppliers(
     _: None = Depends(verify_api_keys),
 ):
     """Proxy supplier list from SQL Accounting external API with SigV4 signing."""
+    from api.config.sql_accounting_master_read import master_read_allows_paid_rest
+
+    if not master_read_allows_paid_rest():
+        logger.info(
+            "[SQL API SUPPLIER] Skipping paid GET (master-read Firebird / BLOCK_REST_HTTP)"
+        )
+        return {
+            "data": [],
+            "pagination": {"offset": offset, "limit": limit, "count": 0},
+            "source": "master_read_firebird_skip_paid",
+        }
+
     params = {"offset": offset, "limit": limit}
     last_status = 502
     last_detail = "Supplier API unavailable"

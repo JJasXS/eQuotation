@@ -539,6 +539,24 @@ def transfer_purchase_requests_to_single_po(
     if not isinstance(supplier, dict):
         raise PurchaseOrderTransferValidationError("supplier must be an object")
 
+    # Fail closed before insert when LocalOnly PO sync is misconfigured.
+    try:
+        from api.config.sql_accounting_po_sync import (
+            load_sql_accounting_po_sync_settings,
+            verify_po_local_only_company_identity,
+        )
+
+        if load_sql_accounting_po_sync_settings().is_local_only:
+            identity = verify_po_local_only_company_identity()
+            if not identity.ok:
+                raise PurchaseOrderTransferValidationError(
+                    "LocalOnly PO sync refused: " + identity.reason
+                )
+    except PurchaseOrderTransferValidationError:
+        raise
+    except Exception:
+        pass
+
     prepared_groups: list[dict[str, Any]] = []
     seen_pairs: set[tuple[int, int]] = set()
     for group in request_groups:
@@ -806,6 +824,9 @@ def transfer_purchase_requests_to_single_po(
             "PRINTCOUNT": 0,
             "LASTMODIFIED": int(time.time()),
         }
+        # ApprovalPO tabs filter on UDF_POSTATUS; match db_initializer PENDING default.
+        if "UDF_POSTATUS" in po_header_cols:
+            header_values["UDF_POSTATUS"] = "PENDING"
 
         last_insert_exc: BaseException | None = None
         for insert_attempt in range(12):
@@ -866,8 +887,29 @@ def transfer_purchase_requests_to_single_po(
                 po_number=docno,
             )
         except Exception as sync_exc:
-            print(f"[PROCUREMENT PO TRANSFER] SQL API purchaseorder PUT warning: {sync_exc}", flush=True)
+            print(f"[PROCUREMENT PO TRANSFER] SQL API purchaseorder PUT failed: {sync_exc}", flush=True)
             sql_po_sync = {"synced": False, "error": str(sync_exc)}
+
+        if isinstance(sql_po_sync, dict) and sql_po_sync.get("mode") == "localOnly":
+            print(
+                "[PROCUREMENT PO TRANSFER] LocalOnly: paid /purchaseorder skipped; "
+                f"local PH_PO DOCNO={docno} DOCKEY={po_dockey} is authoritative.",
+                flush=True,
+            )
+        elif isinstance(sql_po_sync, dict) and sql_po_sync.get("skippedPaidRest"):
+            print(
+                "[PROCUREMENT PO TRANSFER] Paid /purchaseorder sync blocked; "
+                f"local PH_PO DOCNO={docno} DOCKEY={po_dockey} is authoritative "
+                f"({sql_po_sync.get('reason') or 'blocked'}).",
+                flush=True,
+            )
+        elif isinstance(sql_po_sync, dict) and sql_po_sync.get("synced") is False and sql_po_sync.get("error"):
+            # Local PH_PO insert already committed; surface incomplete remote mirror clearly.
+            print(
+                "[PROCUREMENT PO TRANSFER] Local PH_PO committed but paid REST mirror incomplete "
+                f"(sqlPurchaseOrderSync.error={sql_po_sync.get('error')!r}).",
+                flush=True,
+            )
 
         return {
             "poDockey": po_dockey,
@@ -879,6 +921,10 @@ def transfer_purchase_requests_to_single_po(
             "lineCount": len(detail_inserts),
             "transferredQty": float(transferred_qty_total),
             "sqlPurchaseOrderSync": sql_po_sync,
+            "localPurchaseOrderAuthoritative": bool(
+                isinstance(sql_po_sync, dict)
+                and (sql_po_sync.get("localAuthoritative") or sql_po_sync.get("skippedPaidRest"))
+            ),
         }
     except Exception:
         con.rollback()
