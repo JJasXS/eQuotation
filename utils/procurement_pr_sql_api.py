@@ -127,21 +127,22 @@ def ph_pq_header_updates_from_sql_supplier(row: dict[str, Any]) -> dict[str, Any
 
 
 def resolve_pr_currency_code(supplier_code: str, *, required: bool = True) -> str:
-    """Currency for purchase request header — only SQL API GET ``/supplier?code=…``."""
+    """Currency for purchase request header from supplier master (REST or Firebird)."""
     code = str(supplier_code or "").strip()
     if not code:
         if required:
-            raise ValueError("Supplier code is required to load currency from SQL API.")
+            raise ValueError("Supplier code is required to load currency from supplier master.")
         return ""
 
     fields = sql_api_currency_and_code(code)
     cc = str(fields.get("currencycode") or "").strip()
     http_status = str(fields.get("httpStatus") or "").strip()
+    source = str(fields.get("source") or "").strip()
     if not cc or cc in ("-", "—"):
-        hint = f" (SQL API HTTP {http_status})" if http_status else ""
+        hint = f" (source={source or 'none'} status={http_status or 'n/a'})"
         raise ValueError(
-            f"Currency not returned from SQL API GET /supplier for supplier {code!r}{hint}. "
-            "Configure SQL API keys for this tenant and reload Create e-Purchase Request."
+            f"Currency not returned from supplier master for {code!r}{hint}. "
+            "Check AP_SUPPLIER.CURRENCYCODE (Firebird) or paid GET /supplier when Rest is enabled."
         )
     return cc
 

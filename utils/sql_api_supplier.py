@@ -173,20 +173,47 @@ def fetch_supplier_row_by_code(supplier_code: str) -> dict[str, Any] | None:
 
 
 def sql_api_currency_and_code(supplier_code: str) -> dict[str, str]:
-    """Currency + code from SQL API GET /supplier only (no Firebird/MYR fallback)."""
-    row = fetch_supplier_row_by_code(supplier_code)
-    status = "200" if row else ""
+    """Currency + code for Create e-PR.
+
+    Prefer paid GET ``/supplier`` when master-read Rest is allowed. When
+    Firebird / ``BLOCK_REST_HTTP`` blocks paid GETs, read ``AP_SUPPLIER.CURRENCYCODE``
+    (same company book as LocalOnly PO transfer). Never invent MYR.
+    """
+    code = str(supplier_code or "").strip()
     base = {
-        "code": str(supplier_code or "").strip(),
+        "code": code,
         "currencycode": "",
-        "httpStatus": str(status) if status is not None else "",
+        "httpStatus": "",
+        "source": "",
     }
-    if not row:
+    if not code:
         return base
 
-    code = str(row.get("code") or supplier_code or "").strip()
-    cc = _format_currency_display_value(row.get("currencycode") or row.get("currencyCode"))
-    return {"code": code, "currencycode": cc, "httpStatus": str(status) if status is not None else "200"}
+    row = fetch_supplier_row_by_code(code)
+    if row:
+        cc = _format_currency_display_value(row.get("currencycode") or row.get("currencyCode"))
+        return {
+            "code": str(row.get("code") or code).strip(),
+            "currencycode": cc,
+            "httpStatus": "200",
+            "source": "sql_api_supplier_get",
+        }
+
+    from api.config.sql_accounting_master_read import master_read_allows_paid_rest
+
+    if master_read_allows_paid_rest():
+        return base
+
+    fb = fetch_firebird_supplier_master_fields(code)
+    if not fb:
+        return {**base, "source": "firebird_miss"}
+    cc = _format_currency_display_value(fb.get("currencycode") or fb.get("currencyCode"))
+    return {
+        "code": str(fb.get("code") or code).strip(),
+        "currencycode": cc,
+        "httpStatus": "firebird",
+        "source": "firebird_ap_supplier",
+    }
 
 
 def supplier_emails_from_sql_api_row(row: dict[str, Any] | None) -> list[str]:

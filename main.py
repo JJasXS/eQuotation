@@ -4848,7 +4848,7 @@ def api_admin_procurement_suppliers():
 @app.route('/api/admin/procurement/supplier/sql_api_currency', methods=['GET'])
 @api_admin_required(unauth_message='Unauthorized', forbidden_message='Admin access required')
 def api_admin_procurement_supplier_sql_api_currency():
-    """Currency for create e-PR from SQL API GET /supplier (not currency master list)."""
+    """Currency for create e-PR from supplier master (paid GET /supplier or Firebird)."""
     supplier_code = str(request.args.get('code') or '').strip()
     if not supplier_code:
         return jsonify({'success': False, 'error': 'code query parameter is required'}), 400
@@ -4859,7 +4859,7 @@ def api_admin_procurement_supplier_sql_api_currency():
         'success': True,
         'sqlApiSupplierCode': fields.get('code') or supplier_code,
         'sqlApiCurrencyCode': fields.get('currencycode', ''),
-        'source': 'sql_api_supplier_get',
+        'source': fields.get('source') or 'sql_api_supplier_get',
         'httpStatus': fields.get('httpStatus', ''),
     })
 
