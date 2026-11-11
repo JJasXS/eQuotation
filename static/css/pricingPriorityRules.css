@@ -5,6 +5,7 @@ body.pricing-priority-rules-page {
     color: var(--ice-text, #1e3a52);
 }
 
+/* Override chat.css .container { height:100vh } so content can grow and keep space above the bottom edge. */
 .pricing-priority-page {
     --priority-surface: var(--ice-surface, #f7fbff);
     --priority-surface-soft: var(--ice-surface-alt, #eef6fc);
@@ -13,14 +14,22 @@ body.pricing-priority-rules-page {
     --priority-muted: var(--ice-text-muted, #5a7a94);
     --priority-accent: var(--ice-accent, #3b8fc4);
     --priority-accent-2: var(--ice-accent-hover, #2d74a3);
+    flex-direction: column;
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow: visible;
+    box-sizing: border-box;
 }
 
 .pricing-priority-page .main-content {
     flex: 1;
     min-width: 0;
     width: 100%;
-    min-height: 100vh;
+    min-height: 0;
+    padding-bottom: 24px;
     background: transparent;
+    box-sizing: border-box;
 }
 
 .pricing-priority-page .admin-header.app-page-header {
@@ -78,6 +87,7 @@ body.pricing-priority-rules-page {
     border: 1px solid var(--priority-border);
     border-radius: 14px;
     box-shadow: 0 2px 14px var(--ice-shadow, rgba(30, 80, 120, 0.1));
+    box-sizing: border-box;
 }
 
 .priority-shell__header {
@@ -327,6 +337,10 @@ body.pricing-priority-rules-page {
         max-width: 100%;
     }
 
+    .pricing-priority-page .main-content {
+        padding-bottom: 16px;
+    }
+
     .priority-shell {
         margin: 10px;
         padding: 14px;
@@ -434,6 +448,10 @@ body.pricing-priority-rules-page {
 @media (max-width: 420px) {
     .pricing-priority-page .app-page-header__end {
         padding-left: 0;
+    }
+
+    .pricing-priority-page .main-content {
+        padding-bottom: 12px;
     }
 
     .priority-shell {
