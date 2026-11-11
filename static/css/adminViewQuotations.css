@@ -1497,24 +1497,62 @@ body.customer-my-quotations-page .quotation-list-cell--department {
     white-space: normal;
     text-overflow: unset;
     overflow: visible;
-    display: block;
-    text-align: left;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    width: 100%;
+    min-height: 40px;
+    box-sizing: border-box;
 }
 
+body.customer-my-quotations-page .quotation-list-th--department,
+body.customer-my-quotations-page .quotation-card__cell--department {
+    text-align: center;
+    vertical-align: middle;
+}
+
+body.customer-my-quotations-page .quotation-card__cell--department .quotation-list-cell-center {
+    justify-content: center;
+    align-items: center;
+}
+
+/* 4-col customer list — even weights so Amount is not pinned to the far right on ~15.6" screens */
 body.customer-my-quotations-page .quotation-list-col--doc {
-    width: 32%;
-}
-
-body.customer-my-quotations-page .quotation-list-col--department {
     width: 28%;
 }
 
 body.customer-my-quotations-page .quotation-list-col--date {
-    width: 22%;
+    width: 24%;
+}
+
+body.customer-my-quotations-page .quotation-list-col--department {
+    width: 26%;
 }
 
 body.customer-my-quotations-page .quotation-list-col--amount {
-    width: 96px;
+    width: 22%;
+}
+
+/* Drafts tab adds Actions — keep Amount proportional instead of a fixed strip */
+body.customer-my-quotations-page .quotation-list-table:has(.quotation-list-col--actions) .quotation-list-col--doc {
+    width: 24%;
+}
+
+body.customer-my-quotations-page .quotation-list-table:has(.quotation-list-col--actions) .quotation-list-col--date {
+    width: 20%;
+}
+
+body.customer-my-quotations-page .quotation-list-table:has(.quotation-list-col--actions) .quotation-list-col--department {
+    width: 22%;
+}
+
+body.customer-my-quotations-page .quotation-list-table:has(.quotation-list-col--actions) .quotation-list-col--amount {
+    width: 18%;
+}
+
+body.customer-my-quotations-page .quotation-list-table:has(.quotation-list-col--actions) .quotation-list-col--actions {
+    width: 16%;
 }
 
 body.customer-my-quotations-page .quotation-card__doc-value {
