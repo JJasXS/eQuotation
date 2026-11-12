@@ -1,6 +1,6 @@
 // Centered popup with slide in/out, replacing browser alert() dialogs.
 function showAppPopup(message, type = 'info', options = {}) {
-    const styleId = 'app-popup-notice-style';
+    const styleId = 'app-popup-notice-style-v2';
     if (!document.getElementById(styleId)) {
         const style = document.createElement('style');
         style.id = styleId;
@@ -128,6 +128,126 @@ function showAppPopup(message, type = 'info', options = {}) {
                 opacity: 1;
             }
 
+            .app-popup-confirm-backdrop {
+                position: fixed;
+                inset: 0;
+                z-index: 99998;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+                background: rgba(15, 23, 42, 0.42);
+                opacity: 0;
+                animation: appPopupBackdropIn 0.22s ease forwards;
+            }
+
+            .app-popup-confirm-backdrop.is-hiding {
+                animation: appPopupBackdropOut 0.2s ease forwards;
+            }
+
+            .app-popup-notice--confirm {
+                position: relative;
+                top: auto;
+                left: auto;
+                transform: none;
+                width: min(92vw, 420px);
+                margin: 0;
+                padding: 28px 24px 22px;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                text-align: center;
+                gap: 0;
+                opacity: 0;
+                animation: appPopupConfirmIn 0.26s ease forwards;
+                box-shadow: 0 22px 48px rgba(15, 23, 42, 0.28);
+            }
+
+            .app-popup-notice--confirm.is-hiding {
+                animation: appPopupConfirmOut 0.2s ease forwards;
+            }
+
+            .app-popup-notice--confirm .app-popup-notice__icon {
+                width: 52px;
+                height: 52px;
+                font-size: 24px;
+                margin: 0 0 14px;
+            }
+
+            .app-popup-notice--confirm .app-popup-notice__body {
+                width: 100%;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+            }
+
+            .app-popup-notice--confirm .app-popup-notice__title {
+                font-size: 18px;
+                margin: 0 0 8px;
+            }
+
+            .app-popup-notice--confirm .app-popup-notice__text {
+                margin: 0 0 16px;
+                max-width: 34ch;
+            }
+
+            .app-popup-notice__docno-block {
+                width: 100%;
+                margin: 0 0 18px;
+                padding: 12px 14px;
+                border-radius: 12px;
+                background: rgba(16, 185, 129, 0.14);
+                border: 1px solid rgba(16, 185, 129, 0.28);
+            }
+
+            .app-popup-notice__docno-label {
+                display: block;
+                margin: 0 0 4px;
+                font-size: 11px;
+                font-weight: 700;
+                letter-spacing: 0.06em;
+                text-transform: uppercase;
+                color: #047857;
+                opacity: 0.85;
+            }
+
+            .app-popup-notice--confirm .app-popup-notice__docno {
+                display: block;
+                margin: 0;
+                padding: 0;
+                background: transparent;
+                font-size: 16px;
+                font-weight: 700;
+                color: #065f46;
+            }
+
+            .app-popup-notice__ok {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                min-width: 120px;
+                min-height: 42px;
+                padding: 10px 28px;
+                border: none;
+                border-radius: 10px;
+                font-size: 14px;
+                font-weight: 700;
+                letter-spacing: 0.02em;
+                cursor: pointer;
+                color: #fff;
+                background: #059669;
+                box-shadow: 0 4px 14px rgba(5, 150, 105, 0.32);
+            }
+
+            .app-popup-notice__ok:hover {
+                background: #047857;
+            }
+
+            .app-popup-notice__ok:focus-visible {
+                outline: 3px solid rgba(5, 150, 105, 0.45);
+                outline-offset: 2px;
+            }
+
             @keyframes appPopupSlideIn {
                 from {
                     opacity: 0;
@@ -149,31 +269,90 @@ function showAppPopup(message, type = 'info', options = {}) {
                     transform: translate(-50%, -12px);
                 }
             }
+
+            @keyframes appPopupBackdropIn {
+                from { opacity: 0; }
+                to { opacity: 1; }
+            }
+
+            @keyframes appPopupBackdropOut {
+                from { opacity: 1; }
+                to { opacity: 0; }
+            }
+
+            @keyframes appPopupConfirmIn {
+                from {
+                    opacity: 0;
+                    transform: translateY(10px) scale(0.98);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateY(0) scale(1);
+                }
+            }
+
+            @keyframes appPopupConfirmOut {
+                from {
+                    opacity: 1;
+                    transform: translateY(0) scale(1);
+                }
+                to {
+                    opacity: 0;
+                    transform: translateY(8px) scale(0.98);
+                }
+            }
+
+            @media (max-width: 480px) {
+                .app-popup-confirm-backdrop {
+                    padding: 16px;
+                    align-items: flex-end;
+                }
+                .app-popup-notice--confirm {
+                    width: 100%;
+                    padding: 24px 18px 18px;
+                    border-radius: 16px;
+                }
+                .app-popup-notice__ok {
+                    width: 100%;
+                }
+            }
         `;
         document.head.appendChild(style);
     }
 
-    const existing = document.querySelector('.app-popup-notice');
-    if (existing) {
-        existing.remove();
-    }
+    document.querySelectorAll('.app-popup-notice, .app-popup-confirm-backdrop').forEach((node) => {
+        node.remove();
+    });
 
     const safeType = type === 'success' || type === 'error' ? type : 'info';
     const title = options.title || '';
     const docno = options.docno || '';
     const bodyText = String(message || '').trim();
-    const autoCloseMs =
-        typeof options.autoCloseMs === 'number'
-            ? options.autoCloseMs
-            : safeType === 'success'
-              ? 4500
-              : safeType === 'error'
-                ? 6000
-                : 3800;
+    const confirmDialog = Boolean(options.confirmDialog);
+    const requireOk = confirmDialog || Boolean(options.requireOk);
+    const autoCloseMs = requireOk
+        ? 0
+        : typeof options.autoCloseMs === 'number'
+          ? options.autoCloseMs
+          : safeType === 'success'
+            ? 4500
+            : safeType === 'error'
+              ? 6000
+              : 3800;
 
     const popup = document.createElement('div');
-    popup.className = `app-popup-notice app-popup-notice--${safeType}`;
-    popup.setAttribute('role', safeType === 'error' ? 'alert' : 'status');
+    popup.className = `app-popup-notice app-popup-notice--${safeType}${
+        confirmDialog ? ' app-popup-notice--confirm' : ''
+    }`;
+    popup.setAttribute(
+        'role',
+        confirmDialog ? 'alertdialog' : safeType === 'error' ? 'alert' : 'status',
+    );
+    if (confirmDialog) {
+        popup.setAttribute('aria-modal', 'true');
+        popup.setAttribute('aria-labelledby', 'app-popup-confirm-title');
+        popup.setAttribute('aria-describedby', 'app-popup-confirm-text');
+    }
 
     const icon = document.createElement('div');
     icon.className = 'app-popup-notice__icon';
@@ -186,6 +365,7 @@ function showAppPopup(message, type = 'info', options = {}) {
     if (title) {
         const titleEl = document.createElement('p');
         titleEl.className = 'app-popup-notice__title';
+        titleEl.id = confirmDialog ? 'app-popup-confirm-title' : undefined;
         titleEl.textContent = title;
         body.appendChild(titleEl);
     }
@@ -193,32 +373,60 @@ function showAppPopup(message, type = 'info', options = {}) {
     if (bodyText) {
         const text = document.createElement('p');
         text.className = 'app-popup-notice__text';
+        text.id = confirmDialog ? 'app-popup-confirm-text' : undefined;
         text.textContent = bodyText;
         body.appendChild(text);
     }
 
     if (docno) {
-        const badge = document.createElement('span');
-        badge.className = 'app-popup-notice__docno';
-        badge.textContent = docno;
-        body.appendChild(badge);
+        if (confirmDialog) {
+            const docBlock = document.createElement('div');
+            docBlock.className = 'app-popup-notice__docno-block';
+            const docLabel = document.createElement('span');
+            docLabel.className = 'app-popup-notice__docno-label';
+            docLabel.textContent = 'Quotation No.';
+            const badge = document.createElement('span');
+            badge.className = 'app-popup-notice__docno';
+            badge.textContent = docno;
+            docBlock.appendChild(docLabel);
+            docBlock.appendChild(badge);
+            body.appendChild(docBlock);
+        } else {
+            const badge = document.createElement('span');
+            badge.className = 'app-popup-notice__docno';
+            badge.textContent = docno;
+            body.appendChild(badge);
+        }
     }
 
-    const closeBtn = document.createElement('button');
-    closeBtn.type = 'button';
-    closeBtn.className = 'app-popup-notice__close';
-    closeBtn.setAttribute('aria-label', 'Close notification');
-    closeBtn.textContent = '×';
-
     let hideTimer = null;
+    let backdrop = null;
+    let previousFocus = null;
     const hidePopup = () => {
         if (!popup.isConnected || popup.classList.contains('is-hiding')) {
             return;
         }
+        if (hideTimer) {
+            clearTimeout(hideTimer);
+            hideTimer = null;
+        }
         popup.classList.add('is-hiding');
+        if (backdrop) {
+            backdrop.classList.add('is-hiding');
+        }
         window.setTimeout(() => {
             if (popup.isConnected) {
                 popup.remove();
+            }
+            if (backdrop && backdrop.isConnected) {
+                backdrop.remove();
+            }
+            if (previousFocus && typeof previousFocus.focus === 'function') {
+                try {
+                    previousFocus.focus();
+                } catch (_err) {
+                    /* ignore */
+                }
             }
             if (typeof options.onClose === 'function') {
                 options.onClose();
@@ -226,24 +434,66 @@ function showAppPopup(message, type = 'info', options = {}) {
         }, 220);
     };
 
-    closeBtn.addEventListener('click', hidePopup);
     popup.appendChild(icon);
     popup.appendChild(body);
-    popup.appendChild(closeBtn);
-    document.body.appendChild(popup);
 
-    hideTimer = window.setTimeout(hidePopup, autoCloseMs);
-    popup.addEventListener('mouseenter', () => {
-        if (hideTimer) {
-            clearTimeout(hideTimer);
-            hideTimer = null;
-        }
-    });
-    popup.addEventListener('mouseleave', () => {
-        if (!hideTimer) {
-            hideTimer = window.setTimeout(hidePopup, 1600);
-        }
-    });
+    let okBtn = null;
+    if (requireOk) {
+        okBtn = document.createElement('button');
+        okBtn.type = 'button';
+        okBtn.className = 'app-popup-notice__ok';
+        okBtn.textContent = options.okLabel || 'OK';
+        okBtn.addEventListener('click', hidePopup);
+        body.appendChild(okBtn);
+    } else {
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'app-popup-notice__close';
+        closeBtn.setAttribute('aria-label', 'Close notification');
+        closeBtn.textContent = '×';
+        closeBtn.addEventListener('click', hidePopup);
+        popup.appendChild(closeBtn);
+    }
+
+    if (confirmDialog) {
+        previousFocus = document.activeElement;
+        backdrop = document.createElement('div');
+        backdrop.className = 'app-popup-confirm-backdrop';
+        backdrop.setAttribute('aria-hidden', 'false');
+        // No outside-click dismissal — OK only.
+        backdrop.addEventListener('mousedown', (event) => {
+            if (event.target === backdrop) {
+                event.preventDefault();
+                if (okBtn) {
+                    okBtn.focus();
+                }
+            }
+        });
+        backdrop.appendChild(popup);
+        document.body.appendChild(backdrop);
+        window.setTimeout(() => {
+            if (okBtn) {
+                okBtn.focus();
+            }
+        }, 30);
+    } else {
+        document.body.appendChild(popup);
+    }
+
+    if (autoCloseMs > 0) {
+        hideTimer = window.setTimeout(hidePopup, autoCloseMs);
+        popup.addEventListener('mouseenter', () => {
+            if (hideTimer) {
+                clearTimeout(hideTimer);
+                hideTimer = null;
+            }
+        });
+        popup.addEventListener('mouseleave', () => {
+            if (!hideTimer) {
+                hideTimer = window.setTimeout(hidePopup, 1600);
+            }
+        });
+    }
 
     return { close: hidePopup };
 }
@@ -265,23 +515,115 @@ function inferAppPopupType(message) {
     return 'info';
 }
 
+function isOfficialQuotationDocNo(value) {
+    const text = String(value || '').trim();
+    if (!text) {
+        return false;
+    }
+    // Never treat pure numeric DOCKEY / quotationid as an official DOCNO.
+    if (/^\d+$/.test(text)) {
+        return false;
+    }
+    return /[A-Za-z]/.test(text);
+}
+
+function officialDocNoFromSaveResult(result) {
+    if (!result || typeof result !== 'object') {
+        return '';
+    }
+    const candidates = [result.docno, result.DOCNO];
+    for (const candidate of candidates) {
+        if (isOfficialQuotationDocNo(candidate)) {
+            return String(candidate).trim();
+        }
+    }
+    return '';
+}
+
+function getQuotationDocnoMode() {
+    const form = getActiveQuotationForm && getActiveQuotationForm();
+    const mode = form && form.dataset ? String(form.dataset.docnoMode || '').trim().toLowerCase() : '';
+    return mode === 'sdk' ? 'sdk' : 'rest';
+}
+
+function setQuotationDocnoRefreshVisible(visible) {
+    const refreshBtn = document.getElementById('quotation-next-docno-refresh');
+    if (!refreshBtn) {
+        return;
+    }
+    refreshBtn.hidden = !visible;
+}
+
+function applySdkAutoDocNoPanel() {
+    const panel = document.getElementById('quotation-next-docno-panel');
+    const labelEl = panel ? panel.querySelector('.quotation-next-docno-label') : null;
+    const valueEl = document.getElementById('quotation-next-docno-value');
+    const hintEl = document.getElementById('quotation-next-docno-hint');
+    const form = getActiveQuotationForm && getActiveQuotationForm();
+    if (labelEl) {
+        labelEl.textContent = 'Quotation No.';
+    }
+    if (valueEl) {
+        valueEl.textContent = 'Auto-generated';
+    }
+    if (hintEl) {
+        hintEl.textContent = 'Assigned by SQL Accounting upon submission.';
+        hintEl.style.display = '';
+    }
+    if (panel) {
+        panel.classList.remove('is-error');
+    }
+    setQuotationDocnoRefreshVisible(false);
+    if (form) {
+        delete form.dataset.previewDocno;
+    }
+}
+
+function applyExistingDocNoPanel(docNo, options) {
+    const opts = options || {};
+    const panel = document.getElementById('quotation-next-docno-panel');
+    const labelEl = panel ? panel.querySelector('.quotation-next-docno-label') : null;
+    const valueEl = document.getElementById('quotation-next-docno-value');
+    const hintEl = document.getElementById('quotation-next-docno-hint');
+    const form = getActiveQuotationForm && getActiveQuotationForm();
+    if (labelEl) {
+        labelEl.textContent = opts.labelText || 'Quotation No.';
+    }
+    if (valueEl) {
+        valueEl.textContent = docNo || '—';
+    }
+    if (hintEl) {
+        hintEl.textContent = opts.hintText || '';
+        hintEl.style.display = hintEl.textContent.trim() ? '' : 'none';
+    }
+    if (panel) {
+        panel.classList.remove('is-error');
+    }
+    setQuotationDocnoRefreshVisible(Boolean(opts.showRefresh));
+    if (form) {
+        delete form.dataset.previewDocno;
+    }
+}
+
 function showQuotationSubmissionSuccess(displayDocNo, isUpdate, redirectUrl) {
     const title = isUpdate ? 'Quotation updated' : 'Quotation submitted';
     const message = isUpdate
         ? 'Your changes were saved to SQL Accounting.'
         : 'Your quotation was created and is awaiting approval.';
     const redirect = redirectUrl || '/view-quotation?tab=pending';
+    const officialDocNo = isOfficialQuotationDocNo(displayDocNo)
+        ? String(displayDocNo).trim()
+        : '';
     showAppPopup(message, 'success', {
         title,
-        docno: displayDocNo ? String(displayDocNo) : '',
-        autoCloseMs: 3200,
+        docno: officialDocNo,
+        confirmDialog: true,
+        requireOk: true,
+        okLabel: 'OK',
         onClose: () => {
             window.location.href = redirect;
         },
     });
-    window.setTimeout(() => {
-        window.location.href = redirect;
-    }, 2800);
 }
 
 // Custom alert: green for success messages, red for errors (confirm() stays native).
@@ -2415,7 +2757,7 @@ if (updateQuotationForm) {
             }
             const result = await response.json();
             if (result.success) {
-                const displayDocNo = result.docno || quotationForm.dataset.dockey || '';
+                const displayDocNo = officialDocNoFromSaveResult(result);
                 showQuotationSubmissionSuccess(displayDocNo, true, '/admin/view-quotations');
             } else {
                 const err = result.error || 'Unknown error';
@@ -2566,8 +2908,14 @@ if (quotationForm) {
             if (draftDockey) {
                 quotationData.draftDockey = draftDockey;
             }
-            // Reuse the previewed QT number so submit skips DOCNO re-scan/retry when possible.
-            if (!dockey && previewDocno && !quotationData.docno && !quotationData.docNo) {
+            // Rest rollback preview only. Sdk create never submits a preview DOCNO.
+            if (
+                getQuotationDocnoMode() === 'rest' &&
+                !dockey &&
+                /^QT-/i.test(previewDocno) &&
+                !quotationData.docno &&
+                !quotationData.docNo
+            ) {
                 quotationData.docno = previewDocno;
             }
 
@@ -2587,7 +2935,7 @@ if (quotationForm) {
 
             if (result.success) {
                 quotationSaved = true;
-                const displayDocNo = result.docno || result.quotationid || result.dockey;
+                const displayDocNo = officialDocNoFromSaveResult(result);
 
                 try {
                     let totalAmount = 0;
@@ -2602,7 +2950,7 @@ if (quotationForm) {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            docno: displayDocNo,
+                            docno: displayDocNo || undefined,
                             dockey: result.dockey,
                             totalAmount: totalAmount,
                             items: items,
@@ -2811,9 +3159,12 @@ async function loadDraftQuotation(dockey) {
             if (formTitle) {
                 formTitle.textContent = `Edit Quotation — ${quotation.DOCNO || ''}`;
             }
-            const nextDocnoValue = document.getElementById('quotation-next-docno-value');
-            if (nextDocnoValue && quotation.DOCNO) {
-                nextDocnoValue.textContent = quotation.DOCNO;
+            if (quotation.DOCNO) {
+                applyExistingDocNoPanel(quotation.DOCNO, {
+                    labelText: 'Quotation No.',
+                    hintText: 'Existing quotation — number will not change on save.',
+                    showRefresh: false,
+                });
             }
         } else {
             console.error('Failed to load draft quotation:', data.error);
@@ -2920,9 +3271,12 @@ async function loadAdminQuotationForEdit(dockey) {
             formTitle.textContent = `Edit Quotation — ${quotation.DOCNO || dockey}`;
         }
 
-        const nextDocnoValue = document.getElementById('quotation-next-docno-value');
-        if (nextDocnoValue && quotation.DOCNO) {
-            nextDocnoValue.textContent = quotation.DOCNO;
+        if (quotation.DOCNO) {
+            applyExistingDocNoPanel(quotation.DOCNO, {
+                labelText: 'Quotation No.',
+                hintText: 'Existing quotation — number will not change on save.',
+                showRefresh: false,
+            });
         }
     } catch (error) {
         console.error('Error loading admin quotation:', error);
@@ -3074,6 +3428,12 @@ async function loadSlQtDraftForEdit(draftDockey) {
         const quotationForm = document.getElementById('quotation-form');
         if (quotationForm) quotationForm.dataset.draftDockey = String(draftDockey);
 
+        applyExistingDocNoPanel(draft.DOCNO || '', {
+            labelText: 'Draft No.',
+            hintText: 'Draft numbers are internal and do not consume a SQL Accounting quotation number.',
+            showRefresh: false,
+        });
+
         const pageTitle = document.querySelector('.header-title')
             || document.querySelector('h2.app-page-header__title');
         if (pageTitle) pageTitle.textContent = 'Edit Draft Quotation';
@@ -3103,10 +3463,17 @@ async function refreshQuotationNextDocnoPreview() {
         ? String(quotationForm.dataset.dockey).trim()
         : '';
 
+    // Sdk new create: no preview fetch, no reserved DOCNO, no Refresh.
+    if (!dockey && getQuotationDocnoMode() === 'sdk') {
+        applySdkAutoDocNoPanel();
+        return;
+    }
+
     valueEl.textContent = '…';
     hintEl.textContent = 'Loading next number from your company database…';
     hintEl.style.display = '';
     panel.classList.remove('is-error');
+    setQuotationDocnoRefreshVisible(true);
 
     try {
         const qs = dockey ? `?dockey=${encodeURIComponent(dockey)}` : '';
@@ -3139,16 +3506,30 @@ async function refreshQuotationNextDocnoPreview() {
             panel.classList.add('is-error');
             return;
         }
-        valueEl.textContent = data.nextDocno || '—';
-        if (quotationForm && data.nextDocno && !data.isUpdate) {
-            quotationForm.dataset.previewDocno = String(data.nextDocno).trim();
+        if (data.assignsDocnoOnSave && !data.isUpdate) {
+            applySdkAutoDocNoPanel();
+            return;
         }
         if (data.isUpdate) {
-            hintEl.textContent = data.note || 'This quotation already has a number; it will not change on save.';
-        } else {
-            hintEl.textContent = data.note || '';
+            applyExistingDocNoPanel(data.nextDocno || '', {
+                labelText: 'Quotation No.',
+                hintText:
+                    data.note || 'This quotation already has a number; it will not change on save.',
+                showRefresh: false,
+            });
+            return;
         }
+        const labelEl = panel.querySelector('.quotation-next-docno-label');
+        if (labelEl) {
+            labelEl.textContent = 'Next quotation no.';
+        }
+        valueEl.textContent = data.nextDocno || '—';
+        if (quotationForm && data.nextDocno) {
+            quotationForm.dataset.previewDocno = String(data.nextDocno).trim();
+        }
+        hintEl.textContent = data.note || '';
         hintEl.style.display = hintEl.textContent.trim() ? '' : 'none';
+        setQuotationDocnoRefreshVisible(true);
         if (data.dbConnected === false) {
             panel.classList.add('is-error');
         }
@@ -3174,15 +3555,26 @@ document.addEventListener('DOMContentLoaded', async function() {
     const urlParams = new URLSearchParams(window.location.search);
     const draftDockey = urlParams.get('draftDockey');
     const dockey = quotationForm ? quotationForm.dataset.dockey : null;
+    const isSdkNewCreate =
+        !isAdminUpdatePage && !draftDockey && !dockey && getQuotationDocnoMode() === 'sdk';
 
     const nextDocnoRefresh = document.getElementById('quotation-next-docno-refresh');
     if (nextDocnoRefresh) {
         nextDocnoRefresh.addEventListener('click', () => refreshQuotationNextDocnoPreview());
     }
-    // Start next-docno preview in parallel with customer/product load (do not wait on get_user_info).
-    const nextDocnoPromise = (!isAdminUpdatePage)
-        ? refreshQuotationNextDocnoPreview()
-        : Promise.resolve();
+
+    // Sdk new create: static Auto-generated panel (no next_docno fetch).
+    // Draft edit: show Draft No. after load (avoid race with next_docno overwrite).
+    // Rest / existing dockey: keep preview fetch + Refresh.
+    let nextDocnoPromise = Promise.resolve();
+    if (isAdminUpdatePage || draftDockey) {
+        nextDocnoPromise = Promise.resolve();
+    } else if (isSdkNewCreate) {
+        applySdkAutoDocNoPanel();
+        nextDocnoPromise = Promise.resolve();
+    } else {
+        nextDocnoPromise = refreshQuotationNextDocnoPreview();
+    }
 
     if (isAdminUpdatePage && dockey) {
         await loadProducts();
