@@ -1245,21 +1245,6 @@ function repairCreateQuotationLinesUi() {
         tbody.id = 'quotation-line-items';
     }
 
-    // Only reorder mini codes when wrap is a direct child of section.
-    // Nested panel layouts (create-quotation-lines-panel) must not call insertBefore
-    // with a non-child reference — that throws and aborts draft/line restore.
-    const mini = section.querySelector('#quotation-mini-item-codes');
-    const wrapParent = wrap.parentElement;
-    if (
-        mini
-        && wrapParent
-        && mini.parentElement === wrapParent
-        && mini.nextElementSibling !== wrap
-        && !mini.closest('.create-quotation-lines-header')
-    ) {
-        wrapParent.insertBefore(mini, wrap);
-    }
-
     ensureDefaultQuotationLineRow();
 
     const today = new Date().toISOString().split('T')[0];
@@ -1722,7 +1707,6 @@ function addQuotationItem() {
     }
     appendQuotationLineRow(container);
     syncProductDatalist();
-    refreshQuotationMiniItemCodes();
 }
 
 function setQuotationLineSourceMode(row, source) {
@@ -1742,7 +1726,6 @@ function setQuotationLineSourceMode(row, source) {
     writeQuotationLineField(row, '.item-suggested-price', '');
     writeQuotationLineField(row, '.item-price', '');
     clearQuotationLineStItemExtras(row);
-    refreshQuotationMiniItemCodes();
     hideCatalogProductPicker();
     if (source === 'catalog') {
         bindCatalogProductInput(productInput);
@@ -1842,7 +1825,6 @@ function removeQuotationItem(button) {
     }
     row.remove();
     calculateQuotationTotal();
-    refreshQuotationMiniItemCodes();
 }
 
 // Calculate Order Total
@@ -2136,7 +2118,6 @@ function clearQuotationForm() {
         syncProductDatalist();
         calculateQuotationTotal();
         loadUserInfo();
-        refreshQuotationMiniItemCodes();
     }
 }
 
@@ -2282,7 +2263,6 @@ async function fetchProductPrice(input) {
                 _productPriceInFlight.set(trackTarget, { key: priceKey, controller: null, promise: Promise.resolve() });
             }
             if (inQuotationTable) {
-                refreshQuotationMiniItemCodes();
             }
         }
     })();
@@ -2656,30 +2636,6 @@ function resolveCatalogItemCodeFromDescription(description) {
         return resolved;
     }
     return '';
-}
-
-function refreshQuotationMiniItemCodes() {
-    const el = document.getElementById('quotation-mini-item-codes');
-    if (!el) {
-        return;
-    }
-    const parts = [];
-    getQuotationLineRows().forEach((row) => {
-        const source = readQuotationLineSource(row);
-        if (source === 'custom') {
-            return;
-        }
-        const desc = readQuotationLineField(row, '.item-product');
-        if (!desc) {
-            return;
-        }
-        const code = resolveCatalogItemCodeFromDescription(desc);
-        if (code) {
-            parts.push(code);
-        }
-    });
-    /* Hyphen separators (not middle dots) so codes read clearly next to slashes, e.g. ISCT - CCE/Grey-Chair - … */
-    el.textContent = parts.length ? parts.join(' - ') : '';
 }
 
 const orderForm = document.getElementById('order-form');
@@ -3146,7 +3102,6 @@ async function loadDraftQuotation(dockey) {
                 syncProductDatalist();
                 
                 calculateQuotationTotal();
-                refreshQuotationMiniItemCodes();
             }
             
             // Update page title to indicate editing
@@ -3263,7 +3218,6 @@ async function loadAdminQuotationForEdit(dockey) {
             }
             syncProductDatalist();
             calculateQuotationTotal();
-            refreshQuotationMiniItemCodes();
         }
 
         const formTitle = document.querySelector('.form-container h3');
@@ -3416,7 +3370,6 @@ async function loadSlQtDraftForEdit(draftDockey) {
         }
         syncProductDatalist();
         calculateQuotationTotal();
-        refreshQuotationMiniItemCodes();
         console.info(
             `[draft restore] dockey=${draftDockey} docno=${draft.DOCNO || ''} `
             + `apiItems=${items.length} restored=${restored}`

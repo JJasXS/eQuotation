@@ -309,19 +309,6 @@ function createQuotationLineRow(opts = {}) {
     return row;
 }
 
-function refreshQuotationMiniItemCodes() {
-    const el = document.getElementById('quotation-mini-item-codes');
-    if (!el) return;
-    const codes = [];
-    getQuotationLineRows().forEach((row) => {
-        const source = row.querySelector('.item-source')?.value;
-        const catalog = row.querySelector('.item-product')?.value?.trim();
-        const custom = row.querySelector('.item-product-custom')?.value?.trim();
-        const label = source === 'custom' ? custom : catalog;
-        if (label) codes.push(label);
-    });
-    el.textContent = codes.length ? codes.join(' | ') : '';
-}
 
 function addQuotationItem() {
     const container = document.getElementById('update-quotation-line-items');
@@ -329,7 +316,6 @@ function addQuotationItem() {
     container.appendChild(newItem);
     populateProductSelect(newItem.querySelector('.item-product'));
     onProductSourceChange(newItem.querySelector('.item-source'));
-    refreshQuotationMiniItemCodes();
 }
 
 // Remove Quotation Item
@@ -338,7 +324,6 @@ function removeQuotationItem(button) {
     if (items.length > 1) {
         button.closest('tr.quotation-line-row').remove();
         calculateQuotationTotal();
-        refreshQuotationMiniItemCodes();
     } else {
         alert('At least one item is required');
     }
@@ -601,7 +586,6 @@ async function loadQuotationData(dockey) {
         setTimeout(() => {
             console.log('Calculating total');
             calculateQuotationTotal();
-            refreshQuotationMiniItemCodes();
         }, 200);
         
     } catch (error) {
