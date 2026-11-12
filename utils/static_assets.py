@@ -1,7 +1,8 @@
-"""Content-hash cache busting for static CSS (and reusable for other assets).
+"""Content-hash cache busting for static CSS/JS (and reusable for other assets).
 
-Templates should use ``css_url('css/foo.css')`` so every page gets the same
-``?v=<hash>`` for a given file. The hash changes when file bytes change.
+Templates should use ``css_url('css/foo.css')`` / ``js_url('js/foo.js')`` so every
+page gets the same ``?v=<hash>`` for a given file. The hash changes when file
+bytes change.
 """
 from __future__ import annotations
 
@@ -78,6 +79,16 @@ def css_url(relative_path: str, *, static_root: str | None = None) -> str:
     return versioned_static_url(rel, static_root=static_root)
 
 
+def js_url(relative_path: str, *, static_root: str | None = None) -> str:
+    """Jinja helper: versioned URL for a JS file under ``static/``."""
+    rel = str(relative_path or '').replace('\\', '/').lstrip('/')
+    if rel.startswith('js/'):
+        pass
+    elif not rel.startswith('static/') and '/' not in rel:
+        rel = f'js/{rel}'
+    return versioned_static_url(rel, static_root=static_root)
+
+
 def make_css_url_for_app(app_static_folder: str | None) -> Callable[[str], str]:
     root = app_static_folder or _static_root()
 
@@ -85,6 +96,15 @@ def make_css_url_for_app(app_static_folder: str | None) -> Callable[[str], str]:
         return css_url(relative_path, static_root=root)
 
     return _css_url
+
+
+def make_js_url_for_app(app_static_folder: str | None) -> Callable[[str], str]:
+    root = app_static_folder or _static_root()
+
+    def _js_url(relative_path: str) -> str:
+        return js_url(relative_path, static_root=root)
+
+    return _js_url
 
 
 def register_css_url_helper(app) -> Callable[[str], str]:
@@ -96,4 +116,11 @@ def register_css_url_helper(app) -> Callable[[str], str]:
     helper = make_css_url_for_app(getattr(app, 'static_folder', None))
     # Ensure the env exists, then pin the helper where Jinja always looks it up.
     app.jinja_env.globals['css_url'] = helper
+    return helper
+
+
+def register_js_url_helper(app) -> Callable[[str], str]:
+    """Bind ``js_url`` as a Jinja global (+ return the callable for context processors)."""
+    helper = make_js_url_for_app(getattr(app, 'static_folder', None))
+    app.jinja_env.globals['js_url'] = helper
     return helper

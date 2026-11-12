@@ -124,8 +124,8 @@
         window.currentUserType = "user";
         window.currentUserEmail = "{{ user_email }}";
     </script>
-    <script src="/static/js/hamburger_menu.js"></script>
-    <script src="/static/js/admin_menu.js"></script>
+    <script src="{{ js_url('js/hamburger_menu.js') }}"></script>
+    <script src="{{ js_url('js/admin_menu.js') }}"></script>
     <script>
         // Check for draft orders on page load
         async function checkDraftOrders() {

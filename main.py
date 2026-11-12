@@ -1357,17 +1357,22 @@ app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.jinja_env.auto_reload = True
 
 # Register before any route/blueprint renders templates (Jinja global, not only context).
-from utils.static_assets import register_css_url_helper as _register_css_url_helper
+from utils.static_assets import (
+    register_css_url_helper as _register_css_url_helper,
+    register_js_url_helper as _register_js_url_helper,
+)
 
 _CSS_URL = _register_css_url_helper(app)
+_JS_URL = _register_js_url_helper(app)
 
-# If Flask ever rebuilds the Jinja environment, keep css_url on the new env.
+# If Flask ever rebuilds the Jinja environment, keep css_url/js_url on the new env.
 _eq_prev_create_jinja_environment = app.create_jinja_environment
 
 
 def _eq_create_jinja_environment_with_css_url():
     env = _eq_prev_create_jinja_environment()
     env.globals['css_url'] = _CSS_URL
+    env.globals['js_url'] = _JS_URL
     return env
 
 
@@ -1408,8 +1413,8 @@ def _eq_log_slow_api(response):
 
 @app.context_processor
 def inject_static_asset_helpers():
-    """Also expose css_url via context processor (belt-and-suspenders with Jinja global)."""
-    return {"css_url": _CSS_URL}
+    """Also expose css_url/js_url via context processor (belt-and-suspenders with Jinja global)."""
+    return {"css_url": _CSS_URL, "js_url": _JS_URL}
 
 
 @app.context_processor
