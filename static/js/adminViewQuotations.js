@@ -15,6 +15,13 @@ let selectedActiveQuotations = new Set();
 let selectedPendingQuotations = new Set();
 let selectedQuotationDockey = null;
 const quotationDetailCache = new Map();
+/** In-flight list load; shared by initial load and customer manual Refresh. */
+let quotationsLoadPromise = null;
+
+const AVQ_REFRESH_ICON_SVG =
+    '<svg class="avq-list-refresh-btn__svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
+    + '<path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.1A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>'
+    + '</svg>';
 
 function getActiveQuotationTab() {
     const tab = [...selectedQuotationTabFilters][0];
@@ -265,6 +272,28 @@ function isCustomerMyQuotationsPage() {
         return false;
     }
 }
+
+function setCustomerQuotationsRefreshBusy(busy) {
+    const btn = document.getElementById('avq-customer-refresh-btn');
+    if (!btn) {
+        return;
+    }
+    const on = Boolean(busy);
+    btn.disabled = on;
+    btn.setAttribute('aria-busy', on ? 'true' : 'false');
+    btn.classList.toggle('is-refreshing', on);
+}
+
+/**
+ * Customer View Quotation only: refetch list/details without a full page reload.
+ * Reuses loadQuotations(); ignores calls on admin pages.
+ */
+window.refreshCustomerQuotations = function refreshCustomerQuotations() {
+    if (!isCustomerMyQuotationsPage()) {
+        return Promise.resolve();
+    }
+    return loadQuotations({ soft: true });
+};
 
 function escapeHtml(s) {
     if (window.EQCore && typeof window.EQCore.escapeHtml === 'function') {
@@ -917,9 +946,18 @@ function refreshQuotationListView() {
         listCount > 0
             ? `<div class="quotation-list-footer" aria-live="polite">${listCount} quotation${listCount === 1 ? '' : 's'}${listCount > 8 ? ' — scroll the list to see all' : ''}</div>`
             : '';
+    const customerListHeader = isCustomerMyQuotationsPage()
+        ? `<div class="avq-list-pane-header">
+                <strong class="avq-list-pane-header__title">Quotation list</strong>
+                <button type="button" id="avq-customer-refresh-btn" class="avq-list-refresh-btn" onclick="refreshCustomerQuotations()" title="Refresh list" aria-label="Refresh list">
+                    ${AVQ_REFRESH_ICON_SVG}
+                </button>
+            </div>`
+        : '';
     const html = `
         <div class="quotation-split-wrap">
             <div class="quotation-list-pane">
+                ${customerListHeader}
                 <div class="quotation-list-scroll" tabindex="0" role="region" aria-label="Quotation list">
                     ${listHtml}
                     ${listFooter}
@@ -970,96 +1008,137 @@ function refreshQuotationListView() {
     renderQuotationDetail(visibleList, {});
 }
 
-async function loadQuotations() {
-    const content = document.getElementById('quotation-content');
-    if (!content) return;
+async function loadQuotations(options = {}) {
+    if (quotationsLoadPromise) {
+        return quotationsLoadPromise;
+    }
 
-    content.innerHTML = '<div style="padding: 20px; text-align: center; color: #888;">Loading...</div>';
-
-    try {
-        quotationDetailCache.clear();
-        const mine = isCustomerMyQuotationsPage();
-        const readJson = (response) => (
-            window.EQCore && typeof window.EQCore.readJsonResponse === 'function'
-                ? window.EQCore.readJsonResponse(response)
-                : response.json()
-        );
-        let allQuotations = [];
-        let draftRes = null;
-
-        if (mine) {
-            const [mainRes, myDraftRes] = await Promise.all([
-                fetch('/api/get_my_quotations').then(readJson),
-                fetch('/api/get_my_draft_quotations').then(readJson),
-            ]);
-            if (!mainRes.success) {
-                const message = mainRes.error ? String(mainRes.error) : 'Failed to load quotations';
-                content.innerHTML = `<div style="padding: 20px; text-align: center; color: #ff6b6b;">${message}</div>`;
-                return;
-            }
-            allQuotations = mainRes.data || [];
-            draftRes = myDraftRes;
-        } else {
-            const [mainRes, adminDraftRes] = await Promise.all([
-                fetch('/api/admin/get_all_quotations').then(readJson),
-                fetch('/api/admin/get_all_draft_quotations').then(readJson),
-            ]);
-            if (!mainRes.success) {
-                const message = mainRes.error ? String(mainRes.error) : 'Failed to load quotations';
-                content.innerHTML = `<div style="padding: 20px; text-align: center; color: #ff6b6b;">${message}</div>`;
-                return;
-            }
-            allQuotations = mainRes.data || [];
-            draftRes = adminDraftRes;
-        }
-
-        draftsQuotationsCache = [];
-        pendingQuotationsCache = [];
-        reviewedQuotationsCache = [];
-        cancelledQuotationsCache = [];
-        allQuotations.forEach((qt) => {
-            const b = quotationWorkflowBucket(qt);
-            if (b === 'drafts') {
-                draftsQuotationsCache.push(qt);
-            } else if (b === 'pending') {
-                pendingQuotationsCache.push(qt);
-            } else if (b === 'cancelled') {
-                cancelledQuotationsCache.push(qt);
-            } else {
-                reviewedQuotationsCache.push(qt);
-            }
-        });
-        appendSlQtDraftRows(draftRes);
-
-        listVisibleLimit = { drafts: 5, pending: 5, reviewed: 5, cancelled: 5 };
-
-        const html = buildViewQuotationsShellHtml(!mine);
-
-        content.innerHTML = html;
-        if (!mine) {
-            setupDateFilter();
-            await setupCompanyFilter();
-            setupAvqFiltersDrawerDrag();
-        } else {
-            adminDateFrom = '';
-            adminDateTo = '';
-            companyFilter = '';
-        }
-        const urlTab = readTabFromUrl();
-        if (urlTab) {
-            selectedQuotationTabFilters = new Set([urlTab]);
-        }
-        syncTabToUrl(getActiveQuotationTab());
-        refreshQuotationListView();
-    } catch (error) {
-        if (error && error.authExpired) {
-            window.location.assign('/login');
+    quotationsLoadPromise = (async () => {
+        const content = document.getElementById('quotation-content');
+        if (!content) {
             return;
         }
-        const message = (error && error.message) ? String(error.message) : 'Failed to load quotations.';
-        content.innerHTML = `<div style="padding: 20px; text-align: center; color: #ff6b6b;">${escapeHtml(message)}</div>`;
-        console.error('Error loading quotations:', error);
-    }
+
+        const mine = isCustomerMyQuotationsPage();
+        const soft = Boolean(options.soft) && mine;
+        const preservedTab = getActiveQuotationTab();
+        const preservedSelection = {
+            drafts: selectedDockeyByTab.drafts,
+            pending: selectedDockeyByTab.pending,
+            reviewed: selectedDockeyByTab.reviewed,
+            cancelled: selectedDockeyByTab.cancelled,
+        };
+
+        if (!soft) {
+            content.innerHTML = '<div style="padding: 20px; text-align: center; color: #888;">Loading...</div>';
+        } else {
+            setCustomerQuotationsRefreshBusy(true);
+        }
+
+        try {
+            // Always drop stale line-item cache so Admin status/detail changes show after Refresh.
+            quotationDetailCache.clear();
+            const readJson = (response) => (
+                window.EQCore && typeof window.EQCore.readJsonResponse === 'function'
+                    ? window.EQCore.readJsonResponse(response)
+                    : response.json()
+            );
+            let allQuotations = [];
+            let draftRes = null;
+
+            if (mine) {
+                const [mainRes, myDraftRes] = await Promise.all([
+                    fetch('/api/get_my_quotations').then(readJson),
+                    fetch('/api/get_my_draft_quotations').then(readJson),
+                ]);
+                if (!mainRes.success) {
+                    const message = mainRes.error ? String(mainRes.error) : 'Failed to load quotations';
+                    content.innerHTML = `<div style="padding: 20px; text-align: center; color: #ff6b6b;">${message}</div>`;
+                    return;
+                }
+                allQuotations = mainRes.data || [];
+                draftRes = myDraftRes;
+            } else {
+                const [mainRes, adminDraftRes] = await Promise.all([
+                    fetch('/api/admin/get_all_quotations').then(readJson),
+                    fetch('/api/admin/get_all_draft_quotations').then(readJson),
+                ]);
+                if (!mainRes.success) {
+                    const message = mainRes.error ? String(mainRes.error) : 'Failed to load quotations';
+                    content.innerHTML = `<div style="padding: 20px; text-align: center; color: #ff6b6b;">${message}</div>`;
+                    return;
+                }
+                allQuotations = mainRes.data || [];
+                draftRes = adminDraftRes;
+            }
+
+            draftsQuotationsCache = [];
+            pendingQuotationsCache = [];
+            reviewedQuotationsCache = [];
+            cancelledQuotationsCache = [];
+            allQuotations.forEach((qt) => {
+                const b = quotationWorkflowBucket(qt);
+                if (b === 'drafts') {
+                    draftsQuotationsCache.push(qt);
+                } else if (b === 'pending') {
+                    pendingQuotationsCache.push(qt);
+                } else if (b === 'cancelled') {
+                    cancelledQuotationsCache.push(qt);
+                } else {
+                    reviewedQuotationsCache.push(qt);
+                }
+            });
+            appendSlQtDraftRows(draftRes);
+
+            listVisibleLimit = { drafts: 5, pending: 5, reviewed: 5, cancelled: 5 };
+
+            const html = buildViewQuotationsShellHtml(!mine);
+
+            content.innerHTML = html;
+            if (!mine) {
+                setupDateFilter();
+                await setupCompanyFilter();
+                setupAvqFiltersDrawerDrag();
+            } else {
+                adminDateFrom = '';
+                adminDateTo = '';
+                companyFilter = '';
+            }
+
+            if (soft && VIEW_QT_TAB_KEYS.has(preservedTab)) {
+                selectedQuotationTabFilters = new Set([preservedTab]);
+                Object.keys(preservedSelection).forEach((key) => {
+                    selectedDockeyByTab[key] = preservedSelection[key];
+                });
+            } else {
+                const urlTab = readTabFromUrl();
+                if (urlTab) {
+                    selectedQuotationTabFilters = new Set([urlTab]);
+                }
+            }
+            syncTabToUrl(getActiveQuotationTab());
+            refreshQuotationListView();
+        } catch (error) {
+            if (error && error.authExpired) {
+                window.location.assign('/login');
+                return;
+            }
+            const message = (error && error.message) ? String(error.message) : 'Failed to load quotations.';
+            if (!soft) {
+                content.innerHTML = `<div style="padding: 20px; text-align: center; color: #ff6b6b;">${escapeHtml(message)}</div>`;
+            } else {
+                console.error('Error refreshing quotations:', error);
+                alert(message);
+            }
+            console.error('Error loading quotations:', error);
+        } finally {
+            setCustomerQuotationsRefreshBusy(false);
+        }
+    })().finally(() => {
+        quotationsLoadPromise = null;
+    });
+
+    return quotationsLoadPromise;
 }
 
 function setQuotationTab(tabName) {

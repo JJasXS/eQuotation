@@ -1477,6 +1477,67 @@ body.customer-my-quotations-page .quotation-split-wrap {
     grid-template-columns: minmax(280px, 40%) minmax(0, 1fr);
 }
 
+/* Manual Refresh — styled like Purchase > View e-PR icon refresh (customer only). */
+body.customer-my-quotations-page .avq-list-pane-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-shrink: 0;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--ice-border, #b8d4e8);
+    background: var(--ice-surface-alt, #eef6fc);
+}
+
+body.customer-my-quotations-page .avq-list-pane-header__title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--ice-heading, #1a4d6e);
+    letter-spacing: 0.01em;
+}
+
+body.customer-my-quotations-page .avq-list-refresh-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    min-height: 34px;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: #1a4d6e;
+    cursor: pointer;
+    box-shadow: none;
+}
+
+body.customer-my-quotations-page .avq-list-refresh-btn:hover {
+    background: rgba(59, 143, 196, 0.12);
+    color: #0f3a54;
+}
+
+body.customer-my-quotations-page .avq-list-refresh-btn:disabled,
+body.customer-my-quotations-page .avq-list-refresh-btn.is-refreshing {
+    opacity: 0.55;
+    cursor: wait;
+}
+
+body.customer-my-quotations-page .avq-list-refresh-btn__svg {
+    width: 22px;
+    height: 22px;
+    display: block;
+}
+
+body.customer-my-quotations-page .avq-list-refresh-btn.is-refreshing .avq-list-refresh-btn__svg {
+    animation: avq-refresh-spin 0.85s linear infinite;
+}
+
+@keyframes avq-refresh-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
 body.customer-my-quotations-page .quotation-list-table {
     font-size: 14px;
     line-height: 1.4;
