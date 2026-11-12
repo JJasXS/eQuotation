@@ -273,8 +273,8 @@ function isCustomerMyQuotationsPage() {
     }
 }
 
-function setCustomerQuotationsRefreshBusy(busy) {
-    const btn = document.getElementById('avq-customer-refresh-btn');
+function setQuotationsRefreshBusy(busy) {
+    const btn = document.getElementById('avq-quotations-refresh-btn');
     if (!btn) {
         return;
     }
@@ -285,14 +285,16 @@ function setCustomerQuotationsRefreshBusy(busy) {
 }
 
 /**
- * Customer View Quotation only: refetch list/details without a full page reload.
- * Reuses loadQuotations(); ignores calls on admin pages.
+ * Soft-refetch quotation list/details without a full page reload.
+ * Used by Customer View Quotation and Admin View All Quotations.
  */
-window.refreshCustomerQuotations = function refreshCustomerQuotations() {
-    if (!isCustomerMyQuotationsPage()) {
-        return Promise.resolve();
-    }
+window.refreshQuotationsList = function refreshQuotationsList() {
     return loadQuotations({ soft: true });
+};
+
+/** @deprecated Alias kept for existing customer onclick wiring. */
+window.refreshCustomerQuotations = function refreshCustomerQuotations() {
+    return refreshQuotationsList();
 };
 
 function escapeHtml(s) {
@@ -431,13 +433,25 @@ function buildViewQuotationsShellHtml(showAdminFilters) {
         buildAvqStatusTabHtml('pending', 'Pending', pendingQuotationsCache.length) +
         buildAvqStatusTabHtml('reviewed', 'Reviewed', reviewedQuotationsCache.length) +
         buildAvqStatusTabHtml('cancelled', 'Cancelled', cancelledQuotationsCache.length);
+    const statusTabsNav =
+        `<nav class="eq-line-tabs avq-status-tabs" role="tablist" aria-label="Quotation status">`
+        + statusTabs
+        + `</nav>`;
+    // One menubar card; Refresh outside <nav> but inside the card (View e-PR pattern).
+    const statusMenubar =
+        `<div class="avq-status-menubar" role="group" aria-label="Quotation status menubar">
+                ${statusTabsNav}
+                <div class="avq-status-toolbar-actions">
+                    <button type="button" id="avq-quotations-refresh-btn" class="avq-list-refresh-btn" onclick="refreshQuotationsList()" title="Refresh list" aria-label="Refresh list">
+                        ${AVQ_REFRESH_ICON_SVG}
+                    </button>
+                </div>
+            </div>`;
     return `
             <div class="admin-quotations-view">
                 <div class="quotation-page-header quotation-page-header--compact">
                     ${filterBlock}
-                    <nav class="eq-line-tabs avq-status-tabs" role="tablist" aria-label="Quotation status">
-                        ${statusTabs}
-                    </nav>
+                    ${statusMenubar}
                 </div>
                 <div id="quotation-tab-content"></div>
             </div>
@@ -949,9 +963,6 @@ function refreshQuotationListView() {
     const customerListHeader = isCustomerMyQuotationsPage()
         ? `<div class="avq-list-pane-header">
                 <strong class="avq-list-pane-header__title">Quotation list</strong>
-                <button type="button" id="avq-customer-refresh-btn" class="avq-list-refresh-btn" onclick="refreshCustomerQuotations()" title="Refresh list" aria-label="Refresh list">
-                    ${AVQ_REFRESH_ICON_SVG}
-                </button>
             </div>`
         : '';
     const html = `
@@ -1020,7 +1031,7 @@ async function loadQuotations(options = {}) {
         }
 
         const mine = isCustomerMyQuotationsPage();
-        const soft = Boolean(options.soft) && mine;
+        const soft = Boolean(options.soft);
         const preservedTab = getActiveQuotationTab();
         const preservedSelection = {
             drafts: selectedDockeyByTab.drafts,
@@ -1028,11 +1039,16 @@ async function loadQuotations(options = {}) {
             reviewed: selectedDockeyByTab.reviewed,
             cancelled: selectedDockeyByTab.cancelled,
         };
+        const preservedFilters = {
+            companyFilter,
+            adminDateFrom,
+            adminDateTo,
+        };
 
         if (!soft) {
             content.innerHTML = '<div style="padding: 20px; text-align: center; color: #888;">Loading...</div>';
         } else {
-            setCustomerQuotationsRefreshBusy(true);
+            setQuotationsRefreshBusy(true);
         }
 
         try {
@@ -1096,6 +1112,11 @@ async function loadQuotations(options = {}) {
 
             content.innerHTML = html;
             if (!mine) {
+                if (soft) {
+                    companyFilter = preservedFilters.companyFilter;
+                    adminDateFrom = preservedFilters.adminDateFrom;
+                    adminDateTo = preservedFilters.adminDateTo;
+                }
                 setupDateFilter();
                 await setupCompanyFilter();
                 setupAvqFiltersDrawerDrag();
@@ -1132,7 +1153,7 @@ async function loadQuotations(options = {}) {
             }
             console.error('Error loading quotations:', error);
         } finally {
-            setCustomerQuotationsRefreshBusy(false);
+            setQuotationsRefreshBusy(false);
         }
     })().finally(() => {
         quotationsLoadPromise = null;

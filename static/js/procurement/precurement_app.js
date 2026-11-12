@@ -13182,9 +13182,17 @@ function buildViewPurchaseRequestDetailHtml(header) {
 
                 } else {
 
-                    const msg = `Draft saved successfully. Request Number: ${requestNumber}`;
+                    clearPurchaseRequestMessage();
 
-                    showPurchaseRequestMessage(msg, 'success');
+                    showPurchaseRequestSuccessModal(
+
+                        'Draft saved successfully',
+
+                        'Your draft was saved successfully.',
+
+                        requestNumber !== 'N/A' ? requestNumber : null
+
+                    );
 
                     document.getElementById('pr-request-number').value = requestNumber;
 
