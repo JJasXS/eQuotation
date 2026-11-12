@@ -4,6 +4,7 @@ import csv
 import json
 import os
 import math
+import sys
 import time
 from functools import wraps
 from datetime import datetime, timedelta
@@ -2065,12 +2066,27 @@ def _coerce_bool_quotation_cancelled(value):
     return s in ('1', 'true', 't', 'yes', 'y', 'on')
 
 
+def _safe_console_print(message: str, *, flush: bool = True) -> None:
+    """Best-effort console log that never raises on Windows cp1252/charmap consoles."""
+    text = str(message)
+    try:
+        stream = sys.stdout
+        encoding = getattr(stream, "encoding", None) or "utf-8"
+        safe = text.encode(encoding, errors="replace").decode(encoding, errors="replace")
+        print(safe, flush=flush)
+    except Exception:
+        try:
+            print(text.encode("ascii", errors="replace").decode("ascii"), flush=flush)
+        except Exception:
+            pass
+
+
 def _apply_sl_qt_cancelled_toggle_firebird(dockey: int, cancelled: bool) -> tuple[bool, str | None]:
     """
     Toggle SL_QT quotation cancelled/reviewed state via Firebird only (replaces PHP updateQuotationCancelled.php).
 
     Sets CANCELLED (same encoding as legacy PHP: 'True'/'False' strings), increments UPDATECOUNT when present,
-    and UDF_STATUS → REVIEWED or CANCELLED when present.
+    and UDF_STATUS to REVIEWED or CANCELLED when present.
     """
     try:
         dk = int(dockey)
@@ -2083,6 +2099,7 @@ def _apply_sl_qt_cancelled_toggle_firebird(dockey: int, cancelled: bool) -> tupl
 
     con = None
     cur = None
+    cols: set[str] = set()
     try:
         con = get_db_connection()
         cur = con.cursor()
@@ -2117,20 +2134,23 @@ def _apply_sl_qt_cancelled_toggle_firebird(dockey: int, cancelled: bool) -> tupl
         cur.execute(sql, tuple(params))
 
         con.commit()
-        print(
-            f"[SL_QT] DOCKEY {dk} CANCELLED={cancelled_display} UDF_STATUS={udf_value if 'UDF_STATUS' in cols else '—'}",
-            flush=True,
-        )
-        return True, None
     except Exception as e:
         err = str(e)
-        print(f"[SL_QT] cancel toggle failed DOCKEY {dockey}: {err}", flush=True)
+        _safe_console_print(f"[SL_QT] cancel toggle failed DOCKEY {dockey}: {err}")
         if con:
             try:
                 con.rollback()
             except Exception:
                 pass
         return False, err
+    else:
+        # Logging must never flip a committed cancel into a reported failure
+        # (TEST Windows consoles often use cp1252 and reject non-ASCII glyphs).
+        udf_note = udf_value if 'UDF_STATUS' in cols else 'n/a'
+        _safe_console_print(
+            f"[SL_QT] DOCKEY {dk} CANCELLED={cancelled_display} UDF_STATUS={udf_note}"
+        )
+        return True, None
     finally:
         if cur:
             try:
@@ -2240,39 +2260,59 @@ def delete_quotations():
     data = request.get_json() or {}
     dockey_list = data.get('dockeyList', [])
 
-    print(f"\n[BATCH CANCEL QUOTATIONS] ========== START ==========", flush=True)
-    print(f"[BATCH CANCEL QUOTATIONS] Received request with {len(dockey_list)} quotations", flush=True)
-    print(f"[BATCH CANCEL QUOTATIONS] DOCKEYs: {dockey_list}", flush=True)
+    _safe_console_print("\n[BATCH CANCEL QUOTATIONS] ========== START ==========")
+    _safe_console_print(
+        f"[BATCH CANCEL QUOTATIONS] Received request with {len(dockey_list)} quotations"
+    )
+    _safe_console_print(f"[BATCH CANCEL QUOTATIONS] DOCKEYs: {dockey_list}")
 
     if not dockey_list or not isinstance(dockey_list, list):
-        print(f"[BATCH CANCEL QUOTATIONS] ERROR: Invalid dockeyList format", flush=True)
+        _safe_console_print("[BATCH CANCEL QUOTATIONS] ERROR: Invalid dockeyList format")
         return jsonify({'success': False, 'error': 'Invalid dockeyList - must be an array'}), 400
 
     try:
         cancelled_count = 0
         failed_count = 0
         failed_details = []
-        
+
         for dockey in dockey_list:
-            print(f"\n[BATCH CANCEL QUOTATIONS] Processing DOCKEY: {dockey}", flush=True)
-            
+            _safe_console_print(f"\n[BATCH CANCEL QUOTATIONS] Processing DOCKEY: {dockey}")
+
             try:
                 ok, err = _apply_sl_qt_cancelled_toggle_firebird(int(dockey), True)
-                if ok:
-                    cancelled_count += 1
-                    print(f"[BATCH CANCEL QUOTATIONS] ✓ DOCKEY {dockey} → CANCELLED", flush=True)
-                else:
-                    failed_count += 1
-                    failed_details.append(f"DOCKEY {dockey}: {err or 'Failed'}")
-                    print(f"[BATCH CANCEL QUOTATIONS] ✗ DOCKEY {dockey} failed: {err}", flush=True)
             except Exception as e:
                 failed_count += 1
                 failed_details.append(f"DOCKEY {dockey}: {str(e)}")
-                print(f"[BATCH CANCEL QUOTATIONS] ✗ EXCEPTION for DOCKEY {dockey}: {str(e)}", flush=True)
-        
-        print(f"\n[BATCH CANCEL QUOTATIONS] Summary: cancelled={cancelled_count}, failed={failed_count}", flush=True)
-        print(f"[BATCH CANCEL QUOTATIONS] ========== END ==========\n", flush=True)
-        
+                _safe_console_print(
+                    f"[BATCH CANCEL QUOTATIONS] EXCEPTION DOCKEY {dockey}: {str(e)}"
+                )
+                continue
+
+            if ok:
+                cancelled_count += 1
+                # Logging is isolated so console encoding errors cannot
+                # reclassify a committed cancel as failed.
+                try:
+                    _safe_console_print(
+                        f"[BATCH CANCEL QUOTATIONS] OK DOCKEY {dockey} CANCELLED"
+                    )
+                except Exception:
+                    pass
+            else:
+                failed_count += 1
+                failed_details.append(f"DOCKEY {dockey}: {err or 'Failed'}")
+                try:
+                    _safe_console_print(
+                        f"[BATCH CANCEL QUOTATIONS] FAIL DOCKEY {dockey}: {err}"
+                    )
+                except Exception:
+                    pass
+
+        _safe_console_print(
+            f"\n[BATCH CANCEL QUOTATIONS] Summary: cancelled={cancelled_count}, failed={failed_count}"
+        )
+        _safe_console_print("[BATCH CANCEL QUOTATIONS] ========== END ==========\n")
+
         return jsonify({
             'success': True,
             'cancelled_count': cancelled_count,
@@ -2284,8 +2324,8 @@ def delete_quotations():
         }), 200
 
     except Exception as e:
-        print(f"[BATCH CANCEL QUOTATIONS] CRITICAL ERROR: {str(e)}", flush=True)
-        print(f"[BATCH CANCEL QUOTATIONS] ========== END (ERROR) ==========\n", flush=True)
+        _safe_console_print(f"[BATCH CANCEL QUOTATIONS] CRITICAL ERROR: {str(e)}")
+        _safe_console_print("[BATCH CANCEL QUOTATIONS] ========== END (ERROR) ==========\n")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
