@@ -136,6 +136,16 @@
         </div>
     </div>
 
+    <div id="bidding-notice-modal" class="bidding-notice-modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="bidding-notice-modal-title" aria-hidden="true">
+        <div class="bidding-notice-modal__backdrop" onclick="closeBiddingNoticeModal()"></div>
+        <div class="bidding-notice-modal__dialog">
+            <div class="bidding-notice-modal__icon" id="bidding-notice-modal-icon" aria-hidden="true">!</div>
+            <h2 id="bidding-notice-modal-title" class="bidding-notice-modal__title">Attention</h2>
+            <p id="bidding-notice-modal-body" class="bidding-notice-modal__body"></p>
+            <button type="button" class="bidding-notice-modal__ok" id="bidding-notice-modal-ok" onclick="closeBiddingNoticeModal()">OK</button>
+        </div>
+    </div>
+
     <div id="invite-drawer-backdrop" class="invite-drawer-backdrop" hidden></div>
     <button type="button" class="invite-drawer-tab" id="invite-drawer-tab" aria-expanded="false" aria-controls="invite-drawer-panel" title="Invited suppliers">
         <span class="invite-drawer-tab-label">Invited</span>
@@ -516,6 +526,50 @@
 
             el.style.color = isError ? '#8e2b2b' : '#4f5b49';
 
+        }
+
+        let biddingNoticeModalEscapeHandler = null;
+
+        function closeBiddingNoticeModal() {
+            const modal = document.getElementById('bidding-notice-modal');
+            if (modal) {
+                modal.style.display = 'none';
+                modal.setAttribute('aria-hidden', 'true');
+            }
+            if (biddingNoticeModalEscapeHandler) {
+                document.removeEventListener('keydown', biddingNoticeModalEscapeHandler);
+                biddingNoticeModalEscapeHandler = null;
+            }
+        }
+
+        function showBiddingNoticeModal(message, title, kind) {
+            const modal = document.getElementById('bidding-notice-modal');
+            const titleEl = document.getElementById('bidding-notice-modal-title');
+            const bodyEl = document.getElementById('bidding-notice-modal-body');
+            const iconEl = document.getElementById('bidding-notice-modal-icon');
+            const okBtn = document.getElementById('bidding-notice-modal-ok');
+            if (!modal || !titleEl || !bodyEl) return;
+
+            const isSuccess = kind === 'success';
+            titleEl.textContent = title || (isSuccess ? 'Success' : 'Attention');
+            bodyEl.textContent = message || (isSuccess ? 'Done.' : 'Something went wrong.');
+            modal.classList.toggle('is-success', isSuccess);
+            if (iconEl) iconEl.textContent = isSuccess ? '✓' : '!';
+            modal.style.display = '';
+            modal.setAttribute('aria-hidden', 'false');
+
+            if (biddingNoticeModalEscapeHandler) {
+                document.removeEventListener('keydown', biddingNoticeModalEscapeHandler);
+            }
+            biddingNoticeModalEscapeHandler = (event) => {
+                if (event.key === 'Escape') {
+                    closeBiddingNoticeModal();
+                }
+            };
+            document.addEventListener('keydown', biddingNoticeModalEscapeHandler);
+            if (okBtn) {
+                setTimeout(() => okBtn.focus(), 0);
+            }
         }
 
         function looksLikeEmail(value) {
@@ -1123,11 +1177,12 @@
             const body = await res.json();
 
             if (!res.ok || !body.success) {
-
-                msg(body.error || 'Failed to save invitations', true);
-
+                msg('');
+                showBiddingNoticeModal(
+                    body.error || 'Failed to save invitations',
+                    'Attention'
+                );
                 return;
-
             }
 
             const d = body.data || {};
@@ -1150,7 +1205,8 @@
 
             }
 
-            msg(note);
+            msg('');
+            showBiddingNoticeModal(note, 'Success', 'success');
 
             await loadInvitationsForActivePr({ force: true });
 

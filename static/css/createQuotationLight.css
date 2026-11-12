@@ -540,29 +540,6 @@ body.create-quotation-page .create-quotation-section--lines .total-section {
     flex: 1 1 auto;
 }
 
-body.create-quotation-page .quotation-mini-item-codes {
-    font-size: 11px;
-    color: var(--ice-text-muted);
-    letter-spacing: 0.02em;
-    margin: 0 0 10px 0;
-    line-height: 1.35;
-    word-break: break-word;
-}
-
-body.create-quotation-page .quotation-mini-item-codes:empty {
-    display: none;
-}
-
-body.create-quotation-page .quotation-mini-item-codes::before {
-    content: 'Item codes: ';
-    font-weight: 600;
-    color: var(--ice-heading);
-}
-
-body.create-quotation-page .quotation-mini-item-codes:empty::before {
-    content: none;
-}
-
 /* Plain HTML table for quotation lines (orderQuotation.css must not break tbody/tr/td) */
 body.create-quotation-page #quotation-form table.quotation-lines-table,
 body.update-quotation-page #update-quotation-form table.quotation-lines-table {
@@ -722,12 +699,6 @@ body.create-quotation-page .create-quotation-lines-panel #create-quotation-lines
     border: 1px solid #8fa8b8 !important;
     border-radius: 8px !important;
     background: #fff !important;
-}
-
-body.create-quotation-page .create-quotation-lines-header .quotation-mini-item-codes {
-    margin: 0;
-    flex: 1 1 auto;
-    min-width: 0;
 }
 
 body.create-quotation-page #quotation-form .form-actions .btn-primary,
