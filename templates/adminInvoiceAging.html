@@ -111,7 +111,7 @@
             .ia-list-col { padding-left: 0; }
         }
     </style>
-    <script src="/static/js/eq_core.js?v=20261029_csrf1"></script>
+    <script src="{{ js_url('js/eq_core.js') }}"></script>
 </head>
 <body class="equotation-icy-theme">
     <div class="admin-container" style="height:100vh;display:flex;flex-direction:column;">
@@ -192,9 +192,9 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="/static/js/hamburger_menu.js"></script>
-    <script src="/static/js/admin_menu.js"></script>
-    <script src="/static/js/admin_helpers.js?v=20260528"></script>
-    <script src="/static/js/admin_invoice_aging.js?v=20260528"></script>
+    <script src="{{ js_url('js/hamburger_menu.js') }}"></script>
+    <script src="{{ js_url('js/admin_menu.js') }}"></script>
+    <script src="{{ js_url('js/admin_helpers.js') }}"></script>
+    <script src="{{ js_url('js/admin_invoice_aging.js') }}"></script>
 </body>
 </html>
