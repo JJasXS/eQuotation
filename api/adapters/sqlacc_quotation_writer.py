@@ -392,6 +392,19 @@ def _append_detail_rows(detail: Any, rows: list[Any]) -> None:
         detail.Post()
 
 
+def _read_main_field(main: Any, name: str) -> str:
+    try:
+        field = main.Fields.FindField(name)
+        if field is None:
+            return ""
+        try:
+            return str(field.AsString or "").strip()
+        except Exception:
+            return str(getattr(field, "value", "") or "").strip()
+    except Exception:
+        return ""
+
+
 def _save_close(biz: Any, action: str) -> None:
     try:
         biz.Save()
@@ -410,20 +423,46 @@ def _save_close(biz: Any, action: str) -> None:
         logger.debug("SL_QT Close after Save failed", exc_info=True)
 
 
+def _save_and_read_docno(biz: Any, main: Any, action: str) -> str:
+    """Save then read allocated DOCNO before Close (native <<New>> → company number)."""
+    try:
+        biz.Save()
+    except Exception as exc:
+        try:
+            if hasattr(biz, "Cancel"):
+                biz.Cancel()
+            else:
+                biz.Close()
+        except Exception:
+            pass
+        raise SqlAccountingApiError(
+            f"SL_QT {action} Save failed: {exc}",
+            status_code=502,
+        ) from exc
+    allocated = _read_main_field(main, "DOCNO")
+    try:
+        biz.Close()
+    except Exception:
+        logger.debug("SL_QT Close after Save failed", exc_info=True)
+    return allocated
+
+
 def create_quotation_via_com(app: Any, payload: dict[str, Any]) -> dict[str, Any]:
-    """Create-only SL_QT write. Fails on duplicate DocNo. Lifecycle unproven until CUD lab."""
+    """Create-only SL_QT write using company SY_DOCNO auto-number (DOCNO left as <<New>>)."""
     assert_quotation_mapping_supported(payload)
-    doc_no = str(payload.get("docno") or "").strip()
-    if not doc_no:
-        raise SqlAccountingApiError("DOCNO is required for SDK quotation create.", status_code=400)
     lines = payload.get("sdsdocdetail") or []
     if not lines:
         raise SqlAccountingApiError("sdsdocdetail is required for SDK quotation create.", status_code=400)
 
+    # Optional explicit DOCNO only for rollback/lab; normal create leaves COM <<New>>.
+    explicit_docno = str(payload.get("docno") or "").strip()
+    if explicit_docno.upper() in ("<<NEW>>", "NEW", "AUTO", "ON SAVE", "ON_SAVE"):
+        explicit_docno = ""
+
     biz = app.BizObjects.Find(_BIZ_QUOTATION)
-    if find_quotation_key_by_docno(biz, doc_no) is not None:
+    if explicit_docno and find_quotation_key_by_docno(biz, explicit_docno) is not None:
         raise SqlAccountingApiError(
-            f"Quotation DOCNO '{doc_no}' already exists in SL_QT (duplicate DocNo).",
+            f"Quotation DOCNO '{explicit_docno}' already exists in SL_QT (duplicate DocNo).",
             status_code=422,
         )
 
@@ -432,25 +471,38 @@ def create_quotation_via_com(app: Any, payload: dict[str, Any]) -> dict[str, Any
     biz.New()
     # CHM sales-doc pattern: DocKey=-1 on New before detail Append/Post.
     _set_field(main, "DOCKEY", -1)
-    _apply_header(main, payload)
-    _set_field(main, "DOCNO", doc_no)
+    # Keep New() DOCNO=<<New>> and company DocNoSetKey — never force DocNoSetKey=0.
+    header_payload = {
+        key: value
+        for key, value in payload.items()
+        if key not in ("docno", "docnosetkey", "nextdocno")
+    }
+    _apply_header(main, header_payload)
+    if explicit_docno:
+        _set_field(main, "DOCNO", explicit_docno)
     _set_field(main, "DOCKEY", -1)
     _append_detail_rows(detail, list(lines))
-    _save_close(biz, "create")
+    allocated = _save_and_read_docno(biz, main, "create")
+    if not allocated or allocated.upper() == "<<NEW>>":
+        raise SqlAccountingApiError(
+            "Save reported success but SQL Accounting did not allocate a DOCNO.",
+            status_code=502,
+        )
 
-    persisted = _load_qt_persistence(app, doc_no)
+    persisted = _load_qt_persistence(app, allocated)
     if not persisted or not (persisted.get("DOCNO") or "").strip():
         raise SqlAccountingApiError(
-            f"Save reported success but DOCNO '{doc_no}' was not found after Close.",
+            f"Save reported success but DOCNO '{allocated}' was not found after Close.",
             status_code=502,
         )
     return {
         "dockey": int(float(persisted.get("DOCKEY") or 0)),
-        "docno": persisted.get("DOCNO") or doc_no,
+        "docno": persisted.get("DOCNO") or allocated,
         "code": persisted.get("CODE") or payload.get("code"),
         "message": "Quotation created successfully",
         "provider": "Sdk",
-        "lifecycle": "create-unproven-until-cud-lab",
+        "docnoSource": "sql_accounting_sy_docno" if not explicit_docno else "explicit",
+        "lifecycle": "create-native-docno",
     }
 
 

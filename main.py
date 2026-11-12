@@ -3439,10 +3439,16 @@ def create_quotation_page():
         # Never redirect to self — that causes ERR_TOO_MANY_REDIRECTS.
         session.clear()
         return redirect('/login')
+    from api.config.sql_accounting_quotation_write import load_sql_accounting_quotation_write_settings
+
+    quotation_docno_mode = (
+        'sdk' if load_sql_accounting_quotation_write_settings().is_sdk else 'rest'
+    )
     response = make_response(render_protected_template(
         'createQuotation.html',
         dockey=dockey,
         draft_dockey=draft_dockey,
+        quotation_docno_mode=quotation_docno_mode,
         php_base_url=BASE_API_URL,
         require_admin=False,
     ))
@@ -10295,7 +10301,7 @@ def api_admin_purchase_request_header_status_update():
 @app.route('/api/quotation/next_docno')
 @api_login_required(unauth_message='Session expired. Please log in again.')
 def api_quotation_next_docno():
-    """Preview the next QT docno eQuotation will assign on create (read-only)."""
+    """Preview quotation DOCNO (existing on update; Sdk create assigns on save)."""
     if not can_access_create_quotation(session):
         return jsonify({'success': False, 'error': 'Forbidden'}), 403
     try:

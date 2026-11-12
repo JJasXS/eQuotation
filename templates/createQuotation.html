@@ -74,18 +74,18 @@
             <!-- Quotation Form -->
             <div class="tab-content active">
                 <div class="form-container">
-                    <form id="quotation-form" data-dockey="{{ dockey }}" data-draft-dockey="{{ draft_dockey }}">
+                    <form id="quotation-form" data-dockey="{{ dockey }}" data-draft-dockey="{{ draft_dockey }}" data-docno-mode="{{ quotation_docno_mode or 'rest' }}">
                         <div class="create-quotation-form-body">
                             <section class="create-quotation-section create-quotation-section--customer">
                                 <div class="create-quotation-customer-header">
                                     <h4 class="create-quotation-section-title">Customer details</h4>
                                     <aside id="quotation-next-docno-panel" class="quotation-next-docno-panel quotation-next-docno-panel--side" aria-live="polite">
-                                        <span class="quotation-next-docno-label">Next quotation no.</span>
+                                        <span class="quotation-next-docno-label">{% if (quotation_docno_mode or 'rest') == 'sdk' %}Quotation No.{% else %}Next quotation no.{% endif %}</span>
                                         <div class="quotation-next-docno-main">
-                                            <strong id="quotation-next-docno-value" class="quotation-next-docno-value">…</strong>
-                                            <button type="button" id="quotation-next-docno-refresh" class="quotation-next-docno-refresh" title="Refresh preview">↻</button>
+                                            <strong id="quotation-next-docno-value" class="quotation-next-docno-value">{% if (quotation_docno_mode or 'rest') == 'sdk' %}Auto-generated{% else %}…{% endif %}</strong>
+                                            <button type="button" id="quotation-next-docno-refresh" class="quotation-next-docno-refresh" title="Refresh preview"{% if (quotation_docno_mode or 'rest') == 'sdk' %} hidden{% endif %}>↻</button>
                                         </div>
-                                        <p id="quotation-next-docno-hint" class="quotation-next-docno-hint"></p>
+                                        <p id="quotation-next-docno-hint" class="quotation-next-docno-hint">{% if (quotation_docno_mode or 'rest') == 'sdk' %}Assigned by SQL Accounting upon submission.{% endif %}</p>
                                     </aside>
                                 </div>
                                 <div class="customer-details-panel">

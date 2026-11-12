@@ -841,24 +841,36 @@ def _fallback_qt_docno() -> str:
 
 
 def peek_next_qt_docno(*, for_dockey: int = 0) -> dict:
-    """Return the next QT docno eQuotation would use on create (read-only, no API call).
+    """Preview quotation DOCNO for UI (read-only).
 
-    When ``for_dockey`` is set and the row exists in SL_QT, returns that document's DOCNO
-    (update flow — number is not re-allocated).
+    Update: returns the existing SL_QT.DOCNO (unchanged on save).
+    Sdk create: SQL Accounting allocates on Save — preview does not consume a number.
+    Rest create (rollback): still previews the legacy QT-80000..99999 band.
     """
     if for_dockey > 0:
         hb = _read_sl_qt_header_for_sales_api(for_dockey)
         docno = str(hb.get("docno") or "").strip()
         if docno:
-            min_seq, max_seq_allowed = _app_docno_range()
             return {
                 "success": True,
                 "nextDocno": docno,
                 "isUpdate": True,
-                "reservedMin": min_seq,
-                "reservedMax": max_seq_allowed,
+                "assignsDocnoOnSave": False,
                 "note": "Existing quotation — number will not change on save.",
             }
+
+    from api.config.sql_accounting_quotation_write import load_sql_accounting_quotation_write_settings
+
+    qwrite = load_sql_accounting_quotation_write_settings()
+    if qwrite.is_sdk:
+        return {
+            "success": True,
+            "nextDocno": None,
+            "isUpdate": False,
+            "assignsDocnoOnSave": True,
+            "displayValue": "Auto-generated",
+            "note": "Assigned by SQL Accounting upon submission.",
+        }
 
     min_seq, max_seq_allowed = _app_docno_range()
     max_seq, existing, db_err = _read_qt_sequences_from_db(limit=2000)
@@ -878,7 +890,7 @@ def peek_next_qt_docno(*, for_dockey: int = 0) -> dict:
         )
     else:
         doc_no = _next_qt_docno_candidate(max_seq, existing, 0)
-        note = ""
+        note = "Rest rollback preview of legacy eQuotation reserved band."
 
     if not doc_no:
         return {
@@ -891,12 +903,14 @@ def peek_next_qt_docno(*, for_dockey: int = 0) -> dict:
             "reservedMax": max_seq_allowed,
             "dbConnected": db_connected,
             "dbError": db_err,
+            "assignsDocnoOnSave": False,
         }
 
     return {
         "success": True,
         "nextDocno": doc_no,
         "isUpdate": False,
+        "assignsDocnoOnSave": False,
         "reservedMin": min_seq,
         "reservedMax": max_seq_allowed,
         "maxSeqInDb": max_seq,
@@ -1641,6 +1655,9 @@ def create_or_update_quotation(base_api_url, customer_code, data):
             return {"success": False, "error": "SQL API keys are not configured"}
 
     provided_docno = str(data.get("docno") or data.get("docNo") or "").strip()
+    # Ignore UI placeholders; Sdk create uses SQL Accounting <<New>> auto-number.
+    if provided_docno.upper() in ("<<NEW>>", "NEW", "AUTO", "ON SAVE", "ON_SAVE", "—", "-"):
+        provided_docno = ""
     is_update = upd_dockey > 0 and bool(provided_docno)
 
     client = SqlAccountingApiClient(settings)
@@ -1652,9 +1669,20 @@ def create_or_update_quotation(base_api_url, customer_code, data):
     last_error = ""
     local_precheck_done = False
     gateway_retries = 0
-    max_attempts = 1 if is_update else 20
+    # Sdk create: company numbering allocates DOCNO — no QT-80000 band retries.
+    if is_update:
+        max_attempts = 1
+    elif qwrite.is_sdk:
+        max_attempts = 3
+    else:
+        max_attempts = 20
     for attempt in range(max_attempts):
-        if provided_docno:
+        if is_update:
+            doc_no = provided_docno
+        elif qwrite.is_sdk:
+            # Empty DOCNO → COM New() keeps <<New>> and SY_DOCNO allocates on Save.
+            doc_no = ""
+        elif provided_docno:
             doc_no = provided_docno
         else:
             max_seq, existing, _db_scan_err = _read_qt_sequences_from_db(limit=2000)
@@ -1663,7 +1691,7 @@ def create_or_update_quotation(base_api_url, customer_code, data):
             else:
                 doc_no = _next_qt_docno_candidate(max_seq, existing, attempt)
 
-        if not doc_no:
+        if not doc_no and not qwrite.is_sdk:
             min_seq, max_seq_allowed = _app_docno_range()
             return {
                 "success": False,

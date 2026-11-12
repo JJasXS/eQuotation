@@ -162,6 +162,129 @@ def _selecting(
     return selecting, calls, sess
 
 
+def test_create_quotation_via_com_native_ignores_docnosetkey_zero():
+    from api.adapters import sqlacc_quotation_writer as writer
+
+    applied = []
+
+    class _Field:
+        def __init__(self, name, value=""):
+            self.FieldName = name
+            self.AsString = str(value)
+
+    class _Fields:
+        def __init__(self):
+            self._map = {
+                "DOCNO": _Field("DOCNO", "<<New>>"),
+                "DocNoSetKey": _Field("DocNoSetKey", "11"),
+                "DOCKEY": _Field("DOCKEY", "-1"),
+                "CODE": _Field("CODE", ""),
+            }
+
+        def FindField(self, name):
+            if name not in self._map:
+                self._map[name] = _Field(name, "")
+            return self._map[name]
+
+    class _Detail:
+        RecordCount = 0
+
+        def __init__(self):
+            self.Fields = _Fields()
+
+        def Append(self):
+            self.RecordCount += 1
+
+        def Post(self):
+            return None
+
+    class _Main:
+        def __init__(self):
+            self.Fields = _Fields()
+
+    class _Biz:
+        def __init__(self):
+            self.main = _Main()
+            self.detail = _Detail()
+            self.DataSets = type(
+                "DS",
+                (),
+                {"Find": lambda _s, n: self.main if n == "MainDataSet" else self.detail},
+            )()
+
+        def New(self):
+            self.main.Fields.FindField("DOCNO").AsString = "<<New>>"
+            self.main.Fields.FindField("DocNoSetKey").AsString = "11"
+
+        def Save(self):
+            self.main.Fields.FindField("DOCNO").AsString = "QT-26110088"
+
+        def Close(self):
+            return None
+
+        def FindKeyByRef(self, *_a, **_k):
+            return None
+
+    class _App:
+        def __init__(self):
+            self.biz = _Biz()
+            self.BizObjects = type("BO", (), {"Find": lambda _s, _n: self.biz})()
+
+        class DBManager:
+            @staticmethod
+            def NewDataSet(_sql):
+                class _Row:
+                    RecordCount = 1
+
+                    def First(self):
+                        return None
+
+                    class Fields:
+                        Count = 4
+
+                        @staticmethod
+                        def Items(i):
+                            names = ["DOCKEY", "DOCNO", "CODE", "UPDATECOUNT"]
+                            vals = ["700", "QT-26110088", CUSTOMER, "0"]
+                            return _Field(names[i], vals[i])
+
+                return _Row()
+
+    app = _App()
+
+    def _track_set(ds, name, value):
+        applied.append((name, value))
+        ds.Fields.FindField(name).AsString = "" if value is None else str(value)
+
+    orig_set, orig_if = writer._set_field, writer._set_if
+    writer._set_field = _track_set
+
+    def _set_if(ds, name, value):
+        if value is None or str(value).strip() == "":
+            return
+        _track_set(ds, name, value)
+
+    writer._set_if = _set_if
+    try:
+        result = writer.create_quotation_via_com(
+            app,
+            {
+                "code": CUSTOMER,
+                "docnosetkey": 0,
+                "sdsdocdetail": [{"itemcode": "ITEM-1", "qty": 1}],
+            },
+        )
+    finally:
+        writer._set_field = orig_set
+        writer._set_if = orig_if
+
+    assert result["docno"] == "QT-26110088"
+    assert result.get("docnoSource") == "sql_accounting_sy_docno"
+    assert ("DOCNO", "") not in applied
+    assert ("DocNoSetKey", 0) not in applied
+    assert ("DocNoSetKey", "0") not in applied
+
+
 def test_mapping_accepts_verified_fields():
     assert collect_unresolved_mappings(_payload()) == []
     assert_quotation_mapping_supported(_payload())
@@ -529,7 +652,7 @@ def test_create_or_update_sdk_no_rest_fallback_on_failure(monkeypatch):
     assert client.posts == []
 
 
-def test_create_or_update_sdk_duplicate_docno_retries_without_rest(monkeypatch):
+def test_create_or_update_sdk_uses_native_docno_not_qt80000_band(monkeypatch):
     class Client:
         posts = []
 
@@ -538,28 +661,74 @@ def test_create_or_update_sdk_duplicate_docno_retries_without_rest(monkeypatch):
             return 200, {}, "{}"
 
     client = Client()
-    attempts = {"n": 0}
-    docs = []
+    band_calls = {"n": 0}
 
     def _next(*a, **k):
-        attempts["n"] += 1
-        doc = f"QT-8000{attempts['n']}"
-        docs.append(doc)
-        return doc
+        band_calls["n"] += 1
+        return "QT-80001"
 
     _install_rest_orchestration(
         monkeypatch,
         client,
         write_settings=SqlAccountingQuotationWriteSettings(
             provider=PROVIDER_SDK,
-            block_rest_http=False,
+            block_rest_http=True,
             cud_enabled=True,
         ),
     )
     monkeypatch.setattr("utils.quotation_api._next_qt_docno_candidate", _next)
-    monkeypatch.setattr(
-        "utils.quotation_api._read_qt_sequences_from_db",
-        lambda limit=2000: (80000, set(), None),
+
+    seen = []
+
+    class _SdkNative:
+        def __init__(self, *a, **k):
+            pass
+
+        def write_quotation(self, payload, *, is_update, dockey):
+            seen.append(str(payload.get("docno") or ""))
+            return {
+                "success": True,
+                "dockey": 199,
+                "docno": "QT-26110099",
+                "message": "ok",
+                "write_provider": PROVIDER_SDK,
+                "docnoSource": "sql_accounting_sy_docno",
+            }
+
+    monkeypatch.setattr("utils.quotation_api.SdkQuotationWriteAdapter", _SdkNative)
+    result = create_or_update_quotation(
+        "http://local",
+        CUSTOMER,
+        {
+            "items": [{"product": "x", "qty": 1, "price": 1}],
+            "docno": "QT-89990",  # client/preview must be ignored for Sdk create
+        },
+    )
+    assert result["success"] is True
+    assert result["docno"] == "QT-26110099"
+    assert result["write_provider"] == PROVIDER_SDK
+    assert client.posts == []
+    assert band_calls["n"] == 0
+    assert seen == [""]
+
+
+def test_create_or_update_sdk_retries_transient_duplicate_without_rest(monkeypatch):
+    class Client:
+        posts = []
+
+        def post_json(self, *a, **k):
+            self.posts.append(1)
+            return 200, {}, "{}"
+
+    client = Client()
+    _install_rest_orchestration(
+        monkeypatch,
+        client,
+        write_settings=SqlAccountingQuotationWriteSettings(
+            provider=PROVIDER_SDK,
+            block_rest_http=True,
+            cud_enabled=True,
+        ),
     )
 
     state = {"n": 0}
@@ -572,13 +741,13 @@ def test_create_or_update_sdk_duplicate_docno_retries_without_rest(monkeypatch):
             state["n"] += 1
             if state["n"] == 1:
                 raise SqlAccountingApiError(
-                    f"Quotation DOCNO '{payload.get('docno')}' already exists in SL_QT (duplicate DocNo).",
+                    "Quotation DOCNO already exists in SL_QT (duplicate DocNo).",
                     status_code=422,
                 )
             return {
                 "success": True,
                 "dockey": 99,
-                "docno": payload.get("docno"),
+                "docno": "QT-26110100",
                 "message": "ok",
                 "write_provider": PROVIDER_SDK,
             }
@@ -590,12 +759,27 @@ def test_create_or_update_sdk_duplicate_docno_retries_without_rest(monkeypatch):
         {"items": [{"product": "x", "qty": 1, "price": 1}]},
     )
     assert result["success"] is True
+    assert result["docno"] == "QT-26110100"
     assert result["write_provider"] == PROVIDER_SDK
     assert client.posts == []
-    assert len(docs) >= 2
+    assert state["n"] == 2
+
+
+def test_peek_next_qt_docno_sdk_does_not_preview_number(monkeypatch):
+    monkeypatch.setenv("SQL_ACCOUNTING_QUOTATION_WRITE_PROVIDER", "Sdk")
+    monkeypatch.setenv("SQL_ACCOUNTING_BLOCK_REST_HTTP", "true")
+    from utils.quotation_api import peek_next_qt_docno
+
+    result = peek_next_qt_docno(for_dockey=0)
+    assert result["success"] is True
+    assert result["assignsDocnoOnSave"] is True
+    assert result.get("nextDocno") in (None, "")
+    assert result.get("displayValue") == "Auto-generated"
+    assert result.get("note") == "Assigned by SQL Accounting upon submission."
 
 
 def test_numbering_band_excludes_book_style_qt26100001():
+    """Legacy Rest band helpers still recognize QT-##### only (rollback path)."""
     from utils.quotation_api import _QT_DOCNO_RE
 
     assert _QT_DOCNO_RE.match("QT-80000")
